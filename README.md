@@ -60,6 +60,30 @@ your own filesystem, and the container runs as the user that owns it. The server
 verifies the directory is writable at startup and exits with a clear error if it
 is not.
 
+## Development
+
+`make help` lists every target. The toolchain runs in a container by default and
+switches to a native `go` automatically when one matching `go.mod` is on PATH, so
+the same commands work on a laptop without Go and on a CI runner with it.
+
+```sh
+make ci          # everything CI runs: fmt-check vet lint tidy-check test-race smoke
+make test        # unit tests
+make test-race   # under the race detector (Debian image: -race needs cgo)
+make lint        # golangci-lint, version pinned in .golangci-version
+make smoke       # build the image and assert its runtime properties
+make env         # show the resolved toolchain
+```
+
+`make smoke` is the part worth knowing about: it asserts the image is static and
+non-root with no shell, that it survives a read-only root filesystem with all
+capabilities dropped, and that a data directory it cannot write to makes the
+server refuse to start rather than come up healthy and fail on the first upload.
+
+`.golangci.yml` uses `depguard` to enforce the architecture rules from
+`CLAUDE.md`, so a driver type leaking out of its package is a failed build rather
+than a note in a document.
+
 ## Container
 
 Multi-stage build, `distroless/static:nonroot` runtime, ~16 MB image. The

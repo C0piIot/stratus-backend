@@ -8,6 +8,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -21,6 +22,9 @@ import (
 
 // version is overridden at build time with -ldflags "-X main.version=...".
 var version = "dev"
+
+// probeTimeout bounds the self-probe used by the container healthcheck.
+const probeTimeout = 3 * time.Second
 
 func main() {
 	// Distroless images ship no shell and no curl, so the binary probes itself
@@ -54,27 +58,18 @@ func run() error {
 		return err
 	}
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		fmt.Fprintln(w, "ok")
-	})
-
-	srv := &http.Server{
-		Addr:              addr(),
-		Handler:           mux,
-		ReadHeaderTimeout: 10 * time.Second,
-		IdleTimeout:       120 * time.Second,
-		// No WriteTimeout on purpose: media streaming responses are long-lived
-		// and a blanket write deadline would cut them off mid-file.
-	}
+	srv := newServer(addr(), newMux())
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	errc := make(chan error, 1)
 	go func() {
-		slog.Info("stratus listening", "version", version, "addr", srv.Addr, "data_dir", dataDir())
+		// uid/gid are logged so the smoke tests can assert the *runtime* user,
+		// not just the image config: distroless has no shell to run `id` in.
+		slog.Info("stratus listening",
+			"version", version, "addr", srv.Addr, "data_dir", dataDir(),
+			"uid", os.Getuid(), "gid", os.Getgid())
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errc <- err
 		}
@@ -91,6 +86,32 @@ func run() error {
 	}
 }
 
+// newMux builds the HTTP routes. Kept separate from run so handlers are
+// reachable from tests through httptest without binding a port.
+func newMux() *http.ServeMux {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		// Nothing useful to do if the client hung up mid-write.
+		_, _ = io.WriteString(w, "ok\n")
+	})
+	return mux
+}
+
+// newServer applies the server timeout policy. Separate from run so the policy
+// itself can be asserted -- see TestNewServerTimeouts.
+func newServer(listenAddr string, h http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              listenAddr,
+		Handler:           h,
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		// WriteTimeout is deliberately left at zero: media streaming responses
+		// are long-lived and a blanket write deadline would cut them off
+		// mid-file. Slowloris is covered by ReadHeaderTimeout instead.
+	}
+}
+
 // ensureDataDir creates the data directory if needed and verifies the process
 // can actually write to it.
 func ensureDataDir(dir string) error {
@@ -98,7 +119,11 @@ func ensureDataDir(dir string) error {
 		return fmt.Errorf("create data dir %s: %w", dir, err)
 	}
 	probe := filepath.Join(dir, ".stratus-write-probe")
-	f, err := os.OpenFile(probe, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o640)
+	// The path is built from operator configuration, not from request input.
+	// internal/storage, which will serve request-derived paths, must never
+	// suppress G304 -- that is where it earns its keep.
+	//nolint:gosec // operator-supplied config path, not user input
+	f, err := os.OpenFile(probe, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
 		return fmt.Errorf("data dir %s is not writable as uid %d/gid %d: %w", dir, os.Getuid(), os.Getgid(), err)
 	}
@@ -108,23 +133,38 @@ func ensureDataDir(dir string) error {
 	return os.Remove(probe)
 }
 
-// probe performs the container healthcheck against a locally bound listener.
-func probe(listenAddr string) error {
+// healthURL turns a listen address into a URL reachable from inside the same
+// container. A wildcard bind address is not dialable, so it maps to loopback.
+func healthURL(listenAddr string) (string, error) {
 	host, port, err := net.SplitHostPort(listenAddr)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if host == "" || host == "0.0.0.0" || host == "::" {
 		host = "127.0.0.1"
 	}
-	url := "http://" + net.JoinHostPort(host, port) + "/healthz"
+	return "http://" + net.JoinHostPort(host, port) + "/healthz", nil
+}
 
-	client := &http.Client{Timeout: 3 * time.Second}
-	resp, err := client.Get(url)
+// probe performs the container healthcheck against a locally bound listener.
+func probe(listenAddr string) error {
+	url, err := healthURL(listenAddr)
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("%s returned %s", url, resp.Status)
 	}

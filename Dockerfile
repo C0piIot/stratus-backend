@@ -3,7 +3,10 @@
 ARG GO_VERSION=1.27.0
 ARG ALPINE_VERSION=3.24
 
-FROM golang:${GO_VERSION}-alpine${ALPINE_VERSION} AS build
+# --platform=$BUILDPLATFORM keeps the toolchain native and cross-compiles to the
+# target instead of emulating the whole build stage under QEMU. Go cross-compiles
+# for free, so a multi-arch build needs no binfmt setup at all.
+FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine${ALPINE_VERSION} AS build
 WORKDIR /src
 
 # Dependencies first so the module layer survives source edits.
@@ -29,5 +32,7 @@ EXPOSE 8080
 # No VOLUME: /data is expected to be a bind mount owned by the host user the
 # container runs as. Docker does not carry image ownership into a fresh named
 # volume, so relying on one would leave /data root-owned and unwritable.
-USER nonroot:nonroot
+# Numeric rather than "nonroot:nonroot": it needs no passwd lookup, and hadolint
+# DL3066 flags the symbolic form. 65532 is distroless's nonroot user.
+USER 65532:65532
 ENTRYPOINT ["/usr/local/bin/stratus"]
