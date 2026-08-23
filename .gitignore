@@ -1,0 +1,16 @@
+# binaries
+/stratus
+/dist/
+*.exe
+
+# local data / config
+/data/
+*.db
+*.db-shm
+*.db-wal
+.env
+
+# go
+*.test
+*.out
+/vendor/
