@@ -1,0 +1,106 @@
+# golangci-lint v2 configuration. The version is pinned in .golangci-version,
+# which both the Makefile and CI read, so there is a single source of truth.
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  # "standard" is errcheck, govet, ineffassign, staticcheck, unused. Not "all":
+  # that set includes dupl, lll, wsl and friends, which fight the author more
+  # than they help. Everything below was chosen for what this project does.
+  default: standard
+  enable:
+    # Architecture rules from CLAUDE.md, enforced rather than documented.
+    - depguard
+    # HTTP handlers and clients, on every protocol surface.
+    - bodyclose
+    - noctx
+    # Background work is goroutines in-process, so context plumbing matters.
+    - contextcheck
+    # Errors cross driver boundaries as shared sentinels.
+    - errorlint
+    - nilerr
+    # Hand-written SQL with no ORM: leaked Rows is the classic bug.
+    - sqlclosecheck
+    - rowserrcheck
+    # Serving user-controlled paths from disk storage.
+    - gosec
+    # Streaming hot path.
+    - durationcheck
+    - makezero
+    - perfsprint
+    - prealloc
+    - wastedassign
+    # Hygiene.
+    - misspell
+    - revive
+    - usetesting
+
+  settings:
+    depguard:
+      rules:
+        # CLAUDE.md: "no driver-specific SQL or types leak outside the driver
+        # package". These rules make a leak a build failure instead of a note in
+        # a markdown file. The target packages do not exist yet; the rules are
+        # in place so the first violation is caught the day it is written.
+        db-driver:
+          list-mode: lax
+          files:
+            - "!**/internal/db/sqlite/**"
+          deny:
+            - pkg: modernc.org/sqlite
+              desc: only internal/db/sqlite may import the SQLite driver
+              # (postgres/mysql drivers get their own rule when they land)
+        storage-backend:
+          list-mode: lax
+          files:
+            - "!**/internal/storage/s3/**"
+          deny:
+            - pkg: github.com/minio/minio-go
+              desc: only internal/storage/s3 may import the S3 client
+        # CLAUDE.md: minimal dependencies, stdlib first, no web framework.
+        minimal-deps:
+          list-mode: lax
+          deny:
+            - pkg: github.com/gin-gonic/gin
+              desc: use net/http from the stdlib, no web framework
+            - pkg: github.com/gorilla/mux
+              desc: use net/http from the stdlib, no router library
+            - pkg: github.com/sirupsen/logrus
+              desc: use log/slog from the stdlib
+            - pkg: go.uber.org/zap
+              desc: use log/slog from the stdlib
+            - pkg: github.com/pkg/errors
+              desc: use errors from the stdlib
+            - pkg: math/rand$
+              desc: use math/rand/v2
+
+    govet:
+      enable-all: true
+      disable:
+        # Field alignment is a micro-optimisation that hurts readability.
+        - fieldalignment
+
+    revive:
+      rules:
+        - name: exported
+        - name: error-strings
+        - name: error-return
+        - name: context-as-argument
+        - name: indent-error-flow
+        - name: unreachable-code
+
+  exclusions:
+    rules:
+      # Test code legitimately builds paths from fixtures and does not need
+      # preallocation discipline.
+      - path: _test\.go
+        linters:
+          - gosec
+          - prealloc
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
