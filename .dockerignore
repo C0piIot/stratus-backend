@@ -1,0 +1,14 @@
+.git
+.gitignore
+.dockerignore
+Dockerfile
+compose.yaml
+Makefile
+README.md
+CLAUDE.md
+data/
+dist/
+*.db
+*.db-shm
+*.db-wal
+.env
