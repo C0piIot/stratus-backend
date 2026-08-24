@@ -59,6 +59,48 @@ linters:
           deny:
             - pkg: github.com/minio/minio-go
               desc: only internal/storage/s3 may import the S3 client
+        # Architecture boundaries from CLAUDE.md. The packages below mostly do
+        # not exist yet: the rules are in place so the first violation fails the
+        # build the day it is written, rather than being found in a review.
+        #
+        # Inbound protocol adapters must not import each other. A shared helper
+        # belongs in a feature package, not in a sibling adapter.
+        no-cross-protocol:
+          list-mode: lax
+          files:
+            - "**/internal/dav/**"
+            - "**/internal/subsonic/**"
+            - "**/internal/web/**"
+          deny:
+            - pkg: github.com/C0piIot/stratus-backend/internal/dav$
+              desc: inbound adapters must not import each other
+            - pkg: github.com/C0piIot/stratus-backend/internal/subsonic$
+              desc: inbound adapters must not import each other
+            - pkg: github.com/C0piIot/stratus-backend/internal/web$
+              desc: inbound adapters must not import each other
+        # Ports, features and support packages sit below the adapters: the
+        # dependency only ever points inwards. Nothing imports the composition
+        # root.
+        no-inbound-from-core:
+          list-mode: lax
+          files:
+            - "**/internal/storage/**"
+            - "**/internal/db/**"
+            - "**/internal/files/**"
+            - "**/internal/calendar/**"
+            - "**/internal/music/**"
+            - "**/internal/media/**"
+            - "**/internal/auth/**"
+            - "**/internal/config/**"
+          deny:
+            - pkg: github.com/C0piIot/stratus-backend/internal/dav$
+              desc: dependencies point inwards; a port or feature must not import a protocol adapter
+            - pkg: github.com/C0piIot/stratus-backend/internal/subsonic$
+              desc: dependencies point inwards; a port or feature must not import a protocol adapter
+            - pkg: github.com/C0piIot/stratus-backend/internal/web$
+              desc: dependencies point inwards; a port or feature must not import a protocol adapter
+            - pkg: github.com/C0piIot/stratus-backend/internal/app$
+              desc: nothing imports the composition root
         # CLAUDE.md: minimal dependencies, stdlib first, no web framework.
         minimal-deps:
           list-mode: lax
