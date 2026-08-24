@@ -95,3 +95,7 @@ dropped and `no-new-privileges`. The healthcheck is the binary probing itself
 
 Greenfield — the skeleton above is all there is so far. Work is tracked on the
 [Stratus project board](https://github.com/users/C0piIot/projects/2).
+
+## License
+
+MIT — see [LICENSE](LICENSE).
