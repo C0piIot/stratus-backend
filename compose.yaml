@@ -19,6 +19,11 @@ services:
       STRATUS_ADDR: ":8080"
       STRATUS_DATA_DIR: "/data"
       STRATUS_LOG_LEVEL: "${STRATUS_LOG_LEVEL:-info}"
+      # Empty means unset, so these pass through from .env when they are there
+      # and fall back to the defaults when they are not.
+      STRATUS_STORAGE_DSN: "${STRATUS_STORAGE_DSN:-}"
+      STRATUS_USERNAME: "${STRATUS_USERNAME:-}"
+      STRATUS_PASSWORD_HASH: "${STRATUS_PASSWORD_HASH:-}"
 
     # Photos, music and the SQLite database live here. Point this at real storage
     # (e.g. /srv/stratus) once there is something worth keeping.

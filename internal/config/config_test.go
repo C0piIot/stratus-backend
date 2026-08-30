@@ -13,9 +13,20 @@ func env(vars map[string]string) func(string) string {
 	return func(key string) string { return vars[key] }
 }
 
+// load resolves a configuration and fails the test if it cannot, for the cases
+// that are not about parse errors.
+func load(t *testing.T, vars map[string]string) config.Config {
+	t.Helper()
+	cfg, err := config.Load(env(vars))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	return cfg
+}
+
 func TestLoadDefaults(t *testing.T) {
 	t.Parallel()
-	got := config.Load(env(nil))
+	got := load(t, nil)
 
 	if got.Addr != config.DefaultAddr {
 		t.Errorf("Addr = %q, want %q", got.Addr, config.DefaultAddr)
@@ -31,7 +42,11 @@ func TestLoadDefaults(t *testing.T) {
 func TestLoadNilGetenvYieldsDefaults(t *testing.T) {
 	t.Parallel()
 	// Documented contract: nil means "no environment", not a panic.
-	if got := config.Load(nil); got.Addr != config.DefaultAddr || got.DataDir != config.DefaultDataDir {
+	got, err := config.Load(nil)
+	if err != nil {
+		t.Fatalf("Load(nil): %v", err)
+	}
+	if got.Addr != config.DefaultAddr || got.DataDir != config.DefaultDataDir {
 		t.Errorf("Load(nil) = %+v, want defaults", got)
 	}
 }
@@ -80,7 +95,7 @@ func TestLoadStrings(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got := config.Load(env(tt.vars))
+			got := load(t, tt.vars)
 			if got.Addr != tt.wantAddr {
 				t.Errorf("Addr = %q, want %q", got.Addr, tt.wantAddr)
 			}
@@ -112,7 +127,7 @@ func TestLoadLogLevel(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got := config.Load(env(map[string]string{"STRATUS_LOG_LEVEL": tt.value}))
+			got := load(t, map[string]string{"STRATUS_LOG_LEVEL": tt.value})
 			if got.LogLevel != tt.want {
 				t.Errorf("LogLevel = %v, want %v", got.LogLevel, tt.want)
 			}

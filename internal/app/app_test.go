@@ -14,8 +14,36 @@ import (
 	"time"
 
 	"github.com/C0piIot/stratus-backend/internal/app"
+	"github.com/C0piIot/stratus-backend/internal/auth"
 	"github.com/C0piIot/stratus-backend/internal/config"
 )
+
+// testConfig is the default configuration, for the tests that only care about
+// the HTTP surface.
+func testConfig(t *testing.T) config.Config {
+	t.Helper()
+	cfg, err := config.Load(nil)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	return cfg
+}
+
+// runConfig is a configuration Run can actually start from: a data directory of
+// its own, and with it the default file storage DSN underneath.
+func runConfig(t *testing.T, vars map[string]string) config.Config {
+	t.Helper()
+	if _, ok := vars["STRATUS_DATA_DIR"]; !ok {
+		vars["STRATUS_DATA_DIR"] = filepath.Join(t.TempDir(), "data")
+	}
+	vars["STRATUS_ADDR"] = "127.0.0.1:0"
+
+	cfg, err := config.Load(func(key string) string { return vars[key] })
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	return cfg
+}
 
 // TestMain silences the startup log line so test output stays readable.
 func TestMain(m *testing.M) {
@@ -43,7 +71,7 @@ func TestHandlerHealthz(t *testing.T) {
 			t.Parallel()
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequestWithContext(t.Context(), tt.method, tt.path, nil)
-			app.New(config.Load(nil), "test").Handler().ServeHTTP(rec, req)
+			app.New(testConfig(t), "test").Handler().ServeHTTP(rec, req)
 
 			if rec.Code != tt.wantStatus {
 				t.Errorf("status = %d, want %d", rec.Code, tt.wantStatus)
@@ -87,7 +115,7 @@ func TestServerTimeouts(t *testing.T) {
 
 func TestRunShutsDownCleanly(t *testing.T) {
 	t.Parallel()
-	cfg := config.Config{Addr: "127.0.0.1:0", DataDir: filepath.Join(t.TempDir(), "data")}
+	cfg := runConfig(t, map[string]string{})
 	ctx, cancel := context.WithCancel(t.Context())
 
 	done := make(chan error, 1)
@@ -117,7 +145,7 @@ func TestRunRejectsUnwritableDataDir(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Port 0 would still bind; the point is that Run must refuse before it does.
-	err := app.New(config.Config{Addr: "127.0.0.1:0", DataDir: dir}, "test").Run(t.Context())
+	err := app.New(runConfig(t, map[string]string{"STRATUS_DATA_DIR": dir}), "test").Run(t.Context())
 	if err == nil {
 		t.Fatal("Run must refuse to start on an unwritable data dir")
 	}
@@ -168,7 +196,7 @@ func TestProbe(t *testing.T) {
 
 	t.Run("healthy server", func(t *testing.T) {
 		t.Parallel()
-		srv := httptest.NewServer(app.New(config.Load(nil), "test").Handler())
+		srv := httptest.NewServer(app.New(testConfig(t), "test").Handler())
 		defer srv.Close()
 		if err := app.Probe(strings.TrimPrefix(srv.URL, "http://")); err != nil {
 			t.Errorf("Probe: %v", err)
@@ -193,7 +221,7 @@ func TestProbe(t *testing.T) {
 	t.Run("nothing listening is an error", func(t *testing.T) {
 		t.Parallel()
 		// Bind then immediately close to get a port nothing is listening on.
-		srv := httptest.NewServer(app.New(config.Load(nil), "test").Handler())
+		srv := httptest.NewServer(app.New(testConfig(t), "test").Handler())
 		hostPort := strings.TrimPrefix(srv.URL, "http://")
 		srv.Close()
 		if err := app.Probe(hostPort); err == nil {
@@ -303,4 +331,162 @@ func TestEnsureDataDir(t *testing.T) {
 			t.Errorf("error should name the uid so the operator can fix it, got %v", err)
 		}
 	})
+}
+
+// runToShutdown starts Run, waits for it to bind, and stops it. It returns
+// whatever Run returned, so both the happy path and the refusals go through the
+// same helper.
+func runToShutdown(t *testing.T, cfg config.Config) error {
+	t.Helper()
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() { done <- app.New(cfg, "test").Run(ctx) }()
+
+	select {
+	case err := <-done:
+		cancel()
+		return err // refused before it ever listened
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	cancel()
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run did not return after the context was cancelled")
+		return nil
+	}
+}
+
+func TestRunRejectsHalfSetCredentials(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		vars map[string]string
+		want string
+	}{
+		{
+			name: "a hash with no username",
+			vars: map[string]string{"STRATUS_PASSWORD_HASH": "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy"},
+			want: "STRATUS_USERNAME",
+		},
+		{
+			name: "a username with no hash",
+			vars: map[string]string{"STRATUS_USERNAME": "edu"},
+			want: "STRATUS_PASSWORD_HASH",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := runToShutdown(t, runConfig(t, tt.vars))
+			if err == nil {
+				t.Fatal("Run = nil, want a refusal")
+			}
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Errorf("error should name %s, got %v", tt.want, err)
+			}
+		})
+	}
+}
+
+// TestRunRejectsAHashItCouldNeverVerify is the fail-fast case that matters
+// most: a hash pasted with a byte missing would otherwise look fine until the
+// first login.
+func TestRunRejectsAHashItCouldNeverVerify(t *testing.T) {
+	t.Parallel()
+	err := runToShutdown(t, runConfig(t, map[string]string{
+		"STRATUS_USERNAME":      "edu",
+		"STRATUS_PASSWORD_HASH": "hunter2",
+	}))
+	if err == nil {
+		t.Fatal("Run = nil, want a refusal")
+	}
+	if !strings.Contains(err.Error(), "hash-password") {
+		t.Errorf("the error should say how to produce a hash, got %v", err)
+	}
+	if strings.Contains(err.Error(), "hunter2") {
+		t.Errorf("the error echoes the configured value: %v", err)
+	}
+}
+
+func TestRunAcceptsWholeCredentials(t *testing.T) {
+	t.Parallel()
+	hash, err := auth.Hash("correct horse battery staple")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runToShutdown(t, runConfig(t, map[string]string{
+		"STRATUS_USERNAME":      "edu",
+		"STRATUS_PASSWORD_HASH": hash,
+	})); err != nil {
+		t.Errorf("Run = %v, want a clean start and shutdown", err)
+	}
+}
+
+// TestRunProbesTheBlobStore checks the probe both ran and cleaned up after
+// itself: an install that starts with a stray object in the store would be
+// reporting one on every listing forever.
+func TestRunProbesTheBlobStore(t *testing.T) {
+	t.Parallel()
+	dataDir := filepath.Join(t.TempDir(), "data")
+	cfg := runConfig(t, map[string]string{"STRATUS_DATA_DIR": dataDir})
+
+	if err := runToShutdown(t, cfg); err != nil {
+		t.Fatalf("Run = %v, want a clean start", err)
+	}
+
+	entries, err := os.ReadDir(cfg.Storage.Dir)
+	if err != nil {
+		t.Fatalf("the blob directory was never created: %v", err)
+	}
+	for _, e := range entries {
+		if e.Name() != ".tmp" {
+			t.Errorf("the probe left %q behind", e.Name())
+		}
+	}
+}
+
+func TestRunRejectsAnUnreachableS3(t *testing.T) {
+	t.Parallel()
+	// Port 1 refuses immediately, so this is the "credentials or endpoint are
+	// wrong" path without waiting on a timeout.
+	cfg := runConfig(t, map[string]string{
+		"STRATUS_STORAGE_DSN": "s3://key:secret@127.0.0.1:1/bucket?tls=false",
+	})
+	if err := runToShutdown(t, cfg); err == nil {
+		t.Fatal("Run = nil, want a refusal: the server must not come up without its storage")
+	}
+}
+
+// TestRunRejectsAnUnknownScheme covers a Config built by hand rather than
+// parsed, which is the only way an empty scheme can reach the composition root.
+func TestRunRejectsAnUnknownScheme(t *testing.T) {
+	t.Parallel()
+	cfg := runConfig(t, map[string]string{})
+	cfg.Storage = config.StorageDSN{Scheme: "ftp"}
+
+	err := runToShutdown(t, cfg)
+	if err == nil || !strings.Contains(err.Error(), "ftp") {
+		t.Errorf("Run = %v, want it to name the unsupported scheme", err)
+	}
+}
+
+// TestRunRejectsAnUnwritableBlobDir is the storage-seam counterpart of the data
+// directory check: the two are separate paths once a DSN can point elsewhere.
+func TestRunRejectsAnUnwritableBlobDir(t *testing.T) {
+	t.Parallel()
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores mode bits, so this cannot fail as root")
+	}
+	parent := filepath.Join(t.TempDir(), "readonly")
+	if err := os.Mkdir(parent, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	cfg := runConfig(t, map[string]string{"STRATUS_STORAGE_DSN": "file://" + filepath.Join(parent, "blobs")})
+
+	if err := runToShutdown(t, cfg); err == nil {
+		t.Fatal("Run = nil, want a refusal on a blob directory it cannot create")
+	}
 }

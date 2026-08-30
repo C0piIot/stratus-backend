@@ -7,7 +7,10 @@
 package config
 
 import (
+	"fmt"
 	"log/slog"
+	"net/url"
+	"path"
 	"strings"
 )
 
@@ -17,6 +20,10 @@ const (
 	DefaultAddr     = ":8080"
 	DefaultDataDir  = "/data"
 	DefaultLogLevel = slog.LevelInfo
+	// DefaultBlobDir is where blobs go under DataDir when no storage DSN is
+	// given, so that an install with no configuration at all still has a
+	// working backend.
+	DefaultBlobDir = "blobs"
 )
 
 // Config is the fully resolved configuration for one process.
@@ -27,20 +34,47 @@ type Config struct {
 	DataDir string
 	// LogLevel is the minimum level emitted by the JSON handler.
 	LogLevel slog.Level
+	// Storage selects and configures the blob backend.
+	Storage StorageDSN
+	// Username and PasswordHash are the single user's credentials. Both are
+	// empty until a protocol needs them; nothing authenticates anything yet.
+	Username     string
+	PasswordHash Secret
 }
 
 // Load resolves the configuration from getenv, which is os.Getenv in
 // production. A nil getenv resolves every value to its default, which is a
 // convenient way to ask for "the defaults" in a test.
-func Load(getenv func(string) string) Config {
+//
+// It fails on a malformed DSN and on nothing else: everything a process cannot
+// recover from should stop it here rather than at the first request.
+func Load(getenv func(string) string) (Config, error) {
 	if getenv == nil {
 		getenv = func(string) string { return "" }
 	}
-	return Config{
-		Addr:     lookup(getenv, "STRATUS_ADDR", DefaultAddr),
-		DataDir:  lookup(getenv, "STRATUS_DATA_DIR", DefaultDataDir),
-		LogLevel: parseLevel(lookup(getenv, "STRATUS_LOG_LEVEL", "")),
+
+	cfg := Config{
+		Addr:         lookup(getenv, "STRATUS_ADDR", DefaultAddr),
+		DataDir:      lookup(getenv, "STRATUS_DATA_DIR", DefaultDataDir),
+		LogLevel:     parseLevel(lookup(getenv, "STRATUS_LOG_LEVEL", "")),
+		Username:     getenv("STRATUS_USERNAME"),
+		PasswordHash: Secret(getenv("STRATUS_PASSWORD_HASH")),
 	}
+
+	storage, err := ParseStorageDSN(lookup(getenv, "STRATUS_STORAGE_DSN", defaultStorageDSN(cfg.DataDir)))
+	if err != nil {
+		return Config{}, fmt.Errorf("STRATUS_STORAGE_DSN: %w", err)
+	}
+	cfg.Storage = storage
+	return cfg, nil
+}
+
+// defaultStorageDSN builds the file DSN for a data directory. It goes through
+// url.URL rather than string concatenation so that a data directory with a
+// space or a percent sign in it produces a DSN that parses back.
+func defaultStorageDSN(dataDir string) string {
+	u := url.URL{Scheme: SchemeFile, Path: path.Join(dataDir, DefaultBlobDir)}
+	return u.String()
 }
 
 // lookup treats an empty value as absent. Compose and .env files both make it
