@@ -97,10 +97,7 @@ func (s *Store) writeTemp(r io.Reader, size int64) (string, error) {
 		return "", fmt.Errorf("create temp file: %w", err)
 	}
 
-	written, err := io.Copy(f, r)
-	if err == nil && size >= 0 && written != size {
-		err = fmt.Errorf("%w: wrote %d bytes, expected %d", storage.ErrSizeMismatch, written, size)
-	}
+	_, err = io.Copy(f, storage.ExactReader(r, size))
 	if err == nil {
 		// Sync before the rename, not after: a crash between the two would
 		// otherwise leave the key pointing at a file whose data never reached
