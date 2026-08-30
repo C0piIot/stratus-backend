@@ -67,9 +67,11 @@ switches to a native `go` automatically when one matching `go.mod` is on PATH, s
 the same commands work on a laptop without Go and on a CI runner with it.
 
 ```sh
-make ci          # everything CI runs: fmt-check vet lint tidy-check test-race smoke
+make ci          # everything CI runs
 make test        # unit tests
 make test-race   # under the race detector (Debian image: -race needs cgo)
+make test-s3     # the storage conformance suite against a throwaway MinIO
+make cover       # coverage, against a floor per package
 make lint        # golangci-lint, version pinned in .golangci-version
 make smoke       # build the image and assert its runtime properties
 make env         # show the resolved toolchain
@@ -79,6 +81,12 @@ make env         # show the resolved toolchain
 non-root with no shell, that it survives a read-only root filesystem with all
 capabilities dropped, and that a data directory it cannot write to makes the
 server refuse to start rather than come up healthy and fail on the first upload.
+
+`make cover` holds each package to a floor listed in `scripts/coverage.sh`, set
+at the number reached the day it was added so it can only go up. A single total
+would say nothing useful: `internal/storage/s3` measures 15% or 90% depending on
+whether MinIO is running, which is also what makes the floor catch a conformance
+suite that skipped instead of running.
 
 `.golangci.yml` uses `depguard` to enforce the architecture rules from
 `CLAUDE.md`, so a driver type leaking out of its package is a failed build rather
