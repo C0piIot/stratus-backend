@@ -196,17 +196,23 @@ test: | $(CACHE_DIR)
 test-race: | $(CACHE_DIR)
 	$(GO_RACE) test -race $(TEST_FLAGS) ./...
 
-## cover: run tests and report coverage
+## cover: run tests with coverage and enforce the per-package floors
+#
+# MinIO is up for this one: without it the S3 suite skips, its package drops to
+# ~15%, and scripts/coverage.sh turns that silent skip into a failed build.
 cover: | $(CACHE_DIR)
-	$(GO) test $(TEST_FLAGS) -covermode=atomic -coverprofile=coverage.out ./...
+	@$(MAKE) --no-print-directory minio-up
+	@$(GO_S3) test $(TEST_FLAGS) -covermode=atomic -coverprofile=coverage.out ./...; status=$$?; \
+		$(MAKE) --no-print-directory minio-down; exit $$status
 	@$(GO) tool cover -func=coverage.out | tail -1
+	@./scripts/coverage.sh coverage.out
 
 ## smoke: build the image and assert its runtime properties
 smoke:
 	./scripts/smoke.sh
 
 ## ci: everything CI runs, in one command
-ci: fmt-check vet lint tidy-check test-race test-s3 smoke
+ci: fmt-check vet lint tidy-check test-race test-s3 cover smoke
 
 # --- s3 -------------------------------------------------------------------
 #
@@ -237,9 +243,9 @@ endif
 
 # Target-specific, not global: exporting these everywhere would stop `make
 # test` from skipping and make it fail instead whenever MinIO is not running.
-test-s3: export STRATUS_TEST_S3_ENDPOINT := $(S3_ENDPOINT)
-test-s3: export STRATUS_TEST_S3_ACCESS_KEY := $(MINIO_USER)
-test-s3: export STRATUS_TEST_S3_SECRET_KEY := $(MINIO_PASS)
+test-s3 cover: export STRATUS_TEST_S3_ENDPOINT := $(S3_ENDPOINT)
+test-s3 cover: export STRATUS_TEST_S3_ACCESS_KEY := $(MINIO_USER)
+test-s3 cover: export STRATUS_TEST_S3_SECRET_KEY := $(MINIO_PASS)
 
 ## test-s3: run the storage conformance suite against a throwaway MinIO
 test-s3: | $(CACHE_DIR)
