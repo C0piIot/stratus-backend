@@ -3,6 +3,7 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -14,7 +15,11 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/C0piIot/stratus-backend/internal/auth"
 	"github.com/C0piIot/stratus-backend/internal/config"
+	"github.com/C0piIot/stratus-backend/internal/storage"
+	"github.com/C0piIot/stratus-backend/internal/storage/disk"
+	"github.com/C0piIot/stratus-backend/internal/storage/s3"
 )
 
 // probeTimeout bounds the self-probe used by the container healthcheck. A
@@ -27,6 +32,15 @@ const shutdownTimeout = 15 * time.Second
 
 // probeFile is written and removed at startup to prove the data dir is writable.
 const probeFile = ".stratus-write-probe"
+
+// probeKey is the same idea one layer up, in the blob store. It is a valid key
+// on every backend, and it never survives startup.
+const probeKey = "stratus-write-probe"
+
+// startupTimeout bounds opening and probing the blob store. An S3 endpoint that
+// accepts a connection and then says nothing would otherwise hang the process
+// before it ever listens, which looks identical to a hung container.
+const startupTimeout = 30 * time.Second
 
 // App holds the wired application. Construction is pure: no I/O happens until
 // Run, so Handler can be exercised from tests without touching the filesystem.
@@ -70,11 +84,31 @@ func (a *App) Server() *http.Server {
 // handling belongs to the caller, which keeps Run testable with a plain
 // cancellable context.
 func (a *App) Run(ctx context.Context) error {
+	if err := checkCredentials(a.cfg); err != nil {
+		return err
+	}
+
 	// Fail fast and loudly: a data dir the process cannot write to is the most
 	// likely misconfiguration, and finding out on the first upload is too late.
 	if err := EnsureDataDir(a.cfg.DataDir); err != nil {
 		return err
 	}
+
+	startupCtx, cancelStartup := context.WithTimeout(ctx, startupTimeout)
+	defer cancelStartup()
+
+	store, err := openStorage(startupCtx, a.cfg.Storage)
+	if err != nil {
+		return err
+	}
+	// Not every backend holds a handle; the disk one holds the root directory.
+	if closer, ok := store.(io.Closer); ok {
+		defer func() { _ = closer.Close() }()
+	}
+	if err := probeStorage(startupCtx, store); err != nil {
+		return err
+	}
+	slog.Info("storage ready", "scheme", a.cfg.Storage.Scheme, "dsn", a.cfg.Storage)
 
 	srv := a.Server()
 	errc := make(chan error, 1)
@@ -101,6 +135,83 @@ func (a *App) Run(ctx context.Context) error {
 		defer cancel()
 		return srv.Shutdown(shutdownCtx) //nolint:contextcheck // deliberately not the cancelled parent
 	}
+}
+
+// checkCredentials refuses a configuration that could never authenticate
+// anybody, rather than letting it surface as a login failure much later.
+// Nothing authenticates yet, so unset credentials are fine; half-set ones are
+// not.
+func checkCredentials(cfg config.Config) error {
+	switch {
+	case cfg.Username == "" && cfg.PasswordHash == "":
+		return nil
+	case cfg.Username == "":
+		return errors.New("STRATUS_PASSWORD_HASH is set but STRATUS_USERNAME is not")
+	case cfg.PasswordHash == "":
+		return errors.New("STRATUS_USERNAME is set but STRATUS_PASSWORD_HASH is not")
+	}
+	if err := auth.ValidateHash(cfg.PasswordHash.Reveal()); err != nil {
+		return fmt.Errorf("STRATUS_PASSWORD_HASH: %w (produce one with `stratus hash-password`)", err)
+	}
+	return nil
+}
+
+// openStorage builds the backend the DSN selects. Knowing that both schemes
+// exist is the composition root's job and nobody else's.
+func openStorage(ctx context.Context, dsn config.StorageDSN) (storage.Storage, error) {
+	switch dsn.Scheme {
+	case config.SchemeFile:
+		store, err := disk.New(dsn.Dir)
+		if err != nil {
+			return nil, err
+		}
+		return store, nil
+	case config.SchemeS3:
+		store, err := s3.New(ctx, s3.Config{
+			Endpoint:  dsn.Endpoint,
+			Bucket:    dsn.Bucket,
+			AccessKey: dsn.AccessKey,
+			SecretKey: dsn.SecretKey.Reveal(),
+			Region:    dsn.Region,
+			UseTLS:    dsn.UseTLS,
+		})
+		if err != nil {
+			return nil, err
+		}
+		return store, nil
+	default:
+		return nil, fmt.Errorf("unsupported storage scheme %q", dsn.Scheme)
+	}
+}
+
+// probeStorage writes, reads back and removes one object before the server
+// accepts anything. Same argument as EnsureDataDir, one layer up -- and for S3
+// it is the only proof that the credentials can actually write, since listing a
+// bucket and writing to it are different permissions.
+func probeStorage(ctx context.Context, store storage.Storage) error {
+	body := []byte("stratus")
+
+	if _, err := store.Put(ctx, probeKey, bytes.NewReader(body), int64(len(body))); err != nil {
+		return fmt.Errorf("blob storage is not writable: %w", err)
+	}
+	r, _, err := store.Get(ctx, probeKey, storage.All())
+	if err != nil {
+		return fmt.Errorf("blob storage is not readable: %w", err)
+	}
+	got, err := io.ReadAll(r)
+	if cerr := r.Close(); cerr != nil && err == nil {
+		err = cerr
+	}
+	if err != nil {
+		return fmt.Errorf("blob storage is not readable: %w", err)
+	}
+	if !bytes.Equal(got, body) {
+		return fmt.Errorf("blob storage returned %d bytes, not the %d written", len(got), len(body))
+	}
+	if err := store.Delete(ctx, probeKey); err != nil {
+		return fmt.Errorf("blob storage cannot delete: %w", err)
+	}
+	return nil
 }
 
 // EnsureDataDir creates the data directory if needed and verifies the process

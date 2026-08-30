@@ -22,7 +22,8 @@ set -euo pipefail
 profile="${1:-coverage.out}"
 
 FLOORS="
-internal/app:93
+internal/app:95
+internal/auth:90
 internal/config:100
 internal/storage:98
 internal/storage/disk:84

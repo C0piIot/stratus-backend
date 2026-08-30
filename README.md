@@ -54,6 +54,36 @@ make up STRATUS_PORT=9000 STRATUS_DATA_PATH=/srv/stratus
 | `STRATUS_DATA_PATH` | `./data` | host dir for photos, music, calendars, SQLite |
 | `STRATUS_UID` / `STRATUS_GID` | invoking user | user the container runs as |
 | `STRATUS_LOG_LEVEL` | `info` | `debug` / `info` / `warn` / `error` |
+| `STRATUS_STORAGE_DSN` | `file://<data>/blobs` | blob backend; the scheme picks it |
+| `STRATUS_USERNAME` | unset | the single user |
+| `STRATUS_PASSWORD_HASH` | unset | bcrypt, from `make hash-password` |
+
+### Blob storage
+
+One DSN, and its scheme selects the backend:
+
+```
+file:///data/blobs
+s3://KEY:SECRET@s3.eu-west-1.amazonaws.com/bucket?region=eu-west-1
+s3://KEY:SECRET@minio.lan:9000/stratus?tls=false
+```
+
+The server writes, reads back and removes one object at startup, so wrong
+credentials or a bucket it cannot write to stop the process instead of surfacing
+on your first upload. A DSN carries secrets, so it is redacted everywhere it is
+printed.
+
+### Credentials
+
+```sh
+make hash-password        # reads a password on stdin, prints the bcrypt hash
+```
+
+Stratus stores the hash, never the password. Put it in `STRATUS_PASSWORD_HASH`
+alongside `STRATUS_USERNAME`; setting one without the other refuses to start.
+Storing a hash has one consequence worth knowing: Subsonic token auth
+(`t=md5(password+salt)`) needs the server to know the plaintext, so it cannot be
+supported from a hash alone.
 
 `STRATUS_DATA_PATH` is a bind mount, not a named volume: your library stays on
 your own filesystem, and the container runs as the user that owns it. The server
