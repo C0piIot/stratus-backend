@@ -65,7 +65,7 @@ jobs:
           docker run --rm -v "$PWD":/repo -w /repo \
             rhysd/actionlint:1.7.12 -color
 
-      - uses: hadolint/hadolint-action@v3.4.0
+      - uses: hadolint/hadolint-action@v3.5.0
         with:
           dockerfile: Dockerfile
 
