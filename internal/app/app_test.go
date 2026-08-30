@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -36,7 +37,7 @@ func runConfig(t *testing.T, vars map[string]string) config.Config {
 	if _, ok := vars["STRATUS_DATA_DIR"]; !ok {
 		vars["STRATUS_DATA_DIR"] = filepath.Join(t.TempDir(), "data")
 	}
-	vars["STRATUS_ADDR"] = "127.0.0.1:0"
+	vars["STRATUS_ADDR"] = freeAddr(t)
 
 	cfg, err := config.Load(func(key string) string { return vars[key] })
 	if err != nil {
@@ -115,23 +116,8 @@ func TestServerTimeouts(t *testing.T) {
 
 func TestRunShutsDownCleanly(t *testing.T) {
 	t.Parallel()
-	cfg := runConfig(t, map[string]string{})
-	ctx, cancel := context.WithCancel(t.Context())
-
-	done := make(chan error, 1)
-	go func() { done <- app.New(cfg, "test").Run(ctx) }()
-
-	// Give the listener a moment to bind, then ask it to stop.
-	time.Sleep(50 * time.Millisecond)
-	cancel()
-
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Errorf("Run returned %v, want nil on graceful shutdown", err)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("Run did not return after the context was cancelled")
+	if err := runToShutdown(t, runConfig(t, map[string]string{})); err != nil {
+		t.Errorf("Run returned %v, want nil on graceful shutdown", err)
 	}
 }
 
@@ -333,20 +319,52 @@ func TestEnsureDataDir(t *testing.T) {
 	})
 }
 
-// runToShutdown starts Run, waits for it to bind, and stops it. It returns
-// whatever Run returned, so both the happy path and the refusals go through the
-// same helper.
+// startupWait bounds how long a healthy server may take to be serving. Generous
+// on purpose: it only ever costs time when something is broken.
+const startupWait = 20 * time.Second
+
+// freeAddr reserves a port and hands it back. Binding :0 would be tidier, but
+// then the test cannot know where to knock.
+func freeAddr(t *testing.T) string {
+	t.Helper()
+	var lc net.ListenConfig
+	l, err := lc.Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("reserve a port: %v", err)
+	}
+	addr := l.Addr().String()
+	if err := l.Close(); err != nil {
+		t.Fatalf("release the port: %v", err)
+	}
+	return addr
+}
+
+// runToShutdown starts Run, waits until it is actually serving, and stops it.
+// It returns whatever Run returned, so the happy path and the refusals go
+// through the same helper.
+//
+// It waits on the health endpoint rather than on a timer. A sleep long enough
+// for a loaded CI runner is too long everywhere else, and one that is too short
+// cancels the context in the middle of the startup probe -- which is exactly
+// how this helper failed the first time it ran under -race.
 func runToShutdown(t *testing.T, cfg config.Config) error {
 	t.Helper()
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
 	go func() { done <- app.New(cfg, "test").Run(ctx) }()
 
-	select {
-	case err := <-done:
-		cancel()
-		return err // refused before it ever listened
-	case <-time.After(200 * time.Millisecond):
+	deadline := time.Now().Add(startupWait)
+	for time.Now().Before(deadline) {
+		select {
+		case err := <-done:
+			cancel()
+			return err // refused before it ever listened
+		default:
+		}
+		if app.Probe(cfg.Addr) == nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 
 	cancel()
