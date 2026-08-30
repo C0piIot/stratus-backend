@@ -86,6 +86,12 @@ jobs:
       - name: test -race
         run: make test-race
 
+      # The conformance suite against a real S3 API. Docker is already on the
+      # runner, and a `services:` block could not pass `server /data` to the
+      # image anyway.
+      - name: S3 conformance against MinIO
+        run: make test-s3
+
       - name: coverage
         run: make cover
 
