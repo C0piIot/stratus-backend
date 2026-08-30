@@ -206,7 +206,65 @@ smoke:
 	./scripts/smoke.sh
 
 ## ci: everything CI runs, in one command
-ci: fmt-check vet lint tidy-check test-race smoke
+ci: fmt-check vet lint tidy-check test-race test-s3 smoke
+
+# --- s3 -------------------------------------------------------------------
+#
+# The storage conformance suite needs a real S3 API, so it runs against a
+# throwaway MinIO. With no endpoint the s3 tests skip, which is what keeps
+# `make test` useful on a machine with nothing running -- and is exactly why
+# `make ci` runs this target too, so the skip never becomes permanent.
+
+MINIO_IMAGE ?= quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+MINIO_NAME  := stratus-test-minio
+MINIO_NET   := stratus-test
+MINIO_USER  := stratus
+MINIO_PASS  := stratus-test-secret
+
+# CI has a native toolchain and reaches MinIO on the published port; the
+# container toolchain reaches it by name on a shared docker network.
+ifeq ($(GO_MODE),native)
+  S3_ENDPOINT := 127.0.0.1:9000
+  GO_S3       := go
+else
+  S3_ENDPOINT := $(MINIO_NAME):9000
+  GO_S3       := $(DOCKER_RUN) --network $(MINIO_NET) -e CGO_ENABLED=0 \
+                   -e STRATUS_TEST_S3_ENDPOINT=$(MINIO_NAME):9000 \
+                   -e STRATUS_TEST_S3_ACCESS_KEY=$(MINIO_USER) \
+                   -e STRATUS_TEST_S3_SECRET_KEY=$(MINIO_PASS) \
+                   $(GO_IMAGE) go
+endif
+
+# Target-specific, not global: exporting these everywhere would stop `make
+# test` from skipping and make it fail instead whenever MinIO is not running.
+test-s3: export STRATUS_TEST_S3_ENDPOINT := $(S3_ENDPOINT)
+test-s3: export STRATUS_TEST_S3_ACCESS_KEY := $(MINIO_USER)
+test-s3: export STRATUS_TEST_S3_SECRET_KEY := $(MINIO_PASS)
+
+## test-s3: run the storage conformance suite against a throwaway MinIO
+test-s3: | $(CACHE_DIR)
+	@$(MAKE) --no-print-directory minio-up
+	@$(GO_S3) test $(TEST_FLAGS) ./internal/storage/s3/...; status=$$?; \
+		$(MAKE) --no-print-directory minio-down; exit $$status
+
+## minio-up: start the throwaway MinIO used by test-s3
+minio-up:
+	@docker network inspect $(MINIO_NET) >/dev/null 2>&1 || docker network create $(MINIO_NET) >/dev/null
+	@docker rm -f $(MINIO_NAME) >/dev/null 2>&1 || true
+	@docker run -d --name $(MINIO_NAME) --network $(MINIO_NET) -p 127.0.0.1:9000:9000 \
+		-e MINIO_ROOT_USER=$(MINIO_USER) -e MINIO_ROOT_PASSWORD=$(MINIO_PASS) \
+		$(MINIO_IMAGE) server /data >/dev/null
+	@for i in $$(seq 1 100); do \
+		curl -fsS http://127.0.0.1:9000/minio/health/live >/dev/null 2>&1 && \
+			{ echo "minio ready on $(S3_ENDPOINT)"; exit 0; }; \
+		sleep 0.2; \
+	done; \
+	echo "minio did not become healthy:"; docker logs $(MINIO_NAME); exit 1
+
+## minio-down: remove the throwaway MinIO
+minio-down:
+	@docker rm -f $(MINIO_NAME) >/dev/null 2>&1 || true
+	@docker network rm $(MINIO_NET) >/dev/null 2>&1 || true
 
 # --- misc -----------------------------------------------------------------
 
@@ -231,5 +289,5 @@ version:
 	@echo $(VERSION)
 
 .PHONY: help env up down restart logs ps health image build fmt fmt-check vet \
-        lint tidy tidy-check vuln test test-race cover smoke ci shell clean \
-        clean-data version
+        lint tidy tidy-check vuln test test-race test-s3 minio-up minio-down \
+        cover smoke ci shell clean clean-data version
