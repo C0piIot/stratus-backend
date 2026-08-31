@@ -17,6 +17,9 @@ import (
 
 	"github.com/C0piIot/stratus-backend/internal/auth"
 	"github.com/C0piIot/stratus-backend/internal/config"
+	"github.com/C0piIot/stratus-backend/internal/db"
+	"github.com/C0piIot/stratus-backend/internal/db/postgres"
+	"github.com/C0piIot/stratus-backend/internal/db/sqlite"
 	"github.com/C0piIot/stratus-backend/internal/storage"
 	"github.com/C0piIot/stratus-backend/internal/storage/disk"
 	"github.com/C0piIot/stratus-backend/internal/storage/s3"
@@ -105,10 +108,22 @@ func (a *App) Run(ctx context.Context) error {
 	if closer, ok := store.(io.Closer); ok {
 		defer func() { _ = closer.Close() }()
 	}
-	if err := probeStorage(startupCtx, store); err != nil {
+	if err = probeStorage(startupCtx, store); err != nil {
 		return err
 	}
 	slog.Info("storage ready", "scheme", a.cfg.Storage.Scheme, "dsn", a.cfg.Storage)
+
+	meta, err := openDatabase(startupCtx, a.cfg.Database)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = meta.Close() }()
+	// Migrating is also the write probe: a database user that cannot create a
+	// table fails here rather than on the first upload.
+	if err := meta.Migrate(startupCtx); err != nil {
+		return fmt.Errorf("migrate the database: %w", err)
+	}
+	slog.Info("database ready", "scheme", a.cfg.Database.Scheme, "dsn", a.cfg.Database)
 
 	srv := a.Server()
 	errc := make(chan error, 1)
@@ -181,6 +196,27 @@ func openStorage(ctx context.Context, dsn config.StorageDSN) (storage.Storage, e
 		return store, nil
 	default:
 		return nil, fmt.Errorf("unsupported storage scheme %q", dsn.Scheme)
+	}
+}
+
+// openDatabase builds the metadata backend the DSN selects. Like openStorage,
+// knowing that both schemes exist is the composition root's job.
+func openDatabase(ctx context.Context, dsn config.DatabaseDSN) (db.Store, error) {
+	switch dsn.Scheme {
+	case config.SchemeSQLite:
+		store, err := sqlite.New(ctx, dsn.Path)
+		if err != nil {
+			return nil, err
+		}
+		return store, nil
+	case config.SchemePostgres:
+		store, err := postgres.New(ctx, dsn.ConnString.Reveal())
+		if err != nil {
+			return nil, err
+		}
+		return store, nil
+	default:
+		return nil, fmt.Errorf("unsupported database scheme %q", dsn.Scheme)
 	}
 }
 

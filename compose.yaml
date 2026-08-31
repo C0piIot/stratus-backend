@@ -22,6 +22,7 @@ services:
       # Empty means unset, so these pass through from .env when they are there
       # and fall back to the defaults when they are not.
       STRATUS_STORAGE_DSN: "${STRATUS_STORAGE_DSN:-}"
+      STRATUS_DB_DSN: "${STRATUS_DB_DSN:-}"
       STRATUS_USERNAME: "${STRATUS_USERNAME:-}"
       STRATUS_PASSWORD_HASH: "${STRATUS_PASSWORD_HASH:-}"
 

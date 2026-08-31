@@ -21,7 +21,11 @@ REF="$IMAGE:$TAG"
 # image means different things on different hosts. The binary size is what we
 # actually control, and it is what grows if symbols stop being stripped or
 # something gets vendored in.
-BIN_SIZE_FAIL=$((12 * 1024 * 1024))
+# Raised from 12 MB when the metadata seam landed: modernc.org/sqlite is a full
+# SQLite transpiled to Go and pgx is not small, and between them the binary went
+# from 8.3 MB to 15.9 MB. The budget exists to catch growth nobody decided on,
+# so it moves when a decision fills it -- and only then.
+BIN_SIZE_FAIL=$((20 * 1024 * 1024))
 
 BASE_IMAGE="gcr.io/distroless/static:nonroot"
 
@@ -215,7 +219,9 @@ fi
 # Both write probes are startup artefacts. The data directory now legitimately
 # holds the blob store, so the assertion is that nothing *else* survived: no
 # probe file beside it, and no probe object inside it.
-leftovers="$(find "$datadir" -mindepth 1 -not -path "$datadir/blobs" -not -path "$datadir/blobs/.tmp" | tr '\n' ' ')"
+leftovers="$(find "$datadir" -mindepth 1 \
+  -not -path "$datadir/blobs" -not -path "$datadir/blobs/.tmp" \
+  -not -name 'stratus.db*' | tr '\n' ' ')"
 if [ -z "$leftovers" ]; then
   ok "neither write probe is left behind"
 else
@@ -338,6 +344,9 @@ refuses "an unsupported storage scheme refuses to start" -e STRATUS_STORAGE_DSN=
 refuses "a password hash with no username refuses to start" -e STRATUS_PASSWORD_HASH='$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy'
 refuses "a username with no password hash refuses to start" -e STRATUS_USERNAME=edu
 refuses "a password hash that is not bcrypt refuses to start" -e STRATUS_USERNAME=edu -e STRATUS_PASSWORD_HASH=hunter2
+refuses "a malformed database DSN refuses to start" -e STRATUS_DB_DSN=nonsense
+refuses "an unsupported database scheme refuses to start" -e STRATUS_DB_DSN=mysql://user:pass@db/stratus
+refuses "an unreachable database refuses to start" -e STRATUS_DB_DSN=postgres://u:p@127.0.0.1:1/stratus?sslmode=disable
 
 # ---------------------------------------------------------------------------
 section "Compose healthcheck"

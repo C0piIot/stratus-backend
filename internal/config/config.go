@@ -24,6 +24,9 @@ const (
 	// given, so that an install with no configuration at all still has a
 	// working backend.
 	DefaultBlobDir = "blobs"
+	// DefaultDBFile is the SQLite file under DataDir when no database DSN is
+	// given.
+	DefaultDBFile = "stratus.db"
 )
 
 // Config is the fully resolved configuration for one process.
@@ -36,6 +39,8 @@ type Config struct {
 	LogLevel slog.Level
 	// Storage selects and configures the blob backend.
 	Storage StorageDSN
+	// Database selects and configures the metadata backend.
+	Database DatabaseDSN
 	// Username and PasswordHash are the single user's credentials. Both are
 	// empty until a protocol needs them; nothing authenticates anything yet.
 	Username     string
@@ -66,6 +71,12 @@ func Load(getenv func(string) string) (Config, error) {
 		return Config{}, fmt.Errorf("STRATUS_STORAGE_DSN: %w", err)
 	}
 	cfg.Storage = storage
+
+	database, err := ParseDatabaseDSN(lookup(getenv, "STRATUS_DB_DSN", defaultDatabaseDSN(cfg.DataDir)))
+	if err != nil {
+		return Config{}, fmt.Errorf("STRATUS_DB_DSN: %w", err)
+	}
+	cfg.Database = database
 	return cfg, nil
 }
 
@@ -74,6 +85,13 @@ func Load(getenv func(string) string) (Config, error) {
 // space or a percent sign in it produces a DSN that parses back.
 func defaultStorageDSN(dataDir string) string {
 	u := url.URL{Scheme: SchemeFile, Path: path.Join(dataDir, DefaultBlobDir)}
+	return u.String()
+}
+
+// defaultDatabaseDSN puts the SQLite file next to the blobs, for the same
+// reason: an install with no configuration at all still has to work.
+func defaultDatabaseDSN(dataDir string) string {
+	u := url.URL{Scheme: SchemeSQLite, Path: path.Join(dataDir, DefaultDBFile)}
 	return u.String()
 }
 
