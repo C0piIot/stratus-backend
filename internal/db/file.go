@@ -36,6 +36,10 @@ type File struct {
 	ETag string
 	// MIMEType is what was declared at upload time.
 	MIMEType string
+	// IsDir marks a collection rather than a file. A directory row carries no
+	// blob: BlobKey, Size, ETag and MIMEType are empty on one, and it exists
+	// only so that an empty directory can, which WebDAV's MKCOL requires.
+	IsDir bool
 }
 
 // TimePrecision is what every driver rounds MTime to. Postgres keeps
