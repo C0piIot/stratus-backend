@@ -17,6 +17,7 @@ import (
 	"github.com/C0piIot/stratus-backend/internal/app"
 	"github.com/C0piIot/stratus-backend/internal/auth"
 	"github.com/C0piIot/stratus-backend/internal/config"
+	"github.com/C0piIot/stratus-backend/internal/db/sqlite"
 )
 
 // testConfig is the default configuration, for the tests that only care about
@@ -506,5 +507,104 @@ func TestRunRejectsAnUnwritableBlobDir(t *testing.T) {
 
 	if err := runToShutdown(t, cfg); err == nil {
 		t.Fatal("Run = nil, want a refusal on a blob directory it cannot create")
+	}
+}
+
+func TestRunRejectsAnUnreachableDatabase(t *testing.T) {
+	t.Parallel()
+	cfg := runConfig(t, map[string]string{
+		"STRATUS_DB_DSN": "postgres://nobody:secret@127.0.0.1:1/stratus?sslmode=disable",
+	})
+	err := runToShutdown(t, cfg)
+	if err == nil {
+		t.Fatal("Run = nil, want a refusal: the server must not come up without its database")
+	}
+	if strings.Contains(err.Error(), "secret") {
+		t.Errorf("the error leaks the password: %v", err)
+	}
+}
+
+// TestRunRejectsAnUnknownDatabaseScheme covers a Config built by hand, the only
+// way an empty scheme reaches the composition root.
+func TestRunRejectsAnUnknownDatabaseScheme(t *testing.T) {
+	t.Parallel()
+	cfg := runConfig(t, map[string]string{})
+	cfg.Database = config.DatabaseDSN{Scheme: "mysql"}
+
+	err := runToShutdown(t, cfg)
+	if err == nil || !strings.Contains(err.Error(), "mysql") {
+		t.Errorf("Run = %v, want it to name the unsupported scheme", err)
+	}
+}
+
+// TestRunMigratesTheDatabase is the startup contract: by the time the server
+// serves a request, the schema is there.
+func TestRunMigratesTheDatabase(t *testing.T) {
+	t.Parallel()
+	dataDir := filepath.Join(t.TempDir(), "data")
+	cfg := runConfig(t, map[string]string{"STRATUS_DATA_DIR": dataDir})
+
+	if err := runToShutdown(t, cfg); err != nil {
+		t.Fatalf("Run = %v, want a clean start", err)
+	}
+
+	store, err := sqlite.New(t.Context(), cfg.Database.Path)
+	if err != nil {
+		t.Fatalf("the database file was never created: %v", err)
+	}
+	defer func() { _ = store.Close() }()
+
+	// A working query is the proof the migration ran; an empty listing is what
+	// a fresh install should answer.
+	files, err := store.ListFiles(t.Context(), "owner", "")
+	if err != nil {
+		t.Fatalf("the schema is not usable after startup: %v", err)
+	}
+	if len(files) != 0 {
+		t.Errorf("a fresh database holds %d files, want none", len(files))
+	}
+}
+
+// TestRunRestartsOnAnExistingDatabase is the ordinary case that would be easy
+// to break: the second start must find its schema already applied and carry on.
+func TestRunRestartsOnAnExistingDatabase(t *testing.T) {
+	t.Parallel()
+	cfg := runConfig(t, map[string]string{})
+
+	for i := range 2 {
+		if err := runToShutdown(t, cfg); err != nil {
+			t.Fatalf("start %d: %v", i+1, err)
+		}
+	}
+}
+
+// TestRunRejectsAnUnusableDatabasePath covers the other half of openDatabase:
+// a path SQLite cannot open at all.
+func TestRunRejectsAnUnusableDatabasePath(t *testing.T) {
+	t.Parallel()
+	dir := filepath.Join(t.TempDir(), "not-a-file.db")
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	cfg := runConfig(t, map[string]string{"STRATUS_DB_DSN": "sqlite://" + dir})
+
+	if err := runToShutdown(t, cfg); err == nil {
+		t.Fatal("Run = nil, want a refusal: a directory is not a database")
+	}
+}
+
+// TestRunAgainstPostgres wires the whole chain against a real server:
+// STRATUS_DB_DSN, the composition root, the driver and the migration. It skips
+// without one, and `make cover` runs it with one, which is how the coverage
+// floor notices if this stops running.
+func TestRunAgainstPostgres(t *testing.T) {
+	t.Parallel()
+	dsn := os.Getenv("STRATUS_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("STRATUS_TEST_POSTGRES_DSN is not set; `make test-db` or `make cover` set it")
+	}
+
+	if err := runToShutdown(t, runConfig(t, map[string]string{"STRATUS_DB_DSN": dsn})); err != nil {
+		t.Errorf("Run against PostgreSQL = %v, want a clean start and shutdown", err)
 	}
 }

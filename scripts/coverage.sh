@@ -25,6 +25,9 @@ FLOORS="
 internal/app:95
 internal/auth:90
 internal/config:100
+internal/db:58
+internal/db/postgres:88
+internal/db/sqlite:87
 internal/storage:98
 internal/storage/disk:84
 internal/storage/s3:89
@@ -35,8 +38,12 @@ internal/storage/s3:89
 #                                 by scripts/smoke.sh, which unit coverage
 #                                 cannot see.
 #   internal/storage/storagetest  the conformance suite itself. It runs from the
-#                                 disk and s3 tests, and Go attributes that
-#                                 coverage to them, not to it.
+#   internal/db/dbtest            disk, s3, sqlite and postgres tests, and Go
+#                                 attributes that coverage to them, not to it.
+#
+# internal/db has a low floor for the same reason: db.Migrate is exercised by
+# both driver packages, and the depguard rule that keeps drivers out of the port
+# means it cannot open a database of its own to test against.
 
 [ -f "$profile" ] || { echo "no coverage profile at $profile"; exit 1; }
 

@@ -17,6 +17,14 @@ const (
 	SchemeS3   = "s3"
 )
 
+// Schemes understood by STRATUS_DB_DSN. "postgresql" is accepted because libpq
+// accepts it and somebody will paste one.
+const (
+	SchemeSQLite     = "sqlite"
+	SchemePostgres   = "postgres"
+	schemePostgreSQL = "postgresql"
+)
+
 const redacted = "REDACTED"
 
 // Secret is a string that refuses to print itself. Every way of rendering a
@@ -171,6 +179,96 @@ func parseS3DSN(u *url.URL) (StorageDSN, error) {
 	// even when the secret is the empty-looking result of some escaping.
 	safe := *u
 	safe.User = url.UserPassword(access, redacted)
+	dsn.safe = safe.String()
+	return dsn, nil
+}
+
+// DatabaseDSN is a parsed STRATUS_DB_DSN. Drivers receive this, never the string
+// it came from.
+type DatabaseDSN struct {
+	// Scheme is SchemeSQLite or SchemePostgres.
+	Scheme string
+
+	// Path is the database file, for sqlite.
+	Path string
+
+	// ConnString is the URL pgx is handed, password included, for postgres.
+	ConnString Secret
+
+	// safe is the DSN with its secrets replaced, built at parse time.
+	safe string
+}
+
+// String returns the DSN with its secrets removed.
+func (d DatabaseDSN) String() string { return d.safe }
+
+// LogValue keeps a structured log line from reflecting over the fields.
+func (d DatabaseDSN) LogValue() slog.Value { return slog.StringValue(d.safe) }
+
+// ParseDatabaseDSN parses a database DSN. Like ParseStorageDSN, no error it
+// returns contains the DSN.
+func ParseDatabaseDSN(raw string) (DatabaseDSN, error) {
+	if strings.TrimSpace(raw) == "" {
+		return DatabaseDSN{}, errors.New("database DSN is empty")
+	}
+
+	u, err := url.Parse(raw)
+	if err != nil {
+		return DatabaseDSN{}, errors.New("database DSN is not a valid URL")
+	}
+
+	switch u.Scheme {
+	case SchemeSQLite:
+		return parseSQLiteDSN(u)
+	case SchemePostgres, schemePostgreSQL:
+		return parsePostgresDSN(u)
+	case "":
+		return DatabaseDSN{}, fmt.Errorf("database DSN has no scheme; use %s:// or %s://", SchemeSQLite, SchemePostgres)
+	default:
+		return DatabaseDSN{}, fmt.Errorf("unsupported database scheme %q; use %s or %s", u.Scheme, SchemeSQLite, SchemePostgres)
+	}
+}
+
+func parseSQLiteDSN(u *url.URL) (DatabaseDSN, error) {
+	switch {
+	case u.Host != "":
+		return DatabaseDSN{}, errors.New("sqlite DSN needs three slashes: sqlite:///path, not sqlite://path")
+	case u.User != nil:
+		return DatabaseDSN{}, errors.New("sqlite DSN takes no credentials")
+	case !strings.HasPrefix(u.Path, "/"):
+		return DatabaseDSN{}, errors.New("sqlite DSN needs an absolute path")
+	case u.RawQuery != "":
+		// WAL, foreign_keys and busy_timeout are correctness requirements for a
+		// server, not preferences, so internal/db/sqlite sets them and there is
+		// nothing left here for an operator to tune.
+		return DatabaseDSN{}, errors.New("sqlite DSN takes no parameters; the pragmas Stratus needs are not optional and are set for you")
+	}
+	return DatabaseDSN{Scheme: SchemeSQLite, Path: u.Path, safe: SchemeSQLite + "://" + u.Path}, nil
+}
+
+func parsePostgresDSN(u *url.URL) (DatabaseDSN, error) {
+	if u.Host == "" {
+		return DatabaseDSN{}, errors.New("postgres DSN needs a host")
+	}
+	if name := strings.Trim(u.Path, "/"); name == "" || strings.Contains(name, "/") {
+		return DatabaseDSN{}, errors.New("postgres DSN needs exactly one path segment, the database name")
+	}
+
+	// Parameters are passed through rather than allow-listed, unlike the S3
+	// DSN. Postgres has a large, documented, legitimate set of them, and pgx
+	// rejects what it does not know when it connects -- which happens at
+	// startup, so a typo still fails fast.
+	normalized := *u
+	normalized.Scheme = SchemePostgres
+
+	dsn := DatabaseDSN{Scheme: SchemePostgres, ConnString: Secret(normalized.String())}
+
+	safe := normalized
+	if u.User != nil {
+		if _, hasPassword := u.User.Password(); hasPassword {
+			safe.User = url.UserPassword(u.User.Username(), redacted)
+		}
+	}
 	dsn.safe = safe.String()
 	return dsn, nil
 }

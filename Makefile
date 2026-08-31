@@ -202,12 +202,13 @@ test-race: | $(CACHE_DIR)
 
 ## cover: run tests with coverage and enforce the per-package floors
 #
-# MinIO is up for this one: without it the S3 suite skips, its package drops to
-# ~15%, and scripts/coverage.sh turns that silent skip into a failed build.
+# The services are up for this one: without them the S3 and PostgreSQL suites
+# skip, their packages collapse, and scripts/coverage.sh turns those silent skips
+# into a failed build.
 cover: | $(CACHE_DIR)
-	@$(MAKE) --no-print-directory minio-up
-	@$(GO_S3) test $(TEST_FLAGS) -covermode=atomic -coverprofile=coverage.out ./...; status=$$?; \
-		$(MAKE) --no-print-directory minio-down; exit $$status
+	@$(MAKE) --no-print-directory minio-up postgres-up
+	@$(GO_SVC) test $(TEST_FLAGS) -covermode=atomic -coverprofile=coverage.out ./...; status=$$?; \
+		$(MAKE) --no-print-directory minio-down postgres-down; exit $$status
 	@$(GO) tool cover -func=coverage.out | tail -1
 	@./scripts/coverage.sh coverage.out
 
@@ -216,52 +217,71 @@ smoke:
 	./scripts/smoke.sh
 
 ## ci: everything CI runs, in one command
-ci: fmt-check vet lint tidy-check test-race test-s3 cover smoke
+ci: fmt-check vet lint tidy-check test-race test-s3 test-db cover smoke
 
-# --- s3 -------------------------------------------------------------------
+# --- services for tests ---------------------------------------------------
 #
-# The storage conformance suite needs a real S3 API, so it runs against a
-# throwaway MinIO. With no endpoint the s3 tests skip, which is what keeps
-# `make test` useful on a machine with nothing running -- and is exactly why
-# `make ci` runs this target too, so the skip never becomes permanent.
+# The conformance suites need the real thing: MinIO for the storage port,
+# PostgreSQL for the metadata port. Without them those tests skip, which is what
+# keeps `make test` useful on a machine with nothing running -- and is exactly
+# why `make ci` runs the targets below, so a skip never becomes permanent.
 
-MINIO_IMAGE ?= quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
-MINIO_NAME  := stratus-test-minio
-MINIO_NET   := stratus-test
-MINIO_USER  := stratus
-MINIO_PASS  := stratus-test-secret
+MINIO_IMAGE    ?= quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+POSTGRES_IMAGE ?= postgres:18-alpine
 
-# CI has a native toolchain and reaches MinIO on the published port; the
-# container toolchain reaches it by name on a shared docker network.
+TEST_NET       := stratus-test
+MINIO_NAME     := stratus-test-minio
+MINIO_USER     := stratus
+MINIO_PASS     := stratus-test-secret
+POSTGRES_NAME  := stratus-test-postgres
+POSTGRES_USER  := stratus
+POSTGRES_PASS  := stratus-test-secret
+
+# CI has a native toolchain and reaches the services on their published ports;
+# the container toolchain reaches them by name on a shared docker network.
 ifeq ($(GO_MODE),native)
-  S3_ENDPOINT := 127.0.0.1:9000
-  GO_S3       := go
+  S3_ENDPOINT   := 127.0.0.1:9000
+  POSTGRES_HOST := 127.0.0.1:5432
+  GO_SVC        := go
 else
-  S3_ENDPOINT := $(MINIO_NAME):9000
-  GO_S3       := $(DOCKER_RUN) --network $(MINIO_NET) -e CGO_ENABLED=0 \
-                   -e STRATUS_TEST_S3_ENDPOINT=$(MINIO_NAME):9000 \
-                   -e STRATUS_TEST_S3_ACCESS_KEY=$(MINIO_USER) \
-                   -e STRATUS_TEST_S3_SECRET_KEY=$(MINIO_PASS) \
-                   $(GO_IMAGE) go
+  S3_ENDPOINT   := $(MINIO_NAME):9000
+  POSTGRES_HOST := $(POSTGRES_NAME):5432
+  GO_SVC         = $(DOCKER_RUN) --network $(TEST_NET) -e CGO_ENABLED=0 \
+                     -e STRATUS_TEST_S3_ENDPOINT=$(MINIO_NAME):9000 \
+                     -e STRATUS_TEST_S3_ACCESS_KEY=$(MINIO_USER) \
+                     -e STRATUS_TEST_S3_SECRET_KEY=$(MINIO_PASS) \
+                     -e STRATUS_TEST_POSTGRES_DSN=$(POSTGRES_DSN) \
+                     $(GO_IMAGE) go
 endif
 
-# Target-specific, not global: exporting these everywhere would stop `make
-# test` from skipping and make it fail instead whenever MinIO is not running.
-test-s3 cover: export STRATUS_TEST_S3_ENDPOINT := $(S3_ENDPOINT)
-test-s3 cover: export STRATUS_TEST_S3_ACCESS_KEY := $(MINIO_USER)
-test-s3 cover: export STRATUS_TEST_S3_SECRET_KEY := $(MINIO_PASS)
+POSTGRES_DSN   := postgres://$(POSTGRES_USER):$(POSTGRES_PASS)@$(POSTGRES_HOST)/postgres?sslmode=disable
+
+# Target-specific, not global: exporting these everywhere would stop `make test`
+# from skipping and make it fail instead whenever the services are not running.
+test-s3 test-db cover: export STRATUS_TEST_S3_ENDPOINT := $(S3_ENDPOINT)
+test-s3 test-db cover: export STRATUS_TEST_S3_ACCESS_KEY := $(MINIO_USER)
+test-s3 test-db cover: export STRATUS_TEST_S3_SECRET_KEY := $(MINIO_PASS)
+test-s3 test-db cover: export STRATUS_TEST_POSTGRES_DSN := $(POSTGRES_DSN)
 
 ## test-s3: run the storage conformance suite against a throwaway MinIO
 test-s3: | $(CACHE_DIR)
 	@$(MAKE) --no-print-directory minio-up
-	@$(GO_S3) test $(TEST_FLAGS) ./internal/storage/s3/...; status=$$?; \
+	@$(GO_SVC) test $(TEST_FLAGS) ./internal/storage/s3/...; status=$$?; \
 		$(MAKE) --no-print-directory minio-down; exit $$status
 
+## test-db: run the metadata conformance suite against a throwaway PostgreSQL
+test-db: | $(CACHE_DIR)
+	@$(MAKE) --no-print-directory postgres-up
+	@$(GO_SVC) test $(TEST_FLAGS) ./internal/db/...; status=$$?; \
+		$(MAKE) --no-print-directory postgres-down; exit $$status
+
+$(TEST_NET):
+	@docker network inspect $(TEST_NET) >/dev/null 2>&1 || docker network create $(TEST_NET) >/dev/null
+
 ## minio-up: start the throwaway MinIO used by test-s3
-minio-up:
-	@docker network inspect $(MINIO_NET) >/dev/null 2>&1 || docker network create $(MINIO_NET) >/dev/null
+minio-up: $(TEST_NET)
 	@docker rm -f $(MINIO_NAME) >/dev/null 2>&1 || true
-	@docker run -d --name $(MINIO_NAME) --network $(MINIO_NET) -p 127.0.0.1:9000:9000 \
+	@docker run -d --name $(MINIO_NAME) --network $(TEST_NET) -p 127.0.0.1:9000:9000 \
 		-e MINIO_ROOT_USER=$(MINIO_USER) -e MINIO_ROOT_PASSWORD=$(MINIO_PASS) \
 		$(MINIO_IMAGE) server /data >/dev/null
 	@for i in $$(seq 1 100); do \
@@ -274,7 +294,24 @@ minio-up:
 ## minio-down: remove the throwaway MinIO
 minio-down:
 	@docker rm -f $(MINIO_NAME) >/dev/null 2>&1 || true
-	@docker network rm $(MINIO_NET) >/dev/null 2>&1 || true
+
+## postgres-up: start the throwaway PostgreSQL used by test-db
+postgres-up: $(TEST_NET)
+	@docker rm -f $(POSTGRES_NAME) >/dev/null 2>&1 || true
+	@docker run -d --name $(POSTGRES_NAME) --network $(TEST_NET) -p 127.0.0.1:5432:5432 \
+		-e POSTGRES_USER=$(POSTGRES_USER) -e POSTGRES_PASSWORD=$(POSTGRES_PASS) \
+		-e POSTGRES_DB=postgres \
+		$(POSTGRES_IMAGE) >/dev/null
+	@for i in $$(seq 1 150); do \
+		docker exec $(POSTGRES_NAME) pg_isready -q -U $(POSTGRES_USER) >/dev/null 2>&1 && \
+			{ echo "postgres ready on $(POSTGRES_HOST)"; exit 0; }; \
+		sleep 0.2; \
+	done; \
+	echo "postgres did not become ready:"; docker logs $(POSTGRES_NAME); exit 1
+
+## postgres-down: remove the throwaway PostgreSQL
+postgres-down:
+	@docker rm -f $(POSTGRES_NAME) >/dev/null 2>&1 || true
 
 # --- misc -----------------------------------------------------------------
 
@@ -299,5 +336,6 @@ version:
 	@echo $(VERSION)
 
 .PHONY: help env up down restart logs ps health hash-password image build fmt fmt-check vet \
-        lint tidy tidy-check vuln test test-race test-s3 minio-up minio-down \
-        cover smoke ci shell clean clean-data version
+        lint tidy tidy-check vuln test test-race test-s3 test-db minio-up \
+        minio-down postgres-up postgres-down cover smoke ci shell clean \
+        clean-data version

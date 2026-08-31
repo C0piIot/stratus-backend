@@ -92,6 +92,9 @@ jobs:
       - name: S3 conformance against MinIO
         run: make test-s3
 
+      - name: metadata conformance against PostgreSQL
+        run: make test-db
+
       - name: coverage
         run: make cover
 

@@ -51,7 +51,14 @@ linters:
           deny:
             - pkg: modernc.org/sqlite
               desc: only internal/db/sqlite may import the SQLite driver
-              # (postgres/mysql drivers get their own rule when they land)
+              # (a mysql driver gets its own rule if it ever lands)
+        db-driver-postgres:
+          list-mode: lax
+          files:
+            - "!**/internal/db/postgres/**"
+          deny:
+            - pkg: github.com/jackc/pgx
+              desc: only internal/db/postgres may import the PostgreSQL driver
         storage-backend:
           list-mode: lax
           files:

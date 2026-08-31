@@ -22,8 +22,9 @@ protocols your existing apps already understand.
 Two seams, and only two:
 
 - **Blob storage** — `disk` and `s3` at launch; ftp and others later.
-- **Metadata database** — `sqlite` at launch (pure Go, CGO-free); postgres and
-  mysql later. No driver-specific SQL leaves its driver package.
+- **Metadata database** — `sqlite` and `postgres`, both pure Go. No
+  driver-specific SQL leaves its driver package, and both pass the same
+  conformance suite.
 
 ## Quickstart
 
@@ -55,6 +56,7 @@ make up STRATUS_PORT=9000 STRATUS_DATA_PATH=/srv/stratus
 | `STRATUS_UID` / `STRATUS_GID` | invoking user | user the container runs as |
 | `STRATUS_LOG_LEVEL` | `info` | `debug` / `info` / `warn` / `error` |
 | `STRATUS_STORAGE_DSN` | `file://<data>/blobs` | blob backend; the scheme picks it |
+| `STRATUS_DB_DSN` | `sqlite://<data>/stratus.db` | metadata backend; likewise |
 | `STRATUS_USERNAME` | unset | the single user |
 | `STRATUS_PASSWORD_HASH` | unset | bcrypt, from `make hash-password` |
 
@@ -72,6 +74,20 @@ The server writes, reads back and removes one object at startup, so wrong
 credentials or a bucket it cannot write to stop the process instead of surfacing
 on your first upload. A DSN carries secrets, so it is redacted everywhere it is
 printed.
+
+### Metadata database
+
+```
+sqlite:///data/stratus.db
+postgres://user:pass@db.lan:5432/stratus?sslmode=require
+```
+
+Migrations run at startup: a self-hosted binary should not ask you to press a
+button after an upgrade. Rolling *back* to an older image is refused rather than
+attempted, because a schema from the future is not something to guess at.
+
+SQLite takes no DSN parameters. WAL, `foreign_keys` and `busy_timeout` are
+correctness requirements for a server, not preferences, so they are set for you.
 
 ### Credentials
 
@@ -101,6 +117,7 @@ make ci          # everything CI runs
 make test        # unit tests
 make test-race   # under the race detector (Debian image: -race needs cgo)
 make test-s3     # the storage conformance suite against a throwaway MinIO
+make test-db     # the metadata conformance suite against a throwaway PostgreSQL
 make cover       # coverage, against a floor per package
 make lint        # golangci-lint, version pinned in .golangci-version
 make smoke       # build the image and assert its runtime properties

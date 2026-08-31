@@ -222,6 +222,7 @@ func TestConfigNeverPrintsItsSecrets(t *testing.T) {
 	t.Parallel()
 	cfg, err := config.Load(env(map[string]string{
 		"STRATUS_STORAGE_DSN":   s3DSN(""),
+		"STRATUS_DB_DSN":        pgDSN(""),
 		"STRATUS_USERNAME":      "edu",
 		"STRATUS_PASSWORD_HASH": "$2a$10$abcdefghijklmnopqrstuv",
 	}))
@@ -236,6 +237,9 @@ func TestConfigNeverPrintsItsSecrets(t *testing.T) {
 		}
 		if strings.Contains(got, "abcdefghijklmnopqrstuv") {
 			t.Errorf("%s leaks the password hash: %s", format, got)
+		}
+		if strings.Contains(got, dbPassword) {
+			t.Errorf("%s leaks the database password: %s", format, got)
 		}
 	}
 }
@@ -323,4 +327,157 @@ func TestLoadCredentials(t *testing.T) {
 	if errors.Is(nil, nil) && cfg.PasswordHash.String() == "$2a$10$hash" {
 		t.Error("the hash prints itself")
 	}
+}
+
+const dbPassword = "hunter2-but-longer"
+
+func pgDSN(suffix string) string {
+	return "postgres://stratus:" + dbPassword + "@db.internal:5432/stratus" + suffix
+}
+
+func TestParseSQLiteDSN(t *testing.T) {
+	t.Parallel()
+	got, err := config.ParseDatabaseDSN("sqlite:///data/stratus.db")
+	if err != nil {
+		t.Fatalf("ParseDatabaseDSN: %v", err)
+	}
+	if got.Scheme != config.SchemeSQLite {
+		t.Errorf("Scheme = %q", got.Scheme)
+	}
+	if got.Path != "/data/stratus.db" {
+		t.Errorf("Path = %q", got.Path)
+	}
+}
+
+func TestParsePostgresDSN(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		raw  string
+	}{
+		{name: "plain", raw: pgDSN("")},
+		{name: "with parameters", raw: pgDSN("?sslmode=require&connect_timeout=5")},
+		// Parameters are passed through, not allow-listed: pgx knows its own
+		// set and rejects the rest when it connects.
+		{name: "with an exotic parameter", raw: pgDSN("?application_name=stratus&search_path=public")},
+		{name: "the postgresql alias", raw: strings.Replace(pgDSN(""), "postgres://", "postgresql://", 1)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := config.ParseDatabaseDSN(tt.raw)
+			if err != nil {
+				t.Fatalf("ParseDatabaseDSN: %v", err)
+			}
+			if got.Scheme != config.SchemePostgres {
+				t.Errorf("Scheme = %q, want it normalised to %q", got.Scheme, config.SchemePostgres)
+			}
+			if !strings.Contains(got.ConnString.Reveal(), dbPassword) {
+				t.Error("the connection string lost its password")
+			}
+			if !strings.HasPrefix(got.ConnString.Reveal(), "postgres://") {
+				t.Errorf("the connection string is not a postgres URL: %q", got.ConnString.Reveal())
+			}
+		})
+	}
+}
+
+func TestParseDatabaseDSNRejects(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		raw  string
+	}{
+		{name: "empty", raw: ""},
+		{name: "blank", raw: "   "},
+		{name: "no scheme", raw: "/data/stratus.db"},
+		{name: "unknown scheme", raw: "mongodb://localhost/stratus"},
+		{name: "mysql, which is not implemented", raw: "mysql://user:pass@localhost/stratus"},
+		{name: "file, which is the other seam", raw: "file:///data/blobs"},
+		{name: "sqlite with two slashes", raw: "sqlite://data/stratus.db"},
+		{name: "sqlite with a relative path", raw: "sqlite:data/stratus.db"},
+		{name: "sqlite with credentials", raw: "sqlite://user:pass@/data/stratus.db"},
+		// The pragmas are correctness, not preference, so there is nothing to
+		// tune and a parameter here means somebody misunderstood.
+		{name: "sqlite with parameters", raw: "sqlite:///data/stratus.db?_busy_timeout=5000"},
+		{name: "postgres without a host", raw: "postgres:///stratus"},
+		{name: "postgres without a database", raw: "postgres://user:pass@localhost:5432"},
+		{name: "postgres with an empty database", raw: "postgres://user:pass@localhost:5432/"},
+		{name: "postgres with a path too deep", raw: "postgres://user:pass@localhost:5432/stratus/public"},
+		// url.Parse itself rejects this one, and its error embeds the input.
+		{name: "not a URL at all", raw: "postgres://ho%zzst/stratus"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if _, err := config.ParseDatabaseDSN(tt.raw); err == nil {
+				t.Errorf("ParseDatabaseDSN(%q) = nil, want an error", tt.raw)
+			}
+		})
+	}
+}
+
+func TestDatabaseDSNNeverPrintsItsPassword(t *testing.T) {
+	t.Parallel()
+	dsn, err := config.ParseDatabaseDSN(pgDSN("?sslmode=require"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, format := range []string{"%s", "%v", "%q", "%#v", "%+v"} {
+		if got := fmt.Sprintf(format, dsn); strings.Contains(got, dbPassword) {
+			t.Errorf("%s leaks the password: %s", format, got)
+		}
+	}
+	// The user and the host stay legible, or the redacted form would be
+	// useless for telling two configurations apart in a log.
+	if got := dsn.String(); !strings.Contains(got, "stratus:REDACTED@db.internal:5432") {
+		t.Errorf("String() = %q, want it to keep everything but the password", got)
+	}
+
+	var buf bytes.Buffer
+	slog.New(slog.NewJSONHandler(&buf, nil)).Info("database ready", "dsn", dsn)
+	if strings.Contains(buf.String(), dbPassword) {
+		t.Errorf("slog leaks the password: %s", buf.String())
+	}
+}
+
+func TestLoadDatabaseDSN(t *testing.T) {
+	t.Parallel()
+
+	t.Run("defaults to a file under the data dir", func(t *testing.T) {
+		t.Parallel()
+		cfg := load(t, map[string]string{"STRATUS_DATA_DIR": "/srv/stratus"})
+		if cfg.Database.Scheme != config.SchemeSQLite {
+			t.Errorf("Scheme = %q", cfg.Database.Scheme)
+		}
+		if cfg.Database.Path != "/srv/stratus/"+config.DefaultDBFile {
+			t.Errorf("Path = %q", cfg.Database.Path)
+		}
+	})
+
+	t.Run("the DSN wins over the data dir", func(t *testing.T) {
+		t.Parallel()
+		cfg := load(t, map[string]string{
+			"STRATUS_DATA_DIR": "/srv/stratus",
+			"STRATUS_DB_DSN":   "sqlite:///mnt/metadata.db",
+		})
+		if cfg.Database.Path != "/mnt/metadata.db" {
+			t.Errorf("Path = %q", cfg.Database.Path)
+		}
+	})
+
+	t.Run("a broken DSN names the variable but not the password", func(t *testing.T) {
+		t.Parallel()
+		_, err := config.Load(env(map[string]string{"STRATUS_DB_DSN": pgDSN("/too/deep")}))
+		if err == nil {
+			t.Fatal("Load = nil, want an error")
+		}
+		if !strings.Contains(err.Error(), "STRATUS_DB_DSN") {
+			t.Errorf("error should name the variable, got %v", err)
+		}
+		if strings.Contains(err.Error(), dbPassword) {
+			t.Errorf("error leaks the password: %v", err)
+		}
+	})
 }
