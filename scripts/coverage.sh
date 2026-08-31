@@ -11,6 +11,12 @@
 # they can only go up. Raising one belongs to the PR that earns it; lowering one
 # is a conversation, in the PR that needs it.
 #
+# internal/app went 95 -> 94 when Run was split into open() and the lifecycle.
+# The split added one statement that no test can reach: the log line for a
+# backend that fails to close while the server is shutting down. Run builds its
+# own dependencies, so there is nowhere to inject one that fails. Deleting the
+# log to protect the number would be the metric wagging the code.
+#
 # One consequence worth knowing: if MinIO is not running, the S3 conformance
 # suite skips and internal/storage/s3 drops to ~15%, so this script turns a
 # silent skip into a failed build.
@@ -22,7 +28,7 @@ set -euo pipefail
 profile="${1:-coverage.out}"
 
 FLOORS="
-internal/app:95
+internal/app:94
 internal/auth:90
 internal/config:100
 internal/db:58

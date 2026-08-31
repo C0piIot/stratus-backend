@@ -73,7 +73,7 @@ func TestHandlerHealthz(t *testing.T) {
 			t.Parallel()
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequestWithContext(t.Context(), tt.method, tt.path, nil)
-			app.New(testConfig(t), "test").Handler().ServeHTTP(rec, req)
+			app.New(testConfig(t), "test").Handler(app.Deps{}).ServeHTTP(rec, req)
 
 			if rec.Code != tt.wantStatus {
 				t.Errorf("status = %d, want %d", rec.Code, tt.wantStatus)
@@ -96,7 +96,7 @@ func TestHandlerHealthz(t *testing.T) {
 // explains why.
 func TestServerTimeouts(t *testing.T) {
 	t.Parallel()
-	srv := app.New(config.Config{Addr: ":8080"}, "test").Server()
+	srv := app.New(config.Config{Addr: ":8080"}, "test").Server(app.Deps{})
 
 	if srv.WriteTimeout != 0 {
 		t.Errorf("WriteTimeout = %v, must stay 0 so media streams are not truncated", srv.WriteTimeout)
@@ -183,7 +183,7 @@ func TestProbe(t *testing.T) {
 
 	t.Run("healthy server", func(t *testing.T) {
 		t.Parallel()
-		srv := httptest.NewServer(app.New(testConfig(t), "test").Handler())
+		srv := httptest.NewServer(app.New(testConfig(t), "test").Handler(app.Deps{}))
 		defer srv.Close()
 		if err := app.Probe(strings.TrimPrefix(srv.URL, "http://")); err != nil {
 			t.Errorf("Probe: %v", err)
@@ -208,7 +208,7 @@ func TestProbe(t *testing.T) {
 	t.Run("nothing listening is an error", func(t *testing.T) {
 		t.Parallel()
 		// Bind then immediately close to get a port nothing is listening on.
-		srv := httptest.NewServer(app.New(testConfig(t), "test").Handler())
+		srv := httptest.NewServer(app.New(testConfig(t), "test").Handler(app.Deps{}))
 		hostPort := strings.TrimPrefix(srv.URL, "http://")
 		srv.Close()
 		if err := app.Probe(hostPort); err == nil {
@@ -606,5 +606,41 @@ func TestRunAgainstPostgres(t *testing.T) {
 
 	if err := runToShutdown(t, runConfig(t, map[string]string{"STRATUS_DB_DSN": dsn})); err != nil {
 		t.Errorf("Run against PostgreSQL = %v, want a clean start and shutdown", err)
+	}
+}
+
+// TestDepsCloseTolerantOfAPartialStart covers what a refused startup leaves
+// behind: open fails halfway, and the deferred Close has to cope with a Deps
+// where only one half was ever assigned.
+func TestDepsCloseTolerantOfAPartialStart(t *testing.T) {
+	t.Parallel()
+	if err := (app.Deps{}).Close(); err != nil {
+		t.Errorf("closing a zero Deps = %v, want nil", err)
+	}
+}
+
+// TestRunRejectsAReadOnlyDatabase covers the other startup failure the database
+// can have: it opens, and then the schema cannot be written. A restore that got
+// the file ownership wrong looks exactly like this.
+func TestRunRejectsAReadOnlyDatabase(t *testing.T) {
+	t.Parallel()
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores mode bits, so this cannot fail as root")
+	}
+	path := filepath.Join(t.TempDir(), "stratus.db")
+	if err := os.WriteFile(path, nil, 0o400); err != nil {
+		t.Fatal(err)
+	}
+	cfg := runConfig(t, map[string]string{"STRATUS_DB_DSN": "sqlite://" + path})
+
+	err := runToShutdown(t, cfg)
+	if err == nil {
+		t.Fatal("Run = nil, want a refusal on a database it cannot write to")
+	}
+	// It fails at open rather than at migrate, because the pragmas the driver
+	// sets are themselves writes. Fine, and worth pinning: the point is that it
+	// stops now and says why, rather than on the first upload.
+	if !strings.Contains(err.Error(), "readonly") {
+		t.Errorf("the error should name the read-only database, got %v", err)
 	}
 }

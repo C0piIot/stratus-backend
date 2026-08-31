@@ -108,6 +108,27 @@ linters:
               desc: dependencies point inwards; a port or feature must not import a protocol adapter
             - pkg: github.com/C0piIot/stratus-backend/internal/app$
               desc: nothing imports the composition root
+        # The two seams must not know about each other. A blob key is a plain
+        # string in a database row precisely so that neither has to, which is
+        # what lets an import adopt somebody else's bucket without moving bytes.
+        # Nothing enforced this before: the rules above keep drivers in their
+        # package and adapters out of the core, but said nothing about a port
+        # importing the other port.
+        no-cross-seam-from-db:
+          list-mode: lax
+          files:
+            - "**/internal/db/**"
+          deny:
+            - pkg: github.com/C0piIot/stratus-backend/internal/storage
+              desc: the metadata seam must not know about the blob seam
+        no-cross-seam-from-storage:
+          list-mode: lax
+          files:
+            - "**/internal/storage/**"
+          deny:
+            - pkg: github.com/C0piIot/stratus-backend/internal/db
+              desc: the blob seam must not know about the metadata seam
+
         # CLAUDE.md: minimal dependencies, stdlib first, no web framework.
         minimal-deps:
           list-mode: lax

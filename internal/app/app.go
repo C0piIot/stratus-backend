@@ -52,6 +52,31 @@ type App struct {
 	version string
 }
 
+// Deps are the backends the protocol surfaces are built on.
+//
+// They are opened by Run and passed down rather than stored on App, which keeps
+// New free of I/O and makes what each surface actually needs visible at its
+// signature. /healthz needs nothing, so the tests for it pass a zero Deps and
+// say so out loud.
+type Deps struct {
+	Storage  storage.Storage
+	Database db.Store
+}
+
+// Close releases whatever is open, and tolerates a partly built Deps because
+// that is exactly what a failed startup leaves behind.
+func (d Deps) Close() error {
+	var errs []error
+	// Not every blob backend holds a handle; the disk one holds its root.
+	if closer, ok := d.Storage.(io.Closer); ok {
+		errs = append(errs, closer.Close())
+	}
+	if d.Database != nil {
+		errs = append(errs, d.Database.Close())
+	}
+	return errors.Join(errs...)
+}
+
 // New wires an App. It performs no I/O.
 func New(cfg config.Config, version string) *App {
 	return &App{cfg: cfg, version: version}
@@ -59,7 +84,11 @@ func New(cfg config.Config, version string) *App {
 
 // Handler builds the HTTP routes. Separate from Run so every protocol surface
 // can be tested through httptest without binding a port.
-func (a *App) Handler() http.Handler {
+//
+// deps is unused while /healthz is the only route. It is threaded through now
+// because WebDAV, CalDAV and the web UI all need it, and because a signature is
+// a better place to state that than a comment.
+func (a *App) Handler(deps Deps) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -71,10 +100,10 @@ func (a *App) Handler() http.Handler {
 
 // Server applies the timeout policy. Separate from Run so the policy itself can
 // be asserted -- see TestServerTimeouts.
-func (a *App) Server() *http.Server {
+func (a *App) Server(deps Deps) *http.Server {
 	return &http.Server{
 		Addr:              a.cfg.Addr,
-		Handler:           a.Handler(),
+		Handler:           a.Handler(deps),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       120 * time.Second,
 		// WriteTimeout is deliberately left at zero: media streaming responses
@@ -87,45 +116,17 @@ func (a *App) Server() *http.Server {
 // handling belongs to the caller, which keeps Run testable with a plain
 // cancellable context.
 func (a *App) Run(ctx context.Context) error {
-	if err := checkCredentials(a.cfg); err != nil {
-		return err
-	}
-
-	// Fail fast and loudly: a data dir the process cannot write to is the most
-	// likely misconfiguration, and finding out on the first upload is too late.
-	if err := EnsureDataDir(a.cfg.DataDir); err != nil {
-		return err
-	}
-
-	startupCtx, cancelStartup := context.WithTimeout(ctx, startupTimeout)
-	defer cancelStartup()
-
-	store, err := openStorage(startupCtx, a.cfg.Storage)
+	deps, err := a.open(ctx)
 	if err != nil {
 		return err
 	}
-	// Not every backend holds a handle; the disk one holds the root directory.
-	if closer, ok := store.(io.Closer); ok {
-		defer func() { _ = closer.Close() }()
-	}
-	if err = probeStorage(startupCtx, store); err != nil {
-		return err
-	}
-	slog.Info("storage ready", "scheme", a.cfg.Storage.Scheme, "dsn", a.cfg.Storage)
+	defer func() {
+		if err := deps.Close(); err != nil {
+			slog.Error("closing backends", "err", err)
+		}
+	}()
 
-	meta, err := openDatabase(startupCtx, a.cfg.Database)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = meta.Close() }()
-	// Migrating is also the write probe: a database user that cannot create a
-	// table fails here rather than on the first upload.
-	if err := meta.Migrate(startupCtx); err != nil {
-		return fmt.Errorf("migrate the database: %w", err)
-	}
-	slog.Info("database ready", "scheme", a.cfg.Database.Scheme, "dsn", a.cfg.Database)
-
-	srv := a.Server()
+	srv := a.Server(deps)
 	errc := make(chan error, 1)
 	go func() {
 		// uid/gid are logged so the container smoke tests can assert the
@@ -150,6 +151,51 @@ func (a *App) Run(ctx context.Context) error {
 		defer cancel()
 		return srv.Shutdown(shutdownCtx) //nolint:contextcheck // deliberately not the cancelled parent
 	}
+}
+
+// open runs every startup check and returns the backends they proved usable.
+//
+// The named return is what makes the deferred close correct: a failure halfway
+// through has already opened something, and returning early without this would
+// leak a file handle or a connection pool on every refused start.
+func (a *App) open(ctx context.Context) (deps Deps, err error) {
+	defer func() {
+		if err != nil {
+			_ = deps.Close()
+		}
+	}()
+
+	if err = checkCredentials(a.cfg); err != nil {
+		return deps, err
+	}
+	// Fail fast and loudly: a data dir the process cannot write to is the most
+	// likely misconfiguration, and finding out on the first upload is too late.
+	if err = EnsureDataDir(a.cfg.DataDir); err != nil {
+		return deps, err
+	}
+
+	startupCtx, cancel := context.WithTimeout(ctx, startupTimeout)
+	defer cancel()
+
+	if deps.Storage, err = openStorage(startupCtx, a.cfg.Storage); err != nil {
+		return deps, err
+	}
+	if err = probeStorage(startupCtx, deps.Storage); err != nil {
+		return deps, err
+	}
+	slog.Info("storage ready", "scheme", a.cfg.Storage.Scheme, "dsn", a.cfg.Storage)
+
+	if deps.Database, err = openDatabase(startupCtx, a.cfg.Database); err != nil {
+		return deps, err
+	}
+	// Migrating is also the write probe: a database user that cannot create a
+	// table fails here rather than on the first upload.
+	if err = deps.Database.Migrate(startupCtx); err != nil {
+		return deps, fmt.Errorf("migrate the database: %w", err)
+	}
+	slog.Info("database ready", "scheme", a.cfg.Database.Scheme, "dsn", a.cfg.Database)
+
+	return deps, nil
 }
 
 // checkCredentials refuses a configuration that could never authenticate
