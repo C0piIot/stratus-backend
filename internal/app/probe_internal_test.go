@@ -24,7 +24,15 @@ type fakeStore struct {
 	// body overrides what Get returns; nil returns what Put wrote.
 	body   []byte
 	stored []byte
+
+	// storeCloseErr makes the backend itself fail to close, which is what
+	// Deps.Close has to report rather than swallow.
+	storeCloseErr error
 }
+
+// Close makes fakeStore an io.Closer, like the disk backend which holds a
+// directory handle.
+func (f *fakeStore) Close() error { return f.storeCloseErr }
 
 func (f *fakeStore) Put(_ context.Context, key string, r io.Reader, _ int64) (storage.ObjectInfo, error) {
 	if f.putErr != nil {
@@ -121,3 +129,31 @@ func TestProbeStorageLeavesNothing(t *testing.T) {
 		t.Error("the probe never wrote anything")
 	}
 }
+
+func TestDepsClose(t *testing.T) {
+	t.Parallel()
+	boom := errors.New("boom")
+
+	t.Run("reports a backend that fails to close", func(t *testing.T) {
+		t.Parallel()
+		deps := Deps{Storage: &fakeStore{storeCloseErr: boom}}
+		if err := deps.Close(); !errors.Is(err, boom) {
+			t.Errorf("Close = %v, want the backend's error", err)
+		}
+	})
+
+	t.Run("a backend that holds nothing is not an error", func(t *testing.T) {
+		t.Parallel()
+		// Not every blob backend is an io.Closer -- s3 is not -- and a Deps
+		// holding one must still close cleanly.
+		deps := Deps{Storage: notACloser{}}
+		if err := deps.Close(); err != nil {
+			t.Errorf("Close = %v, want nil", err)
+		}
+	})
+}
+
+// notACloser is a storage.Storage with no Close of its own, which is the shape
+// the S3 backend has. The embedded interface is nil on purpose: if Deps.Close
+// ever calls through it, this panics rather than passing quietly.
+type notACloser struct{ storage.Storage }

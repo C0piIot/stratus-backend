@@ -53,6 +53,11 @@ type Files interface {
 	//
 	// The order is by path, because a listing that changes order between calls
 	// is useless to a sync client.
+	//
+	// A slice rather than an iterator, on the same rule storage.Storage.List
+	// states from the other side: one directory is bounded by what the caller
+	// asked for, so it comes back whole. A recursive walk or a library-wide
+	// scan is not, and will be an iterator when it arrives.
 	ListFiles(ctx context.Context, owner, dir string) ([]File, error)
 
 	// MoveFile renames from to to. It returns ErrNotFound if there is nothing

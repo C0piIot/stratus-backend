@@ -78,5 +78,11 @@ type Storage interface {
 	//
 	// A non-nil error ends the sequence; there is at most one, and it is the
 	// last pair yielded.
+	//
+	// An iterator rather than a slice, and that is the rule for every query
+	// method written after this one: a result the caller has bounded comes back
+	// as a slice, a result bounded only by how much is stored comes back as an
+	// iterator. A bucket holds a hundred thousand photos; a listing of it must
+	// not have to fit in memory first.
 	List(ctx context.Context, prefix string) iter.Seq2[ObjectInfo, error]
 }
