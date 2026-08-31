@@ -30,10 +30,16 @@ var (
 	ErrInvalidPath = errors.New("db: invalid path")
 )
 
-// Repo is the set of operations a connection and a transaction can both serve.
-// Splitting it from Store is what keeps Migrate and Close out of reach inside a
-// transaction, where neither means anything.
-type Repo interface {
+// Files is the repository for file rows.
+//
+// Feature packages take this, not Store: internal/files has no business being
+// handed something that can also search music, and a fake for it in a test is
+// five methods rather than everything the database can do.
+//
+// Calendar objects and tracks get interfaces of their own beside this one as
+// they arrive, and Repo composes them. Growing a single interface instead would
+// end with every feature depending on all of them.
+type Files interface {
 	// PutFile inserts f, or replaces the file already at its path. The returned
 	// File carries the stored row, including its ID and the MTime as persisted.
 	PutFile(ctx context.Context, f File) (File, error)
@@ -59,6 +65,16 @@ type Repo interface {
 	// a row it believes exists, and "it was already gone" is information worth
 	// keeping rather than a detail to smooth over.
 	DeleteFile(ctx context.Context, owner, path string) error
+}
+
+// Repo is every repository at once, which is what a transaction hands out: a
+// unit of work may well span features -- deleting a collection is file rows and
+// calendar objects together.
+//
+// Splitting it from Store is what keeps Migrate and Close out of reach inside a
+// transaction, where neither means anything.
+type Repo interface {
+	Files
 }
 
 // Store is a database connection.
