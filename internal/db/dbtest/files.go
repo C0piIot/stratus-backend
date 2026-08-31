@@ -41,6 +41,12 @@ func RunFiles(t *testing.T, newFiles func(t *testing.T) db.Files) {
 		{"invalid paths are rejected", invalidPaths},
 		{"a size larger than 32 bits survives", largeFiles},
 		{"mtime survives the round trip", timeRoundTrip},
+		{"directories are rows of their own", emptyDirectories},
+		{"a directory listing holds both kinds", listMixed},
+		{"nothing may be created twice", createDirConflicts},
+		{"a file may not replace a directory", fileOverDirectory},
+		{"a directory in use is not deleted", deleteBusyDirectory},
+		{"a directory in use is not moved", moveBusyDirectory},
 	}
 
 	for _, tc := range cases {
@@ -352,4 +358,135 @@ func paths(t *testing.T, s db.Files, dir string) []string {
 		out = append(out, f.Path)
 	}
 	return out
+}
+
+// emptyDirectories is the point of the whole feature: a collection with nothing
+// in it has to exist, because MKCOL creates one and PROPFIND has to find it.
+func emptyDirectories(t *testing.T, s db.Files) {
+	dir, err := s.CreateDir(t.Context(), owner, "photos")
+	if err != nil {
+		t.Fatalf("CreateDir: %v", err)
+	}
+	if !dir.IsDir {
+		t.Error("CreateDir returned something that is not a directory")
+	}
+	if dir.ID == 0 {
+		t.Error("CreateDir returned no ID")
+	}
+
+	got, err := s.FileByPath(t.Context(), owner, "photos")
+	if err != nil {
+		t.Fatalf("FileByPath on a directory: %v", err)
+	}
+	if !got.IsDir {
+		t.Error("the row came back without IsDir")
+	}
+	// A directory carries no blob, and inventing one for it would be a lie the
+	// storage seam would then have to keep.
+	if got.BlobKey != "" || got.Size != 0 {
+		t.Errorf("got %+v, want a row with no blob", got)
+	}
+	if list := paths(t, s, ""); !slices.Equal(list, []string{"photos"}) {
+		t.Errorf("root = %v, want the empty directory to be listed", list)
+	}
+}
+
+func listMixed(t *testing.T, s db.Files) {
+	if _, err := s.CreateDir(t.Context(), owner, "album"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateDir(t.Context(), owner, "album/raw"); err != nil {
+		t.Fatal(err)
+	}
+	put(t, s, file("album/one.jpg"))
+
+	got, err := s.ListFiles(t.Context(), owner, "album")
+	if err != nil {
+		t.Fatalf("ListFiles: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("listing = %+v, want the file and the subdirectory", got)
+	}
+	// PROPFIND wants both kinds in one listing, told apart by a flag rather
+	// than by two queries.
+	if got[0].Path != "album/one.jpg" || got[0].IsDir {
+		t.Errorf("first entry = %+v, want the file", got[0])
+	}
+	if got[1].Path != "album/raw" || !got[1].IsDir {
+		t.Errorf("second entry = %+v, want the directory", got[1])
+	}
+}
+
+func createDirConflicts(t *testing.T, s db.Files) {
+	if _, err := s.CreateDir(t.Context(), owner, "photos"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateDir(t.Context(), owner, "photos"); !errors.Is(err, db.ErrConflict) {
+		t.Errorf("CreateDir twice = %v, want ErrConflict", err)
+	}
+
+	put(t, s, file("notes.txt"))
+	if _, err := s.CreateDir(t.Context(), owner, "notes.txt"); !errors.Is(err, db.ErrConflict) {
+		t.Errorf("CreateDir over a file = %v, want ErrConflict", err)
+	}
+}
+
+// fileOverDirectory is the upsert's dangerous edge: replacing a collection with
+// a file would orphan everything under it.
+func fileOverDirectory(t *testing.T, s db.Files) {
+	if _, err := s.CreateDir(t.Context(), owner, "album"); err != nil {
+		t.Fatal(err)
+	}
+	put(t, s, file("album/photo.jpg"))
+
+	if _, err := s.PutFile(t.Context(), file("album")); !errors.Is(err, db.ErrConflict) {
+		t.Fatalf("PutFile over a directory = %v, want ErrConflict", err)
+	}
+	// And the contents are still reachable.
+	if list := paths(t, s, "album"); !slices.Equal(list, []string{"album/photo.jpg"}) {
+		t.Errorf("album holds %v, want its file untouched", list)
+	}
+}
+
+func deleteBusyDirectory(t *testing.T, s db.Files) {
+	if _, err := s.CreateDir(t.Context(), owner, "album"); err != nil {
+		t.Fatal(err)
+	}
+	put(t, s, file("album/photo.jpg"))
+
+	if err := s.DeleteFile(t.Context(), owner, "album"); !errors.Is(err, db.ErrConflict) {
+		t.Fatalf("deleting a directory with a file in it = %v, want ErrConflict", err)
+	}
+
+	// Empty it and the directory goes.
+	if err := s.DeleteFile(t.Context(), owner, "album/photo.jpg"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteFile(t.Context(), owner, "album"); err != nil {
+		t.Errorf("deleting an emptied directory = %v, want nil", err)
+	}
+}
+
+func moveBusyDirectory(t *testing.T, s db.Files) {
+	if _, err := s.CreateDir(t.Context(), owner, "inbox"); err != nil {
+		t.Fatal(err)
+	}
+	put(t, s, file("inbox/photo.jpg"))
+
+	// Renaming it would leave the file pointing at a parent that no longer
+	// exists. Rewriting the subtree is the protocol adapter's job, later.
+	if err := s.MoveFile(t.Context(), owner, "inbox", "archive"); !errors.Is(err, db.ErrConflict) {
+		t.Fatalf("moving a directory with a file in it = %v, want ErrConflict", err)
+	}
+	if _, err := s.FileByPath(t.Context(), owner, "inbox/photo.jpg"); err != nil {
+		t.Errorf("the file was disturbed by the refused move: %v", err)
+	}
+
+	// An empty one moves like anything else.
+	if _, err := s.CreateDir(t.Context(), owner, "empty"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.MoveFile(t.Context(), owner, "empty", "renamed"); err != nil {
+		t.Errorf("moving an empty directory = %v, want nil", err)
+	}
 }

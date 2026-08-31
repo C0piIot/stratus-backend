@@ -119,7 +119,7 @@ type querier interface {
 
 type repo struct{ q querier }
 
-const fileColumns = `id, owner_id, path, blob_key, size, mtime, etag, mime_type`
+const fileColumns = `id, owner_id, path, blob_key, size, mtime, etag, mime_type, is_dir`
 
 // PutFile implements db.Repo.
 func (r *repo) PutFile(ctx context.Context, f db.File) (db.File, error) {
@@ -133,16 +133,43 @@ func (r *repo) PutFile(ctx context.Context, f db.File) (db.File, error) {
 		ON CONFLICT (owner_id, path) DO UPDATE SET
 			blob_key = excluded.blob_key, size = excluded.size, mtime = excluded.mtime,
 			etag = excluded.etag, mime_type = excluded.mime_type
+		WHERE files.is_dir = 0
 		RETURNING id`
 
 	err := r.q.QueryRowContext(ctx, query,
 		f.OwnerID, f.Path, db.ParentOf(f.Path), f.BlobKey, f.Size,
 		f.MTime.UnixMilli(), f.ETag, f.MIMEType,
 	).Scan(&f.ID)
+	if errors.Is(err, sql.ErrNoRows) {
+		// The upsert declined to update, which the WHERE above only does for a
+		// directory: a file must not replace a collection.
+		return db.File{}, fmt.Errorf("put %q: %w: it is a directory", f.Path, db.ErrConflict)
+	}
 	if err != nil {
 		return db.File{}, fmt.Errorf("put %q: %w", f.Path, mapErr(err))
 	}
 	return f, nil
+}
+
+// CreateDir implements db.Repo.
+func (r *repo) CreateDir(ctx context.Context, owner, path string) (db.File, error) {
+	if err := db.ValidatePath(path); err != nil {
+		return db.File{}, err
+	}
+
+	const query = `INSERT INTO files (owner_id, path, parent_path, blob_key, size, mtime, etag, mime_type, is_dir)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
+		RETURNING id`
+
+	dir := db.File{OwnerID: owner, Path: path, MTime: time.Now(), IsDir: true}.Normalize()
+	err := r.q.QueryRowContext(ctx, query,
+		dir.OwnerID, dir.Path, db.ParentOf(dir.Path), "", 0,
+		dir.MTime.UnixMilli(), "", "",
+	).Scan(&dir.ID)
+	if err != nil {
+		return db.File{}, fmt.Errorf("create directory %q: %w", path, mapErr(err))
+	}
+	return dir, nil
 }
 
 // FileByPath implements db.Repo.
@@ -177,7 +204,7 @@ func (r *repo) ListFiles(ctx context.Context, owner, dir string) ([]db.File, err
 	for rows.Next() {
 		var f db.File
 		var mtime int64
-		if err := rows.Scan(&f.ID, &f.OwnerID, &f.Path, &f.BlobKey, &f.Size, &mtime, &f.ETag, &f.MIMEType); err != nil {
+		if err := rows.Scan(&f.ID, &f.OwnerID, &f.Path, &f.BlobKey, &f.Size, &mtime, &f.ETag, &f.MIMEType, &f.IsDir); err != nil {
 			return nil, fmt.Errorf("list %q: %w", dir, err)
 		}
 		f.MTime = time.UnixMilli(mtime).UTC()
@@ -197,13 +224,18 @@ func (r *repo) MoveFile(ctx context.Context, owner, from, to string) error {
 	if err := db.ValidatePath(to); err != nil {
 		return err
 	}
-	const query = `UPDATE files SET path = ?, parent_path = ? WHERE owner_id = ? AND path = ?`
+	// The NOT EXISTS is what refuses to move a directory out from under its
+	// contents: rewriting a whole subtree is a different operation, and this
+	// one must not half-do it.
+	const query = `UPDATE files SET path = ?, parent_path = ?
+		WHERE owner_id = ? AND path = ?
+		  AND NOT EXISTS (SELECT 1 FROM files child WHERE child.owner_id = ? AND child.parent_path = ?)`
 
-	result, err := r.q.ExecContext(ctx, query, to, db.ParentOf(to), owner, from)
+	result, err := r.q.ExecContext(ctx, query, to, db.ParentOf(to), owner, from, owner, from)
 	if err != nil {
 		return fmt.Errorf("move %q to %q: %w", from, to, mapErr(err))
 	}
-	return checkAffected(result, from)
+	return r.checkAffected(ctx, result, owner, from)
 }
 
 // DeleteFile implements db.Repo.
@@ -211,28 +243,48 @@ func (r *repo) DeleteFile(ctx context.Context, owner, path string) error {
 	if err := db.ValidatePath(path); err != nil {
 		return err
 	}
-	result, err := r.q.ExecContext(ctx, `DELETE FROM files WHERE owner_id = ? AND path = ?`, owner, path)
+	const query = `DELETE FROM files
+		WHERE owner_id = ? AND path = ?
+		  AND NOT EXISTS (SELECT 1 FROM files child WHERE child.owner_id = ? AND child.parent_path = ?)`
+
+	result, err := r.q.ExecContext(ctx, query, owner, path, owner, path)
 	if err != nil {
 		return fmt.Errorf("delete %q: %w", path, mapErr(err))
 	}
-	return checkAffected(result, path)
+	return r.checkAffected(ctx, result, owner, path)
 }
 
-func checkAffected(result sql.Result, path string) error {
+// checkAffected turns "nothing changed" into the reason it did not, which is
+// either that there is no such row or that it is a directory with something
+// still in it. It costs a second query only on the failing path.
+func (r *repo) checkAffected(ctx context.Context, result sql.Result, owner, path string) error {
 	n, err := result.RowsAffected()
 	if err != nil {
 		return err
 	}
-	if n == 0 {
+	if n > 0 {
+		return nil
+	}
+
+	var isDir bool
+	switch err := r.q.QueryRowContext(ctx, `SELECT is_dir FROM files WHERE owner_id = ? AND path = ?`, owner, path).Scan(&isDir); {
+	case errors.Is(err, sql.ErrNoRows):
+		return fmt.Errorf("%w: %q", db.ErrNotFound, path)
+	case err != nil:
+		return err
+	case isDir:
+		return fmt.Errorf("%w: %q is a directory and is not empty", db.ErrConflict, path)
+	default:
+		// The row is there and was not touched, so it went between the two
+		// queries. Nothing useful to say beyond that it is not there now.
 		return fmt.Errorf("%w: %q", db.ErrNotFound, path)
 	}
-	return nil
 }
 
 func scanFile(row *sql.Row) (db.File, error) {
 	var f db.File
 	var mtime int64
-	if err := row.Scan(&f.ID, &f.OwnerID, &f.Path, &f.BlobKey, &f.Size, &mtime, &f.ETag, &f.MIMEType); err != nil {
+	if err := row.Scan(&f.ID, &f.OwnerID, &f.Path, &f.BlobKey, &f.Size, &mtime, &f.ETag, &f.MIMEType, &f.IsDir); err != nil {
 		return db.File{}, mapErr(err)
 	}
 	f.MTime = time.UnixMilli(mtime).UTC()

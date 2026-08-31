@@ -42,7 +42,18 @@ var (
 type Files interface {
 	// PutFile inserts f, or replaces the file already at its path. The returned
 	// File carries the stored row, including its ID and the MTime as persisted.
+	//
+	// Writing over a directory is ErrConflict: a file replacing a collection
+	// would orphan everything under it.
 	PutFile(ctx context.Context, f File) (File, error)
+
+	// CreateDir records an empty collection, and returns ErrConflict if
+	// anything already sits at path.
+	//
+	// Directories are rows rather than something inferred from the paths of the
+	// files under them, because an empty one has no files under it and MKCOL
+	// has to be able to make one.
+	CreateDir(ctx context.Context, owner, path string) (File, error)
 
 	// FileByPath returns the file at path, or ErrNotFound.
 	FileByPath(ctx context.Context, owner, path string) (File, error)
@@ -61,7 +72,12 @@ type Files interface {
 	ListFiles(ctx context.Context, owner, dir string) ([]File, error)
 
 	// MoveFile renames from to to. It returns ErrNotFound if there is nothing
-	// at from, and ErrConflict if something already sits at to.
+	// at from, and ErrConflict if something already sits at to or if from is a
+	// directory that still has something in it.
+	//
+	// Moving a whole subtree is a rewrite of every descendant and arrives with
+	// the protocol that needs it; refusing is what keeps this from silently
+	// orphaning them in the meantime.
 	MoveFile(ctx context.Context, owner, from, to string) error
 
 	// DeleteFile removes the file at path, or returns ErrNotFound.
@@ -69,6 +85,9 @@ type Files interface {
 	// Unlike a blob delete, this is not idempotent: the caller is asking about
 	// a row it believes exists, and "it was already gone" is information worth
 	// keeping rather than a detail to smooth over.
+	//
+	// A directory that still has something in it is ErrConflict, for the same
+	// reason a move of one is.
 	DeleteFile(ctx context.Context, owner, path string) error
 }
 
