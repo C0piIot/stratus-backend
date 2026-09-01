@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/C0piIot/stratus-backend/internal/auth"
 )
@@ -120,5 +121,30 @@ func TestBasicRefusesWhenNothingIsConfigured(t *testing.T) {
 
 	if rec.Code != http.StatusUnauthorized || reached {
 		t.Errorf("status = %d, reached = %v; want 401 and no handler", rec.Code, reached)
+	}
+}
+
+// TestBasicRefusesAFloodWith429 covers the one status the throttle adds: the
+// credentials were never judged, so answering 401 would be a guess.
+func TestBasicRefusesAFloodWith429(t *testing.T) {
+	t.Parallel()
+	var reached bool
+	h := auth.Basic("Stratus", auth.NewThrottle(credentials(t), auth.ThrottleConfig{
+		Every: time.Hour, Burst: 0, MaxWait: 0,
+	}), protected(&reached))
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/files/", nil)
+	req.SetBasicAuth(username, "not it")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusTooManyRequests {
+		t.Errorf("status = %d, want 429", rec.Code)
+	}
+	if rec.Header().Get("Retry-After") == "" {
+		t.Error("no Retry-After, so a client has nothing to wait for")
+	}
+	if reached {
+		t.Error("the handler ran anyway")
 	}
 }

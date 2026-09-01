@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"errors"
 )
 
@@ -36,13 +37,13 @@ func (c Credentials) Validate() error {
 	return nil
 }
 
-// Verify checks a username and password, and returns ErrUnauthorized for every
-// way of getting them wrong.
+// Verify implements Verifier. It returns ErrUnauthorized for every way of
+// getting the credentials wrong.
 //
 // Both halves are compared before either is judged. An early return on the
 // username would make a wrong one measurably faster than a wrong password and
 // turn the response time into an oracle for which usernames exist.
-func (c Credentials) Verify(username, password string) error {
+func (c Credentials) Verify(_ context.Context, username, password string) error {
 	if !c.Configured() {
 		return ErrUnauthorized
 	}
