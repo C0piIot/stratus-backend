@@ -54,6 +54,11 @@ Two rules make it safe rather than dangerous:
   pointed somewhere new than a library somebody emptied. It logs and does
   nothing.
 
+It runs daily and leaves anything written in the last hour alone. Both are
+`STRATUS_GC_INTERVAL` and `STRATUS_GC_GRACE` if you ever need them, and `0` for
+the interval turns the sweep off — but the defaults are the answer for a normal
+install, which is why they are down here and not in the table above.
+
 The two backends also clean up after themselves when they open: the disk one
 empties its reserved directory of interrupted uploads, and the S3 one aborts
 multipart uploads abandoned more than a day ago, which are invisible to a
@@ -101,8 +106,6 @@ make up STRATUS_PORT=9000 STRATUS_DATA_PATH=/srv/stratus
 | `STRATUS_DB_DSN` | `sqlite://<data>/stratus.db` | metadata backend; likewise |
 | `STRATUS_USERNAME` | unset | the single user |
 | `STRATUS_PASSWORD` | unset | the single user's password |
-| `STRATUS_GC_INTERVAL` | `24h` | how often orphaned blobs are collected; `0` disables |
-| `STRATUS_GC_GRACE` | `1h` | how long a blob is left alone first |
 
 ### Blob storage
 
