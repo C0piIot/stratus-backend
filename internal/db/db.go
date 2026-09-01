@@ -19,6 +19,7 @@ package db
 import (
 	"context"
 	"errors"
+	"iter"
 )
 
 // Sentinel errors crossing the port. Drivers return these, wrapped with
@@ -79,6 +80,17 @@ type Files interface {
 	// the protocol that needs it; refusing is what keeps this from silently
 	// orphaning them in the meantime.
 	MoveFile(ctx context.Context, owner, from, to string) error
+
+	// BlobKeys yields the blob key of every file row, which is what the
+	// collector subtracts from what the blob store actually holds.
+	//
+	// Not scoped to an owner, unlike everything else here: a collector that
+	// only saw one owner's rows would delete another owner's blobs the day
+	// sharing arrives.
+	//
+	// An iterator rather than a slice: the result is bounded by how much is
+	// stored, not by what the caller asked for.
+	BlobKeys(ctx context.Context) iter.Seq2[string, error]
 
 	// DeleteFile removes the file at path, or returns ErrNotFound.
 	//

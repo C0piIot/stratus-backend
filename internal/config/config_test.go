@@ -3,6 +3,7 @@ package config_test
 import (
 	"log/slog"
 	"testing"
+	"time"
 
 	"github.com/C0piIot/stratus-backend/internal/config"
 )
@@ -130,6 +131,38 @@ func TestLoadLogLevel(t *testing.T) {
 			got := load(t, map[string]string{"STRATUS_LOG_LEVEL": tt.value})
 			if got.LogLevel != tt.want {
 				t.Errorf("LogLevel = %v, want %v", got.LogLevel, tt.want)
+			}
+		})
+	}
+}
+
+func TestLoadGCInterval(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		value   string
+		want    time.Duration
+		wantErr bool
+	}{
+		{name: "unset is daily", want: config.DefaultGCInterval},
+		{name: "an hour", value: "1h", want: time.Hour},
+		{name: "zero disables it", value: "0", want: 0},
+		{name: "seconds, for a test", value: "250ms", want: 250 * time.Millisecond},
+		// Unlike the log level, a typo here is refused: the alternative is a
+		// sweep running on a schedule nobody chose.
+		{name: "a typo is an error", value: "1hour", wantErr: true},
+		{name: "a bare number is an error", value: "3600", wantErr: true},
+		{name: "negative is an error", value: "-1h", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg, err := config.Load(env(map[string]string{"STRATUS_GC_INTERVAL": tt.value}))
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("Load = %v, wantErr %v", err, tt.wantErr)
+			}
+			if err == nil && cfg.GCInterval != tt.want {
+				t.Errorf("GCInterval = %v, want %v", cfg.GCInterval, tt.want)
 			}
 		})
 	}

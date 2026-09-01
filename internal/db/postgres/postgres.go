@@ -11,6 +11,7 @@ import (
 	"embed"
 	"errors"
 	"fmt"
+	"iter"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -182,6 +183,34 @@ func (r *repo) ListFiles(ctx context.Context, owner, dir string) ([]db.File, err
 		return nil, fmt.Errorf("list %q: %w", dir, err)
 	}
 	return out, nil
+}
+
+// BlobKeys implements db.Repo.
+func (r *repo) BlobKeys(ctx context.Context) iter.Seq2[string, error] {
+	return func(yield func(string, error) bool) {
+		const query = `SELECT blob_key FROM files WHERE is_dir = FALSE`
+
+		rows, err := r.q.QueryContext(ctx, query)
+		if err != nil {
+			yield("", fmt.Errorf("list blob keys: %w", err))
+			return
+		}
+		defer func() { _ = rows.Close() }()
+
+		for rows.Next() {
+			var key string
+			if err := rows.Scan(&key); err != nil {
+				yield("", fmt.Errorf("list blob keys: %w", err))
+				return
+			}
+			if !yield(key, nil) {
+				return
+			}
+		}
+		if err := rows.Err(); err != nil {
+			yield("", fmt.Errorf("list blob keys: %w", err))
+		}
+	}
 }
 
 // MoveFile implements db.Repo.

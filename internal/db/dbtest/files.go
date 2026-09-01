@@ -47,6 +47,7 @@ func RunFiles(t *testing.T, newFiles func(t *testing.T) db.Files) {
 		{"a file may not replace a directory", fileOverDirectory},
 		{"a directory in use is not deleted", deleteBusyDirectory},
 		{"a directory in use is not moved", moveBusyDirectory},
+		{"every blob key is reachable", blobKeys},
 	}
 
 	for _, tc := range cases {
@@ -488,5 +489,66 @@ func moveBusyDirectory(t *testing.T, s db.Files) {
 	}
 	if err := s.MoveFile(t.Context(), owner, "empty", "renamed"); err != nil {
 		t.Errorf("moving an empty directory = %v, want nil", err)
+	}
+}
+
+// blobKeys is what the orphan collector subtracts from the blob store, so a
+// driver that misses one would have it delete a live file.
+func blobKeys(t *testing.T, s db.Files) {
+	if _, err := s.CreateDir(t.Context(), owner, "album"); err != nil {
+		t.Fatal(err)
+	}
+	one := put(t, s, file("album/one.jpg"))
+	two := put(t, s, file("two.txt"))
+
+	// Another owner's rows count too: a collector that only saw one owner's
+	// would delete the other's blobs.
+	theirs := file("theirs.txt")
+	theirs.OwnerID = "someone-else"
+	theirs.BlobKey = "blobs/theirs"
+	if _, err := s.PutFile(t.Context(), theirs); err != nil {
+		t.Fatal(err)
+	}
+
+	got := map[string]int{}
+	for key, err := range s.BlobKeys(t.Context()) {
+		if err != nil {
+			t.Fatalf("BlobKeys: %v", err)
+		}
+		got[key]++
+	}
+
+	for _, want := range []string{one.BlobKey, two.BlobKey, theirs.BlobKey} {
+		if got[want] != 1 {
+			t.Errorf("key %q appears %d times, want once", want, got[want])
+		}
+	}
+	// A directory has no blob, so it must not contribute an empty key: the
+	// collector would then treat "" as referenced and never notice.
+	if _, ok := got[""]; ok {
+		t.Error("a directory contributed an empty blob key")
+	}
+	if len(got) != 3 {
+		t.Errorf("BlobKeys returned %d keys, want 3", len(got))
+	}
+
+	// An overwrite replaces the row, so the old key stops being referenced --
+	// which is exactly what makes its blob collectable.
+	replaced := file("two.txt")
+	replaced.BlobKey = "blobs/replacement"
+	put(t, s, replaced)
+
+	got = map[string]int{}
+	for key, err := range s.BlobKeys(t.Context()) {
+		if err != nil {
+			t.Fatalf("BlobKeys: %v", err)
+		}
+		got[key]++
+	}
+	if _, stale := got[two.BlobKey]; stale {
+		t.Error("the replaced blob key is still referenced")
+	}
+	if got["blobs/replacement"] != 1 {
+		t.Error("the new blob key is not referenced")
 	}
 }

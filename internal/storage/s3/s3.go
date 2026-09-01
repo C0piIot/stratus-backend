@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"iter"
+	"time"
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
@@ -77,7 +78,38 @@ func New(ctx context.Context, cfg Config) (*Store, error) {
 	if !exists {
 		return nil, fmt.Errorf("s3: bucket %q does not exist on %s", cfg.Bucket, cfg.Endpoint)
 	}
-	return &Store{client: client, bucket: cfg.Bucket}, nil
+
+	store := &Store{client: client, bucket: cfg.Bucket}
+	if err := store.abortStaleUploads(ctx); err != nil {
+		return nil, err
+	}
+	return store, nil
+}
+
+// staleUpload is how long an unfinished multipart upload has to sit before it
+// is treated as abandoned. Unlike the disk backend's reserved directory, a
+// bucket may be shared, and aborting somebody else's upload in progress would
+// be worse than paying for a day of orphaned parts.
+const staleUpload = 24 * time.Hour
+
+// abortStaleUploads clears multipart uploads nobody completed. They are invisible
+// to a listing and billed until something aborts them, so nothing else will
+// notice they are there.
+func (s *Store) abortStaleUploads(ctx context.Context) error {
+	cutoff := time.Now().Add(-staleUpload)
+
+	for upload := range s.client.ListIncompleteUploads(ctx, s.bucket, "", true) {
+		if upload.Err != nil {
+			return fmt.Errorf("s3: list incomplete uploads: %w", upload.Err)
+		}
+		if upload.Initiated.After(cutoff) {
+			continue
+		}
+		if err := s.client.RemoveIncompleteUpload(ctx, s.bucket, upload.Key); err != nil {
+			return fmt.Errorf("s3: abort the incomplete upload of %q: %w", upload.Key, err)
+		}
+	}
+	return nil
 }
 
 // Put implements storage.Storage.
