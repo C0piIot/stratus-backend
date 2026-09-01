@@ -103,3 +103,22 @@ func TestMigrateRefusesANewerSchema(t *testing.T) {
 		t.Errorf("the error should say the schema is newer, got %v", err)
 	}
 }
+
+// TestBlobKeysOnAClosedStore covers the error path the collector would hit if
+// it kept iterating through a shutdown: it reports rather than panics.
+func TestBlobKeysOnAClosedStore(t *testing.T) {
+	t.Parallel()
+	store := newStore(t)
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	var got error
+	for _, err := range store.BlobKeys(t.Context()) {
+		got = err
+		break
+	}
+	if got == nil {
+		t.Error("iterating a closed store reported no error")
+	}
+}

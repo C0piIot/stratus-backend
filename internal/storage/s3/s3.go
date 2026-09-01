@@ -96,8 +96,12 @@ const staleUpload = 24 * time.Hour
 // to a listing and billed until something aborts them, so nothing else will
 // notice they are there.
 func (s *Store) abortStaleUploads(ctx context.Context) error {
-	cutoff := time.Now().Add(-staleUpload)
+	return s.abortUploadsBefore(ctx, time.Now().Add(-staleUpload))
+}
 
+// abortUploadsBefore takes the cutoff as an argument so the behaviour can be
+// exercised without waiting a day for one to go stale.
+func (s *Store) abortUploadsBefore(ctx context.Context, cutoff time.Time) error {
 	for upload := range s.client.ListIncompleteUploads(ctx, s.bucket, "", true) {
 		if upload.Err != nil {
 			return fmt.Errorf("s3: list incomplete uploads: %w", upload.Err)

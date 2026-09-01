@@ -136,6 +136,34 @@ func TestLoadLogLevel(t *testing.T) {
 	}
 }
 
+func TestLoadGCGrace(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		value   string
+		want    time.Duration
+		wantErr bool
+	}{
+		{name: "unset is an hour", want: config.DefaultGCGrace},
+		{name: "explicit", value: "15m", want: 15 * time.Minute},
+		{name: "zero, for a test", value: "0", want: 0},
+		{name: "a typo is an error", value: "1hour", wantErr: true},
+		{name: "negative is an error", value: "-1h", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg, err := config.Load(env(map[string]string{"STRATUS_GC_GRACE": tt.value}))
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("Load = %v, wantErr %v", err, tt.wantErr)
+			}
+			if err == nil && cfg.GCGrace != tt.want {
+				t.Errorf("GCGrace = %v, want %v", cfg.GCGrace, tt.want)
+			}
+		})
+	}
+}
+
 func TestLoadGCInterval(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
