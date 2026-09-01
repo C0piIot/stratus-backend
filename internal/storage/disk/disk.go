@@ -54,7 +54,31 @@ func New(dir string) (*Store, error) {
 		_ = root.Close()
 		return nil, fmt.Errorf("create %s in %s: %w", tmpDir, dir, err)
 	}
-	return &Store{root: root}, nil
+
+	store := &Store{root: root}
+	// Anything in the reserved directory belongs to a process that is no longer
+	// running: a Put that finished renamed its file out of it. No age check is
+	// needed, and two processes sharing one data directory is not a thing this
+	// project supports.
+	if err := store.sweepTemp(); err != nil {
+		_ = root.Close()
+		return nil, err
+	}
+	return store, nil
+}
+
+// sweepTemp removes what an interrupted upload left behind.
+func (s *Store) sweepTemp() error {
+	entries, err := fs.ReadDir(s.root.FS(), tmpDir)
+	if err != nil {
+		return fmt.Errorf("read %s: %w", tmpDir, err)
+	}
+	for _, e := range entries {
+		if err := s.root.Remove(tmpDir + "/" + e.Name()); err != nil {
+			return fmt.Errorf("remove %s/%s: %w", tmpDir, e.Name(), err)
+		}
+	}
+	return nil
 }
 
 // Close releases the directory handle. It is not part of the port: only the

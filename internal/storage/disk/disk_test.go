@@ -170,3 +170,33 @@ func keys(t *testing.T, s storage.Storage, prefix string) []string {
 	}
 	return out
 }
+
+// TestReopeningSweepsTemporaries covers the crash case. A Put that finishes
+// renames its file out of the reserved directory, so anything still in there
+// when the store opens belongs to a process that is no longer running.
+func TestReopeningSweepsTemporaries(t *testing.T) {
+	t.Parallel()
+	_, dir := newStore(t)
+
+	leftover := filepath.Join(dir, ".tmp", "half-an-upload")
+	if err := os.WriteFile(leftover, []byte("interrupted"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened, err := disk.New(dir)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer func() { _ = reopened.Close() }()
+
+	if _, err := os.Stat(leftover); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the temporary survived reopening: %v", err)
+	}
+	// And the real objects are untouched.
+	if _, err := reopened.Put(t.Context(), "kept", strings.NewReader("x"), 1); err != nil {
+		t.Fatal(err)
+	}
+	if got := keys(t, reopened, ""); len(got) != 1 || got[0] != "kept" {
+		t.Errorf("the store holds %v", got)
+	}
+}

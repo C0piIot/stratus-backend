@@ -723,3 +723,101 @@ func TestWebDAVIsNotMountedWithoutCredentials(t *testing.T) {
 		t.Errorf("GET with no credentials configured = %d, want 404: the surface should not exist", resp.StatusCode)
 	}
 }
+
+// TestCollectorRuns is the wiring, not the collecting: the goroutine starts on
+// the configured interval, does a pass, and takes the orphan with it.
+func TestCollectorRuns(t *testing.T) {
+	t.Parallel()
+	const password = "an example password"
+	dataDir := filepath.Join(t.TempDir(), "data")
+	base, stop := davServer(t, map[string]string{
+		"STRATUS_DATA_DIR":    dataDir,
+		"STRATUS_USERNAME":    "edu",
+		"STRATUS_PASSWORD":    password,
+		"STRATUS_GC_INTERVAL": "50ms",
+		"STRATUS_GC_GRACE":    "0",
+	})
+	defer stop()
+
+	// Two writes to the same path leave the first blob behind on purpose.
+	for _, body := range []string{"one", "two"} {
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodPut, base+"/dav/notes.txt", strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.SetBasicAuth("edu", password)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close()
+	}
+
+	blobDir := filepath.Join(dataDir, "blobs")
+	if got := countBlobs(t, blobDir); got != 2 {
+		t.Fatalf("the store holds %d blobs before collection, want 2", got)
+	}
+
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if countBlobs(t, blobDir) == 1 {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Errorf("the orphan was never collected: %d blobs remain", countBlobs(t, blobDir))
+}
+
+func countBlobs(t *testing.T, dir string) int {
+	t.Helper()
+	var n int
+	err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() && d.Name() == ".tmp" {
+			return filepath.SkipDir
+		}
+		if !d.IsDir() {
+			n++
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk %s: %v", dir, err)
+	}
+	return n
+}
+
+// TestCollectorDisabled covers the other half of the switch, because a sweep
+// that runs when it was turned off is worse than one that never runs.
+func TestCollectorDisabled(t *testing.T) {
+	t.Parallel()
+	const password = "an example password"
+	dataDir := filepath.Join(t.TempDir(), "data")
+	base, stop := davServer(t, map[string]string{
+		"STRATUS_DATA_DIR":    dataDir,
+		"STRATUS_USERNAME":    "edu",
+		"STRATUS_PASSWORD":    password,
+		"STRATUS_GC_INTERVAL": "0",
+	})
+
+	for _, body := range []string{"one", "two"} {
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodPut, base+"/dav/notes.txt", strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.SetBasicAuth("edu", password)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close()
+	}
+	time.Sleep(200 * time.Millisecond)
+	stop()
+
+	if got := countBlobs(t, filepath.Join(dataDir, "blobs")); got != 2 {
+		t.Errorf("the store holds %d blobs, want both: collection was disabled", got)
+	}
+}

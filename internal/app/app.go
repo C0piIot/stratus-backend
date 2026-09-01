@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/C0piIot/stratus-backend/internal/auth"
@@ -146,6 +147,21 @@ func (a *App) Run(ctx context.Context) error {
 		}
 	}()
 
+	// Background work is a goroutine in this process, not a queue somewhere
+	// else. It stops with the context and is waited for before Run returns, so
+	// a shutdown never leaves a half-finished sweep behind.
+	var background sync.WaitGroup
+	if a.cfg.GCInterval > 0 {
+		background.Add(1)
+		go func() {
+			defer background.Done()
+			a.collectPeriodically(ctx, deps)
+		}()
+	} else {
+		slog.Warn("orphan blob collection disabled", "reason", "STRATUS_GC_INTERVAL is zero")
+	}
+	defer background.Wait()
+
 	srv := a.Server(deps)
 	errc := make(chan error, 1)
 	go func() {
@@ -267,6 +283,41 @@ func openStorage(ctx context.Context, dsn config.StorageDSN) (storage.Storage, e
 		return store, nil
 	default:
 		return nil, fmt.Errorf("unsupported storage scheme %q", dsn.Scheme)
+	}
+}
+
+// collectPeriodically sweeps blobs no row points at, for as long as ctx lives.
+//
+// Every write takes a fresh blob key so that a failed overwrite cannot destroy
+// what it was replacing, which means every overwrite leaves one behind. This is
+// what reclaims them.
+func (a *App) collectPeriodically(ctx context.Context, deps Deps) {
+	service := files.New(deps.Storage, deps.Database)
+	ticker := time.NewTicker(a.cfg.GCInterval)
+	defer ticker.Stop()
+
+	slog.Info("collecting orphan blobs", "every", a.cfg.GCInterval, "grace", a.cfg.GCGrace)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+
+		switch done, err := service.Collect(ctx, a.cfg.GCGrace); {
+		case errors.Is(err, context.Canceled):
+			return
+		case errors.Is(err, files.ErrEmptyIndex):
+			// Almost certainly a database pointed somewhere new rather than a
+			// library somebody emptied, so nothing is deleted and it says so.
+			slog.Warn("skipped collecting orphan blobs",
+				"reason", "the database references no blobs and the store is not empty")
+		case err != nil:
+			slog.Error("collecting orphan blobs", "err", err)
+		case done.Deleted > 0:
+			slog.Info("collected orphan blobs",
+				"scanned", done.Scanned, "deleted", done.Deleted, "bytes", done.Bytes)
+		}
 	}
 }
 
