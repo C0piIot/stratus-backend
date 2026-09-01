@@ -1,59 +1,27 @@
-// Package auth holds credential handling: the password hash the server is
-// configured with, how `stratus hash-password` produces it, how it is
-// recognised as usable at startup, and how a login is checked against it.
+// Package auth holds credential handling: the single user the server is
+// configured with, and the per-protocol adapters that check a login against it.
 //
-// The per-protocol adapters live here too. HTTP Basic is the first, because
-// WebDAV and CalDAV both speak it; OpenSubsonic's API keys are a different
-// shape and arrive with that surface.
+// The password is stored in memory as configured, in the clear. That is a
+// deliberate trade rather than an oversight: OpenSubsonic's token
+// authentication is md5(password + salt), which a server that only holds a hash
+// cannot compute. Keeping the plaintext means every protocol behaves the same
+// way whatever the deployment looks like, instead of one of them working only
+// when the operator happened to configure the password one way.
+//
+// The exposure this accepts is the process environment, which already carries
+// the S3 secret key and the database password. It is not written anywhere.
 package auth
 
 import (
-	"errors"
-	"fmt"
-
-	"golang.org/x/crypto/bcrypt"
+	"crypto/sha256"
+	"crypto/subtle"
 )
 
-// Cost is the bcrypt work factor. bcrypt.DefaultCost is 10, which is the number
-// everything else in the ecosystem uses; naming it here makes it a decision
-// rather than an omission.
-const Cost = bcrypt.DefaultCost
-
-// MaxPasswordLen is bcrypt's own limit. Longer input is silently truncated by
-// the algorithm, so a passphrase that differs only after byte 72 would be the
-// same password -- worth an error rather than a surprise.
-const MaxPasswordLen = 72
-
-// Hash turns a plaintext password into the bcrypt hash that goes in
-// STRATUS_PASSWORD_HASH.
-func Hash(password string) (string, error) {
-	switch {
-	case password == "":
-		return "", errors.New("password is empty")
-	case len(password) > MaxPasswordLen:
-		return "", fmt.Errorf("password is %d bytes, over bcrypt's %d byte limit", len(password), MaxPasswordLen)
-	}
-
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), Cost)
-	if err != nil {
-		return "", fmt.Errorf("hash password: %w", err)
-	}
-	return string(hash), nil
-}
-
-// compare is bcrypt's own check, wrapped so that Verify reads as two booleans
-// and cannot grow an early return by accident.
-func compare(hash, password string) bool {
-	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) == nil
-}
-
-// ValidateHash reports whether hash is something bcrypt can later verify
-// against. It exists so that a truncated or hand-edited hash fails at startup
-// instead of at the first login attempt.
-func ValidateHash(hash string) error {
-	if _, err := bcrypt.Cost([]byte(hash)); err != nil {
-		// The hash is not a secret, but it is not useful in a log either.
-		return fmt.Errorf("not a bcrypt hash: %w", err)
-	}
-	return nil
+// sameSecret compares two secrets without leaking which characters matched, and
+// without leaking their lengths either: ConstantTimeCompare returns early when
+// the lengths differ, so both sides are hashed to a fixed size first.
+func sameSecret(given, configured string) bool {
+	a := sha256.Sum256([]byte(given))
+	b := sha256.Sum256([]byte(configured))
+	return subtle.ConstantTimeCompare(a[:], b[:]) == 1
 }

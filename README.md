@@ -58,7 +58,7 @@ make up STRATUS_PORT=9000 STRATUS_DATA_PATH=/srv/stratus
 | `STRATUS_STORAGE_DSN` | `file://<data>/blobs` | blob backend; the scheme picks it |
 | `STRATUS_DB_DSN` | `sqlite://<data>/stratus.db` | metadata backend; likewise |
 | `STRATUS_USERNAME` | unset | the single user |
-| `STRATUS_PASSWORD_HASH` | unset | bcrypt, from `make hash-password` |
+| `STRATUS_PASSWORD` | unset | the single user's password |
 
 ### Blob storage
 
@@ -92,14 +92,17 @@ correctness requirements for a server, not preferences, so they are set for you.
 ### Credentials
 
 ```sh
-make hash-password        # reads a password on stdin, prints the bcrypt hash
+STRATUS_USERNAME=edu STRATUS_PASSWORD='...' make up
 ```
 
-Stratus stores the hash, never the password. Put it in `STRATUS_PASSWORD_HASH`
-alongside `STRATUS_USERNAME`; setting one without the other refuses to start.
-Storing a hash has one consequence worth knowing: Subsonic token auth
-(`t=md5(password+salt)`) needs the server to know the plaintext, so it cannot be
-supported from a hash alone.
+Setting one without the other refuses to start.
+
+The password is held as configured rather than hashed, which is a deliberate
+trade: OpenSubsonic's token authentication is `md5(password + salt)`, and a
+server that only holds a hash cannot compute it. Hashing would mean one protocol
+behaving differently from the rest. The exposure is the process environment,
+which already carries the S3 secret key and the database password; it is never
+written anywhere.
 
 `STRATUS_DATA_PATH` is a bind mount, not a named volume: your library stays on
 your own filesystem, and the container runs as the user that owns it. The server

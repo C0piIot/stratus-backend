@@ -176,20 +176,6 @@ else
   ok "-healthcheck fails with nothing listening"
 fi
 
-# The setup instructions must not send anyone looking for htpasswd, so the
-# subcommand has to work in the shipped image, which has no shell to help it.
-hash="$(printf %s 'correct horse battery staple' | docker run --rm -i "$REF" hash-password 2>/dev/null || true)"
-case "$hash" in
-  '$2a$'*|'$2b$'*|'$2y$'*) ok "hash-password produces a bcrypt hash" ;;
-  *) bad "hash-password produces a bcrypt hash" "got '$hash'" ;;
-esac
-
-if printf %s '' | docker run --rm -i "$REF" hash-password >/dev/null 2>&1; then
-  bad "hash-password refuses an empty password" "it produced a hash"
-else
-  ok "hash-password refuses an empty password"
-fi
-
 # ---------------------------------------------------------------------------
 section "Startup: happy path"
 # ---------------------------------------------------------------------------
@@ -341,9 +327,8 @@ refuses() {
 
 refuses "a malformed storage DSN refuses to start" -e STRATUS_STORAGE_DSN=nonsense
 refuses "an unsupported storage scheme refuses to start" -e STRATUS_STORAGE_DSN=ftp://example.com/blobs
-refuses "a password hash with no username refuses to start" -e STRATUS_PASSWORD_HASH='$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy'
-refuses "a username with no password hash refuses to start" -e STRATUS_USERNAME=edu
-refuses "a password hash that is not bcrypt refuses to start" -e STRATUS_USERNAME=edu -e STRATUS_PASSWORD_HASH=hunter2
+refuses "a password with no username refuses to start" -e STRATUS_PASSWORD=an-example-password
+refuses "a username with no password refuses to start" -e STRATUS_USERNAME=edu
 refuses "a malformed database DSN refuses to start" -e STRATUS_DB_DSN=nonsense
 refuses "an unsupported database scheme refuses to start" -e STRATUS_DB_DSN=mysql://user:pass@db/stratus
 refuses "an unreachable database refuses to start" -e STRATUS_DB_DSN=postgres://u:p@127.0.0.1:1/stratus?sslmode=disable

@@ -138,10 +138,6 @@ logs:
 ps:
 	$(COMPOSE) ps
 
-## hash-password: read a password on stdin and print its bcrypt hash
-hash-password: image
-	@docker run --rm -i $(IMAGE):$(VERSION) hash-password
-
 ## health: curl the health endpoint
 health:
 	@curl -fsS http://localhost:$(STRATUS_PORT)/healthz >/dev/null && echo healthy || (echo unhealthy; exit 1)
@@ -335,7 +331,7 @@ clean-data: down
 version:
 	@echo $(VERSION)
 
-.PHONY: help env up down restart logs ps health hash-password image build fmt fmt-check vet \
+.PHONY: help env up down restart logs ps health image build fmt fmt-check vet \
         lint tidy tidy-check vuln test test-race test-s3 test-db minio-up \
         minio-down postgres-up postgres-down cover smoke ci shell clean \
         clean-data version
