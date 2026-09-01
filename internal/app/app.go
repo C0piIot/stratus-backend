@@ -202,7 +202,7 @@ func (a *App) open(ctx context.Context) (deps Deps, err error) {
 // stored on App because nothing serves a login yet: the protocol surfaces take
 // it when they arrive.
 func credentials(cfg config.Config) auth.Credentials {
-	return auth.Credentials{Username: cfg.Username, Hash: cfg.PasswordHash.Reveal()}
+	return auth.Credentials{Username: cfg.Username, Password: cfg.Password.Reveal()}
 }
 
 // checkCredentials refuses a configuration that could never authenticate
@@ -211,7 +211,7 @@ func credentials(cfg config.Config) auth.Credentials {
 // from, which is what the operator can actually act on.
 func checkCredentials(cfg config.Config) error {
 	if err := credentials(cfg).Validate(); err != nil {
-		return fmt.Errorf("STRATUS_USERNAME / STRATUS_PASSWORD_HASH: %w (produce a hash with `stratus hash-password`)", err)
+		return fmt.Errorf("STRATUS_USERNAME / STRATUS_PASSWORD: %w", err)
 	}
 	return nil
 }

@@ -29,7 +29,7 @@ profile="${1:-coverage.out}"
 
 FLOORS="
 internal/app:94
-internal/auth:97
+internal/auth:100
 internal/config:100
 internal/db:58
 internal/db/postgres:88

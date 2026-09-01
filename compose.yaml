@@ -24,7 +24,7 @@ services:
       STRATUS_STORAGE_DSN: "${STRATUS_STORAGE_DSN:-}"
       STRATUS_DB_DSN: "${STRATUS_DB_DSN:-}"
       STRATUS_USERNAME: "${STRATUS_USERNAME:-}"
-      STRATUS_PASSWORD_HASH: "${STRATUS_PASSWORD_HASH:-}"
+      STRATUS_PASSWORD: "${STRATUS_PASSWORD:-}"
 
     # Photos, music and the SQLite database live here. Point this at real storage
     # (e.g. /srv/stratus) once there is something worth keeping.

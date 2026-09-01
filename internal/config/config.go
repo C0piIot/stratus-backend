@@ -41,10 +41,12 @@ type Config struct {
 	Storage StorageDSN
 	// Database selects and configures the metadata backend.
 	Database DatabaseDSN
-	// Username and PasswordHash are the single user's credentials. Both are
-	// empty until a protocol needs them; nothing authenticates anything yet.
-	Username     string
-	PasswordHash Secret
+	// Username and Password are the single user's credentials, and the
+	// password is held as configured rather than hashed: OpenSubsonic's token
+	// auth is md5(password + salt), which a hash cannot produce. See
+	// internal/auth.
+	Username string
+	Password Secret
 }
 
 // Load resolves the configuration from getenv, which is os.Getenv in
@@ -59,11 +61,11 @@ func Load(getenv func(string) string) (Config, error) {
 	}
 
 	cfg := Config{
-		Addr:         lookup(getenv, "STRATUS_ADDR", DefaultAddr),
-		DataDir:      lookup(getenv, "STRATUS_DATA_DIR", DefaultDataDir),
-		LogLevel:     parseLevel(lookup(getenv, "STRATUS_LOG_LEVEL", "")),
-		Username:     getenv("STRATUS_USERNAME"),
-		PasswordHash: Secret(getenv("STRATUS_PASSWORD_HASH")),
+		Addr:     lookup(getenv, "STRATUS_ADDR", DefaultAddr),
+		DataDir:  lookup(getenv, "STRATUS_DATA_DIR", DefaultDataDir),
+		LogLevel: parseLevel(lookup(getenv, "STRATUS_LOG_LEVEL", "")),
+		Username: getenv("STRATUS_USERNAME"),
+		Password: Secret(getenv("STRATUS_PASSWORD")),
 	}
 
 	storage, err := ParseStorageDSN(lookup(getenv, "STRATUS_STORAGE_DSN", defaultStorageDSN(cfg.DataDir)))

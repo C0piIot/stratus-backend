@@ -16,11 +16,7 @@ const (
 
 func credentials(t *testing.T) auth.Credentials {
 	t.Helper()
-	hash, err := auth.Hash(examplePassword)
-	if err != nil {
-		t.Fatalf("Hash: %v", err)
-	}
-	return auth.Credentials{Username: username, Hash: hash}
+	return auth.Credentials{Username: username, Password: examplePassword}
 }
 
 func TestVerify(t *testing.T) {
@@ -64,7 +60,7 @@ func TestVerifyWithoutCredentials(t *testing.T) {
 	for _, creds := range []auth.Credentials{
 		{},
 		{Username: username},
-		{Hash: credentials(t).Hash},
+		{Password: examplePassword},
 	} {
 		if err := creds.Verify(username, examplePassword); !errors.Is(err, auth.ErrUnauthorized) {
 			t.Errorf("Verify against %+v = %v, want ErrUnauthorized", creds, err)
@@ -84,9 +80,8 @@ func TestValidate(t *testing.T) {
 	}{
 		{name: "nothing set is legal for now", creds: auth.Credentials{}},
 		{name: "both set", creds: credentials(t)},
-		{name: "a hash with no username", creds: auth.Credentials{Hash: credentials(t).Hash}, wantErr: true},
-		{name: "a username with no hash", creds: auth.Credentials{Username: username}, wantErr: true},
-		{name: "a hash bcrypt cannot read", creds: auth.Credentials{Username: username, Hash: "not a hash"}, wantErr: true},
+		{name: "a hash with no username", creds: auth.Credentials{Password: examplePassword}, wantErr: true},
+		{name: "a username with no password", creds: auth.Credentials{Username: username}, wantErr: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -1,9 +1,7 @@
 package auth
 
 import (
-	"crypto/subtle"
 	"errors"
-	"fmt"
 )
 
 // ErrUnauthorized is what every failed verification returns, whatever went
@@ -16,29 +14,24 @@ var ErrUnauthorized = errors.New("auth: unauthorized")
 // know which it is.
 type Credentials struct {
 	Username string
-	// Hash is a bcrypt hash, as produced by Hash and stored in
-	// STRATUS_PASSWORD_HASH.
-	Hash string
+	Password string
 }
 
 // Configured reports whether there is a user to authenticate against at all.
-func (c Credentials) Configured() bool { return c.Username != "" && c.Hash != "" }
+func (c Credentials) Configured() bool { return c.Username != "" && c.Password != "" }
 
-// Validate refuses a configuration that could never authenticate anybody. It is
-// called at startup so a hash pasted with a byte missing stops the process
-// rather than surfacing as a failed login weeks later.
+// Validate refuses a configuration that could never authenticate anybody, so
+// that half-set credentials stop the process rather than surfacing as a failed
+// login weeks later.
 func (c Credentials) Validate() error {
 	switch {
-	case c.Username == "" && c.Hash == "":
+	case c.Username == "" && c.Password == "":
 		// Nothing configured is legal while no protocol needs a login.
 		return nil
 	case c.Username == "":
-		return errors.New("a password hash is set but a username is not")
-	case c.Hash == "":
-		return errors.New("a username is set but a password hash is not")
-	}
-	if err := ValidateHash(c.Hash); err != nil {
-		return fmt.Errorf("the password hash is unusable: %w", err)
+		return errors.New("a password is set but a username is not")
+	case c.Password == "":
+		return errors.New("a username is set but a password is not")
 	}
 	return nil
 }
@@ -46,19 +39,16 @@ func (c Credentials) Validate() error {
 // Verify checks a username and password, and returns ErrUnauthorized for every
 // way of getting them wrong.
 //
-// There is no early return when the username does not match, on purpose. bcrypt
-// is deliberately slow, so skipping it would make a wrong username measurably
-// faster than a wrong password and turn the response time into an oracle for
-// which usernames exist. Both halves are computed, then combined.
+// Both halves are compared before either is judged. An early return on the
+// username would make a wrong one measurably faster than a wrong password and
+// turn the response time into an oracle for which usernames exist.
 func (c Credentials) Verify(username, password string) error {
 	if !c.Configured() {
 		return ErrUnauthorized
 	}
 
-	// ConstantTimeCompare still returns early on a length mismatch, so the
-	// length of the configured username is not hidden. Everything else is.
-	sameUser := subtle.ConstantTimeCompare([]byte(username), []byte(c.Username)) == 1
-	samePassword := compare(c.Hash, password)
+	sameUser := sameSecret(username, c.Username)
+	samePassword := sameSecret(password, c.Password)
 
 	if !sameUser || !samePassword {
 		return ErrUnauthorized

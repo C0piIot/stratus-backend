@@ -2,7 +2,6 @@ package config_test
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -221,10 +220,10 @@ func TestDSNNeverPrintsItsSecret(t *testing.T) {
 func TestConfigNeverPrintsItsSecrets(t *testing.T) {
 	t.Parallel()
 	cfg, err := config.Load(env(map[string]string{
-		"STRATUS_STORAGE_DSN":   s3DSN(""),
-		"STRATUS_DB_DSN":        pgDSN(""),
-		"STRATUS_USERNAME":      "edu",
-		"STRATUS_PASSWORD_HASH": "$2a$10$abcdefghijklmnopqrstuv",
+		"STRATUS_STORAGE_DSN": s3DSN(""),
+		"STRATUS_DB_DSN":      pgDSN(""),
+		"STRATUS_USERNAME":    "edu",
+		"STRATUS_PASSWORD":    "an example password",
 	}))
 	if err != nil {
 		t.Fatal(err)
@@ -235,8 +234,8 @@ func TestConfigNeverPrintsItsSecrets(t *testing.T) {
 		if strings.Contains(got, secretKey) {
 			t.Errorf("%s leaks the storage secret: %s", format, got)
 		}
-		if strings.Contains(got, "abcdefghijklmnopqrstuv") {
-			t.Errorf("%s leaks the password hash: %s", format, got)
+		if strings.Contains(got, "an example password") {
+			t.Errorf("%s leaks the password: %s", format, got)
 		}
 		if strings.Contains(got, dbPassword) {
 			t.Errorf("%s leaks the database password: %s", format, got)
@@ -315,17 +314,17 @@ func TestLoadStorageDSN(t *testing.T) {
 func TestLoadCredentials(t *testing.T) {
 	t.Parallel()
 	cfg := load(t, map[string]string{
-		"STRATUS_USERNAME":      "edu",
-		"STRATUS_PASSWORD_HASH": "$2a$10$hash",
+		"STRATUS_USERNAME": "edu",
+		"STRATUS_PASSWORD": "an example password",
 	})
 	if cfg.Username != "edu" {
 		t.Errorf("Username = %q", cfg.Username)
 	}
-	if cfg.PasswordHash.Reveal() != "$2a$10$hash" {
-		t.Errorf("PasswordHash does not round trip")
+	if cfg.Password.Reveal() != "an example password" {
+		t.Error("Password does not round trip")
 	}
-	if errors.Is(nil, nil) && cfg.PasswordHash.String() == "$2a$10$hash" {
-		t.Error("the hash prints itself")
+	if cfg.Password.String() == "an example password" {
+		t.Error("the password prints itself")
 	}
 }
 

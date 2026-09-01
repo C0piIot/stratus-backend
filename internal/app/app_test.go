@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/C0piIot/stratus-backend/internal/app"
-	"github.com/C0piIot/stratus-backend/internal/auth"
 	"github.com/C0piIot/stratus-backend/internal/config"
 	"github.com/C0piIot/stratus-backend/internal/db/sqlite"
 )
@@ -387,13 +386,13 @@ func TestRunRejectsHalfSetCredentials(t *testing.T) {
 	}{
 		{
 			name: "a hash with no username",
-			vars: map[string]string{"STRATUS_PASSWORD_HASH": "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy"},
+			vars: map[string]string{"STRATUS_PASSWORD": "an example password"},
 			want: "STRATUS_USERNAME",
 		},
 		{
 			name: "a username with no hash",
 			vars: map[string]string{"STRATUS_USERNAME": "edu"},
-			want: "STRATUS_PASSWORD_HASH",
+			want: "STRATUS_PASSWORD",
 		},
 	}
 	for _, tt := range tests {
@@ -410,35 +409,11 @@ func TestRunRejectsHalfSetCredentials(t *testing.T) {
 	}
 }
 
-// TestRunRejectsAHashItCouldNeverVerify is the fail-fast case that matters
-// most: a hash pasted with a byte missing would otherwise look fine until the
-// first login.
-func TestRunRejectsAHashItCouldNeverVerify(t *testing.T) {
-	t.Parallel()
-	err := runToShutdown(t, runConfig(t, map[string]string{
-		"STRATUS_USERNAME":      "edu",
-		"STRATUS_PASSWORD_HASH": "hunter2",
-	}))
-	if err == nil {
-		t.Fatal("Run = nil, want a refusal")
-	}
-	if !strings.Contains(err.Error(), "hash-password") {
-		t.Errorf("the error should say how to produce a hash, got %v", err)
-	}
-	if strings.Contains(err.Error(), "hunter2") {
-		t.Errorf("the error echoes the configured value: %v", err)
-	}
-}
-
 func TestRunAcceptsWholeCredentials(t *testing.T) {
 	t.Parallel()
-	hash, err := auth.Hash("correct horse battery staple")
-	if err != nil {
-		t.Fatal(err)
-	}
 	if err := runToShutdown(t, runConfig(t, map[string]string{
-		"STRATUS_USERNAME":      "edu",
-		"STRATUS_PASSWORD_HASH": hash,
+		"STRATUS_USERNAME": "edu",
+		"STRATUS_PASSWORD": "an example password",
 	})); err != nil {
 		t.Errorf("Run = %v, want a clean start and shutdown", err)
 	}
