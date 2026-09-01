@@ -23,6 +23,7 @@ import (
 	"github.com/C0piIot/stratus-backend/internal/db/postgres"
 	"github.com/C0piIot/stratus-backend/internal/db/sqlite"
 	"github.com/C0piIot/stratus-backend/internal/files"
+	"github.com/C0piIot/stratus-backend/internal/media"
 	"github.com/C0piIot/stratus-backend/internal/storage"
 	"github.com/C0piIot/stratus-backend/internal/storage/disk"
 	"github.com/C0piIot/stratus-backend/internal/storage/s3"
@@ -71,6 +72,9 @@ type App struct {
 type Deps struct {
 	Storage  storage.Storage
 	Database db.Store
+	// Indexer is nil when there is nothing to index into, which today means no
+	// credentials and therefore no files.
+	Indexer *media.Indexer
 }
 
 // Close releases whatever is open, and tolerates a partly built Deps because
@@ -160,6 +164,16 @@ func (a *App) Run(ctx context.Context) error {
 	} else {
 		slog.Warn("orphan blob collection disabled", "reason", "STRATUS_GC_INTERVAL is zero")
 	}
+
+	if a.cfg.IndexInterval > 0 && deps.Indexer != nil {
+		background.Add(1)
+		go func() {
+			defer background.Done()
+			a.indexPeriodically(ctx, deps)
+		}()
+	} else {
+		slog.Warn("media indexing disabled", "reason", "STRATUS_INDEX_INTERVAL is zero")
+	}
 	defer background.Wait()
 
 	srv := a.Server(deps)
@@ -231,6 +245,21 @@ func (a *App) open(ctx context.Context) (deps Deps, err error) {
 	}
 	slog.Info("database ready", "scheme", a.cfg.Database.Scheme, "dsn", a.cfg.Database)
 
+	if a.cfg.IndexInterval > 0 {
+		// ffprobe is a hard requirement rather than an optional extra: without
+		// it a track has no duration and a video no dimensions, and half a
+		// media library is worse than an honest refusal to start.
+		ffprobe, ferr := media.LookupFFprobe()
+		if ferr != nil {
+			return deps, ferr
+		}
+		tmp, terr := media.TempDir(a.cfg.DataDir)
+		if terr != nil {
+			return deps, terr
+		}
+		deps.Indexer = media.NewIndexer(files.New(deps.Storage, deps.Database), deps.Database, tmp, ffprobe)
+	}
+
 	if credentials(a.cfg).Configured() {
 		slog.Info("webdav ready", "prefix", davPrefix, "user", a.cfg.Username)
 	} else {
@@ -283,6 +312,37 @@ func openStorage(ctx context.Context, dsn config.StorageDSN) (storage.Storage, e
 		return store, nil
 	default:
 		return nil, fmt.Errorf("unsupported storage scheme %q", dsn.Scheme)
+	}
+}
+
+// indexPeriodically extracts metadata from files that have none.
+//
+// When a pass finds a full batch it comes straight back for more, so a first
+// run over an existing library goes as fast as the extractors allow; when it
+// finds nothing it waits. One worker: ffprobe on four cores that are also
+// serving requests does not want company.
+func (a *App) indexPeriodically(ctx context.Context, deps Deps) {
+	slog.Info("indexing media", "idle", a.cfg.IndexInterval, "version", media.Version)
+
+	for {
+		indexed, err := deps.Indexer.IndexBatch(ctx)
+		switch {
+		case errors.Is(err, context.Canceled):
+			return
+		case err != nil:
+			slog.Error("indexing media", "err", err)
+		case indexed > 0:
+			slog.Info("indexed media", "files", indexed)
+		}
+
+		if indexed == media.BatchSize && err == nil {
+			continue // a full batch means there is probably more
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(a.cfg.IndexInterval):
+		}
 	}
 }
 

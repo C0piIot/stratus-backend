@@ -29,6 +29,11 @@ func Run(t *testing.T, newStore func(t *testing.T) db.Store) {
 		RunFiles(t, func(t *testing.T) db.Files { return newStore(t) })
 	})
 
+	t.Run("media", func(t *testing.T) {
+		t.Parallel()
+		RunMedia(t, func(t *testing.T) db.Repo { return newStore(t) })
+	})
+
 	cases := []struct {
 		name string
 		fn   func(t *testing.T, s db.Store)

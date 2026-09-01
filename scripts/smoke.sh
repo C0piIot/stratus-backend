@@ -97,10 +97,21 @@ section "Image properties"
 docker pull -q "$BASE_IMAGE" >/dev/null 2>&1 || true
 base_layers="$(docker image inspect -f '{{len .RootFS.Layers}}' "$BASE_IMAGE" 2>/dev/null || echo 0)"
 img_layers="$(docker image inspect -f '{{len .RootFS.Layers}}' "$REF")"
-if [ "$base_layers" -gt 0 ] && [ "$((img_layers - base_layers))" -eq 1 ]; then
-  ok "adds exactly one layer over the base ($base_layers -> $img_layers)"
+# Two layers now: the binary and ffprobe. The number matters less than the fact
+# that it is counted -- a base swapped for something with a package manager in
+# it would show up here first.
+if [ "$base_layers" -gt 0 ] && [ "$((img_layers - base_layers))" -eq 2 ]; then
+  ok "adds exactly two layers over the base ($base_layers -> $img_layers)"
 else
-  bad "adds exactly one layer over the base" "base=$base_layers image=$img_layers"
+  bad "adds exactly two layers over the base" "base=$base_layers image=$img_layers"
+fi
+
+# ffprobe is a requirement, so its absence has to fail here rather than at the
+# first video somebody uploads.
+if docker run --rm --entrypoint /usr/local/bin/ffprobe "$REF" -version >/dev/null 2>&1; then
+  ok "ffprobe runs inside the image"
+else
+  bad "ffprobe runs inside the image" "it is missing or not executable"
 fi
 
 user="$(docker image inspect -f '{{.Config.User}}' "$REF")"
@@ -205,8 +216,12 @@ fi
 # Both write probes are startup artefacts. The data directory now legitimately
 # holds the blob store, so the assertion is that nothing *else* survived: no
 # probe file beside it, and no probe object inside it.
+# The data directory legitimately holds the blob store, the database and the
+# indexer's spool directory. The assertion is that nothing *else* survived: no
+# write probe beside them, and nothing left inside them.
 leftovers="$(find "$datadir" -mindepth 1 \
   -not -path "$datadir/blobs" -not -path "$datadir/blobs/.tmp" \
+  -not -path "$datadir/.index" \
   -not -name 'stratus.db*' | tr '\n' ' ')"
 if [ -z "$leftovers" ]; then
   ok "neither write probe is left behind"
@@ -321,7 +336,8 @@ davname="stratus-smoke-dav"
 davuser="edu"
 davpass="an example password for the smoke tests"
 run_detached "$davname" -u "$(id -u):$(id -g)" -v "$davdir:/data" \
-  -e STRATUS_USERNAME="$davuser" -e STRATUS_PASSWORD="$davpass"
+  -e STRATUS_USERNAME="$davuser" -e STRATUS_PASSWORD="$davpass" \
+  -e STRATUS_INDEX_INTERVAL=200ms
 
 if wait_serving "$davname"; then
   davhost="$(docker port "$davname" 8080/tcp | head -1)"
@@ -363,6 +379,22 @@ if wait_serving "$davname"; then
     ok "PROPFIND answers a multistatus"
   else
     bad "PROPFIND answers a multistatus" "got $code"
+  fi
+
+  # The indexer picks up what was just uploaded, which is the whole loop: the
+  # pending query, an extractor, and a row written back.
+  indexed=""
+  for _ in $(seq 1 50); do
+    if docker logs "$davname" 2>&1 | grep -q '"msg":"indexed media"'; then
+      indexed=yes
+      break
+    fi
+    sleep 0.2
+  done
+  if [ -n "$indexed" ]; then
+    ok "the indexer picks up an uploaded file"
+  else
+    bad "the indexer picks up an uploaded file" "$(docker logs "$davname" 2>&1 | tail -3)"
   fi
 else
   bad "the WebDAV container starts" "$(docker logs "$davname" 2>&1 | tail -3)"

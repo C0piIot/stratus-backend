@@ -103,6 +103,25 @@ type Files interface {
 	DeleteFile(ctx context.Context, owner, path string) error
 }
 
+// MediaIndex is the repository for extracted metadata. Separate from Files for
+// the reason in #29: a feature takes the interface it uses, and the indexer has
+// no business being handed something that can move files around.
+type MediaIndex interface {
+	// PutMedia stores what an extractor found, replacing any earlier attempt.
+	PutMedia(ctx context.Context, m Media) error
+
+	// MediaByFile returns the metadata for a file, or ErrNotFound.
+	MediaByFile(ctx context.Context, fileID int64) (Media, error)
+
+	// PendingMedia returns files that have never been indexed, or were indexed
+	// by an extractor older than version.
+	//
+	// The queue is this query rather than a table: nothing is enqueued, nothing
+	// is dequeued, a restart loses nothing, and a newly written file turns up on
+	// its own.
+	PendingMedia(ctx context.Context, version, limit int) ([]File, error)
+}
+
 // Repo is every repository at once, which is what a transaction hands out: a
 // unit of work may well span features -- deleting a collection is file rows and
 // calendar objects together.
@@ -111,6 +130,7 @@ type Files interface {
 // transaction, where neither means anything.
 type Repo interface {
 	Files
+	MediaIndex
 }
 
 // Store is a database connection.

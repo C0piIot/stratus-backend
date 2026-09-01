@@ -71,7 +71,18 @@ func (s *Service) Open(ctx context.Context, owner, path string) (io.ReadSeekClos
 	if f.IsDir {
 		return nil, db.File{}, fmt.Errorf("%w: %q is a directory", db.ErrConflict, path)
 	}
-	return &blobReader{ctx: ctx, blobs: s.blobs, key: f.BlobKey, size: f.Size}, f, nil
+	body, err := s.OpenFile(ctx, f)
+	return body, f, err
+}
+
+// OpenFile is Open for a row the caller already has, which saves the lookup.
+// The indexer walks rows, so it would otherwise pay a query per file to reach
+// bytes it can already address.
+func (s *Service) OpenFile(ctx context.Context, f db.File) (io.ReadSeekCloser, error) {
+	if f.IsDir {
+		return nil, fmt.Errorf("%w: %q is a directory", db.ErrConflict, f.Path)
+	}
+	return &blobReader{ctx: ctx, blobs: s.blobs, key: f.BlobKey, size: f.Size}, nil
 }
 
 // Walk returns everything under dir, depth first, for PROPFIND with infinite
