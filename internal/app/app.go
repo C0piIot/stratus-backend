@@ -118,9 +118,9 @@ func (a *App) Handler(deps Deps) http.Handler {
 		// One throttle for the whole surface, built here so that its counters
 		// are shared rather than reset per request.
 		verifier := auth.NewThrottle(creds, auth.DefaultThrottle)
-		mux.Handle(davPrefix, auth.Basic(davRealm, verifier, dav.Handler(davPrefix, service, creds.Username)))
+		mux.Handle(davPrefix, auth.Basic(davRealm, verifier, dav.Handler(davPrefix, service)))
 	}
-	return mux
+	return logRequests(mux)
 }
 
 // Server applies the timeout policy. Separate from Run so the policy itself can
