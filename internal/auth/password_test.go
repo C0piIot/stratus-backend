@@ -11,19 +11,19 @@ import (
 
 func TestHashRoundTrip(t *testing.T) {
 	t.Parallel()
-	const password = "correct horse battery staple"
+	const examplePassword = "example correct horse battery staple"
 
-	hash, err := auth.Hash(password)
+	hash, err := auth.Hash(examplePassword)
 	if err != nil {
 		t.Fatalf("Hash: %v", err)
 	}
 	if err := auth.ValidateHash(hash); err != nil {
 		t.Errorf("ValidateHash on a fresh hash: %v", err)
 	}
-	if err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)); err != nil {
+	if err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(examplePassword)); err != nil {
 		t.Errorf("the hash does not verify against its own password: %v", err)
 	}
-	if strings.Contains(hash, password) {
+	if strings.Contains(hash, examplePassword) {
 		t.Error("the hash contains the password")
 	}
 }

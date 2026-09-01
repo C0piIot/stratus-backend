@@ -198,21 +198,20 @@ func (a *App) open(ctx context.Context) (deps Deps, err error) {
 	return deps, nil
 }
 
+// credentials is the single user, as configured. It is built here rather than
+// stored on App because nothing serves a login yet: the protocol surfaces take
+// it when they arrive.
+func credentials(cfg config.Config) auth.Credentials {
+	return auth.Credentials{Username: cfg.Username, Hash: cfg.PasswordHash.Reveal()}
+}
+
 // checkCredentials refuses a configuration that could never authenticate
-// anybody, rather than letting it surface as a login failure much later.
-// Nothing authenticates yet, so unset credentials are fine; half-set ones are
-// not.
+// anybody, rather than letting it surface as a login failure much later. The
+// rule itself lives in internal/auth; this only names the variables it came
+// from, which is what the operator can actually act on.
 func checkCredentials(cfg config.Config) error {
-	switch {
-	case cfg.Username == "" && cfg.PasswordHash == "":
-		return nil
-	case cfg.Username == "":
-		return errors.New("STRATUS_PASSWORD_HASH is set but STRATUS_USERNAME is not")
-	case cfg.PasswordHash == "":
-		return errors.New("STRATUS_USERNAME is set but STRATUS_PASSWORD_HASH is not")
-	}
-	if err := auth.ValidateHash(cfg.PasswordHash.Reveal()); err != nil {
-		return fmt.Errorf("STRATUS_PASSWORD_HASH: %w (produce one with `stratus hash-password`)", err)
+	if err := credentials(cfg).Validate(); err != nil {
+		return fmt.Errorf("STRATUS_USERNAME / STRATUS_PASSWORD_HASH: %w (produce a hash with `stratus hash-password`)", err)
 	}
 	return nil
 }
