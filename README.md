@@ -37,6 +37,14 @@ stored. Ranges, conditional requests and video seeking come from
 Locking is not implemented, so the server advertises DAV class 1. macOS Finder
 wants class 2 and will mount read-only.
 
+### Logs
+
+JSON on stdout, one line per request: method, path, status, bytes, duration and
+the caller's address. No headers and no query string — one carries the
+credentials and the other is where a token would end up if a protocol ever put
+one there. `/healthz` logs at debug, because the container asks every thirty
+seconds and three thousand lines a day of nothing is not a log.
+
 ### Media metadata
 
 Every file that arrives is read once for what it can say about itself: when a

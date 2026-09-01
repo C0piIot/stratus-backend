@@ -381,6 +381,19 @@ if wait_serving "$davname"; then
     bad "PROPFIND answers a multistatus" "got $code"
   fi
 
+  # One line per request, which is the only way to see a 401 or a 409 after the
+  # fact. The healthcheck is deliberately not in there.
+  if docker logs "$davname" 2>&1 | grep -q '"msg":"request".*"path":"/dav/notes.txt"'; then
+    ok "every request leaves a log line"
+  else
+    bad "every request leaves a log line" "$(docker logs "$davname" 2>&1 | tail -3)"
+  fi
+  if docker logs "$davname" 2>&1 | grep -q '"path":"/healthz"'; then
+    bad "the healthcheck stays out of the log" "it logs every thirty seconds"
+  else
+    ok "the healthcheck stays out of the log"
+  fi
+
   # The indexer picks up what was just uploaded, which is the whole loop: the
   # pending query, an extractor, and a row written back.
   indexed=""
