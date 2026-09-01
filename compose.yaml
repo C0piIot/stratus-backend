@@ -23,6 +23,8 @@ services:
       # and fall back to the defaults when they are not.
       STRATUS_STORAGE_DSN: "${STRATUS_STORAGE_DSN:-}"
       STRATUS_DB_DSN: "${STRATUS_DB_DSN:-}"
+      STRATUS_GC_INTERVAL: "${STRATUS_GC_INTERVAL:-}"
+      STRATUS_GC_GRACE: "${STRATUS_GC_GRACE:-}"
       STRATUS_USERNAME: "${STRATUS_USERNAME:-}"
       STRATUS_PASSWORD: "${STRATUS_PASSWORD:-}"
 

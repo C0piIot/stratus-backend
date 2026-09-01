@@ -34,11 +34,11 @@ internal/config:100
 internal/dav:75
 internal/files:86
 internal/db:58
-internal/db/postgres:88
-internal/db/sqlite:87
+internal/db/postgres:87
+internal/db/sqlite:86
 internal/storage:98
-internal/storage/disk:84
-internal/storage/s3:89
+internal/storage/disk:83
+internal/storage/s3:88
 "
 
 # Not gated, and why:
@@ -48,6 +48,18 @@ internal/storage/s3:89
 #   internal/storage/storagetest  the conformance suite itself. It runs from the
 #   internal/db/dbtest            disk, s3, sqlite and postgres tests, and Go
 #                                 attributes that coverage to them, not to it.
+#
+# internal/storage/s3 likewise: the multipart sweep is exercised against MinIO,
+# but the two branches that report a failure from the listing or the abort need
+# a server that fails on demand.
+#
+# internal/storage/disk went down a point when the .tmp sweep landed: its two
+# error branches need a filesystem that fails a ReadDir or a Remove.
+#
+# The two SQL drivers went down a point when BlobKeys landed: what is left
+# uncovered there is a scan failure and a rows.Err mid-iteration, neither of
+# which happens without a fault-injecting driver -- more machinery than three
+# log-and-return lines are worth.
 #
 # internal/dav sits lower than the rest on purpose: most of what is left
 # uncovered there is one error branch per protocol edge, and the ones worth

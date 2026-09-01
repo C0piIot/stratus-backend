@@ -532,6 +532,16 @@ func blobKeys(t *testing.T, s db.Files) {
 		t.Errorf("BlobKeys returned %d keys, want 3", len(got))
 	}
 
+	// The collector may stop early -- on an error, or because its context went
+	// away -- and abandoning the iteration must not leak the open rows.
+	for range s.BlobKeys(t.Context()) {
+		break
+	}
+	// Still usable afterwards, which is what proves the rows were closed.
+	if _, err := s.FileByPath(t.Context(), owner, "two.txt"); err != nil {
+		t.Errorf("the repository is unusable after an abandoned iteration: %v", err)
+	}
+
 	// An overwrite replaces the row, so the old key stops being referenced --
 	// which is exactly what makes its blob collectable.
 	replaced := file("two.txt")

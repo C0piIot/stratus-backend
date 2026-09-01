@@ -37,6 +37,28 @@ stored. Ranges, conditional requests and video seeking come from
 Locking is not implemented, so the server advertises DAV class 1. macOS Finder
 wants class 2 and will mount read-only.
 
+### Orphaned blobs
+
+A write puts the bytes down before the row, and takes a fresh blob key every
+time, so that a failed overwrite cannot destroy the content it was replacing.
+The price is that every overwrite leaves the previous blob behind. A sweep runs
+in the background — in the same process, as everything here does — and deletes
+blobs no row points at.
+
+Two rules make it safe rather than dangerous:
+
+- **A grace period.** A blob with no row may be a write still in flight, so
+  nothing younger than `STRATUS_GC_GRACE` is touched.
+- **It refuses an empty index.** A database that references no blobs at all,
+  next to a store with objects in it, is far more likely to be a database
+  pointed somewhere new than a library somebody emptied. It logs and does
+  nothing.
+
+The two backends also clean up after themselves when they open: the disk one
+empties its reserved directory of interrupted uploads, and the S3 one aborts
+multipart uploads abandoned more than a day ago, which are invisible to a
+listing and billed until something ends them.
+
 ## Pluggable backends
 
 Two seams, and only two:
@@ -79,6 +101,8 @@ make up STRATUS_PORT=9000 STRATUS_DATA_PATH=/srv/stratus
 | `STRATUS_DB_DSN` | `sqlite://<data>/stratus.db` | metadata backend; likewise |
 | `STRATUS_USERNAME` | unset | the single user |
 | `STRATUS_PASSWORD` | unset | the single user's password |
+| `STRATUS_GC_INTERVAL` | `24h` | how often orphaned blobs are collected; `0` disables |
+| `STRATUS_GC_GRACE` | `1h` | how long a blob is left alone first |
 
 ### Blob storage
 
