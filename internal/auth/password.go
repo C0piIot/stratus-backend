@@ -1,9 +1,10 @@
-// Package auth holds credential handling. For now that is the password hash the
-// server is configured with: how it is produced by `stratus hash-password` and
-// how it is recognised as usable at startup.
+// Package auth holds credential handling: the password hash the server is
+// configured with, how `stratus hash-password` produces it, how it is
+// recognised as usable at startup, and how a login is checked against it.
 //
-// Verification against a login lives here too once a protocol needs it. Nothing
-// does yet, and a Verify with no caller is a guess about how it will be called.
+// The per-protocol adapters live here too. HTTP Basic is the first, because
+// WebDAV and CalDAV both speak it; OpenSubsonic's API keys are a different
+// shape and arrive with that surface.
 package auth
 
 import (
@@ -38,6 +39,12 @@ func Hash(password string) (string, error) {
 		return "", fmt.Errorf("hash password: %w", err)
 	}
 	return string(hash), nil
+}
+
+// compare is bcrypt's own check, wrapped so that Verify reads as two booleans
+// and cannot grow an early return by accident.
+func compare(hash, password string) bool {
+	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) == nil
 }
 
 // ValidateHash reports whether hash is something bcrypt can later verify
