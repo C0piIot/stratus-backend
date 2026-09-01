@@ -846,3 +846,66 @@ func TestRunRefusesWithoutFFprobe(t *testing.T) {
 		t.Errorf("the error should name what is missing, got %v", err)
 	}
 }
+
+// TestIndexerRuns covers the goroutine and its wiring, with a stub on the PATH
+// standing in for ffprobe: the toolchain container has no media tools, and what
+// is under test here is the loop rather than the extractors.
+//
+// Not parallel, because it changes the process environment.
+func TestIndexerRuns(t *testing.T) {
+	const password = "an example password"
+	stubFFprobe(t)
+
+	dataDir := filepath.Join(t.TempDir(), "data")
+	base, stop := davServer(t, map[string]string{
+		"STRATUS_DATA_DIR":       dataDir,
+		"STRATUS_USERNAME":       "edu",
+		"STRATUS_PASSWORD":       password,
+		"STRATUS_INDEX_INTERVAL": "50ms",
+	})
+	defer stop()
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPut, base+"/dav/notes.txt", strings.NewReader("indexed"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.SetBasicAuth("edu", password)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+
+	store, err := sqlite.New(t.Context(), filepath.Join(dataDir, "stratus.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = store.Close() }()
+
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		f, ferr := store.FileByPath(t.Context(), "edu", "notes.txt")
+		if ferr == nil {
+			if m, merr := store.MediaByFile(t.Context(), f.ID); merr == nil {
+				if !m.Indexed() {
+					t.Fatalf("the file was indexed with an error: %s", m.Error)
+				}
+				return
+			}
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Error("the uploaded file was never indexed")
+}
+
+// stubFFprobe puts something called ffprobe on the PATH. The indexer refuses to
+// start without one, which is the point of the requirement.
+func stubFFprobe(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	stub := filepath.Join(dir, "ffprobe")
+	if err := os.WriteFile(stub, []byte("#!/bin/sh\necho '{\"streams\":[],\"format\":{}}'\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
