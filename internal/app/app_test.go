@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -38,6 +39,12 @@ func runConfig(t *testing.T, vars map[string]string) config.Config {
 		vars["STRATUS_DATA_DIR"] = filepath.Join(t.TempDir(), "data")
 	}
 	vars["STRATUS_ADDR"] = freeAddr(t)
+	// Off unless a test asks for it: the toolchain container has no ffprobe, and
+	// requiring it is the point rather than an accident. The end-to-end path is
+	// asserted by the smoke tests, inside the image that does have it.
+	if _, ok := vars["STRATUS_INDEX_INTERVAL"]; !ok {
+		vars["STRATUS_INDEX_INTERVAL"] = "0"
+	}
 
 	cfg, err := config.Load(func(key string) string { return vars[key] })
 	if err != nil {
@@ -819,5 +826,23 @@ func TestCollectorDisabled(t *testing.T) {
 
 	if got := countBlobs(t, filepath.Join(dataDir, "blobs")); got != 2 {
 		t.Errorf("the store holds %d blobs, want both: collection was disabled", got)
+	}
+}
+
+// TestRunRefusesWithoutFFprobe is the requirement made visible. ffprobe is not
+// an optional extra: without it a track has no duration and a video no
+// dimensions, and half a media library is worse than an honest refusal.
+func TestRunRefusesWithoutFFprobe(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("ffprobe"); err == nil {
+		t.Skip("ffprobe is on the PATH here, so its absence cannot be tested")
+	}
+
+	err := runToShutdown(t, runConfig(t, map[string]string{"STRATUS_INDEX_INTERVAL": "1m"}))
+	if err == nil {
+		t.Fatal("Run = nil, want a refusal to start without ffprobe")
+	}
+	if !strings.Contains(err.Error(), "ffprobe") {
+		t.Errorf("the error should name what is missing, got %v", err)
 	}
 }

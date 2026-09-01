@@ -36,6 +36,10 @@ const (
 	// it. Writes go blob first and row second, so a blob with no row may be a
 	// write still in flight rather than one that failed.
 	DefaultGCGrace = time.Hour
+	// DefaultIndexInterval is how long the indexer waits when it finds nothing
+	// to do. When it does find work it comes straight back, so this is the idle
+	// poll and not the pace of the indexing itself.
+	DefaultIndexInterval = time.Minute
 )
 
 // Config is the fully resolved configuration for one process.
@@ -54,6 +58,9 @@ type Config struct {
 	GCInterval time.Duration
 	// GCGrace is how long a blob is left alone before it can be collected.
 	GCGrace time.Duration
+	// IndexInterval is how long the media indexer waits when it is idle. Zero
+	// disables it.
+	IndexInterval time.Duration
 	// Username and Password are the single user's credentials, and the
 	// password is held as configured rather than hashed: OpenSubsonic's token
 	// auth is md5(password + salt), which a hash cannot produce. See
@@ -113,6 +120,15 @@ func Load(getenv func(string) string) (Config, error) {
 		return Config{}, errors.New("STRATUS_GC_GRACE: cannot be negative")
 	}
 	cfg.GCGrace = grace
+
+	index, err := time.ParseDuration(lookup(getenv, "STRATUS_INDEX_INTERVAL", DefaultIndexInterval.String()))
+	if err != nil {
+		return Config{}, errors.New("STRATUS_INDEX_INTERVAL: not a duration, try 1m or 0 to disable")
+	}
+	if index < 0 {
+		return Config{}, errors.New("STRATUS_INDEX_INTERVAL: cannot be negative, use 0 to disable")
+	}
+	cfg.IndexInterval = index
 
 	return cfg, nil
 }

@@ -172,17 +172,119 @@ func (r *repo) ListFiles(ctx context.Context, owner, dir string) ([]db.File, err
 
 	var out []db.File
 	for rows.Next() {
-		var f db.File
-		if err := rows.Scan(&f.ID, &f.OwnerID, &f.Path, &f.BlobKey, &f.Size, &f.MTime, &f.ETag, &f.MIMEType, &f.IsDir); err != nil {
+		f, err := scanFileRow(rows)
+		if err != nil {
 			return nil, fmt.Errorf("list %q: %w", dir, err)
 		}
-		f.MTime = f.MTime.UTC()
 		out = append(out, f)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("list %q: %w", dir, err)
 	}
 	return out, nil
+}
+
+const mediaColumns = `file_id, kind, indexed_at, version, error, taken_at, width, height, orientation, latitude, longitude, camera, duration_ms, codec, artist, album, title, track_no, disc_no, year, genre`
+
+// PutMedia implements db.MediaIndex.
+func (r *repo) PutMedia(ctx context.Context, m db.Media) error {
+	var takenAt any
+	if !m.TakenAt.IsZero() {
+		takenAt = m.TakenAt.UTC().Truncate(db.TimePrecision)
+	}
+
+	var lat, lon any
+	if m.GPS != nil {
+		lat, lon = m.GPS.Latitude, m.GPS.Longitude
+	}
+
+	const query = `INSERT INTO media (` + mediaColumns + `)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+		ON CONFLICT (file_id) DO UPDATE SET
+			kind = excluded.kind, indexed_at = excluded.indexed_at, version = excluded.version,
+			error = excluded.error, taken_at = excluded.taken_at, width = excluded.width,
+			height = excluded.height, orientation = excluded.orientation,
+			latitude = excluded.latitude, longitude = excluded.longitude, camera = excluded.camera,
+			duration_ms = excluded.duration_ms, codec = excluded.codec, artist = excluded.artist,
+			album = excluded.album, title = excluded.title, track_no = excluded.track_no,
+			disc_no = excluded.disc_no, year = excluded.year, genre = excluded.genre`
+
+	_, err := r.q.ExecContext(ctx, query,
+		m.FileID, string(m.Kind), m.IndexedAt.UTC(), m.Version, m.Error, takenAt,
+		m.Width, m.Height, m.Orientation, lat, lon, m.Camera,
+		m.DurationMS, m.Codec, m.Artist, m.Album, m.Title,
+		m.TrackNo, m.DiscNo, m.Year, m.Genre,
+	)
+	if err != nil {
+		return fmt.Errorf("put media for file %d: %w", m.FileID, mapErr(err))
+	}
+	return nil
+}
+
+// MediaByFile implements db.MediaIndex.
+func (r *repo) MediaByFile(ctx context.Context, fileID int64) (db.Media, error) {
+	const query = `SELECT ` + mediaColumns + ` FROM media WHERE file_id = $1`
+
+	m, err := scanMedia(r.q.QueryRowContext(ctx, query, fileID))
+	if err != nil {
+		return db.Media{}, fmt.Errorf("get media for file %d: %w", fileID, err)
+	}
+	return m, nil
+}
+
+// PendingMedia implements db.MediaIndex.
+func (r *repo) PendingMedia(ctx context.Context, version, limit int) ([]db.File, error) {
+	// The queue is this LEFT JOIN. A row with an error counts as done, or a
+	// file nothing can parse would come back on every pass forever.
+	const query = `SELECT f.` + `id, f.owner_id, f.path, f.blob_key, f.size, f.mtime, f.etag, f.mime_type, f.is_dir
+		FROM files f LEFT JOIN media m ON m.file_id = f.id
+		WHERE f.is_dir = FALSE AND (m.file_id IS NULL OR m.version < $1)
+		ORDER BY f.id LIMIT $2`
+
+	rows, err := r.q.QueryContext(ctx, query, version, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list pending media: %w", mapErr(err))
+	}
+	defer func() { _ = rows.Close() }()
+
+	var out []db.File
+	for rows.Next() {
+		f, err := scanFileRow(rows)
+		if err != nil {
+			return nil, fmt.Errorf("list pending media: %w", err)
+		}
+		out = append(out, f)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list pending media: %w", err)
+	}
+	return out, nil
+}
+
+func scanMedia(row *sql.Row) (db.Media, error) {
+	var m db.Media
+	var kind string
+	var lat, lon sql.NullFloat64
+	var indexedAt time.Time
+	var takenAt sql.NullTime
+
+	err := row.Scan(&m.FileID, &kind, &indexedAt, &m.Version, &m.Error, &takenAt,
+		&m.Width, &m.Height, &m.Orientation, &lat, &lon, &m.Camera,
+		&m.DurationMS, &m.Codec, &m.Artist, &m.Album, &m.Title,
+		&m.TrackNo, &m.DiscNo, &m.Year, &m.Genre)
+	if err != nil {
+		return db.Media{}, mapErr(err)
+	}
+
+	m.Kind = db.Kind(kind)
+	m.IndexedAt = indexedAt.UTC()
+	if takenAt.Valid {
+		m.TakenAt = takenAt.Time.UTC()
+	}
+	if lat.Valid && lon.Valid {
+		m.GPS = &db.GPS{Latitude: lat.Float64, Longitude: lon.Float64}
+	}
+	return m, nil
 }
 
 // BlobKeys implements db.Repo.
@@ -276,6 +378,16 @@ func (r *repo) checkAffected(ctx context.Context, result sql.Result, owner, path
 		// queries. Nothing useful to say beyond that it is not there now.
 		return fmt.Errorf("%w: %q", db.ErrNotFound, path)
 	}
+}
+
+// scanFileRow reads one row of fileColumns, for the queries that return many.
+func scanFileRow(rows *sql.Rows) (db.File, error) {
+	var f db.File
+	if err := rows.Scan(&f.ID, &f.OwnerID, &f.Path, &f.BlobKey, &f.Size, &f.MTime, &f.ETag, &f.MIMEType, &f.IsDir); err != nil {
+		return db.File{}, err
+	}
+	f.MTime = f.MTime.UTC()
+	return f, nil
 }
 
 func scanFile(row *sql.Row) (db.File, error) {
