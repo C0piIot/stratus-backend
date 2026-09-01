@@ -17,9 +17,11 @@ import (
 
 	"github.com/C0piIot/stratus-backend/internal/auth"
 	"github.com/C0piIot/stratus-backend/internal/config"
+	"github.com/C0piIot/stratus-backend/internal/dav"
 	"github.com/C0piIot/stratus-backend/internal/db"
 	"github.com/C0piIot/stratus-backend/internal/db/postgres"
 	"github.com/C0piIot/stratus-backend/internal/db/sqlite"
+	"github.com/C0piIot/stratus-backend/internal/files"
 	"github.com/C0piIot/stratus-backend/internal/storage"
 	"github.com/C0piIot/stratus-backend/internal/storage/disk"
 	"github.com/C0piIot/stratus-backend/internal/storage/s3"
@@ -35,6 +37,13 @@ const shutdownTimeout = 15 * time.Second
 
 // probeFile is written and removed at startup to prove the data dir is writable.
 const probeFile = ".stratus-write-probe"
+
+// davPrefix is where the file surface lives. Not "/" so that the web UI and the
+// other protocol surfaces have somewhere to go later.
+const davPrefix = "/dav/"
+
+// davRealm is what a client shows when it asks for a password.
+const davRealm = "Stratus"
 
 // probeKey is the same idea one layer up, in the blob store. It is a valid key
 // on every backend, and it never survives startup.
@@ -95,6 +104,17 @@ func (a *App) Handler(deps Deps) http.Handler {
 		// Nothing useful to do if the client hung up mid-write.
 		_, _ = io.WriteString(w, "ok\n")
 	})
+
+	// No credentials, no file surface. Refusing to mount it is clearer than
+	// mounting something that answers 401 to everyone, and it means an install
+	// that has not been configured yet cannot be a WebDAV server by accident.
+	if creds := credentials(a.cfg); creds.Configured() && deps.Storage != nil && deps.Database != nil {
+		service := files.New(deps.Storage, deps.Database)
+		// One throttle for the whole surface, built here so that its counters
+		// are shared rather than reset per request.
+		verifier := auth.NewThrottle(creds, auth.DefaultThrottle)
+		mux.Handle(davPrefix, auth.Basic(davRealm, verifier, dav.Handler(davPrefix, service, creds.Username)))
+	}
 	return mux
 }
 
@@ -194,6 +214,12 @@ func (a *App) open(ctx context.Context) (deps Deps, err error) {
 		return deps, fmt.Errorf("migrate the database: %w", err)
 	}
 	slog.Info("database ready", "scheme", a.cfg.Database.Scheme, "dsn", a.cfg.Database)
+
+	if credentials(a.cfg).Configured() {
+		slog.Info("webdav ready", "prefix", davPrefix, "user", a.cfg.Username)
+	} else {
+		slog.Warn("webdav disabled", "reason", "STRATUS_USERNAME and STRATUS_PASSWORD are not set")
+	}
 
 	return deps, nil
 }

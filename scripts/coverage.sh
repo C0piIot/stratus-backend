@@ -31,6 +31,8 @@ FLOORS="
 internal/app:94
 internal/auth:100
 internal/config:100
+internal/dav:75
+internal/files:86
 internal/db:58
 internal/db/postgres:88
 internal/db/sqlite:87
@@ -46,6 +48,10 @@ internal/storage/s3:89
 #   internal/storage/storagetest  the conformance suite itself. It runs from the
 #   internal/db/dbtest            disk, s3, sqlite and postgres tests, and Go
 #                                 attributes that coverage to them, not to it.
+#
+# internal/dav sits lower than the rest on purpose: most of what is left
+# uncovered there is one error branch per protocol edge, and the ones worth
+# pinning -- the status codes RFC 4918 is specific about -- are asserted.
 #
 # internal/db has a low floor for the same reason: db.Migrate is exercised by
 # both driver packages, and the depguard rule that keeps drivers out of the port

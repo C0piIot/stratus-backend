@@ -311,6 +311,65 @@ fi
 docker rm -f "$name" >/dev/null 2>&1
 
 # ---------------------------------------------------------------------------
+section "WebDAV"
+# ---------------------------------------------------------------------------
+# The first surface that does something. Unit tests drive the handler; this
+# drives the shipped image with a real client, over a real port.
+
+davdir="$(mktmp)"
+davname="stratus-smoke-dav"
+davuser="edu"
+davpass="an example password for the smoke tests"
+run_detached "$davname" -u "$(id -u):$(id -g)" -v "$davdir:/data" \
+  -e STRATUS_USERNAME="$davuser" -e STRATUS_PASSWORD="$davpass"
+
+if wait_serving "$davname"; then
+  davhost="$(docker port "$davname" 8080/tcp | head -1)"
+
+  code="$(curl -s -o /dev/null -w '%{http_code}' -X PUT --data-binary 'smoke' "http://$davhost/dav/notes.txt")"
+  if [ "$code" = "401" ]; then
+    ok "an unauthenticated PUT is refused"
+  else
+    bad "an unauthenticated PUT is refused" "got $code"
+  fi
+
+  code="$(curl -s -o /dev/null -w '%{http_code}' -u "$davuser:$davpass" \
+    -X PUT --data-binary 'smoke' "http://$davhost/dav/notes.txt")"
+  if [ "$code" = "201" ]; then
+    ok "PUT stores a file"
+  else
+    bad "PUT stores a file" "got $code"
+  fi
+
+  body="$(curl -fsS -u "$davuser:$davpass" "http://$davhost/dav/notes.txt" 2>/dev/null || true)"
+  if [ "$body" = "smoke" ]; then
+    ok "GET reads it back through storage and the database"
+  else
+    bad "GET reads it back" "got '$body'"
+  fi
+
+  # The blob is in the store under an opaque name, and the tree is in the
+  # database: that split is the whole architecture, so it is worth asserting
+  # from outside the process.
+  if [ -n "$(find "$davdir/blobs" -type f -not -path '*/.tmp/*' 2>/dev/null)" ] && [ -f "$davdir/stratus.db" ]; then
+    ok "the bytes are a blob and the name is a row"
+  else
+    bad "the bytes are a blob and the name is a row" "$(find "$davdir" -maxdepth 2 | tr '\n' ' ')"
+  fi
+
+  code="$(curl -s -o /dev/null -w '%{http_code}' -u "$davuser:$davpass" \
+    -H 'Depth: 1' -X PROPFIND "http://$davhost/dav/")"
+  if [ "$code" = "207" ]; then
+    ok "PROPFIND answers a multistatus"
+  else
+    bad "PROPFIND answers a multistatus" "got $code"
+  fi
+else
+  bad "the WebDAV container starts" "$(docker logs "$davname" 2>&1 | tail -3)"
+fi
+docker rm -f "$davname" >/dev/null 2>&1
+
+# ---------------------------------------------------------------------------
 section "Configuration failure matrix"
 # ---------------------------------------------------------------------------
 # Same argument as the data directory: a configuration the server can never
