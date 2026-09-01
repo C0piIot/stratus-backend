@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/C0piIot/stratus-backend/internal/auth"
 	"github.com/C0piIot/stratus-backend/internal/dav"
 	"github.com/C0piIot/stratus-backend/internal/db/sqlite"
 	"github.com/C0piIot/stratus-backend/internal/files"
@@ -36,7 +37,15 @@ func server(t *testing.T) http.Handler {
 	if err := meta.Migrate(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	return dav.Handler(prefix, files.New(blobs, meta), "edu")
+	// The handler takes the owner from the request, so the tests put one there
+	// the way auth.Basic does.
+	return withUser(dav.Handler(prefix, files.New(blobs, meta)), "edu")
+}
+
+func withUser(h http.Handler, username string) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h.ServeHTTP(w, r.WithContext(auth.WithUser(r.Context(), username)))
+	})
 }
 
 func do(t *testing.T, h http.Handler, method, target, body string, headers ...string) *httptest.ResponseRecorder {
@@ -300,5 +309,46 @@ func TestContentTypeComesFromTheExtension(t *testing.T) {
 
 	if got := do(t, h, http.MethodGet, "/dav/photo.heic", "").Header().Get("Content-Type"); got != "image/heic" {
 		t.Errorf("Content-Type = %q, want image/heic", got)
+	}
+}
+
+// TestWithoutAnAuthenticatedUser is the fail-closed case for the change that
+// took the owner off the constructor: reaching the backend with no user on the
+// request is a routing mistake, and serving somebody's files on a guess is the
+// wrong way to find out.
+func TestWithoutAnAuthenticatedUser(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+
+	blobs, err := disk.New(filepath.Join(dir, "blobs"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = blobs.Close() })
+	meta, err := sqlite.New(t.Context(), filepath.Join(dir, "stratus.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = meta.Close() })
+	if merr := meta.Migrate(t.Context()); merr != nil {
+		t.Fatal(merr)
+	}
+
+	// No auth.Basic in front of it, so nothing put a user on the context.
+	h := dav.Handler(prefix, files.New(blobs, meta))
+
+	// PROPFIND goes with an empty body: a body that is not XML is rejected
+	// before the request ever reaches the backend, which would test the parser
+	// rather than the check.
+	for _, tt := range []struct{ method, body string }{
+		{http.MethodGet, ""},
+		{http.MethodPut, "x"},
+		{"MKCOL", ""},
+		{"PROPFIND", ""},
+	} {
+		rec := do(t, h, tt.method, "/dav/notes.txt", tt.body)
+		if rec.Code != http.StatusUnauthorized {
+			t.Errorf("%s with no user = %d, want 401", tt.method, rec.Code)
+		}
 	}
 }

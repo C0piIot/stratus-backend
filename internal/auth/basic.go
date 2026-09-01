@@ -38,7 +38,10 @@ func Basic(realm string, v Verifier, h http.Handler) http.Handler {
 			unauthorized(w, challenge)
 			return
 		}
-		h.ServeHTTP(w, r)
+		// Who was verified travels with the request. An adapter that took the
+		// owner from configuration would be right exactly until there are two
+		// users.
+		h.ServeHTTP(w, r.WithContext(WithUser(r.Context(), username)))
 	})
 }
 

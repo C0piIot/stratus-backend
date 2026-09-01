@@ -19,29 +19,44 @@ import (
 
 	"github.com/emersion/go-webdav"
 
+	"github.com/C0piIot/stratus-backend/internal/auth"
 	"github.com/C0piIot/stratus-backend/internal/db"
 	"github.com/C0piIot/stratus-backend/internal/files"
 	"github.com/C0piIot/stratus-backend/internal/storage"
 )
 
-// Handler serves WebDAV for one owner under prefix.
+// Handler serves WebDAV under prefix, for whoever the request was
+// authenticated as.
 //
 // The prefix is stripped here rather than by the caller because the backend
 // speaks in storage paths and the handler speaks in URLs, and exactly one place
 // should know the difference.
-func Handler(prefix string, service *files.Service, owner string) http.Handler {
+func Handler(prefix string, service *files.Service) http.Handler {
 	prefix = strings.TrimSuffix(prefix, "/")
-	dav := &webdav.Handler{FileSystem: &fileSystem{files: service, owner: owner, prefix: prefix}}
+	dav := &webdav.Handler{FileSystem: &fileSystem{files: service, prefix: prefix}}
 	return http.StripPrefix(prefix, dav)
 }
 
 type fileSystem struct {
 	files *files.Service
-	owner string
 	// prefix is stripped from the request path by the handler above, but it is
 	// still on the Destination header, and it has to be put back on every href
 	// in a multistatus or the client follows a link to nowhere.
 	prefix string
+}
+
+// owner is whoever authenticated. go-webdav hands the request's context to
+// every backend method, so it arrives here with no plumbing of our own.
+//
+// There is no fallback: a request that reached this far without a user is a
+// routing mistake, and serving somebody's files on a guess is the wrong way to
+// find out about it.
+func (f *fileSystem) owner(ctx context.Context) (string, error) {
+	username, ok := auth.User(ctx)
+	if !ok {
+		return "", webdav.NewHTTPError(http.StatusUnauthorized, errors.New("no authenticated user on the request"))
+	}
+	return username, nil
 }
 
 // Open implements webdav.FileSystem. The reader it returns seeks, which is what
@@ -52,7 +67,12 @@ func (f *fileSystem) Open(ctx context.Context, name string) (io.ReadCloser, erro
 	if err != nil {
 		return nil, err
 	}
-	body, _, err := f.files.Open(ctx, f.owner, p)
+	owner, err := f.owner(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	body, _, err := f.files.Open(ctx, owner, p)
 	return body, mapErr(err)
 }
 
@@ -68,7 +88,12 @@ func (f *fileSystem) Stat(ctx context.Context, name string) (*webdav.FileInfo, e
 		return &webdav.FileInfo{Path: f.prefix + "/", IsDir: true}, nil
 	}
 
-	file, err := f.files.Stat(ctx, f.owner, p)
+	owner, err := f.owner(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	file, err := f.files.Stat(ctx, owner, p)
 	if err != nil {
 		return nil, mapErr(err)
 	}
@@ -82,11 +107,16 @@ func (f *fileSystem) ReadDir(ctx context.Context, name string, recursive bool) (
 		return nil, err
 	}
 
+	owner, err := f.owner(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	var listing []db.File
 	if recursive {
-		listing, err = f.files.Walk(ctx, f.owner, p)
+		listing, err = f.files.Walk(ctx, owner, p)
 	} else {
-		listing, err = f.files.List(ctx, f.owner, p)
+		listing, err = f.files.List(ctx, owner, p)
 	}
 	if err != nil {
 		return nil, mapErr(err)
@@ -106,7 +136,12 @@ func (f *fileSystem) Create(ctx context.Context, name string, body io.ReadCloser
 		return nil, false, err
 	}
 
-	existing, statErr := f.files.Stat(ctx, f.owner, p)
+	owner, err := f.owner(ctx)
+	if err != nil {
+		return nil, false, err
+	}
+
+	existing, statErr := f.files.Stat(ctx, owner, p)
 	switch {
 	case statErr != nil && !errors.Is(statErr, db.ErrNotFound):
 		return nil, false, mapErr(statErr)
@@ -118,7 +153,7 @@ func (f *fileSystem) Create(ctx context.Context, name string, body io.ReadCloser
 
 	// Size is unknown here: WebDAV clients may send chunked, and the port takes
 	// -1 for that.
-	file, err := f.files.Write(ctx, f.owner, p, body, -1, mimeType(p))
+	file, err := f.files.Write(ctx, owner, p, body, -1, mimeType(p))
 	if err != nil {
 		// RFC 4918 9.7.1: a PUT whose parent collection does not exist is 409,
 		// not 404. The resource being created is not the one that is missing.
@@ -141,8 +176,13 @@ func (f *fileSystem) RemoveAll(ctx context.Context, name string, opts *webdav.Re
 		return webdav.NewHTTPError(http.StatusForbidden, errors.New("the root cannot be deleted"))
 	}
 
+	owner, err := f.owner(ctx)
+	if err != nil {
+		return err
+	}
+
 	if opts != nil && (opts.IfMatch.IsSet() || opts.IfNoneMatch.IsSet()) {
-		existing, statErr := f.files.Stat(ctx, f.owner, p)
+		existing, statErr := f.files.Stat(ctx, owner, p)
 		if statErr != nil && !errors.Is(statErr, db.ErrNotFound) {
 			return mapErr(statErr)
 		}
@@ -150,7 +190,7 @@ func (f *fileSystem) RemoveAll(ctx context.Context, name string, opts *webdav.Re
 			return err
 		}
 	}
-	return mapErr(f.files.Remove(ctx, f.owner, p))
+	return mapErr(f.files.Remove(ctx, owner, p))
 }
 
 // Mkdir implements webdav.FileSystem, which is MKCOL.
@@ -159,7 +199,12 @@ func (f *fileSystem) Mkdir(ctx context.Context, name string) error {
 	if err != nil {
 		return err
 	}
-	_, err = f.files.Mkdir(ctx, f.owner, p)
+	owner, err := f.owner(ctx)
+	if err != nil {
+		return err
+	}
+
+	_, err = f.files.Mkdir(ctx, owner, p)
 	switch {
 	case errors.Is(err, db.ErrConflict):
 		// RFC 4918 9.3.1: MKCOL on something that already exists is 405.
@@ -183,7 +228,12 @@ func (f *fileSystem) Move(ctx context.Context, name, dest string, opts *webdav.M
 		return false, err
 	}
 
-	_, statErr := f.files.Stat(ctx, f.owner, to)
+	owner, err := f.owner(ctx)
+	if err != nil {
+		return false, err
+	}
+
+	_, statErr := f.files.Stat(ctx, owner, to)
 	switch {
 	case statErr == nil && opts != nil && opts.NoOverwrite:
 		return false, webdav.NewHTTPError(http.StatusPreconditionFailed, errors.New("the destination exists"))
@@ -191,14 +241,14 @@ func (f *fileSystem) Move(ctx context.Context, name, dest string, opts *webdav.M
 		// The port refuses to move onto an occupied path, so the destination is
 		// cleared first. Not atomic with the move: a failure between the two
 		// loses the destination, which is what Overwrite: T asked for anyway.
-		if err := f.files.Remove(ctx, f.owner, to); err != nil {
+		if err := f.files.Remove(ctx, owner, to); err != nil {
 			return false, mapErr(err)
 		}
 	case !errors.Is(statErr, db.ErrNotFound):
 		return false, mapErr(statErr)
 	}
 
-	if err := f.files.Move(ctx, f.owner, from, to); err != nil {
+	if err := f.files.Move(ctx, owner, from, to); err != nil {
 		return false, mapErr(err)
 	}
 	return statErr != nil, nil
@@ -219,7 +269,12 @@ func (f *fileSystem) Copy(ctx context.Context, name, dest string, opts *webdav.C
 		return false, err
 	}
 
-	source, err := f.files.Stat(ctx, f.owner, from)
+	owner, err := f.owner(ctx)
+	if err != nil {
+		return false, err
+	}
+
+	source, err := f.files.Stat(ctx, owner, from)
 	if err != nil {
 		return false, mapErr(err)
 	}
@@ -227,7 +282,7 @@ func (f *fileSystem) Copy(ctx context.Context, name, dest string, opts *webdav.C
 		return false, webdav.NewHTTPError(http.StatusNotImplemented, errors.New("copying a collection is not supported"))
 	}
 
-	_, statErr := f.files.Stat(ctx, f.owner, to)
+	_, statErr := f.files.Stat(ctx, owner, to)
 	if statErr == nil && opts != nil && opts.NoOverwrite {
 		return false, webdav.NewHTTPError(http.StatusPreconditionFailed, errors.New("the destination exists"))
 	}
@@ -235,13 +290,13 @@ func (f *fileSystem) Copy(ctx context.Context, name, dest string, opts *webdav.C
 		return false, mapErr(statErr)
 	}
 
-	body, _, err := f.files.Open(ctx, f.owner, from)
+	body, _, err := f.files.Open(ctx, owner, from)
 	if err != nil {
 		return false, mapErr(err)
 	}
 	defer func() { _ = body.Close() }()
 
-	if _, err := f.files.Write(ctx, f.owner, to, body, source.Size, source.MIMEType); err != nil {
+	if _, err := f.files.Write(ctx, owner, to, body, source.Size, source.MIMEType); err != nil {
 		return false, mapErr(err)
 	}
 	return statErr != nil, nil
