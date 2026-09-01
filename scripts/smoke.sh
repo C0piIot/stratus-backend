@@ -383,7 +383,19 @@ if wait_serving "$davname"; then
 
   # One line per request, which is the only way to see a 401 or a 409 after the
   # fact. The healthcheck is deliberately not in there.
-  if docker logs "$davname" 2>&1 | grep -q '"msg":"request".*"path":"/dav/notes.txt"'; then
+  #
+  # Waited for rather than checked once: docker collects a container's stdout
+  # asynchronously, so a line written a moment ago is not necessarily one that
+  # `docker logs` will show yet.
+  logged=""
+  for _ in $(seq 1 25); do
+    if docker logs "$davname" 2>&1 | grep -q '"msg":"request".*"path":"/dav/notes.txt"'; then
+      logged=yes
+      break
+    fi
+    sleep 0.2
+  done
+  if [ -n "$logged" ]; then
     ok "every request leaves a log line"
   else
     bad "every request leaves a log line" "$(docker logs "$davname" 2>&1 | tail -3)"
