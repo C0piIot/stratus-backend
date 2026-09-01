@@ -136,6 +136,34 @@ func TestLoadLogLevel(t *testing.T) {
 	}
 }
 
+func TestLoadIndexInterval(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		value   string
+		want    time.Duration
+		wantErr bool
+	}{
+		{name: "unset is a minute", want: config.DefaultIndexInterval},
+		{name: "explicit", value: "10s", want: 10 * time.Second},
+		{name: "zero disables it", value: "0", want: 0},
+		{name: "a typo is an error", value: "1minute", wantErr: true},
+		{name: "negative is an error", value: "-1m", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg, err := config.Load(env(map[string]string{"STRATUS_INDEX_INTERVAL": tt.value}))
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("Load = %v, wantErr %v", err, tt.wantErr)
+			}
+			if err == nil && cfg.IndexInterval != tt.want {
+				t.Errorf("IndexInterval = %v, want %v", cfg.IndexInterval, tt.want)
+			}
+		})
+	}
+}
+
 func TestLoadGCGrace(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

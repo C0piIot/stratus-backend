@@ -37,6 +37,25 @@ stored. Ranges, conditional requests and video seeking come from
 Locking is not implemented, so the server advertises DAV class 1. macOS Finder
 wants class 2 and will mount read-only.
 
+### Media metadata
+
+Every file that arrives is read once for what it can say about itself: when a
+photo was taken, its dimensions and orientation, where it was taken, the camera;
+the duration, artist, album and track of a recording; the codec and dimensions
+of a video. Without it a library is a pile of files — there is no gallery by
+date and no music browsing.
+
+It runs in the background, in this process, and the queue is a query rather than
+a table: a file with no metadata row is a file to look at, so nothing is lost in
+a restart and a newly uploaded file is picked up on its own. A file that cannot
+be parsed gets a row saying why, or it would be read again on every pass forever.
+
+**ffprobe is required**, and the image ships a statically linked one — no
+package manager, no shell, one more layer. Photos are read in pure Go and
+straight off the blob, so a photo in a bucket costs a few kilobytes rather than
+the whole file. Audio and video go through ffprobe, which needs a local file, so
+those are spooled to the data directory and removed afterwards.
+
 ### Orphaned blobs
 
 A write puts the bytes down before the row, and takes a fresh blob key every
