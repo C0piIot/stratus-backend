@@ -23,7 +23,7 @@ func TestVerify(t *testing.T) {
 	t.Parallel()
 	creds := credentials(t)
 
-	if err := creds.Verify(username, examplePassword); err != nil {
+	if err := creds.Verify(t.Context(), username, examplePassword); err != nil {
 		t.Errorf("Verify with the right credentials = %v, want nil", err)
 	}
 
@@ -46,7 +46,7 @@ func TestVerify(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			if err := creds.Verify(tt.username, tt.password); !errors.Is(err, auth.ErrUnauthorized) {
+			if err := creds.Verify(t.Context(), tt.username, tt.password); !errors.Is(err, auth.ErrUnauthorized) {
 				t.Errorf("Verify = %v, want ErrUnauthorized", err)
 			}
 		})
@@ -62,7 +62,7 @@ func TestVerifyWithoutCredentials(t *testing.T) {
 		{Username: username},
 		{Password: examplePassword},
 	} {
-		if err := creds.Verify(username, examplePassword); !errors.Is(err, auth.ErrUnauthorized) {
+		if err := creds.Verify(t.Context(), username, examplePassword); !errors.Is(err, auth.ErrUnauthorized) {
 			t.Errorf("Verify against %+v = %v, want ErrUnauthorized", creds, err)
 		}
 		if creds.Configured() {

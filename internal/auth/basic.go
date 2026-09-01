@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 )
@@ -12,7 +13,7 @@ import (
 // they do not implement would make the server unusable from the applications
 // this project exists to serve. It is only ever safe over TLS, which is the
 // deployment's job.
-func Basic(realm string, creds Credentials, h http.Handler) http.Handler {
+func Basic(realm string, v Verifier, h http.Handler) http.Handler {
 	// A realm reaches the client inside a quoted string, so a quote in it would
 	// produce a header the client cannot parse. It comes from us, not from a
 	// request, and stripping is enough to keep that true.
@@ -26,7 +27,14 @@ func Basic(realm string, creds Credentials, h http.Handler) http.Handler {
 			unauthorized(w, challenge)
 			return
 		}
-		if err := creds.Verify(username, password); err != nil {
+		switch err := v.Verify(r.Context(), username, password); {
+		case errors.Is(err, ErrTooManyAttempts):
+			// 429 rather than 401: the credentials were never judged, so
+			// saying "unauthorized" would be a guess.
+			w.Header().Set("Retry-After", "2")
+			http.Error(w, "too many attempts", http.StatusTooManyRequests)
+			return
+		case err != nil:
 			unauthorized(w, challenge)
 			return
 		}
