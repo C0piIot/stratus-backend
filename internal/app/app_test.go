@@ -619,3 +619,107 @@ func TestRunRejectsAReadOnlyDatabase(t *testing.T) {
 		t.Errorf("the error should name the read-only database, got %v", err)
 	}
 }
+
+// davServer starts the whole application over real backends and returns its
+// base URL, which is the only way to test that the surface is actually wired:
+// authentication, prefix, storage and database all at once.
+func davServer(t *testing.T, vars map[string]string) (string, func()) {
+	t.Helper()
+	cfg := runConfig(t, vars)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() { done <- app.New(cfg, "test").Run(ctx) }()
+
+	deadline := time.Now().Add(startupWait)
+	for time.Now().Before(deadline) {
+		if app.Probe(cfg.Addr) == nil {
+			break
+		}
+		select {
+		case err := <-done:
+			cancel()
+			t.Fatalf("the server refused to start: %v", err)
+		default:
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	return "http://" + cfg.Addr, func() {
+		cancel()
+		<-done
+	}
+}
+
+func TestWebDAVIsWiredAndAuthenticated(t *testing.T) {
+	t.Parallel()
+	const password = "an example password"
+	base, stop := davServer(t, map[string]string{
+		"STRATUS_USERNAME": "edu",
+		"STRATUS_PASSWORD": password,
+	})
+	defer stop()
+
+	// Without credentials the surface exists and refuses.
+	resp, err := http.Get(base + "/dav/") //nolint:noctx // the request context adds nothing here
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated PROPFIND = %d, want 401", resp.StatusCode)
+	}
+	if resp.Header.Get("WWW-Authenticate") == "" {
+		t.Error("no challenge, so a client has nothing to answer")
+	}
+
+	// With them, a file survives a round trip through storage and the database.
+	put, err := http.NewRequestWithContext(t.Context(), http.MethodPut, base+"/dav/notes.txt", strings.NewReader("hello"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	put.SetBasicAuth("edu", password)
+	if resp, err = http.DefaultClient.Do(put); err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("PUT = %d, want 201", resp.StatusCode)
+	}
+
+	get, err := http.NewRequestWithContext(t.Context(), http.MethodGet, base+"/dav/notes.txt", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	get.SetBasicAuth("edu", password)
+	resp, err = http.DefaultClient.Do(get)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != "hello" {
+		t.Errorf("GET returned %q", body)
+	}
+}
+
+// TestWebDAVIsNotMountedWithoutCredentials is the fail-closed case: an install
+// nobody has configured must not be a file server.
+func TestWebDAVIsNotMountedWithoutCredentials(t *testing.T) {
+	t.Parallel()
+	base, stop := davServer(t, map[string]string{})
+	defer stop()
+
+	resp, err := http.Get(base + "/dav/notes.txt") //nolint:noctx // as above
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("GET with no credentials configured = %d, want 404: the surface should not exist", resp.StatusCode)
+	}
+}

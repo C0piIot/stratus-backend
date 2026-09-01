@@ -17,6 +17,26 @@ protocols your existing apps already understand.
 | CardDAV | contacts | *planned* |
 | DLNA / UPnP-AV | TVs, set-top players | *planned* |
 
+## WebDAV
+
+Mounted at `/dav/`, behind HTTP Basic, and only when `STRATUS_USERNAME` and
+`STRATUS_PASSWORD` are both set — an install nobody has configured is not a file
+server.
+
+```sh
+rclone mount :webdav: /mnt/stratus --webdav-url http://localhost:8080/dav/ \
+  --webdav-user edu --webdav-pass "$(rclone obscure "$STRATUS_PASSWORD")"
+```
+
+A file is a row plus a blob, and `internal/files` is the only place that pair is
+written: bytes go to the blob store under a name nothing derives from the path,
+the tree lives in the database, and the ETag is a SHA-256 of what was actually
+stored. Ranges, conditional requests and video seeking come from
+`http.ServeContent`, which the reader is shaped for.
+
+Locking is not implemented, so the server advertises DAV class 1. macOS Finder
+wants class 2 and will mount read-only.
+
 ## Pluggable backends
 
 Two seams, and only two:

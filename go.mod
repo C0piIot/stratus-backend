@@ -3,6 +3,7 @@ module github.com/C0piIot/stratus-backend
 go 1.27.0
 
 require (
+	github.com/emersion/go-webdav v0.7.0
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/minio/minio-go/v7 v7.3.0
 	modernc.org/sqlite v1.57.0

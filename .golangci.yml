@@ -72,18 +72,35 @@ linters:
         #
         # Inbound protocol adapters must not import each other. A shared helper
         # belongs in a feature package, not in a sibling adapter.
-        no-cross-protocol:
+        # One rule per adapter rather than one shared rule: a single rule whose
+        # file list and deny list both name every adapter also forbids a package
+        # from importing itself, which is what its own tests do.
+        no-cross-protocol-dav:
           list-mode: lax
           files:
             - "**/internal/dav/**"
+          deny:
+            - pkg: github.com/C0piIot/stratus-backend/internal/subsonic$
+              desc: inbound adapters must not import each other
+            - pkg: github.com/C0piIot/stratus-backend/internal/web$
+              desc: inbound adapters must not import each other
+        no-cross-protocol-subsonic:
+          list-mode: lax
+          files:
             - "**/internal/subsonic/**"
+          deny:
+            - pkg: github.com/C0piIot/stratus-backend/internal/dav$
+              desc: inbound adapters must not import each other
+            - pkg: github.com/C0piIot/stratus-backend/internal/web$
+              desc: inbound adapters must not import each other
+        no-cross-protocol-web:
+          list-mode: lax
+          files:
             - "**/internal/web/**"
           deny:
             - pkg: github.com/C0piIot/stratus-backend/internal/dav$
               desc: inbound adapters must not import each other
             - pkg: github.com/C0piIot/stratus-backend/internal/subsonic$
-              desc: inbound adapters must not import each other
-            - pkg: github.com/C0piIot/stratus-backend/internal/web$
               desc: inbound adapters must not import each other
         # Ports, features and support packages sit below the adapters: the
         # dependency only ever points inwards. Nothing imports the composition
@@ -108,6 +125,17 @@ linters:
               desc: dependencies point inwards; a port or feature must not import a protocol adapter
             - pkg: github.com/C0piIot/stratus-backend/internal/app$
               desc: nothing imports the composition root
+        # The WebDAV library belongs to the adapter that speaks WebDAV, for the
+        # same reason a database driver belongs to its own package: the day a
+        # feature imports it, the protocol has leaked inwards.
+        dav-library:
+          list-mode: lax
+          files:
+            - "!**/internal/dav/**"
+          deny:
+            - pkg: github.com/emersion/go-webdav
+              desc: only internal/dav may import the WebDAV library
+
         # The two seams must not know about each other. A blob key is a plain
         # string in a database row precisely so that neither has to, which is
         # what lets an import adopt somebody else's bucket without moving bytes.
