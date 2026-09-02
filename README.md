@@ -8,14 +8,18 @@ protocols your existing apps already understand.
 
 ## Protocols
 
-| Protocol | Use | Works with |
-|---|---|---|
-| WebDAV | files, photo backup, sync | rclone, Finder, Nautilus, DAVx5, FolderSync |
-| CalDAV | calendar | DAVx5, Thunderbird, iOS/macOS |
-| OpenSubsonic | music | Symfonium, Substreamer, DSub, Feishin |
-| HTTP range | audio/video streaming | browsers, VLC, mpv |
-| CardDAV | contacts | *planned* |
-| DLNA / UPnP-AV | TVs, set-top players | *planned* |
+| Protocol | Use | Works with | Status |
+|---|---|---|---|
+| WebDAV | files, photo backup, sync | rclone, Finder, Nautilus, DAVx5, FolderSync | **works** |
+| HTTP range | audio/video streaming | browsers, VLC, mpv | **works** |
+| CalDAV | calendar | DAVx5, Thunderbird, iOS/macOS | next |
+| OpenSubsonic | music | Symfonium, Substreamer, DSub, Feishin | next |
+| Web UI | log in, browse, download | any browser | planned |
+| CardDAV | contacts | DAVx5, Thunderbird | planned |
+| DLNA / UPnP-AV | TVs, set-top players | | planned |
+
+Nothing here is a private API: every feature is reachable from a client that
+already exists, which is why there is no Stratus app to install.
 
 ## WebDAV
 
@@ -102,7 +106,8 @@ listing and billed until something ends them.
 
 Two seams, and only two:
 
-- **Blob storage** — `disk` and `s3` at launch; ftp and others later.
+- **Blob storage** — `disk` and `s3`, both implemented and both passing the same
+  conformance suite.
 - **Metadata database** — `sqlite` and `postgres`, both pure Go. No
   driver-specific SQL leaves its driver package, and both pass the same
   conformance suite.
@@ -121,6 +126,10 @@ make down      # stop, keeping your data
 
 The backend listens on <http://localhost:8080>. `make help` lists every target.
 
+That gets you a server with nothing to serve: WebDAV is only mounted once there
+are credentials, so set `STRATUS_USERNAME` and `STRATUS_PASSWORD` in `.env`
+before mounting anything.
+
 ## Configuration
 
 Every setting has a default and an env var. Copy `.env.example` to `.env`, or
@@ -133,7 +142,7 @@ make up STRATUS_PORT=9000 STRATUS_DATA_PATH=/srv/stratus
 | Variable | Default | Meaning |
 |---|---|---|
 | `STRATUS_PORT` | `8080` | host port the backend is published on |
-| `STRATUS_DATA_PATH` | `./data` | host dir for photos, music, calendars, SQLite |
+| `STRATUS_DATA_PATH` | `./data` | host dir for blobs, the database and derived files |
 | `STRATUS_UID` / `STRATUS_GID` | invoking user | user the container runs as |
 | `STRATUS_LOG_LEVEL` | `info` | `debug` / `info` / `warn` / `error` |
 | `STRATUS_STORAGE_DSN` | `file://<data>/blobs` | blob backend; the scheme picks it |
@@ -225,15 +234,34 @@ than a note in a document.
 
 ## Container
 
-Multi-stage build, `distroless/static:nonroot` runtime, ~16 MB image. The
-container runs non-root with a read-only root filesystem, all capabilities
+Multi-stage build, `distroless/static:nonroot` runtime, ~55 MB image: a 15 MB
+static binary and a statically linked `ffprobe` copied in beside it. The base
+stayed distroless rather than becoming alpine to get one tool — the image still
+has no shell and no package manager, and `scripts/smoke.sh` asserts it.
+
+The container runs non-root with a read-only root filesystem, all capabilities
 dropped and `no-new-privileges`. The healthcheck is the binary probing itself
 (`stratus -healthcheck`) since distroless ships no shell or curl.
 
 ## Status
 
-Greenfield — the skeleton above is all there is so far. Work is tracked on the
-[Stratus project board](https://github.com/users/C0piIot/projects/2).
+Single user, and usable from a WebDAV client today: files go in and come out
+over `/dav/`, with metadata extracted in the background and orphaned blobs swept
+up.
+
+Working now:
+
+- Both pluggable seams — disk and S3 for blobs, SQLite and PostgreSQL for
+  metadata — each with a conformance suite that both of its drivers pass.
+- WebDAV, behind HTTP Basic with a global limit on failed logins.
+- EXIF, audio tags and video probing, indexed in the background.
+- A request log, migrations applied at startup, and a container asserted from
+  the outside by 39 smoke checks.
+
+Not there yet: CalDAV, OpenSubsonic, the web UI, and sharing. Work and the
+decisions behind it are tracked on the
+[Stratus project board](https://github.com/users/C0piIot/projects/2), where
+`Priority` says when and the `decision` label says what still needs a call.
 
 ## License
 
