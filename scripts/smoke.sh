@@ -373,6 +373,24 @@ if wait_serving "$davname"; then
     bad "the bytes are a blob and the name is a row" "$(find "$davdir" -maxdepth 2 | tr '\n' ' ')"
   fi
 
+  # Finder mounts read-only unless the server says class 2, so the header is
+  # asserted rather than assumed.
+  dav_header="$(curl -s -o /dev/null -D - -u "$davuser:$davpass" -X OPTIONS "http://$davhost/dav/" | grep -i '^dav:' | tr -d '\r')"
+  case "$dav_header" in
+    *2*) ok "OPTIONS advertises locking" ;;
+    *)   bad "OPTIONS advertises locking" "got '$dav_header'" ;;
+  esac
+
+  lock_status="$(curl -s -o /dev/null -w '%{http_code}' -u "$davuser:$davpass" -X LOCK \
+    -H 'Content-Type: application/xml' \
+    --data '<?xml version="1.0"?><D:lockinfo xmlns:D="DAV:"><D:lockscope><D:exclusive/></D:lockscope><D:locktype><D:write/></D:locktype></D:lockinfo>' \
+    "http://$davhost/dav/notes.txt")"
+  if [ "$lock_status" = "200" ]; then
+    ok "LOCK answers with a token"
+  else
+    bad "LOCK answers with a token" "got $lock_status"
+  fi
+
   code="$(curl -s -o /dev/null -w '%{http_code}' -u "$davuser:$davpass" \
     -H 'Depth: 1' -X PROPFIND "http://$davhost/dav/")"
   if [ "$code" = "207" ]; then

@@ -34,8 +34,15 @@ the tree lives in the database, and the ETag is a SHA-256 of what was actually
 stored. Ranges, conditional requests and video seeking come from
 `http.ServeContent`, which the reader is shaped for.
 
-Locking is not implemented, so the server advertises DAV class 1. macOS Finder
-wants class 2 and will mount read-only.
+Locking is **advertised and not enforced**. macOS Finder refuses to mount a
+share read-write unless the server claims class 2, so `LOCK` answers with a
+well-formed token that nothing records and `UNLOCK` always succeeds.
+
+That is a lie to the client, and the cost of it is worth stating: two clients
+writing the same file at the same time are not protected — and they were not
+protected before either, because there was no locking at all. It removes no
+guarantee. The real defence against a lost update here is the strong ETag and
+`If-Match`, which every write already honours.
 
 ### Logs
 

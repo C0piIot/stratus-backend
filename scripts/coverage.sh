@@ -31,7 +31,7 @@ FLOORS="
 internal/app:92
 internal/auth:100
 internal/config:100
-internal/dav:75
+internal/dav:80
 internal/files:86
 internal/media:81
 internal/db:58

@@ -64,6 +64,11 @@ func TestLockExistingFile(t *testing.T) {
 	if !strings.Contains(body, "mailto:edu@example.com") {
 		t.Errorf("the owner was not echoed back:\n%s", body)
 	}
+	// The lockroot has to name the resource as the client addressed it, prefix
+	// and all, or it points at something the client cannot reach.
+	if !strings.Contains(body, "<D:href>/dav/notes.txt</D:href>") {
+		t.Errorf("the lockroot is not the URL the client used:\n%s", body)
+	}
 	// The token in the header and the one in the body have to be the same one.
 	inner := strings.TrimSuffix(strings.TrimPrefix(token, "<"), ">")
 	if !strings.Contains(body, inner) {
