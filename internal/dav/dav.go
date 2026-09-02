@@ -5,6 +5,12 @@
 // github.com/emersion/go-webdav. What is written here is the backend it drives
 // and, mostly, the mapping from this project's sentinel errors onto status
 // codes -- which is the part a library cannot guess.
+//
+// **This file is the only one that knows which library that is.** Everything
+// else in the package -- locking, paths, MIME types -- is written against
+// net/http and this project's own types, so replacing the library means
+// rewriting one file rather than the package. That is deliberate: the choice
+// has been questioned once already (#3) and may be again.
 package dav
 
 import (
@@ -33,8 +39,23 @@ import (
 // should know the difference.
 func Handler(prefix string, service *files.Service) http.Handler {
 	prefix = strings.TrimSuffix(prefix, "/")
-	dav := &webdav.Handler{FileSystem: &fileSystem{files: service, prefix: prefix}}
-	return http.StripPrefix(prefix, dav)
+	fs := &fileSystem{files: service, prefix: prefix}
+	dav := &webdav.Handler{FileSystem: fs}
+
+	return http.StripPrefix(prefix, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// LOCK and UNLOCK never reach the library: it is class 1 and answers
+		// 405 to both. See lock.go for what these do and what they do not.
+		switch r.Method {
+		case "LOCK":
+			fs.handleLock(w, r)
+		case "UNLOCK":
+			handleUnlock(w, r)
+		case http.MethodOptions:
+			dav.ServeHTTP(&advertiseLocking{ResponseWriter: w}, r)
+		default:
+			dav.ServeHTTP(w, r)
+		}
+	}))
 }
 
 type fileSystem struct {
