@@ -84,7 +84,10 @@ func (f *fileSystem) handleLock(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/xml; charset=utf-8")
 	w.WriteHeader(status)
 
-	_, _ = io.WriteString(w, lockDiscovery(token, r.URL.Path, depthOf(r), info.Owner.Inner))
+	// The prefix is back on: the request path arrives stripped, and a lockroot
+	// pointing at /notes.txt instead of /dav/notes.txt names a resource the
+	// client cannot address. Same trap as the hrefs in a multistatus.
+	_, _ = io.WriteString(w, lockDiscovery(token, f.prefix+r.URL.Path, depthOf(r), info.Owner.Inner))
 }
 
 // handleUnlock always succeeds. There is nothing to release, and telling a
