@@ -21,6 +21,7 @@ func RunMedia(t *testing.T, newRepo func(t *testing.T) db.Repo) {
 		fn   func(t *testing.T, s db.Repo)
 	}{
 		{"metadata survives a round trip", mediaRoundTrip},
+		{"every column of a media row survives a round trip", mediaEveryColumn},
 		{"both media times survive a round trip", mediaTimeRoundTrip},
 		{"the fields another kind does not use stay empty", mediaSparse},
 		{"pending skips what is indexed", mediaPending},
@@ -74,6 +75,62 @@ func mediaRoundTrip(t *testing.T, s db.Repo) {
 	}
 	if !got.Indexed() {
 		t.Error("a successful extraction reports itself as failed")
+	}
+}
+
+// mediaEveryColumn is fileEveryColumn for the wide table, where it matters
+// more: media has 21 columns, four of them were written by no case or asserted
+// by no case, and disc_no was in neither camp because nothing wrote it at all.
+//
+// Nothing is exempt here. Unlike a file row, a media row can legally carry
+// every column at once -- that is what one wide table means -- so the fixture
+// carries all of them and assertEveryFieldSet keeps it that way.
+func mediaEveryColumn(t *testing.T, s db.Repo) {
+	f := put(t, s, file("videos/every-column.mkv"))
+
+	// Normalize because PutMedia does: the times come back at TimePrecision.
+	want := media(f.ID).Normalize()
+	assertEveryFieldSet(t, want)
+
+	if err := s.PutMedia(t.Context(), want); err != nil {
+		t.Fatalf("PutMedia: %v", err)
+	}
+
+	got, err := s.MediaByFile(t.Context(), f.ID)
+	if err != nil {
+		t.Fatalf("MediaByFile: %v", err)
+	}
+	compareFields(t, got, want)
+}
+
+// media builds a row with every column set, which is the one place a new column
+// has to be written for the round trip above to cover it.
+//
+// It is deliberately implausible -- a camera and an album on the same row, and
+// an Error beside a successful probe -- because it exercises columns and not
+// meaning. The cases that care about meaning are mediaRoundTrip and mediaSparse.
+func media(fileID int64) db.Media {
+	return db.Media{
+		FileID:      fileID,
+		Kind:        db.KindVideo,
+		IndexedAt:   time.Date(2024, 7, 2, 9, 15, 0, 0, time.UTC),
+		Version:     7,
+		Error:       "truncated at the last frame",
+		TakenAt:     time.Date(2023, 5, 4, 18, 45, 30, 0, time.UTC),
+		Width:       3840,
+		Height:      2160,
+		Orientation: 3,
+		GPS:         &db.GPS{Latitude: 41.3874, Longitude: 2.1686},
+		Camera:      "Sony ILCE-7M4",
+		DurationMS:  742_000,
+		Codec:       "hevc",
+		Artist:      "Boards of Canada",
+		Album:       "Music Has the Right to Children",
+		Title:       "Roygbiv",
+		TrackNo:     10,
+		DiscNo:      2,
+		Year:        1998,
+		Genre:       "Electronic",
 	}
 }
 
