@@ -174,7 +174,7 @@ func TestLoadGCGrace(t *testing.T) {
 	}{
 		{name: "unset is an hour", want: config.DefaultGCGrace},
 		{name: "explicit", value: "15m", want: 15 * time.Minute},
-		{name: "zero, for a test", value: "0", want: 0},
+		{name: "zero is an error", value: "0", wantErr: true},
 		{name: "a typo is an error", value: "1hour", wantErr: true},
 		{name: "negative is an error", value: "-1h", wantErr: true},
 	}

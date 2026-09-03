@@ -116,8 +116,13 @@ func Load(getenv func(string) string) (Config, error) {
 	if err != nil {
 		return Config{}, errors.New("STRATUS_GC_GRACE: not a duration, try 1h")
 	}
-	if grace < 0 {
-		return Config{}, errors.New("STRATUS_GC_GRACE: cannot be negative")
+	// Zero is refused rather than taken as "collect immediately". Writes go
+	// blob first and row second, so with no grace a sweep landing between an
+	// upload's blob and its row deletes a blob whose row is about to exist, and
+	// the upload is gone with it. That is a correctness requirement rather than
+	// an operator preference, the same argument the SQLite pragmas get.
+	if grace <= 0 {
+		return Config{}, errors.New("STRATUS_GC_GRACE: must be greater than zero, or a sweep can delete an upload still in flight")
 	}
 	cfg.GCGrace = grace
 
