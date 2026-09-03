@@ -18,6 +18,7 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib" // registers the "pgx" driver
 
 	"github.com/C0piIot/stratus-backend/internal/db"
+	"github.com/C0piIot/stratus-backend/internal/db/sqlutil"
 )
 
 //go:embed migrations/*.sql
@@ -62,32 +63,14 @@ func (s *Store) Close() error { return s.db.Close() }
 
 // Tx implements db.Store.
 func (s *Store) Tx(ctx context.Context, fn func(db.Repo) error) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if p := recover(); p != nil {
-			_ = tx.Rollback()
-			panic(p)
-		}
-	}()
-
-	if err := fn(&repo{q: tx}); err != nil {
-		_ = tx.Rollback()
-		return err
-	}
-	return tx.Commit()
+	return sqlutil.InTx(ctx, s.db, func(q sqlutil.Querier) error { return fn(&repo{q: q}) })
 }
 
-// querier is what *sql.DB and *sql.Tx have in common.
-type querier interface {
-	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
-	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
-	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
-}
+type repo struct{ q sqlutil.Querier }
 
-type repo struct{ q querier }
+// isDirProbe is what sqlutil.CheckAffected asks when a statement changed
+// nothing: the placeholders are why it cannot live in that package.
+const isDirProbe = `SELECT is_dir FROM files WHERE owner_id = $1 AND path = $2`
 
 const fileColumns = `id, owner_id, path, blob_key, size, mtime, etag, mime_type, is_dir`
 
@@ -164,22 +147,9 @@ func (r *repo) ListFiles(ctx context.Context, owner, dir string) ([]db.File, err
 	const query = `SELECT ` + fileColumns + ` FROM files
 		WHERE owner_id = $1 AND parent_path = $2 ORDER BY path`
 
-	rows, err := r.q.QueryContext(ctx, query, owner, dir)
+	out, err := sqlutil.Collect(ctx, r.q, scanFileRow, query, owner, dir)
 	if err != nil {
 		return nil, fmt.Errorf("list %q: %w", dir, mapErr(err))
-	}
-	defer func() { _ = rows.Close() }()
-
-	var out []db.File
-	for rows.Next() {
-		f, err := scanFileRow(rows)
-		if err != nil {
-			return nil, fmt.Errorf("list %q: %w", dir, err)
-		}
-		out = append(out, f)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("list %q: %w", dir, err)
 	}
 	return out, nil
 }
@@ -241,22 +211,9 @@ func (r *repo) PendingMedia(ctx context.Context, version, limit int) ([]db.File,
 		WHERE f.is_dir = FALSE AND (m.file_id IS NULL OR m.version < $1)
 		ORDER BY f.id LIMIT $2`
 
-	rows, err := r.q.QueryContext(ctx, query, version, limit)
+	out, err := sqlutil.Collect(ctx, r.q, scanFileRow, query, version, limit)
 	if err != nil {
 		return nil, fmt.Errorf("list pending media: %w", mapErr(err))
-	}
-	defer func() { _ = rows.Close() }()
-
-	var out []db.File
-	for rows.Next() {
-		f, err := scanFileRow(rows)
-		if err != nil {
-			return nil, fmt.Errorf("list pending media: %w", err)
-		}
-		out = append(out, f)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("list pending media: %w", err)
 	}
 	return out, nil
 }
@@ -289,30 +246,9 @@ func scanMedia(row *sql.Row) (db.Media, error) {
 
 // BlobKeys implements db.Repo.
 func (r *repo) BlobKeys(ctx context.Context) iter.Seq2[string, error] {
-	return func(yield func(string, error) bool) {
-		const query = `SELECT blob_key FROM files WHERE is_dir = FALSE`
+	const query = `SELECT blob_key FROM files WHERE is_dir = FALSE`
 
-		rows, err := r.q.QueryContext(ctx, query)
-		if err != nil {
-			yield("", fmt.Errorf("list blob keys: %w", err))
-			return
-		}
-		defer func() { _ = rows.Close() }()
-
-		for rows.Next() {
-			var key string
-			if err := rows.Scan(&key); err != nil {
-				yield("", fmt.Errorf("list blob keys: %w", err))
-				return
-			}
-			if !yield(key, nil) {
-				return
-			}
-		}
-		if err := rows.Err(); err != nil {
-			yield("", fmt.Errorf("list blob keys: %w", err))
-		}
-	}
+	return sqlutil.Label(sqlutil.Seq(ctx, r.q, sqlutil.ScanOne[string], query), "list blob keys")
 }
 
 // MoveFile implements db.Repo.
@@ -334,7 +270,7 @@ func (r *repo) MoveFile(ctx context.Context, owner, from, to string) error {
 	if err != nil {
 		return fmt.Errorf("move %q to %q: %w", from, to, mapErr(err))
 	}
-	return r.checkAffected(ctx, result, owner, from)
+	return sqlutil.CheckAffected(ctx, r.q, result, from, isDirProbe, owner, from)
 }
 
 // DeleteFile implements db.Repo.
@@ -350,34 +286,7 @@ func (r *repo) DeleteFile(ctx context.Context, owner, path string) error {
 	if err != nil {
 		return fmt.Errorf("delete %q: %w", path, mapErr(err))
 	}
-	return r.checkAffected(ctx, result, owner, path)
-}
-
-// checkAffected turns "nothing changed" into the reason it did not, which is
-// either that there is no such row or that it is a directory with something
-// still in it. It costs a second query only on the failing path.
-func (r *repo) checkAffected(ctx context.Context, result sql.Result, owner, path string) error {
-	n, err := result.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if n > 0 {
-		return nil
-	}
-
-	var isDir bool
-	switch err := r.q.QueryRowContext(ctx, `SELECT is_dir FROM files WHERE owner_id = $1 AND path = $2`, owner, path).Scan(&isDir); {
-	case errors.Is(err, sql.ErrNoRows):
-		return fmt.Errorf("%w: %q", db.ErrNotFound, path)
-	case err != nil:
-		return err
-	case isDir:
-		return fmt.Errorf("%w: %q is a directory and is not empty", db.ErrConflict, path)
-	default:
-		// The row is there and was not touched, so it went between the two
-		// queries. Nothing useful to say beyond that it is not there now.
-		return fmt.Errorf("%w: %q", db.ErrNotFound, path)
-	}
+	return sqlutil.CheckAffected(ctx, r.q, result, path, isDirProbe, owner, path)
 }
 
 // scanFileRow reads one row of fileColumns, for the queries that return many.
