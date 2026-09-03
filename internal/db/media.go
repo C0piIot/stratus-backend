@@ -62,3 +62,16 @@ type GPS struct {
 
 // Indexed reports whether extraction succeeded.
 func (m Media) Indexed() bool { return m.Error == "" }
+
+// Normalize returns m with the fields drivers must not store verbatim already
+// fixed: UTC times at the agreed precision, the same job File.Normalize does.
+//
+// A zero TakenAt is left alone rather than truncated. It is not a time: it says
+// the extractor found none, and every driver stores that as NULL.
+func (m Media) Normalize() Media {
+	m.IndexedAt = m.IndexedAt.UTC().Truncate(TimePrecision)
+	if !m.TakenAt.IsZero() {
+		m.TakenAt = m.TakenAt.UTC().Truncate(TimePrecision)
+	}
+	return m
+}

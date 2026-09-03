@@ -186,9 +186,11 @@ const mediaColumns = `file_id, kind, indexed_at, version, error, taken_at, width
 
 // PutMedia implements db.MediaIndex.
 func (r *repo) PutMedia(ctx context.Context, m db.Media) error {
+	m = m.Normalize()
+
 	var takenAt any
 	if !m.TakenAt.IsZero() {
-		takenAt = m.TakenAt.UTC().Truncate(db.TimePrecision).UnixMilli()
+		takenAt = m.TakenAt.UnixMilli()
 	}
 
 	var lat, lon any
@@ -208,7 +210,7 @@ func (r *repo) PutMedia(ctx context.Context, m db.Media) error {
 			disc_no = excluded.disc_no, year = excluded.year, genre = excluded.genre`
 
 	_, err := r.q.ExecContext(ctx, query,
-		m.FileID, string(m.Kind), m.IndexedAt.UTC().UnixMilli(), m.Version, m.Error, takenAt,
+		m.FileID, string(m.Kind), m.IndexedAt.UnixMilli(), m.Version, m.Error, takenAt,
 		m.Width, m.Height, m.Orientation, lat, lon, m.Camera,
 		m.DurationMS, m.Codec, m.Artist, m.Album, m.Title,
 		m.TrackNo, m.DiscNo, m.Year, m.Genre,
