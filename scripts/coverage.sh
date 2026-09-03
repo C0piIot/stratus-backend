@@ -34,7 +34,7 @@ internal/config:100
 internal/dav:80
 internal/files:86
 internal/media:81
-internal/db:58
+internal/db:60
 internal/db/postgres:92
 internal/db/sqlite:91
 internal/db/sqlutil:95
@@ -74,18 +74,20 @@ internal/storage/s3:88
 # internal/storage/disk went down a point when the .tmp sweep landed: its two
 # error branches need a filesystem that fails a ReadDir or a Remove.
 #
-# The two SQL drivers went down a point when BlobKeys landed: what is left
-# uncovered there is a scan failure and a rows.Err mid-iteration, neither of
-# which happens without a fault-injecting driver -- more machinery than three
-# log-and-return lines are worth.
+# The two SQL drivers went down a point when BlobKeys landed, because a scan
+# failure and a rows.Err mid-iteration do not happen without a fault-injecting
+# driver. That is no longer where those branches live: #30 moved them to
+# internal/db/sqlutil, which holds no SQL and can register such a driver, and
+# the drivers went back up as a result.
 #
 # internal/dav sits lower than the rest on purpose: most of what is left
 # uncovered there is one error branch per protocol edge, and the ones worth
 # pinning -- the status codes RFC 4918 is specific about -- are asserted.
 #
 # internal/db has a low floor for the same reason: db.Migrate is exercised by
-# both driver packages, and the depguard rule that keeps drivers out of the port
-# means it cannot open a database of its own to test against.
+# both driver packages, and the import cycle that keeps drivers out of the port
+# means it cannot open a database of its own to test against. It went 58 -> 60
+# with Media.Normalize (#59), which is pure enough to test where it lives.
 
 [ -f "$profile" ] || { echo "no coverage profile at $profile"; exit 1; }
 

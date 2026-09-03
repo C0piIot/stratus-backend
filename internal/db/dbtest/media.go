@@ -21,6 +21,7 @@ func RunMedia(t *testing.T, newRepo func(t *testing.T) db.Repo) {
 		fn   func(t *testing.T, s db.Repo)
 	}{
 		{"metadata survives a round trip", mediaRoundTrip},
+		{"both media times survive a round trip", mediaTimeRoundTrip},
 		{"the fields another kind does not use stay empty", mediaSparse},
 		{"pending skips what is indexed", mediaPending},
 		{"a failed extraction is not retried", mediaFailureIsFinal},
@@ -73,6 +74,42 @@ func mediaRoundTrip(t *testing.T, s db.Repo) {
 	}
 	if !got.Indexed() {
 		t.Error("a successful extraction reports itself as failed")
+	}
+}
+
+// mediaTimeRoundTrip is timeRoundTrip for the other table, and a regression
+// test with a name: TakenAt was truncated to TimePrecision by both drivers but
+// IndexedAt by neither, so the same write came back with milliseconds from
+// SQLite and microseconds from Postgres.
+func mediaTimeRoundTrip(t *testing.T, s db.Repo) {
+	f := put(t, s, file("photos/clock.jpg"))
+
+	// Deliberately awkward in the same way: a non-UTC zone and sub-millisecond
+	// precision, which is what time.Now and an EXIF reader actually carry.
+	zone := time.FixedZone("CEST", 2*60*60)
+	indexed := time.Date(2024, 6, 1, 12, 30, 15, 123_456_789, zone)
+	taken := time.Date(2023, 9, 14, 8, 5, 1, 987_654_321, zone)
+
+	err := s.PutMedia(t.Context(), db.Media{
+		FileID:    f.ID,
+		Kind:      db.KindImage,
+		IndexedAt: indexed,
+		Version:   1,
+		TakenAt:   taken,
+	})
+	if err != nil {
+		t.Fatalf("PutMedia: %v", err)
+	}
+
+	got, err := s.MediaByFile(t.Context(), f.ID)
+	if err != nil {
+		t.Fatalf("MediaByFile: %v", err)
+	}
+	if want := indexed.UTC().Truncate(db.TimePrecision); !got.IndexedAt.Equal(want) {
+		t.Errorf("IndexedAt = %v, want %v", got.IndexedAt, want)
+	}
+	if want := taken.UTC().Truncate(db.TimePrecision); !got.TakenAt.Equal(want) {
+		t.Errorf("TakenAt = %v, want %v", got.TakenAt, want)
 	}
 }
 
