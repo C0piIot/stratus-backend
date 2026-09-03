@@ -64,10 +64,11 @@ the duration, artist, album and track of a recording; the codec and dimensions
 of a video. Without it a library is a pile of files — there is no gallery by
 date and no music browsing.
 
-It runs in the background, in this process, and the queue is a query rather than
-a table: a file with no metadata row is a file to look at, so nothing is lost in
-a restart and a newly uploaded file is picked up on its own. A file that cannot
-be parsed gets a row saying why, or it would be read again on every pass forever.
+It runs in the background, in this process, and `STRATUS_INDEX_INTERVAL=0` turns
+it off. The queue is a query rather than a table: a file with no metadata row is
+a file to look at, so nothing is lost in a restart and a newly uploaded file is
+picked up on its own. A file that cannot be parsed gets a row saying why, or it
+would be read again on every pass forever.
 
 **ffprobe is required**, and the image ships a statically linked one — no
 package manager, no shell, one more layer. Photos are read in pure Go and
@@ -142,7 +143,7 @@ make up STRATUS_PORT=9000 STRATUS_DATA_PATH=/srv/stratus
 | Variable | Default | Meaning |
 |---|---|---|
 | `STRATUS_PORT` | `8080` | host port the backend is published on |
-| `STRATUS_DATA_PATH` | `./data` | host dir for blobs, the database and derived files |
+| `STRATUS_DATA_PATH` | `./data` | host dir for blobs, the database and temporary files |
 | `STRATUS_UID` / `STRATUS_GID` | invoking user | user the container runs as |
 | `STRATUS_LOG_LEVEL` | `info` | `debug` / `info` / `warn` / `error` |
 | `STRATUS_STORAGE_DSN` | `file://<data>/blobs` | blob backend; the scheme picks it |
@@ -234,10 +235,12 @@ than a note in a document.
 
 ## Container
 
-Multi-stage build, `distroless/static:nonroot` runtime, ~55 MB image: a 15 MB
-static binary and a statically linked `ffprobe` copied in beside it. The base
-stayed distroless rather than becoming alpine to get one tool — the image still
-has no shell and no package manager, and `scripts/smoke.sh` asserts it.
+Multi-stage build, `distroless/static:nonroot` runtime. About 145 MB on amd64
+and 115 MB on arm64, and nearly all of it is one file: the statically linked
+`ffprobe` is 128 MB on amd64, the Stratus binary 17 MB and the base under a
+megabyte. The base stayed distroless rather than becoming alpine to get one
+tool — the image still has no shell and no package manager, and
+`scripts/smoke.sh` asserts it.
 
 The container runs non-root with a read-only root filesystem, all capabilities
 dropped and `no-new-privileges`. The healthcheck is the binary probing itself
@@ -258,8 +261,8 @@ Working now:
 - A request log, migrations applied at startup, and a container asserted from
   the outside by 39 smoke checks.
 
-Not there yet: CalDAV, OpenSubsonic, the web UI, and sharing. Work and the
-decisions behind it are tracked on the
+Not there yet: CalDAV, OpenSubsonic, the web UI, thumbnails and sharing. Work
+and the decisions behind it are tracked on the
 [Stratus project board](https://github.com/users/C0piIot/projects/2), where
 `Priority` says when and the `decision` label says what still needs a call.
 
