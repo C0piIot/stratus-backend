@@ -94,9 +94,11 @@ Two rules make it safe rather than dangerous:
   nothing.
 
 It runs daily and leaves anything written in the last hour alone. Both are
-`STRATUS_GC_INTERVAL` and `STRATUS_GC_GRACE` if you ever need them, and `0` for
-the interval turns the sweep off — but the defaults are the answer for a normal
-install, which is why they are down here and not in the table above.
+`STRATUS_GC_INTERVAL` and `STRATUS_GC_GRACE` if you ever need them: `0` for the
+interval turns the sweep off, and the grace refuses to be `0` at all, since a
+sweep with no grace can take an upload whose row has not landed yet. The
+defaults are the answer for a normal install, which is why they are down here
+and not in the table above.
 
 The two backends also clean up after themselves when they open: the disk one
 empties its reserved directory of interrupted uploads, and the S3 one aborts

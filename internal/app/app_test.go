@@ -732,7 +732,19 @@ func TestWebDAVIsNotMountedWithoutCredentials(t *testing.T) {
 }
 
 // TestCollectorRuns is the wiring, not the collecting: the goroutine starts on
-// the configured interval, does a pass, and takes the orphan with it.
+// the configured interval and does a pass. What a pass decides belongs to
+// internal/files and is covered there by five cases that call Collect directly.
+//
+// There is exactly one upload, and the orphan is put in place by hand rather
+// than made by a second write. That is what makes this deterministic instead of
+// a coin flip (#60): Collect reads the database and then lists the store, and a
+// write goes blob first and row second, so a pass landing between a second
+// upload's blob and its row finds a live blob unreferenced. The grace period is
+// what covers that window, and this test used to set it to zero -- which is how
+// it came to delete the live blob rather than the orphan.
+//
+// The one upload has a window of its own, and something else closes it: with no
+// rows at all, Collect refuses rather than treating the whole store as garbage.
 func TestCollectorRuns(t *testing.T) {
 	t.Parallel()
 	const password = "an example password"
@@ -742,42 +754,61 @@ func TestCollectorRuns(t *testing.T) {
 		"STRATUS_USERNAME":    "edu",
 		"STRATUS_PASSWORD":    password,
 		"STRATUS_GC_INTERVAL": "50ms",
-		"STRATUS_GC_GRACE":    "0",
+		"STRATUS_GC_GRACE":    "1h",
 	})
 	defer stop()
 
-	// Two writes to the same path leave the first blob behind on purpose.
-	for _, body := range []string{"one", "two"} {
-		req, err := http.NewRequestWithContext(t.Context(), http.MethodPut, base+"/dav/notes.txt", strings.NewReader(body))
-		if err != nil {
-			t.Fatal(err)
-		}
-		req.SetBasicAuth("edu", password)
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		_ = resp.Body.Close()
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPut, base+"/dav/notes.txt", strings.NewReader("one"))
+	if err != nil {
+		t.Fatal(err)
 	}
+	req.SetBasicAuth("edu", password)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
 
 	blobDir := filepath.Join(dataDir, "blobs")
-	if got := countBlobs(t, blobDir); got != 2 {
-		t.Fatalf("the store holds %d blobs before collection, want 2", got)
+	live := blobPaths(t, blobDir)
+	if len(live) != 1 {
+		t.Fatalf("the store holds %d blobs after one upload, want 1", len(live))
+	}
+
+	// What a failed overwrite leaves behind, without racing a live write to get
+	// it. Backdated past the grace, or the sweep would rightly leave it alone.
+	orphan := filepath.Join(blobDir, "ZZ", "ZZ", "ORPHANOFAFAILEDOVERWRITE")
+	if err := os.MkdirAll(filepath.Dir(orphan), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(orphan, []byte("leftover"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	past := time.Now().Add(-2 * time.Hour)
+	if err := os.Chtimes(orphan, past, past); err != nil {
+		t.Fatal(err)
 	}
 
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
-		if countBlobs(t, blobDir) == 1 {
+		if _, err := os.Stat(orphan); errors.Is(err, os.ErrNotExist) {
+			// The pass that took the orphan has to have left the live blob,
+			// which is the half a blob count cannot tell apart.
+			if _, err := os.Stat(live[0]); err != nil {
+				t.Errorf("the sweep took the live blob: %v", err)
+			}
 			return
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	t.Errorf("the orphan was never collected: %d blobs remain", countBlobs(t, blobDir))
+	t.Error("the orphan is still there after 10s: the collector never ran")
 }
 
-func countBlobs(t *testing.T, dir string) int {
+// blobPaths is every object in the store, by path. The reserved directory is
+// skipped: an interrupted upload lives there and is nobody's orphan.
+func blobPaths(t *testing.T, dir string) []string {
 	t.Helper()
-	var n int
+	var out []string
 	err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -786,14 +817,19 @@ func countBlobs(t *testing.T, dir string) int {
 			return filepath.SkipDir
 		}
 		if !d.IsDir() {
-			n++
+			out = append(out, path)
 		}
 		return nil
 	})
 	if err != nil {
 		t.Fatalf("walk %s: %v", dir, err)
 	}
-	return n
+	return out
+}
+
+func countBlobs(t *testing.T, dir string) int {
+	t.Helper()
+	return len(blobPaths(t, dir))
 }
 
 // TestCollectorDisabled covers the other half of the switch, because a sweep
