@@ -35,8 +35,9 @@ internal/dav:80
 internal/files:86
 internal/media:81
 internal/db:58
-internal/db/postgres:89
-internal/db/sqlite:88
+internal/db/postgres:92
+internal/db/sqlite:91
+internal/db/sqlutil:95
 internal/storage:98
 internal/storage/disk:83
 internal/storage/s3:88
@@ -53,6 +54,13 @@ internal/storage/s3:88
 # internal/app went 94 -> 92 with the media indexer: what is left uncovered in
 # both background loops is the branch where a pass fails halfway, and injecting
 # that means breaking a backend underneath a goroutine that is already running.
+#
+# The two drivers went 88 -> 91 and 89 -> 92 when the plumbing they had a copy
+# of each moved to internal/db/sqlutil (#30). What was hard to cover in them was
+# exactly that plumbing -- a RowsAffected that fails, a result set that stops
+# halfway -- so removing it raised what was left. internal/db/sqlutil starts at
+# 95 because a package that holds no SQL can register a fault-injecting driver
+# and reach those branches on purpose, which neither adapter can.
 #
 # internal/media is lower than the rest because running ffprobe cannot be tested
 # where there is no ffprobe. Interpreting its output is tested against captured
