@@ -2,6 +2,7 @@ package dbtest
 
 import (
 	"errors"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -27,6 +28,7 @@ func RunFiles(t *testing.T, newFiles func(t *testing.T) db.Files) {
 		fn   func(t *testing.T, s db.Files)
 	}{
 		{"put and get round trip", putGetRoundTrip},
+		{"every column of a file survives a round trip", fileEveryColumn},
 		{"put replaces the file at that path", putReplaces},
 		{"a missing file is ErrNotFound", missingFile},
 		{"delete removes exactly once", deleteOnce},
@@ -324,6 +326,89 @@ func timeRoundTrip(t *testing.T, s db.Files) {
 	if !got.MTime.Equal(want) {
 		t.Errorf("MTime = %v, want %v", got.MTime, want)
 	}
+}
+
+// fileEveryColumn is the generalisation of largeFiles and timeRoundTrip: rather
+// than pinning the one column somebody was burned by, it writes every column
+// and reads every column, and assertEveryFieldSet makes it a failure to add a
+// field to db.File that the fixture leaves empty.
+//
+// Two fields are exempt, and neither is an oversight. ID is assigned by the
+// database. IsDir cannot be true on a row that also carries a blob, a size and
+// an ETag -- a row is a file or a collection, never both -- so it is covered by
+// emptyDirectories and listMixed instead.
+//
+// One column no struct comparison can reach: files.parent_path has no field on
+// db.File. It stays covered indirectly, by the listing cases, because
+// ListFiles selects on it.
+func fileEveryColumn(t *testing.T, s db.Files) {
+	want := file("photos/every-column.jpg").Normalize()
+	assertEveryFieldSet(t, want, "ID", "IsDir")
+
+	want.ID = put(t, s, want).ID
+
+	got, err := s.FileByPath(t.Context(), owner, want.Path)
+	if err != nil {
+		t.Fatalf("FileByPath: %v", err)
+	}
+	compareFields(t, got, want)
+}
+
+// assertEveryFieldSet names any exported field the fixture leaves at its zero
+// value, which is what replaces remembering the rule. A column added to a
+// migration arrives with a field on the entity; a field nothing writes cannot
+// be covered by a round trip, and disc_no sat in the schema unwritten by any
+// case until this existed.
+func assertEveryFieldSet(t *testing.T, v any, exempt ...string) {
+	t.Helper()
+
+	rv := reflect.ValueOf(v)
+	for i := range rv.NumField() {
+		field := rv.Type().Field(i)
+		if !field.IsExported() || slices.Contains(exempt, field.Name) {
+			continue
+		}
+		if rv.Field(i).IsZero() {
+			t.Errorf("%T.%s is unset in the fixture: a round trip cannot cover a column nothing writes",
+				v, field.Name)
+		}
+	}
+}
+
+// compareFields names every exported field that differs. Reflection rather than
+// a list of comparisons so that a field added to the entity is compared without
+// anyone editing the case -- which is the whole point of the two cases that use
+// it.
+//
+// It knows two things == gets wrong here: a time.Time compares equal instants
+// rather than wall clock and location, and a pointer field like db.Media.GPS
+// compares what it points at rather than where it points.
+func compareFields(t *testing.T, got, want any) {
+	t.Helper()
+
+	g, w := reflect.ValueOf(got), reflect.ValueOf(want)
+	for i := range g.NumField() {
+		field := g.Type().Field(i)
+		if !field.IsExported() {
+			continue
+		}
+		if !equalField(g.Field(i), w.Field(i)) {
+			t.Errorf("%s = %v, want %v", field.Name, g.Field(i), w.Field(i))
+		}
+	}
+}
+
+func equalField(got, want reflect.Value) bool {
+	if when, ok := got.Interface().(time.Time); ok {
+		return when.Equal(want.Interface().(time.Time))
+	}
+	if got.Kind() == reflect.Pointer {
+		if got.IsNil() || want.IsNil() {
+			return got.IsNil() == want.IsNil()
+		}
+		return got.Elem().Interface() == want.Elem().Interface()
+	}
+	return got.Interface() == want.Interface()
 }
 
 // file builds a plausible row, so each case only states what it cares about.
