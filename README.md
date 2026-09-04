@@ -242,8 +242,8 @@ whether MinIO is running, which is also what makes the floor catch a conformance
 suite that skipped instead of running.
 
 `.golangci.yml` uses `depguard` to enforce the architecture rules from
-`CLAUDE.md`, so a driver type leaking out of its package is a failed build rather
-than a note in a document.
+[`CLAUDE.md`](CLAUDE.md), so a driver type leaking out of its package is a failed
+build rather than a note in a document.
 
 ## Container
 
