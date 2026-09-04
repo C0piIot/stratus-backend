@@ -10,7 +10,7 @@ protocols your existing apps already understand.
 
 | Protocol | Use | Works with | Status |
 |---|---|---|---|
-| WebDAV | files, photo backup, sync | rclone, Finder, Nautilus, DAVx5, FolderSync | **works** |
+| WebDAV | files, photo backup, sync | rclone, Finder, Nautilus, FolderSync | **works** |
 | HTTP range | audio/video streaming | browsers, VLC, mpv | **works** |
 | CalDAV | calendar | DAVx5, Thunderbird, iOS/macOS | next |
 | OpenSubsonic | music | Symfonium, Substreamer, DSub, Feishin | next |
@@ -31,6 +31,16 @@ server.
 rclone mount :webdav: /mnt/stratus --webdav-url http://localhost:8080/dav/ \
   --webdav-user edu --webdav-pass "$(rclone obscure "$STRATUS_PASSWORD")"
 ```
+
+Automatic camera-roll backup is the thinnest part of this, and it is a client
+problem rather than a server one. On Android, FolderSync schedules the camera
+folder to a WebDAV target, though the version that does it comfortably is paid.
+DAVx5 is free and very good at calendars and contacts, but it exposes WebDAV as
+a storage provider for file managers rather than uploading a camera roll, so it
+is listed against CalDAV above and not here. On iOS there is nothing free worth
+recommending. The server side is plain WebDAV and works with any of them --
+just do not read the table above as a promise that a phone backs itself up for
+nothing.
 
 A file is a row plus a blob, and `internal/files` is the only place that pair is
 written: bytes go to the blob store under a name nothing derives from the path,
