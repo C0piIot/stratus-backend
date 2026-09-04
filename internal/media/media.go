@@ -42,6 +42,12 @@ func kindOf(f db.File) db.Kind {
 // /etc/mime.types on Linux, which a distroless image does not have, so a table
 // that travels with the binary is the only one that behaves the same in a test
 // and in production.
+//
+// Every audio and video entry here needs a demuxer enabled in
+// build/ffprobe/Dockerfile, which builds the trimmed ffprobe the image ships.
+// Adding one without the other does not fail the build, it fails the probe for
+// that format in production -- so TestFFprobeReadsEveryExtension holds the two
+// lists together. Images never reach ffprobe: EXIF is read in pure Go.
 var byExtension = map[string]db.Kind{
 	".jpg": db.KindImage, ".jpeg": db.KindImage, ".png": db.KindImage,
 	".gif": db.KindImage, ".webp": db.KindImage, ".tif": db.KindImage,
