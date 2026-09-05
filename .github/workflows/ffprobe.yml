@@ -1,9 +1,9 @@
 # Publishes the trimmed ffprobe the server image copies in.
 #
 # Separate from ci.yml on purpose: this compiles C, and doing it in the server
-# Dockerfile would put an emulated cross-architecture build on every commit.
-# Here it runs only when the recipe or the FFmpeg version changes, which is
-# roughly never, and the server build stays one COPY.
+# Dockerfile would put a cross-architecture build on every commit. Here it runs
+# only when the recipe or the FFmpeg version changes, which is roughly never,
+# and the server build stays one COPY.
 name: ffprobe
 
 on:
@@ -17,24 +17,40 @@ permissions:
   packages: write
 
 jobs:
-  publish:
-    runs-on: ubuntu-latest
-    # arm64 is emulated, so this is slow. It is also rare, and the alternative
-    # -- cross-compiling FFmpeg -- fights the toolchain for every library.
-    timeout-minutes: 90
+  # One native runner per architecture rather than one runner emulating the
+  # other: FFmpeg is a C build, and under QEMU it takes long enough to need a
+  # timeout nobody wants to reason about. Each job pushes its own architecture
+  # under a suffixed tag and the manifest is assembled afterwards.
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            arch: amd64
+            runner: ubuntu-latest
+          - platform: linux/arm64
+            arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7.0.1
 
-      # The tag is the FFmpeg version, read from the recipe so the two cannot
-      # disagree about what was published.
-      - name: version
+      - name: version and image
         id: v
+        env:
+          OWNER: ${{ github.repository_owner }}
         run: |
           version="$(sed -n 's/^ARG FFMPEG_VERSION=//p' build/ffprobe/Dockerfile)"
           [ -n "$version" ] || { echo "no FFMPEG_VERSION in the Dockerfile"; exit 1; }
-          echo "version=$version" >> "$GITHUB_OUTPUT"
+          # A registry repository name has to be lowercase and the owner is not.
+          owner="$(echo "$OWNER" | tr '[:upper:]' '[:lower:]')"
+          {
+            echo "version=$version"
+            echo "image=ghcr.io/$owner/stratus-ffprobe"
+          } >> "$GITHUB_OUTPUT"
 
-      - uses: docker/setup-qemu-action@v4.0.0
       - uses: docker/setup-buildx-action@v4.3.0
 
       - uses: docker/login-action@v4.0.0
@@ -43,9 +59,51 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: build and push
+      # --platform is stated rather than left to the runner so that a runner on
+      # the wrong architecture fails here instead of quietly emulating.
+      - name: build and push ${{ matrix.arch }}
         run: |
           docker buildx build \
-            --platform linux/amd64,linux/arm64 \
-            --tag "ghcr.io/${{ github.repository_owner }}/stratus-ffprobe:${{ steps.v.outputs.version }}" \
+            --platform "${{ matrix.platform }}" \
+            --tag "${{ steps.v.outputs.image }}:${{ steps.v.outputs.version }}-${{ matrix.arch }}" \
             --push build/ffprobe
+
+  # The version tag is a manifest list over the two architecture tags, so the
+  # server Dockerfile can COPY --from it without naming an architecture.
+  manifest:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - name: version and image
+        id: v
+        env:
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          version="$(sed -n 's/^ARG FFMPEG_VERSION=//p' build/ffprobe/Dockerfile)"
+          owner="$(echo "$OWNER" | tr '[:upper:]' '[:lower:]')"
+          {
+            echo "version=$version"
+            echo "image=ghcr.io/$owner/stratus-ffprobe"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v4.3.0
+
+      - uses: docker/login-action@v4.0.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: assemble the manifest
+        env:
+          IMAGE: ${{ steps.v.outputs.image }}
+          VERSION: ${{ steps.v.outputs.version }}
+        run: |
+          docker buildx imagetools create \
+            --tag "$IMAGE:$VERSION" \
+            "$IMAGE:$VERSION-amd64" \
+            "$IMAGE:$VERSION-arm64"
+          docker buildx imagetools inspect "$IMAGE:$VERSION"
