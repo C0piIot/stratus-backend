@@ -69,6 +69,10 @@ jobs:
         with:
           dockerfile: Dockerfile
 
+      - uses: hadolint/hadolint-action@v3.5.0
+        with:
+          dockerfile: build/ffprobe/Dockerfile
+
   test:
     name: test
     runs-on: ubuntu-latest
