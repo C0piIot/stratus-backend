@@ -6,6 +6,11 @@ Stratus is a self-hosted personal cloud for photos, calendar, music and video.
 Instead of shipping its own API and a client app per platform, it speaks
 protocols your existing apps already understand.
 
+> **Work in progress.** Files over WebDAV work today and the container is real.
+> CalDAV, OpenSubsonic, the web UI, thumbnails and sharing are not written yet.
+> The tables below say what answers and what does not, rather than what is
+> intended — if a row says **works**, it works.
+
 ## Protocols
 
 | Protocol | Use | Works with | Status |
