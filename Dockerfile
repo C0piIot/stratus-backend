@@ -5,12 +5,18 @@ ARG ALPINE_VERSION=3.24
 # A statically linked ffprobe, copied in rather than installed. Switching the
 # base to alpine or debian for a package would cost the three things this image
 # guarantees -- no shell, no coreutils, one static binary -- to gain one tool.
+#
+# Ours rather than a general-purpose build: this one carries only the demuxers
+# build/ffprobe/Dockerfile enables, which is 1.7 MB against 128 MB. It is
+# published by .github/workflows/ffprobe.yml when that recipe changes, and this
+# tag has to name a version it published -- a tag that was never published fails
+# the build here, loudly, which is why nothing else guards it.
 ARG FFMPEG_VERSION=7.1
 
 # --platform=$BUILDPLATFORM keeps the toolchain native and cross-compiles to the
 # target instead of emulating the whole build stage under QEMU. Go cross-compiles
 # for free, so a multi-arch build needs no binfmt setup at all.
-FROM mwader/static-ffmpeg:${FFMPEG_VERSION} AS ffmpeg
+FROM ghcr.io/c0piiot/stratus-ffprobe:${FFMPEG_VERSION} AS ffprobe
 
 FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine${ALPINE_VERSION} AS build
 WORKDIR /src
@@ -34,8 +40,8 @@ COPY --from=build /out/stratus /usr/local/bin/stratus
 # ffprobe reads the duration of a track and the dimensions of a video. It is a
 # requirement rather than an optional extra: half a media library is worse than
 # a server that says what it is missing. Only ffprobe, not ffmpeg -- the encoder
-# arrives with thumbnails, and it is another forty megabytes.
-COPY --from=ffmpeg /ffprobe /usr/local/bin/ffprobe
+# arrives with thumbnails.
+COPY --from=ffprobe /ffprobe /usr/local/bin/ffprobe
 
 ENV STRATUS_ADDR=":8080" \
     STRATUS_DATA_DIR="/data"

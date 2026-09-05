@@ -190,6 +190,14 @@ Restraint here is principle 3, not laziness:
   is worse than an honest refusal to start. The image carries a statically linked
   `ffprobe` copied into the same distroless base rather than switching to one
   with a package manager; the encoder arrives with thumbnails.
+
+  **We build that ffprobe** (`build/ffprobe/Dockerfile`, published by its own
+  workflow) rather than copying a general-purpose one: probing is demuxer work,
+  no frame is ever decoded, and a build carrying only the formats we index is
+  1.7 MB against 128 MB. The demuxer list mirrors `byExtension` in
+  `internal/media`, and a test holds the two together, because an extension
+  added without its demuxer fails at probe time in production rather than at
+  build time.
 - Config over convention: sane defaults, everything overridable by env var.
 - Web UI: `html/template`, Bootstrap and htmx vendored and `//go:embed`ed. No
   JavaScript toolchain, no custom CSS.
