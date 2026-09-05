@@ -132,8 +132,33 @@ Two seams, and only two:
 
 ## Quickstart
 
-Docker is the only prerequisite — Go is never installed on the host, the
-toolchain runs in a container.
+The image is published for amd64 and arm64, so Docker is the only thing you
+need:
+
+```sh
+mkdir -p data
+docker run --rm -p 8080:8080 \
+  --user "$(id -u):$(id -g)" \
+  -v "$PWD/data:/data" \
+  -e STRATUS_USERNAME=edu -e STRATUS_PASSWORD='choose one' \
+  ghcr.io/c0piiot/stratus-backend:main
+```
+
+The backend listens on <http://localhost:8080>, and that is a working WebDAV
+server at `/dav/` — mount it with the `rclone` line above.
+
+`--user` and a directory you own are not decoration: the container runs as a
+non-root user and refuses to start rather than come up healthy and fail on your
+first upload.
+
+`:main` is the head of the default branch and moves with it. There are no
+releases yet, so a digest is the only way to hold still.
+
+### From a clone
+
+For development, or to run a build of your own. Docker is still the only
+prerequisite — Go is never installed on the host, the toolchain runs in a
+container.
 
 ```sh
 make up        # build the image and start the backend
@@ -142,11 +167,9 @@ make logs      # follow the JSON logs
 make down      # stop, keeping your data
 ```
 
-The backend listens on <http://localhost:8080>. `make help` lists every target.
-
-That gets you a server with nothing to serve: WebDAV is only mounted once there
-are credentials, so set `STRATUS_USERNAME` and `STRATUS_PASSWORD` in `.env`
-before mounting anything.
+`make help` lists every target. That gets you a server with nothing to serve:
+WebDAV is only mounted once there are credentials, so set `STRATUS_USERNAME` and
+`STRATUS_PASSWORD` in `.env` before mounting anything.
 
 ## Configuration
 
