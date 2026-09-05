@@ -12,3 +12,9 @@ dist/
 *.db-shm
 *.db-wal
 .env
+
+# The Go module and build caches the Makefile mounts, and the coverage profiles.
+# The build stage does COPY . ., so without these the whole cache is uploaded as
+# context and then baked into a layer: 2.3 GB of context for a 0.5 MB tree.
+.cache/
+coverage*.out
