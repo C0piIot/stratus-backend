@@ -80,8 +80,8 @@ a file to look at, so nothing is lost in a restart and a newly uploaded file is
 picked up on its own. A file that cannot be parsed gets a row saying why, or it
 would be read again on every pass forever.
 
-**ffprobe is required**, and the image ships a statically linked one — no
-package manager, no shell, one more layer. Photos are read in pure Go and
+**ffprobe is required**, and the image ships a statically linked one we build —
+no package manager, no shell, one more layer. Photos are read in pure Go and
 straight off the blob, so a photo in a bucket costs a few kilobytes rather than
 the whole file. Audio and video go through ffprobe, which needs a local file, so
 those are spooled to the data directory and removed afterwards.
@@ -247,12 +247,17 @@ build rather than a note in a document.
 
 ## Container
 
-Multi-stage build, `distroless/static:nonroot` runtime. About 145 MB on amd64
-and 115 MB on arm64, and nearly all of it is one file: the statically linked
-`ffprobe` is 128 MB on amd64, the Stratus binary 17 MB and the base under a
-megabyte. The base stayed distroless rather than becoming alpine to get one
-tool — the image still has no shell and no package manager, and
-`scripts/smoke.sh` asserts it.
+Multi-stage build, `distroless/static:nonroot` runtime, about 20 MB. The Go
+binary is most of it at 16.5 MB, beside a 1.7 MB `ffprobe` and a base under one
+megabyte.
+
+That `ffprobe` is built here rather than taken off the shelf, in
+`build/ffprobe/Dockerfile`. A general-purpose static build is 128 MB and carries
+every decoder, encoder, filter and scaler FFmpeg ships; Stratus runs
+`-show_format -show_streams` and never decodes a frame, so it needs the demuxers
+for the formats it indexes and nothing else. The base stayed distroless rather
+than becoming alpine to get one tool — the image still has no shell and no
+package manager, and `scripts/smoke.sh` asserts it.
 
 The container runs non-root with a read-only root filesystem, all capabilities
 dropped and `no-new-privileges`. The healthcheck is the binary probing itself

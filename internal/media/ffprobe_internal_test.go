@@ -74,6 +74,38 @@ func TestDemuxerMapHasNoStrays(t *testing.T) {
 	}
 }
 
+// TestFFprobeVersionsAgree pins the other half of the coupling. The recipe's
+// FFMPEG_VERSION is the tag the workflow publishes, and the server Dockerfile
+// names a tag to copy from. Bumping one and not the other builds fine and
+// quietly ships the previous ffprobe.
+func TestFFprobeVersionsAgree(t *testing.T) {
+	t.Parallel()
+
+	recipe := ffmpegVersion(t, "../../build/ffprobe/Dockerfile")
+	server := ffmpegVersion(t, "../../Dockerfile")
+
+	if recipe != server {
+		t.Errorf("build/ffprobe/Dockerfile builds %s and the server Dockerfile copies %s",
+			recipe, server)
+	}
+}
+
+func ffmpegVersion(t *testing.T, path string) string {
+	t.Helper()
+
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading %s: %v", path, err)
+	}
+	for line := range strings.SplitSeq(string(body), "\n") {
+		if after, ok := strings.CutPrefix(line, "ARG FFMPEG_VERSION="); ok {
+			return strings.TrimSpace(after)
+		}
+	}
+	t.Fatalf("%s has no ARG FFMPEG_VERSION", path)
+	return ""
+}
+
 // enabledDemuxers reads the --enable-demuxer list out of the recipe. Tests run
 // with the package directory as the working directory.
 func enabledDemuxers(t *testing.T) map[string]bool {
