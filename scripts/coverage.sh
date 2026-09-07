@@ -35,8 +35,8 @@ internal/dav:80
 internal/files:86
 internal/media:81
 internal/db:60
-internal/db/postgres:92
-internal/db/sqlite:91
+internal/db/postgres:93
+internal/db/sqlite:92
 internal/db/sqlutil:95
 internal/storage:98
 internal/storage/disk:83
@@ -82,6 +82,11 @@ internal/storage/s3:88
 # driver. That is no longer where those branches live: #30 moved them to
 # internal/db/sqlutil, which holds no SQL and can register such a driver, and
 # the drivers went back up as a result.
+#
+# The drivers went 92 -> 93 and 91 -> 92 with the music queries: the browse
+# methods are all Collect plus a scan, and the one branch each that a working
+# database will not take on request is reached by closing the store under the
+# query -- the same trick TestBlobKeysOnAClosedStore already used.
 #
 # internal/dav sits lower than the rest on purpose: most of what is left
 # uncovered there is one error branch per protocol edge, and the ones worth

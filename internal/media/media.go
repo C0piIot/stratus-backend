@@ -16,7 +16,7 @@ import (
 // Version is the extractor generation. Raising it puts every file back in the
 // queue, which is how a better extractor reaches what it already looked at --
 // no migration, no script.
-const Version = 1
+const Version = 2
 
 // kindOf decides which extractor a file gets.
 //
