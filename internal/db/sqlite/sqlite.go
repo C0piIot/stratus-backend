@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	sqlitedriver "modernc.org/sqlite"
@@ -182,7 +183,7 @@ func (r *repo) ListFiles(ctx context.Context, owner, dir string) ([]db.File, err
 	return out, nil
 }
 
-const mediaColumns = `file_id, kind, indexed_at, version, error, taken_at, width, height, orientation, latitude, longitude, camera, duration_ms, codec, artist, album, title, track_no, disc_no, year, genre`
+const mediaColumns = `file_id, kind, indexed_at, version, error, taken_at, width, height, orientation, latitude, longitude, camera, duration_ms, codec, artist, album, title, track_no, disc_no, year, genre, album_artist`
 
 // PutMedia implements db.MediaIndex.
 func (r *repo) PutMedia(ctx context.Context, m db.Media) error {
@@ -199,7 +200,7 @@ func (r *repo) PutMedia(ctx context.Context, m db.Media) error {
 	}
 
 	const query = `INSERT INTO media (` + mediaColumns + `)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (file_id) DO UPDATE SET
 			kind = excluded.kind, indexed_at = excluded.indexed_at, version = excluded.version,
 			error = excluded.error, taken_at = excluded.taken_at, width = excluded.width,
@@ -207,13 +208,15 @@ func (r *repo) PutMedia(ctx context.Context, m db.Media) error {
 			latitude = excluded.latitude, longitude = excluded.longitude, camera = excluded.camera,
 			duration_ms = excluded.duration_ms, codec = excluded.codec, artist = excluded.artist,
 			album = excluded.album, title = excluded.title, track_no = excluded.track_no,
-			disc_no = excluded.disc_no, year = excluded.year, genre = excluded.genre`
+			disc_no = excluded.disc_no, year = excluded.year, genre = excluded.genre,
+			album_artist = excluded.album_artist`
 
 	_, err := r.q.ExecContext(ctx, query,
 		m.FileID, string(m.Kind), m.IndexedAt.UnixMilli(), m.Version, m.Error, takenAt,
 		m.Width, m.Height, m.Orientation, lat, lon, m.Camera,
 		m.DurationMS, m.Codec, m.Artist, m.Album, m.Title,
 		m.TrackNo, m.DiscNo, m.Year, m.Genre,
+		m.AlbumArtist,
 	)
 	if err != nil {
 		return fmt.Errorf("put media for file %d: %w", m.FileID, mapErr(err))
@@ -258,7 +261,7 @@ func scanMedia(row *sql.Row) (db.Media, error) {
 	err := row.Scan(&m.FileID, &kind, &indexedAt, &m.Version, &m.Error, &takenAt,
 		&m.Width, &m.Height, &m.Orientation, &lat, &lon, &m.Camera,
 		&m.DurationMS, &m.Codec, &m.Artist, &m.Album, &m.Title,
-		&m.TrackNo, &m.DiscNo, &m.Year, &m.Genre)
+		&m.TrackNo, &m.DiscNo, &m.Year, &m.Genre, &m.AlbumArtist)
 	if err != nil {
 		return db.Media{}, mapErr(err)
 	}
@@ -272,6 +275,127 @@ func scanMedia(row *sql.Row) (db.Media, error) {
 		m.GPS = &db.GPS{Latitude: lat.Float64, Longitude: lon.Float64}
 	}
 	return m, nil
+}
+
+// joinedFileColumns and joinedMediaColumns are the same lists qualified for a
+// join, where both tables carry columns the other also has.
+var (
+	joinedFileColumns  = "f." + strings.ReplaceAll(fileColumns, ", ", ", f.")
+	joinedMediaColumns = "m." + strings.ReplaceAll(mediaColumns, ", ", ", m.")
+)
+
+// Artists implements db.Repo.
+func (r *repo) Artists(ctx context.Context, owner string) ([]db.Artist, error) {
+	const query = `SELECT m.album_artist, COUNT(DISTINCT m.album)
+		FROM media m JOIN files f ON f.id = m.file_id
+		WHERE f.owner_id = ? AND m.kind = ? AND m.album_artist <> '' AND m.album <> ''
+		GROUP BY m.album_artist
+		ORDER BY m.album_artist`
+
+	out, err := sqlutil.Collect(ctx, r.q, scanArtist, query, owner, string(db.KindAudio))
+	if err != nil {
+		return nil, fmt.Errorf("list artists: %w", mapErr(err))
+	}
+	return out, nil
+}
+
+// Albums implements db.Repo.
+func (r *repo) Albums(ctx context.Context, owner, artist string) ([]db.Album, error) {
+	// The artist is matched or ignored by the same clause, so one query serves
+	// both a listing of the whole library and of one artist.
+	const query = `SELECT m.album_artist, m.album, COUNT(*), COALESCE(SUM(m.duration_ms), 0),
+			MAX(m.year), MAX(m.genre), MIN(f.mtime)
+		FROM media m JOIN files f ON f.id = m.file_id
+		WHERE f.owner_id = ? AND m.kind = ? AND m.album <> ''
+		  AND (? = '' OR m.album_artist = ?)
+		GROUP BY m.album_artist, m.album
+		ORDER BY m.album_artist, m.album`
+
+	out, err := sqlutil.Collect(ctx, r.q, scanAlbum, query, owner, string(db.KindAudio), artist, artist)
+	if err != nil {
+		return nil, fmt.Errorf("list albums: %w", mapErr(err))
+	}
+	return out, nil
+}
+
+// Tracks implements db.Repo.
+func (r *repo) Tracks(ctx context.Context, owner, artist, album string) ([]db.Track, error) {
+	query := `SELECT ` + joinedFileColumns + `, ` + joinedMediaColumns + `
+		FROM media m JOIN files f ON f.id = m.file_id
+		WHERE f.owner_id = ? AND m.kind = ? AND m.album_artist = ? AND m.album = ?
+		ORDER BY m.disc_no, m.track_no, f.path`
+
+	out, err := sqlutil.Collect(ctx, r.q, scanTrack, query, owner, string(db.KindAudio), artist, album)
+	if err != nil {
+		return nil, fmt.Errorf("list tracks of %q: %w", album, mapErr(err))
+	}
+	return out, nil
+}
+
+// TrackByFile implements db.Repo.
+func (r *repo) TrackByFile(ctx context.Context, owner string, fileID int64) (db.Track, error) {
+	query := `SELECT ` + joinedFileColumns + `, ` + joinedMediaColumns + `
+		FROM media m JOIN files f ON f.id = m.file_id
+		WHERE f.owner_id = ? AND f.id = ?`
+
+	out, err := sqlutil.Collect(ctx, r.q, scanTrack, query, owner, fileID)
+	if err != nil {
+		return db.Track{}, fmt.Errorf("get track %d: %w", fileID, mapErr(err))
+	}
+	if len(out) == 0 {
+		return db.Track{}, fmt.Errorf("get track %d: %w", fileID, db.ErrNotFound)
+	}
+	return out[0], nil
+}
+
+func scanArtist(rows *sql.Rows) (db.Artist, error) {
+	var a db.Artist
+	err := rows.Scan(&a.Name, &a.AlbumCount)
+	return a, err
+}
+
+func scanAlbum(rows *sql.Rows) (db.Album, error) {
+	var a db.Album
+	var created int64
+	if err := rows.Scan(&a.Artist, &a.Name, &a.SongCount, &a.DurationMS,
+		&a.Year, &a.Genre, &created); err != nil {
+		return db.Album{}, err
+	}
+	a.Created = time.UnixMilli(created).UTC()
+	return a, nil
+}
+
+// scanTrack reads a file row and a media row from one joined result. The two
+// halves are scanned the same way the single-table readers do it, because the
+// conversions are a property of the columns and not of the query.
+func scanTrack(rows *sql.Rows) (db.Track, error) {
+	var t db.Track
+	var mtime, indexedAt int64
+	var kind string
+	var lat, lon sql.NullFloat64
+	var takenAt sql.NullInt64
+
+	err := rows.Scan(
+		&t.File.ID, &t.File.OwnerID, &t.File.Path, &t.File.BlobKey, &t.File.Size,
+		&mtime, &t.File.ETag, &t.File.MIMEType, &t.File.IsDir,
+		&t.Media.FileID, &kind, &indexedAt, &t.Media.Version, &t.Media.Error, &takenAt,
+		&t.Media.Width, &t.Media.Height, &t.Media.Orientation, &lat, &lon, &t.Media.Camera,
+		&t.Media.DurationMS, &t.Media.Codec, &t.Media.Artist, &t.Media.Album, &t.Media.Title,
+		&t.Media.TrackNo, &t.Media.DiscNo, &t.Media.Year, &t.Media.Genre, &t.Media.AlbumArtist)
+	if err != nil {
+		return db.Track{}, err
+	}
+
+	t.File.MTime = time.UnixMilli(mtime).UTC()
+	t.Media.Kind = db.Kind(kind)
+	t.Media.IndexedAt = time.UnixMilli(indexedAt).UTC()
+	if takenAt.Valid {
+		t.Media.TakenAt = time.UnixMilli(takenAt.Int64).UTC()
+	}
+	if lat.Valid && lon.Valid {
+		t.Media.GPS = &db.GPS{Latitude: lat.Float64, Longitude: lon.Float64}
+	}
+	return t, nil
 }
 
 // BlobKeys implements db.Repo.

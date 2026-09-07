@@ -81,10 +81,17 @@ of a video. Without it a library is a pile of files — there is no gallery by
 date and no music browsing.
 
 It runs in the background, in this process, and `STRATUS_INDEX_INTERVAL=0` turns
-it off. The queue is a query rather than a table: a file with no metadata row is
-a file to look at, so nothing is lost in a restart and a newly uploaded file is
-picked up on its own. A file that cannot be parsed gets a row saying why, or it
-would be read again on every pass forever.
+it off. **An upgrade that improves the extractor re-reads everything**: the
+queue is a query for files whose metadata is older than the current extractor,
+so raising its version puts the whole library back in it. That is deliberate --
+it is how a better extractor reaches what it already looked at, with no
+migration and no script -- but on a large library the first pass after an
+upgrade is not free.
+
+The queue is a query rather than a table: a file with no metadata row is a file
+to look at, so nothing is lost in a restart and a newly uploaded file is picked
+up on its own. A file that cannot be parsed gets a row saying why, or it would
+be read again on every pass forever.
 
 **ffprobe is required**, and the image ships a statically linked one we build —
 no package manager, no shell, one more layer. Photos are read in pure Go and

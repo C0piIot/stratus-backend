@@ -101,6 +101,10 @@ func (p probeReport) mediaFrom(kind db.Kind) db.Media {
 	tags := p.Format.Tags
 	m.Title = tag(tags, "title")
 	m.Artist = firstOf(tag(tags, "artist"), tag(tags, "album_artist"))
+	// Its own field rather than a fallback for Artist: they differ on exactly
+	// the records where it matters, and grouping albums by the track artist is
+	// what turns a compilation into one album per track.
+	m.AlbumArtist = firstOf(tag(tags, "album_artist"), m.Artist)
 	m.Album = tag(tags, "album")
 	m.Genre = tag(tags, "genre")
 	m.TrackNo = leadingInt(tag(tags, "track"))
