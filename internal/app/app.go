@@ -98,17 +98,17 @@ func New(cfg config.Config, version string) *App {
 
 // Handler builds the HTTP routes. Separate from Run so every protocol surface
 // can be tested through httptest without binding a port.
-//
-// deps is unused while /healthz is the only route. It is threaded through now
-// because WebDAV, CalDAV and the web UI all need it, and because a signature is
-// a better place to state that than a comment.
 func (a *App) Handler(deps Deps) http.Handler {
 	mux := http.NewServeMux()
+
+	// Liveness. It touches nothing on purpose -- see readiness in health.go for
+	// the endpoint that does, and why they are two.
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		// Nothing useful to do if the client hung up mid-write.
 		_, _ = io.WriteString(w, "ok\n")
 	})
+	mux.HandleFunc("GET /readyz", readiness(deps))
 
 	// No credentials, no file surface. Refusing to mount it is clearer than
 	// mounting something that answers 401 to everyone, and it means an install

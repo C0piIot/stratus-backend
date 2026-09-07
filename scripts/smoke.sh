@@ -342,6 +342,16 @@ run_detached "$davname" -u "$(id -u):$(id -g)" -v "$davdir:/data" \
 if wait_serving "$davname"; then
   davhost="$(docker port "$davname" 8080/tcp | head -1)"
 
+  # Readiness against the real backends: the disk store and the SQLite file the
+  # container actually opened. A unit test can only assert this against ones it
+  # built itself.
+  ready="$(curl -s "http://$davhost/readyz")"
+  if [ "$ready" = "$(printf 'database: ok\nstorage: ok')" ]; then
+    ok "/readyz reports both dependencies"
+  else
+    bad "/readyz reports both dependencies" "got $(printf '%s' "$ready" | tr '\n' ' ')"
+  fi
+
   code="$(curl -s -o /dev/null -w '%{http_code}' -X PUT --data-binary 'smoke' "http://$davhost/dav/notes.txt")"
   if [ "$code" = "401" ]; then
     ok "an unauthenticated PUT is refused"

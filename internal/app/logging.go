@@ -22,10 +22,12 @@ func logRequests(h http.Handler) http.Handler {
 		h.ServeHTTP(rec, r)
 
 		// The container healthcheck asks every thirty seconds, which at info
-		// level is three thousand lines a day of nothing happening.
+		// level is three thousand lines a day of nothing happening. Whatever
+		// polls /readyz does the same, and a failing check logs its reason
+		// itself, at error level, with the dependency named.
 		level := slog.LevelInfo
 		switch {
-		case r.URL.Path == "/healthz":
+		case r.URL.Path == "/healthz", r.URL.Path == "/readyz":
 			level = slog.LevelDebug
 		case rec.status >= http.StatusInternalServerError:
 			level = slog.LevelError
