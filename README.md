@@ -68,8 +68,9 @@ guarantee. The real defence against a lost update here is the strong ETag and
 JSON on stdout, one line per request: method, path, status, bytes, duration and
 the caller's address. No headers and no query string — one carries the
 credentials and the other is where a token would end up if a protocol ever put
-one there. `/healthz` logs at debug, because the container asks every thirty
-seconds and three thousand lines a day of nothing is not a log.
+one there. `/healthz` and `/readyz` log at debug, because the container asks
+every thirty seconds and three thousand lines a day of nothing is not a log — a
+failed readiness check logs its own reason at error level instead.
 
 ### Media metadata
 
@@ -290,6 +291,30 @@ package manager, and `scripts/smoke.sh` asserts it.
 The container runs non-root with a read-only root filesystem, all capabilities
 dropped and `no-new-privileges`. The healthcheck is the binary probing itself
 (`stratus -healthcheck`) since distroless ships no shell or curl.
+
+### Two health endpoints, and which is which
+
+`GET /healthz` is **liveness**: the process is up and serving. It touches no
+dependency, and that is deliberate — it is what the container healthcheck asks,
+and restarting the container does not fix a database on another host. A
+healthcheck that failed on a dependency outage would turn one broken dependency
+into a restart loop, and with `restart: unless-stopped` an endless one.
+
+`GET /readyz` answers the question an operator actually has, and drives nothing:
+
+```
+database: ok
+storage: ok
+```
+
+`503` if either does not answer, `not configured` for an install with no
+credentials — which is a legitimate state, not a fault, so it is still a `200`.
+The reason a check failed is logged with the dependency named and never put in
+the response: a driver error can carry the host it could not reach, and a DSN is
+not printed verbatim anywhere else either.
+
+Both are unauthenticated. What they disclose is that two backends respond, never
+a name, a DSN or a byte of content.
 
 ## Status
 

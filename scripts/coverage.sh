@@ -28,7 +28,7 @@ set -euo pipefail
 profile="${1:-coverage.out}"
 
 FLOORS="
-internal/app:92
+internal/app:94
 internal/auth:100
 internal/config:100
 internal/dav:80
@@ -50,6 +50,9 @@ internal/storage/s3:88
 #   internal/storage/storagetest  the conformance suite itself. It runs from the
 #   internal/db/dbtest            disk, s3, sqlite and postgres tests, and Go
 #                                 attributes that coverage to them, not to it.
+#
+# internal/app went 92 -> 94 with /readyz (#34), which is reachable in every
+# branch it has: a closed store answers, and what it answers is not "not found".
 #
 # internal/app went 94 -> 92 with the media indexer: what is left uncovered in
 # both background loops is the branch where a pass fails halfway, and injecting
