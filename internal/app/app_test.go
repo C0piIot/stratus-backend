@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -627,10 +628,10 @@ func TestRunRejectsAReadOnlyDatabase(t *testing.T) {
 	}
 }
 
-// davServer starts the whole application over real backends and returns its
-// base URL, which is the only way to test that the surface is actually wired:
+// liveServer starts the whole application over real backends and returns its
+// base URL, which is the only way to test that a surface is actually wired:
 // authentication, prefix, storage and database all at once.
-func davServer(t *testing.T, vars map[string]string) (string, func()) {
+func liveServer(t *testing.T, vars map[string]string) (string, func()) {
 	t.Helper()
 	cfg := runConfig(t, vars)
 
@@ -661,7 +662,7 @@ func davServer(t *testing.T, vars map[string]string) (string, func()) {
 func TestWebDAVIsWiredAndAuthenticated(t *testing.T) {
 	t.Parallel()
 	const password = "an example password"
-	base, stop := davServer(t, map[string]string{
+	base, stop := liveServer(t, map[string]string{
 		"STRATUS_USERNAME": "edu",
 		"STRATUS_PASSWORD": password,
 	})
@@ -718,7 +719,7 @@ func TestWebDAVIsWiredAndAuthenticated(t *testing.T) {
 // nobody has configured must not be a file server.
 func TestWebDAVIsNotMountedWithoutCredentials(t *testing.T) {
 	t.Parallel()
-	base, stop := davServer(t, map[string]string{})
+	base, stop := liveServer(t, map[string]string{})
 	defer stop()
 
 	resp, err := http.Get(base + "/dav/notes.txt") //nolint:noctx // as above
@@ -729,6 +730,133 @@ func TestWebDAVIsNotMountedWithoutCredentials(t *testing.T) {
 	if resp.StatusCode != http.StatusNotFound {
 		t.Errorf("GET with no credentials configured = %d, want 404: the surface should not exist", resp.StatusCode)
 	}
+}
+
+// TestSubsonicIsWired asserts the three things only the composition root can
+// get wrong: the prefix, the version in the envelope, and that the surface
+// authenticates from the query string instead of behind auth.Basic.
+func TestSubsonicIsWired(t *testing.T) {
+	t.Parallel()
+	const password = "an example password"
+	base, stop := liveServer(t, map[string]string{
+		"STRATUS_USERNAME": "edu",
+		"STRATUS_PASSWORD": password,
+	})
+	defer stop()
+
+	// .view because that is what clients send, and the prefix is theirs rather
+	// than ours: they append /rest/<method> to the URL an operator typed in.
+	ok := answer(t, base+"/rest/ping.view?c=stratus-tests&u=edu&p="+url.QueryEscape(password))
+	if !strings.Contains(ok, `status="ok"`) {
+		t.Errorf("ping = %s", ok)
+	}
+	// The build reaches the envelope. A client reads it to decide whether to
+	// ask again what this server supports.
+	if !strings.Contains(ok, `serverVersion="test"`) {
+		t.Errorf("the envelope does not carry the version: %s", ok)
+	}
+
+	// No credentials is an envelope with a code, not a 401 with a challenge:
+	// this surface has no header to authenticate and no realm to name.
+	refused := answer(t, base+"/rest/ping.view?c=stratus-tests")
+	if !strings.Contains(refused, `status="failed"`) || !strings.Contains(refused, `code="10"`) {
+		t.Errorf("an unauthenticated ping = %s", refused)
+	}
+	wrong := answer(t, base+"/rest/ping.view?c=stratus-tests&u=edu&p=not+it")
+	if !strings.Contains(wrong, `code="40"`) {
+		t.Errorf("a wrong password = %s", wrong)
+	}
+}
+
+// TestSubsonicSharesTheRateLimitWithWebDAV is why app.Handler builds one
+// verifier and hands it to both surfaces. Two throttles would be two budgets
+// for guesses at the same single password, and the second one would be reached
+// by changing a URL.
+//
+// The assertion is the delay rather than a refusal: the throttle answers the
+// free failures immediately and holds the next, so a guess that arrives on the
+// other surface having to wait is the shared counter, observable.
+func TestSubsonicSharesTheRateLimitWithWebDAV(t *testing.T) {
+	t.Parallel()
+	base, stop := liveServer(t, map[string]string{
+		"STRATUS_USERNAME": "edu",
+		"STRATUS_PASSWORD": "an example password",
+	})
+	defer stop()
+
+	// Spend the burst on WebDAV. auth.DefaultThrottle answers three failures
+	// without waiting, so these are instant.
+	for i := range 3 {
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, base+"/dav/", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.SetBasicAuth("edu", "not it")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close()
+		if resp.StatusCode != http.StatusUnauthorized {
+			t.Fatalf("failed Basic login %d = %d, want 401", i, resp.StatusCode)
+		}
+	}
+
+	// The fourth guess arrives on the other surface, and finds the bucket empty.
+	start := time.Now()
+	body := answer(t, base+"/rest/ping.view?c=stratus-tests&u=edu&p=not+it")
+	elapsed := time.Since(start)
+
+	if !strings.Contains(body, `code="40"`) {
+		t.Errorf("a wrong password = %s", body)
+	}
+	// Half of the configured second, so the assertion is about there being a
+	// wait at all rather than about its exact length.
+	if elapsed < 500*time.Millisecond {
+		t.Errorf("the guess was answered in %v: the surfaces have separate rate limits", elapsed)
+	}
+}
+
+// TestSubsonicIsNotMountedWithoutCredentials is TestWebDAVIsNotMountedWithout-
+// Credentials for the other surface, and the same rule: an install nobody has
+// configured is not a music server either.
+func TestSubsonicIsNotMountedWithoutCredentials(t *testing.T) {
+	t.Parallel()
+	base, stop := liveServer(t, map[string]string{})
+	defer stop()
+
+	resp, err := http.Get(base + "/rest/ping.view") //nolint:noctx // as above
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("ping with no credentials configured = %d, want 404: the surface should not exist", resp.StatusCode)
+	}
+}
+
+// answer is a GET whose body is the whole response, which is what a Subsonic
+// answer is.
+func answer(t *testing.T, target string) string {
+	t.Helper()
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, target, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	// Every Subsonic answer is a 200, errors included.
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET %s = %d, want 200", target, resp.StatusCode)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(body)
 }
 
 // TestCollectorRuns is the wiring, not the collecting: the goroutine starts on
@@ -749,7 +877,7 @@ func TestCollectorRuns(t *testing.T) {
 	t.Parallel()
 	const password = "an example password"
 	dataDir := filepath.Join(t.TempDir(), "data")
-	base, stop := davServer(t, map[string]string{
+	base, stop := liveServer(t, map[string]string{
 		"STRATUS_DATA_DIR":    dataDir,
 		"STRATUS_USERNAME":    "edu",
 		"STRATUS_PASSWORD":    password,
@@ -838,7 +966,7 @@ func TestCollectorDisabled(t *testing.T) {
 	t.Parallel()
 	const password = "an example password"
 	dataDir := filepath.Join(t.TempDir(), "data")
-	base, stop := davServer(t, map[string]string{
+	base, stop := liveServer(t, map[string]string{
 		"STRATUS_DATA_DIR":    dataDir,
 		"STRATUS_USERNAME":    "edu",
 		"STRATUS_PASSWORD":    password,
@@ -893,7 +1021,7 @@ func TestIndexerRuns(t *testing.T) {
 	stubFFprobe(t)
 
 	dataDir := filepath.Join(t.TempDir(), "data")
-	base, stop := davServer(t, map[string]string{
+	base, stop := liveServer(t, map[string]string{
 		"STRATUS_DATA_DIR":       dataDir,
 		"STRATUS_USERNAME":       "edu",
 		"STRATUS_PASSWORD":       password,

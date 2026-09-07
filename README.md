@@ -7,7 +7,8 @@ Instead of shipping its own API and a client app per platform, it speaks
 protocols your existing apps already understand.
 
 > **Work in progress.** Files over WebDAV work today and the container is real.
-> CalDAV, OpenSubsonic, the web UI, thumbnails and sharing are not written yet.
+> OpenSubsonic answers a login but has no library behind it yet; CalDAV, the web
+> UI, thumbnails and sharing are not written at all.
 > The tables below say what answers and what does not, rather than what is
 > intended — if a row says **works**, it works.
 
@@ -18,7 +19,7 @@ protocols your existing apps already understand.
 | WebDAV | files, photo backup, sync | rclone, Finder, Nautilus, FolderSync | **works** |
 | HTTP range | audio/video streaming | browsers, VLC, mpv | **works** |
 | CalDAV | calendar | DAVx5, Thunderbird, iOS/macOS | next |
-| OpenSubsonic | music | Symfonium, Substreamer, DSub, Feishin | next |
+| OpenSubsonic | music | Symfonium, Substreamer, DSub, Feishin | logs in, library empty |
 | Web UI | log in, browse, download | any browser | planned |
 | CardDAV | contacts | DAVx5, Thunderbird | planned |
 | DLNA / UPnP-AV | TVs, set-top players | | planned |
@@ -127,6 +128,31 @@ The two backends also clean up after themselves when they open: the disk one
 empties its reserved directory of interrupted uploads, and the S3 one aborts
 multipart uploads abandoned more than a day ago, which are invisible to a
 listing and billed until something ends them.
+
+## OpenSubsonic
+
+Mounted at `/rest/`, with the same credentials as WebDAV and, like it, only when
+they are set. The path is not a choice: every Subsonic client appends
+`/rest/<method>` to the base URL it is given, so an operator types
+`http://localhost:8080` and nothing else.
+
+**A client logs in today and finds an empty library.** `ping`, `getLicense`,
+`getMusicFolders`, `getUser` and `getOpenSubsonicExtensions` answer; browsing,
+search and streaming are the next piece of work. That is why the table above
+does not say **works** -- a music app that connects and shows nothing is not a
+music surface yet.
+
+Both authentication schemes are accepted: `p` carrying the password, and `t`
+carrying `md5(password + salt)`, which is what the [credentials](#credentials)
+section is about. Failed logins share one limit with WebDAV rather than having
+their own: it is the same single password, so alternating surfaces must not
+double an attacker's budget of guesses.
+
+Two properties of the protocol are worth knowing before reading a log. A
+response is **XML** unless `f=json` asks otherwise, and an **error arrives
+inside an HTTP 200** with a code in the body. A 404 from `/rest/` therefore
+means something else entirely: the surface is not mounted, because there are no
+credentials.
 
 ## Pluggable backends
 
@@ -334,11 +360,14 @@ Working now:
 - Both pluggable seams — disk and S3 for blobs, SQLite and PostgreSQL for
   metadata — each with a conformance suite that both of its drivers pass.
 - WebDAV, behind HTTP Basic with a global limit on failed logins.
+- OpenSubsonic far enough for a client to log in, over both of the protocol's
+  authentication schemes and sharing that same limit.
 - EXIF, audio tags and video probing, indexed in the background.
 - A request log, migrations applied at startup, and a container asserted from
-  the outside by 39 smoke checks.
+  the outside by 42 smoke checks.
 
-Not there yet: CalDAV, OpenSubsonic, the web UI, thumbnails and sharing. Work
+Not there yet: the music library behind OpenSubsonic, CalDAV, the web UI,
+thumbnails and sharing. Work
 and the decisions behind it are tracked on the
 [Stratus project board](https://github.com/users/C0piIot/projects/2), where
 `Priority` says when and the `decision` label says what still needs a call.

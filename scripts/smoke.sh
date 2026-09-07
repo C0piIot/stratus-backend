@@ -326,10 +326,11 @@ fi
 docker rm -f "$name" >/dev/null 2>&1
 
 # ---------------------------------------------------------------------------
-section "WebDAV"
+section "Protocol surfaces"
 # ---------------------------------------------------------------------------
-# The first surface that does something. Unit tests drive the handler; this
-# drives the shipped image with a real client, over a real port.
+# The surfaces that need credentials, in one container because they share them.
+# Unit tests drive the handlers; this drives the shipped image with a real
+# client, over a real port.
 
 davdir="$(mktmp)"
 davname="stratus-smoke-dav"
@@ -409,6 +410,27 @@ if wait_serving "$davname"; then
     bad "PROPFIND answers a multistatus" "got $code"
   fi
 
+  # The other protocol surface, in the image that has to serve it. Token auth
+  # rather than the password, because it is the scheme every current client
+  # uses and md5(password + salt) is the whole reason the password is held as
+  # configured rather than hashed.
+  salt="smoke"
+  token="$(printf '%s' "$davpass$salt" | md5sum | cut -d' ' -f1)"
+  body="$(curl -fsS "http://$davhost/rest/ping.view?c=smoke&u=$davuser&t=$token&s=$salt" 2>/dev/null || true)"
+  case "$body" in
+    *'status="ok"'*) ok "OpenSubsonic answers a token login" ;;
+    *)               bad "OpenSubsonic answers a token login" "got '$body'" ;;
+  esac
+
+  # An error is an HTTP 200 with a code inside it. That is the protocol's own
+  # design and not a bug to fix: a client handed a transport error cannot read
+  # the reason for it.
+  refused="$(curl -s -w '|%{http_code}' "http://$davhost/rest/ping.view?c=smoke&u=$davuser&p=wrong")"
+  case "$refused" in
+    *'code="40"'*'|200') ok "an OpenSubsonic error travels inside a 200" ;;
+    *)                   bad "an OpenSubsonic error travels inside a 200" "got '$refused'" ;;
+  esac
+
   # One line per request, which is the only way to see a 401 or a 409 after the
   # fact. The healthcheck is deliberately not in there.
   #
@@ -450,7 +472,7 @@ if wait_serving "$davname"; then
     bad "the indexer picks up an uploaded file" "$(docker logs "$davname" 2>&1 | tail -3)"
   fi
 else
-  bad "the WebDAV container starts" "$(docker logs "$davname" 2>&1 | tail -3)"
+  bad "the container with credentials starts" "$(docker logs "$davname" 2>&1 | tail -3)"
 fi
 docker rm -f "$davname" >/dev/null 2>&1
 
