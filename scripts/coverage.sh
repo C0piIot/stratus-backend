@@ -41,6 +41,7 @@ internal/db/sqlutil:95
 internal/storage:98
 internal/storage/disk:83
 internal/storage/s3:88
+internal/subsonic:100
 "
 
 # Not gated, and why:
@@ -64,6 +65,11 @@ internal/storage/s3:88
 # halfway -- so removing it raised what was left. internal/db/sqlutil starts at
 # 95 because a package that holds no SQL can register a fault-injecting driver
 # and reach those branches on purpose, which neither adapter can.
+#
+# internal/subsonic starts at 100, which is high but is what the package is: it
+# does no I/O of its own beyond writing a response, so every branch is reachable
+# from httptest -- the two that report a client hanging up mid-response included,
+# through a ResponseWriter that fails on demand.
 #
 # internal/media is lower than the rest because running ffprobe cannot be tested
 # where there is no ffprobe. Interpreting its output is tested against captured

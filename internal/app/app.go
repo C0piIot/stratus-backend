@@ -27,6 +27,7 @@ import (
 	"github.com/C0piIot/stratus-backend/internal/storage"
 	"github.com/C0piIot/stratus-backend/internal/storage/disk"
 	"github.com/C0piIot/stratus-backend/internal/storage/s3"
+	"github.com/C0piIot/stratus-backend/internal/subsonic"
 )
 
 // probeTimeout bounds the self-probe used by the container healthcheck. A
@@ -46,6 +47,11 @@ const davPrefix = "/dav/"
 
 // davRealm is what a client shows when it asks for a password.
 const davRealm = "Stratus"
+
+// subsonicPrefix is where the music surface lives. Unlike davPrefix this is not
+// ours to choose: every Subsonic client appends /rest/<method> to whatever base
+// URL it is given.
+const subsonicPrefix = "/rest/"
 
 // probeKey is the same idea one layer up, in the blob store. It is a valid key
 // on every backend, and it never survives startup.
@@ -119,6 +125,11 @@ func (a *App) Handler(deps Deps) http.Handler {
 		// are shared rather than reset per request.
 		verifier := auth.NewThrottle(creds, auth.DefaultThrottle)
 		mux.Handle(davPrefix, auth.Basic(davRealm, verifier, dav.Handler(davPrefix, service)))
+		// The same verifier, deliberately. Subsonic authenticates per request
+		// from the query string rather than through auth.Basic, and a second
+		// NewThrottle here would give an attacker a second budget of guesses at
+		// the one password this server has.
+		mux.Handle(subsonicPrefix, subsonic.Handler(subsonicPrefix, a.version, verifier))
 	}
 	return logRequests(mux)
 }
