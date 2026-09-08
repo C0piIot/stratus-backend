@@ -141,6 +141,10 @@ func TestMusicOnAClosedStore(t *testing.T) {
 		"Artists": func() error { _, err := store.Artists(t.Context(), "edu"); return err },
 		"Albums":  func() error { _, err := store.Albums(t.Context(), "edu", ""); return err },
 		"Tracks":  func() error { _, err := store.Tracks(t.Context(), "edu", "a", "b"); return err },
+		"TracksIn": func() error {
+			_, err := store.TracksIn(t.Context(), "edu", "music")
+			return err
+		},
 		"TrackByFile": func() error {
 			_, err := store.TrackByFile(t.Context(), "edu", 1)
 			return err

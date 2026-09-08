@@ -431,6 +431,37 @@ if wait_serving "$davname"; then
     *)                   bad "an OpenSubsonic error travels inside a 200" "got '$refused'" ;;
   esac
 
+  # Browsing and playing, through the shipped image, over a real port. The
+  # upload above is a text file with a .txt name, so this puts a track in with
+  # an extension the indexer recognises and waits for it to be read: what is
+  # asserted is the whole loop -- upload, extract, browse, stream.
+  curl -fsS -u "$davuser:$davpass" -X PUT --data-binary @- \
+    "http://$davhost/dav/track.mp3" >/dev/null 2>&1 <<'TRACK'
+not really an mp3, and that is the point: the row is what browsing reads
+TRACK
+  browsed=""
+  for _ in $(seq 1 50); do
+    body="$(curl -fsS "http://$davhost/rest/getIndexes.view?c=smoke&u=$davuser&t=$token&s=$salt" 2>/dev/null || true)"
+    case "$body" in
+      *'track.mp3'*) browsed=yes; break ;;
+    esac
+    sleep 0.2
+  done
+  if [ -n "$browsed" ]; then
+    ok "OpenSubsonic browses what was uploaded over WebDAV"
+  else
+    bad "OpenSubsonic browses what was uploaded over WebDAV" "got '$body'"
+  fi
+
+  # The id comes out of the listing rather than being built here: a client only
+  # ever sends back an id the server gave it, and so does this.
+  song_id="$(printf '%s' "$body" | tr '<' '\n' | grep 'title="track.mp3"' | sed -n 's/.*id="\([^"]*\)".*/\1/p' | head -1)"
+  streamed="$(curl -fsS "http://$davhost/rest/stream.view?c=smoke&u=$davuser&t=$token&s=$salt&id=$song_id" 2>/dev/null || true)"
+  case "$streamed" in
+    *'not really an mp3'*) ok "OpenSubsonic streams the stored bytes" ;;
+    *)                     bad "OpenSubsonic streams the stored bytes" "id '$song_id' gave '$streamed'" ;;
+  esac
+
   # One line per request, which is the only way to see a 401 or a 409 after the
   # fact. The healthcheck is deliberately not in there.
   #

@@ -14,12 +14,37 @@
 package subsonic
 
 import (
+	"context"
+	"io"
 	"net/http"
 	"strings"
+
+	"github.com/C0piIot/stratus-backend/internal/db"
 )
+
+// rootName is what the top of the folder tree is called. It is not a real
+// directory -- the root has no row -- so it needs a name from somewhere, and
+// this is the same one getMusicFolders answers with.
+const rootName = "Music"
+
+// Tree is what this adapter needs from internal/files: the directories the
+// library model cannot answer, because a folder is not a tag, and the bytes of
+// a track.
+//
+// Declared here rather than taking *files.Service whole, for the reason that
+// package gives itself: a dependency should say what it uses.
+type Tree interface {
+	Stat(ctx context.Context, owner, path string) (db.File, error)
+	List(ctx context.Context, owner, dir string) ([]db.File, error)
+	OpenFile(ctx context.Context, f db.File) (io.ReadSeekCloser, error)
+}
 
 type handler struct {
 	verifier Verifier
+	// lib is the library by tag and tree is the same library by folder. Both,
+	// because clients are split down the middle on which one they browse.
+	lib  db.Music
+	tree Tree
 	// serverVersion is this build, which OpenSubsonic requires in every
 	// envelope so a client can notice an upgrade and ask again what it does.
 	serverVersion string
@@ -30,8 +55,8 @@ type handler struct {
 // The prefix is stripped here rather than by the caller, for the reason the
 // WebDAV adapter gives: exactly one place should know the difference between
 // the path a client asks for and the method being called.
-func Handler(prefix, serverVersion string, v Verifier) http.Handler {
-	h := &handler{verifier: v, serverVersion: serverVersion}
+func Handler(prefix, serverVersion string, v Verifier, lib db.Music, tree Tree) http.Handler {
+	h := &handler{verifier: v, lib: lib, tree: tree, serverVersion: serverVersion}
 
 	mux := http.NewServeMux()
 
@@ -44,6 +69,20 @@ func Handler(prefix, serverVersion string, v Verifier) http.Handler {
 	mux.HandleFunc("GET /getLicense", h.authed(h.license))
 	mux.HandleFunc("GET /getMusicFolders", h.authed(h.musicFolders))
 	mux.HandleFunc("GET /getUser", h.authed(h.user))
+
+	// Browsing by tag, which is what a current client does, and by folder,
+	// which is what DSub does without being told to.
+	mux.HandleFunc("GET /getArtists", h.authed(h.artists))
+	mux.HandleFunc("GET /getArtist", h.authed(h.artist))
+	mux.HandleFunc("GET /getAlbum", h.authed(h.album))
+	mux.HandleFunc("GET /getSong", h.authed(h.song))
+	mux.HandleFunc("GET /getIndexes", h.authed(h.indexes))
+	mux.HandleFunc("GET /getMusicDirectory", h.authed(h.musicDirectory))
+
+	// The bytes. Their errors are XML whatever f said, so they authenticate
+	// through their own wrapper.
+	mux.HandleFunc("GET /stream", h.authedBinary(h.stream))
+	mux.HandleFunc("GET /download", h.authedBinary(h.download))
 
 	// A method this server does not implement gets an envelope with an error,
 	// not an HTML 404. Clients probe endpoints to decide which of their own
@@ -80,6 +119,19 @@ func (h *handler) authed(fn func(http.ResponseWriter, *http.Request, string)) ht
 	}
 }
 
+// authedBinary is authed for an endpoint that answers bytes: same check, and a
+// refusal rendered the way the specification requires for one.
+func (h *handler) authedBinary(fn func(http.ResponseWriter, *http.Request, string)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		username, err := h.authenticate(r)
+		if err != nil {
+			h.failXML(w, r, *err)
+			return
+		}
+		fn(w, r, username)
+	}
+}
+
 func (h *handler) ping(w http.ResponseWriter, r *http.Request, _ string) {
 	h.write(w, r, h.ok())
 }
@@ -98,7 +150,7 @@ func (h *handler) license(w http.ResponseWriter, r *http.Request, _ string) {
 // filter that filters nothing.
 func (h *handler) musicFolders(w http.ResponseWriter, r *http.Request, _ string) {
 	env := h.ok()
-	env.MusicFolders = &musicFolders{Folders: []musicFolder{{ID: 1, Name: "Music"}}}
+	env.MusicFolders = &musicFolders{Folders: []musicFolder{{ID: 1, Name: rootName}}}
 	h.write(w, r, env)
 }
 

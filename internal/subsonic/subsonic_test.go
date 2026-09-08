@@ -9,11 +9,16 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/C0piIot/stratus-backend/internal/auth"
+	"github.com/C0piIot/stratus-backend/internal/db"
+	"github.com/C0piIot/stratus-backend/internal/db/sqlite"
+	"github.com/C0piIot/stratus-backend/internal/files"
+	"github.com/C0piIot/stratus-backend/internal/storage/disk"
 	"github.com/C0piIot/stratus-backend/internal/subsonic"
 )
 
@@ -27,13 +32,142 @@ const (
 	password = "an example password"
 )
 
-// server is the real handler over the real verifier, throttle included. There
-// is no fake here for the same reason the WebDAV tests have none: a protocol
-// adapter tested against a fake verifier tests the fake.
+// server is the real handler over the real everything: the real verifier with
+// its throttle, a real SQLite database and real blobs on disk. There are no
+// fakes here for the reason the WebDAV tests have none -- an adapter tested
+// against a fake tests the fake.
 func server(t *testing.T) http.Handler {
+	return newLibrary(t)
+}
+
+// library is a running adapter plus the two halves of putting music into it: a
+// file is a blob and a row, and a track is that plus a metadata row.
+type library struct {
+	http.Handler
+	files *files.Service
+	meta  *sqlite.Store
+	// verifier is kept so a test can build a second handler over the same
+	// credentials -- the failure cases do, with a library that breaks.
+	verifier *auth.Throttle
+}
+
+func newLibrary(t *testing.T) *library {
 	t.Helper()
-	creds := auth.Credentials{Username: username, Password: password}
-	return subsonic.Handler(prefix, serverVersion, auth.NewThrottle(creds, auth.DefaultThrottle))
+	dir := t.TempDir()
+
+	blobs, err := disk.New(filepath.Join(dir, "blobs"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = blobs.Close() })
+
+	meta, err := sqlite.New(t.Context(), filepath.Join(dir, "stratus.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = meta.Close() })
+	if err := meta.Migrate(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+
+	service := files.New(blobs, meta)
+	verifier := auth.NewThrottle(auth.Credentials{Username: username, Password: password}, auth.DefaultThrottle)
+	return &library{
+		Handler:  subsonic.Handler(prefix, serverVersion, verifier, meta, service),
+		files:    service,
+		meta:     meta,
+		verifier: verifier,
+	}
+}
+
+// add stores a file with metadata, creating the directories above it the way an
+// upload would have. The body is the path, so a stream can be told apart from
+// any other file in one assertion.
+func (l *library) add(t *testing.T, p string, m db.Media) db.File {
+	t.Helper()
+	l.mkdirAll(t, db.ParentOf(p))
+
+	f, err := l.files.Write(t.Context(), username, p, strings.NewReader(p), int64(len(p)), "audio/flac")
+	if err != nil {
+		t.Fatalf("Write(%q): %v", p, err)
+	}
+	if m.Kind == "" {
+		m.Kind = db.KindAudio
+	}
+	m.FileID = f.ID
+	m.IndexedAt = time.Now()
+	m.Version = 1
+	if err := l.meta.PutMedia(t.Context(), m); err != nil {
+		t.Fatalf("PutMedia(%q): %v", p, err)
+	}
+	return f
+}
+
+// addSized is add with a body of a chosen length, for the one property that is
+// computed from it.
+func (l *library) addSized(t *testing.T, p string, m db.Media, size int) db.File {
+	t.Helper()
+	l.mkdirAll(t, db.ParentOf(p))
+
+	body := strings.Repeat("x", size)
+	f, err := l.files.Write(t.Context(), username, p, strings.NewReader(body), int64(size), "audio/flac")
+	if err != nil {
+		t.Fatalf("Write(%q): %v", p, err)
+	}
+	if m.Kind == "" {
+		m.Kind = db.KindAudio
+	}
+	m.FileID = f.ID
+	m.IndexedAt = time.Now()
+	m.Version = 1
+	if err := l.meta.PutMedia(t.Context(), m); err != nil {
+		t.Fatalf("PutMedia(%q): %v", p, err)
+	}
+	return f
+}
+
+// addUnindexed is a file the indexer has not reached, which is not music yet.
+func (l *library) addUnindexed(t *testing.T, p string) db.File {
+	t.Helper()
+	l.mkdirAll(t, db.ParentOf(p))
+
+	f, err := l.files.Write(t.Context(), username, p, strings.NewReader(p), int64(len(p)), "audio/flac")
+	if err != nil {
+		t.Fatalf("Write(%q): %v", p, err)
+	}
+	return f
+}
+
+func (l *library) mkdirAll(t *testing.T, dir string) {
+	t.Helper()
+	if dir == "" {
+		return
+	}
+	var built string
+	for seg := range strings.SplitSeq(dir, "/") {
+		if built != "" {
+			built += "/"
+		}
+		built += seg
+		if _, err := l.files.Mkdir(t.Context(), username, built); err != nil && !errors.Is(err, db.ErrConflict) {
+			t.Fatalf("Mkdir(%q): %v", built, err)
+		}
+	}
+}
+
+// song is a plausible set of tags, so a case only states what it is about.
+func song(albumArtist, album, title string, trackNo int) db.Media {
+	return db.Media{
+		DurationMS:  254_600,
+		Codec:       "flac",
+		AlbumArtist: albumArtist,
+		Artist:      albumArtist,
+		Album:       album,
+		Title:       title,
+		TrackNo:     trackNo,
+		Year:        1997,
+		Genre:       "Electronic",
+	}
 }
 
 // query is the credentials every request needs, in the password form. c is
@@ -47,12 +181,22 @@ func query(extra ...string) string {
 	return q.Encode()
 }
 
-func get(t *testing.T, h http.Handler, method, rawQuery string) *httptest.ResponseRecorder {
+// get drives one call. The trailing pairs are request headers, which only the
+// range case needs.
+func get(t *testing.T, h http.Handler, method, rawQuery string, headers ...string) *httptest.ResponseRecorder {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, request(t, method, rawQuery, headers...))
+	return rec
+}
+
+func request(t *testing.T, method, rawQuery string, headers ...string) *http.Request {
 	t.Helper()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, prefix+method+"?"+rawQuery, nil)
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-	return rec
+	for i := 0; i+1 < len(headers); i += 2 {
+		req.Header.Set(headers[i], headers[i+1])
+	}
+	return req
 }
 
 // response is the envelope as a client's parser sees it, which is the point of
@@ -302,7 +446,7 @@ func TestTokenAuthAgainstAVerifierThatCannotAnswerIt(t *testing.T) {
 	t.Parallel()
 
 	throttle := auth.NewThrottle(passwordOnly{}, auth.DefaultThrottle)
-	h := subsonic.Handler(prefix, serverVersion, throttle)
+	h := subsonic.Handler(prefix, serverVersion, throttle, nil, nil)
 
 	q := url.Values{"c": {"tests"}, "u": {username}, "t": {"whatever"}, "s": {"salt"}, "f": {"json"}}
 	if code := errorCode(t, get(t, h, "ping", q.Encode())); code != 41 {
@@ -427,7 +571,7 @@ func TestThrottledLoginIsNotARejection(t *testing.T) {
 	// held: it makes the second guess deterministic and instant.
 	creds := auth.Credentials{Username: username, Password: password}
 	throttle := auth.NewThrottle(creds, auth.ThrottleConfig{Every: time.Hour, Burst: 1, MaxWait: 0})
-	h := subsonic.Handler(prefix, serverVersion, throttle)
+	h := subsonic.Handler(prefix, serverVersion, throttle, nil, nil)
 
 	wrong := url.Values{"c": {"tests"}, "u": {username}, "p": {"not it"}, "f": {"json"}}.Encode()
 	if code := errorCode(t, get(t, h, "ping", wrong)); code != 40 {
