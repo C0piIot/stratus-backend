@@ -16,7 +16,14 @@ import (
 // Version is the extractor generation. Raising it puts every file back in the
 // queue, which is how a better extractor reaches what it already looked at --
 // no migration, no script.
-const Version = 2
+//
+// It went to 3 for the folded search columns (#85), which is the one bump so far
+// that the extractor itself did not need: the columns derive from tags already
+// in the row. The alternative was backfilling them in the migration with each
+// engine's own lower(), which is exactly the divergence between the two drivers
+// that folding in Go removes -- and it would have applied to the rows nothing
+// would ever re-check.
+const Version = 3
 
 // kindOf decides which extractor a file gets.
 //

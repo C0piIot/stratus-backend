@@ -187,6 +187,29 @@ func albumOf(a db.Album) albumRef {
 	}
 }
 
+// artistRefOf renders an artist for a listing or a search result.
+func artistRefOf(a db.Artist) artistRef {
+	return artistRef{ID: artistID(a.Name), Name: a.Name, AlbumCount: a.AlbumCount}
+}
+
+// albumChild renders an album as a Child, which is what the endpoints that
+// predate the ID3 types answer with. Same album, older shape.
+func albumChild(a db.Album) child {
+	return child{
+		ID:       albumID(a.Artist, a.Name),
+		IsDir:    true,
+		Title:    a.Name,
+		Album:    a.Name,
+		Artist:   a.Artist,
+		AlbumID:  albumID(a.Artist, a.Name),
+		ArtistID: artistID(a.Artist),
+		Year:     a.Year,
+		Genre:    a.Genre,
+		Duration: seconds(a.DurationMS),
+		Created:  stamp(a.Created),
+	}
+}
+
 // titleOf falls back to the file name. A track with no title tag would
 // otherwise be a blank row a client cannot even select.
 func titleOf(t db.Track) string {

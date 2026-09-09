@@ -21,7 +21,7 @@ func (h *handler) artists(w http.ResponseWriter, r *http.Request, username strin
 
 	refs := make([]artistRef, 0, len(list))
 	for _, a := range list {
-		refs = append(refs, artistRef{ID: artistID(a.Name), Name: a.Name, AlbumCount: a.AlbumCount})
+		refs = append(refs, artistRefOf(a))
 	}
 
 	env := h.ok()

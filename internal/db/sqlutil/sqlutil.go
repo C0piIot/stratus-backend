@@ -24,6 +24,7 @@ import (
 	"errors"
 	"fmt"
 	"iter"
+	"strings"
 
 	"github.com/C0piIot/stratus-backend/internal/db"
 )
@@ -185,4 +186,30 @@ func CheckAffected(ctx context.Context, q Querier, result sql.Result,
 		// queries. Nothing useful to say beyond that it is not there now.
 		return fmt.Errorf("%w: %q", db.ErrNotFound, path)
 	}
+}
+
+// LikeEscape is the escape character every LIKE in this project uses. It has to
+// be stated in the SQL -- `LIKE ? ESCAPE '\'` -- because SQLite has no default
+// one and PostgreSQL's is a backslash only until somebody changes it.
+const LikeEscape = `\`
+
+// Contains turns a search term into a LIKE pattern that matches it anywhere.
+//
+// The escaping is the point. A term is text a user typed, and % and _ are
+// wildcards in LIKE: without this, searching for "50%" matches the whole
+// library and searching for "a_b" matches "acb". An empty term becomes "%%",
+// which matches everything -- which is what a search with no query asks for.
+func Contains(term string) string {
+	var b strings.Builder
+	b.Grow(len(term) + 2)
+	b.WriteByte('%')
+	for _, r := range term {
+		switch r {
+		case '%', '_', '\\':
+			b.WriteString(LikeEscape)
+		}
+		b.WriteRune(r)
+	}
+	b.WriteByte('%')
+	return b.String()
 }

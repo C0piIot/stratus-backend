@@ -44,3 +44,42 @@ func TestMediaNormalizeKeepsAnUnknownTakenAtZero(t *testing.T) {
 		t.Errorf("TakenAt = %v, want the zero time", m.TakenAt)
 	}
 }
+
+// TestMediaFold is where the guarantee lives, so it is tested where it lives:
+// the two drivers store what this returns, and a search compares it to what
+// FoldQuery returns. If the two ever stopped agreeing, a search would answer
+// differently on SQLite and on PostgreSQL, which is what the whole arrangement
+// exists to prevent.
+func TestMediaFold(t *testing.T) {
+	t.Parallel()
+
+	got := db.Media{
+		Title:       "JÓGA",
+		Artist:      "Björk",
+		Album:       "HOMOGENIC",
+		AlbumArtist: "BJÖRK",
+	}.Fold()
+
+	// Case-folded past ASCII, which is the whole point: neither engine's own
+	// lower() would agree with the other about Ó.
+	if want := "jóga björk"; got.Song != want {
+		t.Errorf("Song = %q, want %q", got.Song, want)
+	}
+	if want := "homogenic"; got.Album != want {
+		t.Errorf("Album = %q, want %q", got.Album, want)
+	}
+	// Separate fields and not one string: an artist must not match because the
+	// term appeared in the title of one of its tracks.
+	if want := "björk"; got.AlbumArtist != want {
+		t.Errorf("AlbumArtist = %q, want %q", got.AlbumArtist, want)
+	}
+
+	// A missing tag leaves no stray space to match on.
+	if bare := (db.Media{Title: "Untagged"}).Fold(); bare.Song != "untagged" || bare.Album != "" {
+		t.Errorf("a row with only a title folded to %+v", bare)
+	}
+	// And both sides of the comparison go through the same folding.
+	if got := db.FoldQuery("  BJÖRK  "); got != "björk" {
+		t.Errorf("FoldQuery = %q", got)
+	}
+}
