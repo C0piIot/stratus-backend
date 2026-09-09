@@ -24,6 +24,7 @@ func RunMusic(t *testing.T, newRepo func(t *testing.T) db.Repo) {
 		{"an artist counts its albums", musicArtistsCountAlbums},
 		{"albums can be listed for one artist or for all", musicAlbumsByArtist},
 		{"tracks come back in disc then track order", musicTrackOrder},
+		{"a folder lists the audio directly inside it", musicTracksInDir},
 		{"a track is a file and its metadata", musicTrackByFile},
 		{"a missing track is ErrNotFound", musicTrackMissing},
 		{"owners do not see each other's music", musicOwnersAreSeparate},
@@ -163,6 +164,41 @@ func musicTrackOrder(t *testing.T, s db.Repo) {
 	}
 }
 
+// musicTracksInDir is the folder view, which exists because half the clients
+// browse by folder rather than by tag. What it must not do is recurse or
+// answer with anything that is not a playable track.
+func musicTracksInDir(t *testing.T, s db.Repo) {
+	track(t, s, owner, "music/Homogenic/02 Joga.flac", song("Björk", "Björk", "Homogenic", "Joga", 2))
+	track(t, s, owner, "music/Homogenic/01 Hunter.flac", song("Björk", "Björk", "Homogenic", "Hunter", 1))
+	// One level deeper, so a listing that recursed would be caught.
+	track(t, s, owner, "music/Homogenic/extras/demo.flac", song("Björk", "Björk", "Homogenic", "Demo", 1))
+	// A photo in the same folder, which a music client has no way to play.
+	cover := song("Björk", "Björk", "Homogenic", "Cover", 1)
+	cover.Kind = db.KindImage
+	track(t, s, owner, "music/Homogenic/cover.jpg", cover)
+	// And a file the indexer has not reached, which is not in the library yet.
+	put(t, s, file("music/Homogenic/03 Unravel.flac"))
+
+	tracks, err := s.TracksIn(t.Context(), owner, "music/Homogenic")
+	if err != nil {
+		t.Fatalf("TracksIn: %v", err)
+	}
+	got := make([]string, len(tracks))
+	for i, tr := range tracks {
+		got[i] = tr.Media.Title
+	}
+	// Path order, which is what a folder view means: the numbers in the file
+	// names are the order somebody chose, and they are all a folder has.
+	if len(got) != 2 || got[0] != "Hunter" || got[1] != "Joga" {
+		t.Errorf("TracksIn = %v, want the two indexed tracks in path order", got)
+	}
+
+	// The root is a directory too, and this library has nothing in it.
+	if root, err := s.TracksIn(t.Context(), owner, ""); err != nil || len(root) != 0 {
+		t.Errorf("TracksIn at the root = %+v, %v", root, err)
+	}
+}
+
 func musicTrackByFile(t *testing.T, s db.Repo) {
 	f := track(t, s, owner, "music/a.flac", song("Björk", "Björk", "Homogenic", "Hunter", 1))
 
@@ -220,8 +256,17 @@ func musicOwnersAreSeparate(t *testing.T, s db.Repo) {
 	if len(albums) != 1 || albums[0].SongCount != 1 {
 		t.Errorf("Albums = %+v, want only the one track this owner has", albums)
 	}
-	if _, err := s.TrackByFile(t.Context(), owner, theirs.ID); !errors.Is(err, db.ErrNotFound) {
-		t.Errorf("TrackByFile across owners = %v, want ErrNotFound", err)
+	if _, terr := s.TrackByFile(t.Context(), owner, theirs.ID); !errors.Is(terr, db.ErrNotFound) {
+		t.Errorf("TrackByFile across owners = %v, want ErrNotFound", terr)
+	}
+	// Both files sit in the same folder, so a folder listing that forgot the
+	// owner would return two tracks here and nothing else would notice.
+	in, err := s.TracksIn(t.Context(), owner, "music")
+	if err != nil {
+		t.Fatalf("TracksIn: %v", err)
+	}
+	if len(in) != 1 || in[0].File.Path != "music/mine.flac" {
+		t.Errorf("TracksIn = %+v, want only this owner's track", in)
 	}
 }
 

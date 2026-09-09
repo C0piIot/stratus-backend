@@ -129,7 +129,7 @@ func (a *App) Handler(deps Deps) http.Handler {
 		// from the query string rather than through auth.Basic, and a second
 		// NewThrottle here would give an attacker a second budget of guesses at
 		// the one password this server has.
-		mux.Handle(subsonicPrefix, subsonic.Handler(subsonicPrefix, a.version, verifier))
+		mux.Handle(subsonicPrefix, subsonic.Handler(subsonicPrefix, a.version, verifier, deps.Database, service))
 	}
 	return logRequests(mux)
 }

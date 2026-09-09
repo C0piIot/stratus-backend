@@ -37,6 +37,12 @@ type envelope struct {
 	License      *license      `xml:"license,omitempty" json:"license,omitempty"`
 	MusicFolders *musicFolders `xml:"musicFolders,omitempty" json:"musicFolders,omitempty"`
 	User         *user         `xml:"user,omitempty" json:"user,omitempty"`
+	Artists      *artistsList  `xml:"artists,omitempty" json:"artists,omitempty"`
+	Artist       *artistDetail `xml:"artist,omitempty" json:"artist,omitempty"`
+	Album        *albumDetail  `xml:"album,omitempty" json:"album,omitempty"`
+	Song         *child        `xml:"song,omitempty" json:"song,omitempty"`
+	Indexes      *indexes      `xml:"indexes,omitempty" json:"indexes,omitempty"`
+	Directory    *directory    `xml:"directory,omitempty" json:"directory,omitempty"`
 
 	// Extensions is the one payload that is a bare array on the response rather
 	// than the container-and-element pair every legacy payload uses. It has to
@@ -113,18 +119,22 @@ func (h *handler) ok() envelope {
 // Everything here answers HTTP 200, errors included. The status lives in the
 // envelope, and a client that gets a transport error instead cannot read it.
 func (h *handler) write(w http.ResponseWriter, r *http.Request, env envelope) {
-	if r.URL.Query().Get("f") == "json" {
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		body := struct {
-			Response envelope `json:"subsonic-response"`
-		}{env}
-		if err := json.NewEncoder(w).Encode(body); err != nil {
-			slog.WarnContext(r.Context(), "writing a subsonic response", "err", err)
-		}
+	if r.URL.Query().Get("f") != "json" {
+		h.writeXML(w, r, env, "application/xml; charset=utf-8")
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/xml; charset=utf-8")
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	body := struct {
+		Response envelope `json:"subsonic-response"`
+	}{env}
+	if err := json.NewEncoder(w).Encode(body); err != nil {
+		slog.WarnContext(r.Context(), "writing a subsonic response", "err", err)
+	}
+}
+
+func (h *handler) writeXML(w http.ResponseWriter, r *http.Request, env envelope, contentType string) {
+	w.Header().Set("Content-Type", contentType)
 	if _, err := w.Write([]byte(xml.Header)); err != nil {
 		return
 	}
@@ -135,8 +145,18 @@ func (h *handler) write(w http.ResponseWriter, r *http.Request, env envelope) {
 
 // fail renders an error envelope. It is the only place status becomes "failed".
 func (h *handler) fail(w http.ResponseWriter, r *http.Request, e apiError) {
-	env := h.ok()
+	h.write(w, r, failed(h.ok(), e))
+}
+
+// failXML is fail for an endpoint that answers bytes, where the specification
+// requires text/xml whatever f said. A client asking for a stream is not
+// parsing JSON, and the type it is told to expect is the one it gets.
+func (h *handler) failXML(w http.ResponseWriter, r *http.Request, e apiError) {
+	h.writeXML(w, r, failed(h.ok(), e), "text/xml; charset=utf-8")
+}
+
+func failed(env envelope, e apiError) envelope {
 	env.Status = "failed"
 	env.Error = &e
-	h.write(w, r, env)
+	return env
 }

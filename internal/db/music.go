@@ -72,6 +72,16 @@ type Music interface {
 	// back in a stable order rather than whatever the database chose.
 	Tracks(ctx context.Context, owner, artist, album string) ([]Track, error)
 
+	// TracksIn lists the audio files directly inside dir, in path order: the
+	// folder view of the same library, for the clients that browse by folder
+	// rather than by tag.
+	//
+	// It exists so that a directory listing is one query rather than one per
+	// child, and it answers only files the indexer has reached. That is the
+	// same rule tag browsing follows, which is what keeps the two views of one
+	// library from disagreeing.
+	TracksIn(ctx context.Context, owner, dir string) ([]Track, error)
+
 	// TrackByFile returns one track, or ErrNotFound. It takes a file id
 	// because that is what a stream request carries: the client was given an
 	// id that names a row, not a name that names a tag.

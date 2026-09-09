@@ -304,6 +304,20 @@ func (r *repo) Tracks(ctx context.Context, owner, artist, album string) ([]db.Tr
 	return out, nil
 }
 
+// TracksIn implements db.Repo.
+func (r *repo) TracksIn(ctx context.Context, owner, dir string) ([]db.Track, error) {
+	query := `SELECT ` + joinedFileColumns + `, ` + joinedMediaColumns + `
+		FROM media m JOIN files f ON f.id = m.file_id
+		WHERE f.owner_id = $1 AND f.parent_path = $2 AND m.kind = $3
+		ORDER BY f.path`
+
+	out, err := sqlutil.Collect(ctx, r.q, scanTrack, query, owner, dir, string(db.KindAudio))
+	if err != nil {
+		return nil, fmt.Errorf("list tracks in %q: %w", dir, mapErr(err))
+	}
+	return out, nil
+}
+
 // TrackByFile implements db.Repo.
 func (r *repo) TrackByFile(ctx context.Context, owner string, fileID int64) (db.Track, error) {
 	query := `SELECT ` + joinedFileColumns + `, ` + joinedMediaColumns + `
