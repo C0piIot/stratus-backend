@@ -53,6 +53,11 @@ type Media struct {
 	// The rest is what a music library needs.
 	Artist, Album, Title, Genre string
 	TrackNo, DiscNo, Year       int
+	// AlbumArtist is what the album is filed under, which is not always the
+	// track's artist: without it a compilation breaks into one album per
+	// track. It falls back to Artist when the tag is absent, which is the
+	// common case for a record by one artist.
+	AlbumArtist string
 }
 
 // GPS is where a photo says it was taken.

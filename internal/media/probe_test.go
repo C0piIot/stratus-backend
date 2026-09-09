@@ -121,6 +121,30 @@ func TestProbeReportEdges(t *testing.T) {
 			},
 		},
 		{
+			// The pair that makes a compilation one album instead of twelve.
+			name: "a compilation keeps both artists apart",
+			report: `{"streams":[],"format":{"tags":{
+				"artist":"Boards of Canada","album_artist":"Various Artists"}}}`,
+			check: func(t *testing.T, m db.Media) {
+				if m.Artist != "Boards of Canada" {
+					t.Errorf("Artist = %q, want the track's own", m.Artist)
+				}
+				if m.AlbumArtist != "Various Artists" {
+					t.Errorf("AlbumArtist = %q, want the album's", m.AlbumArtist)
+				}
+			},
+		},
+		{
+			// The common case: one artist, and no album_artist tag at all.
+			name:   "artist stands in for album artist",
+			report: `{"streams":[],"format":{"tags":{"artist":"Bj\u00f6rk"}}}`,
+			check: func(t *testing.T, m db.Media) {
+				if m.AlbumArtist != "Björk" {
+					t.Errorf("AlbumArtist = %q, want it to fall back to the artist", m.AlbumArtist)
+				}
+			},
+		},
+		{
 			name:   "a rotation of 270",
 			report: `{"streams":[{"codec_type":"video","tags":{"rotate":"270"}}],"format":{}}`,
 			check: func(t *testing.T, m db.Media) {

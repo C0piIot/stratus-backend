@@ -326,10 +326,11 @@ fi
 docker rm -f "$name" >/dev/null 2>&1
 
 # ---------------------------------------------------------------------------
-section "WebDAV"
+section "Protocol surfaces"
 # ---------------------------------------------------------------------------
-# The first surface that does something. Unit tests drive the handler; this
-# drives the shipped image with a real client, over a real port.
+# The surfaces that need credentials, in one container because they share them.
+# Unit tests drive the handlers; this drives the shipped image with a real
+# client, over a real port.
 
 davdir="$(mktmp)"
 davname="stratus-smoke-dav"
@@ -341,6 +342,16 @@ run_detached "$davname" -u "$(id -u):$(id -g)" -v "$davdir:/data" \
 
 if wait_serving "$davname"; then
   davhost="$(docker port "$davname" 8080/tcp | head -1)"
+
+  # Readiness against the real backends: the disk store and the SQLite file the
+  # container actually opened. A unit test can only assert this against ones it
+  # built itself.
+  ready="$(curl -s "http://$davhost/readyz")"
+  if [ "$ready" = "$(printf 'database: ok\nstorage: ok')" ]; then
+    ok "/readyz reports both dependencies"
+  else
+    bad "/readyz reports both dependencies" "got $(printf '%s' "$ready" | tr '\n' ' ')"
+  fi
 
   code="$(curl -s -o /dev/null -w '%{http_code}' -X PUT --data-binary 'smoke' "http://$davhost/dav/notes.txt")"
   if [ "$code" = "401" ]; then
@@ -399,6 +410,58 @@ if wait_serving "$davname"; then
     bad "PROPFIND answers a multistatus" "got $code"
   fi
 
+  # The other protocol surface, in the image that has to serve it. Token auth
+  # rather than the password, because it is the scheme every current client
+  # uses and md5(password + salt) is the whole reason the password is held as
+  # configured rather than hashed.
+  salt="smoke"
+  token="$(printf '%s' "$davpass$salt" | md5sum | cut -d' ' -f1)"
+  body="$(curl -fsS "http://$davhost/rest/ping.view?c=smoke&u=$davuser&t=$token&s=$salt" 2>/dev/null || true)"
+  case "$body" in
+    *'status="ok"'*) ok "OpenSubsonic answers a token login" ;;
+    *)               bad "OpenSubsonic answers a token login" "got '$body'" ;;
+  esac
+
+  # An error is an HTTP 200 with a code inside it. That is the protocol's own
+  # design and not a bug to fix: a client handed a transport error cannot read
+  # the reason for it.
+  refused="$(curl -s -w '|%{http_code}' "http://$davhost/rest/ping.view?c=smoke&u=$davuser&p=wrong")"
+  case "$refused" in
+    *'code="40"'*'|200') ok "an OpenSubsonic error travels inside a 200" ;;
+    *)                   bad "an OpenSubsonic error travels inside a 200" "got '$refused'" ;;
+  esac
+
+  # Browsing and playing, through the shipped image, over a real port. The
+  # upload above is a text file with a .txt name, so this puts a track in with
+  # an extension the indexer recognises and waits for it to be read: what is
+  # asserted is the whole loop -- upload, extract, browse, stream.
+  curl -fsS -u "$davuser:$davpass" -X PUT --data-binary @- \
+    "http://$davhost/dav/track.mp3" >/dev/null 2>&1 <<'TRACK'
+not really an mp3, and that is the point: the row is what browsing reads
+TRACK
+  browsed=""
+  for _ in $(seq 1 50); do
+    body="$(curl -fsS "http://$davhost/rest/getIndexes.view?c=smoke&u=$davuser&t=$token&s=$salt" 2>/dev/null || true)"
+    case "$body" in
+      *'track.mp3'*) browsed=yes; break ;;
+    esac
+    sleep 0.2
+  done
+  if [ -n "$browsed" ]; then
+    ok "OpenSubsonic browses what was uploaded over WebDAV"
+  else
+    bad "OpenSubsonic browses what was uploaded over WebDAV" "got '$body'"
+  fi
+
+  # The id comes out of the listing rather than being built here: a client only
+  # ever sends back an id the server gave it, and so does this.
+  song_id="$(printf '%s' "$body" | tr '<' '\n' | grep 'title="track.mp3"' | sed -n 's/.*id="\([^"]*\)".*/\1/p' | head -1)"
+  streamed="$(curl -fsS "http://$davhost/rest/stream.view?c=smoke&u=$davuser&t=$token&s=$salt&id=$song_id" 2>/dev/null || true)"
+  case "$streamed" in
+    *'not really an mp3'*) ok "OpenSubsonic streams the stored bytes" ;;
+    *)                     bad "OpenSubsonic streams the stored bytes" "id '$song_id' gave '$streamed'" ;;
+  esac
+
   # One line per request, which is the only way to see a 401 or a 409 after the
   # fact. The healthcheck is deliberately not in there.
   #
@@ -440,7 +503,7 @@ if wait_serving "$davname"; then
     bad "the indexer picks up an uploaded file" "$(docker logs "$davname" 2>&1 | tail -3)"
   fi
 else
-  bad "the WebDAV container starts" "$(docker logs "$davname" 2>&1 | tail -3)"
+  bad "the container with credentials starts" "$(docker logs "$davname" 2>&1 | tail -3)"
 fi
 docker rm -f "$davname" >/dev/null 2>&1
 

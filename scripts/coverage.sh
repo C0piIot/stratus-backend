@@ -28,19 +28,20 @@ set -euo pipefail
 profile="${1:-coverage.out}"
 
 FLOORS="
-internal/app:92
+internal/app:94
 internal/auth:100
 internal/config:100
 internal/dav:80
 internal/files:86
 internal/media:81
 internal/db:60
-internal/db/postgres:92
-internal/db/sqlite:91
+internal/db/postgres:93
+internal/db/sqlite:92
 internal/db/sqlutil:95
 internal/storage:98
 internal/storage/disk:83
 internal/storage/s3:88
+internal/subsonic:100
 "
 
 # Not gated, and why:
@@ -50,6 +51,9 @@ internal/storage/s3:88
 #   internal/storage/storagetest  the conformance suite itself. It runs from the
 #   internal/db/dbtest            disk, s3, sqlite and postgres tests, and Go
 #                                 attributes that coverage to them, not to it.
+#
+# internal/app went 92 -> 94 with /readyz (#34), which is reachable in every
+# branch it has: a closed store answers, and what it answers is not "not found".
 #
 # internal/app went 94 -> 92 with the media indexer: what is left uncovered in
 # both background loops is the branch where a pass fails halfway, and injecting
@@ -61,6 +65,11 @@ internal/storage/s3:88
 # halfway -- so removing it raised what was left. internal/db/sqlutil starts at
 # 95 because a package that holds no SQL can register a fault-injecting driver
 # and reach those branches on purpose, which neither adapter can.
+#
+# internal/subsonic starts at 100, which is high but is what the package is: it
+# does no I/O of its own beyond writing a response, so every branch is reachable
+# from httptest -- the two that report a client hanging up mid-response included,
+# through a ResponseWriter that fails on demand.
 #
 # internal/media is lower than the rest because running ffprobe cannot be tested
 # where there is no ffprobe. Interpreting its output is tested against captured
@@ -79,6 +88,11 @@ internal/storage/s3:88
 # driver. That is no longer where those branches live: #30 moved them to
 # internal/db/sqlutil, which holds no SQL and can register such a driver, and
 # the drivers went back up as a result.
+#
+# The drivers went 92 -> 93 and 91 -> 92 with the music queries: the browse
+# methods are all Collect plus a scan, and the one branch each that a working
+# database will not take on request is reached by closing the store under the
+# query -- the same trick TestBlobKeysOnAClosedStore already used.
 #
 # internal/dav sits lower than the rest on purpose: most of what is left
 # uncovered there is one error branch per protocol edge, and the ones worth

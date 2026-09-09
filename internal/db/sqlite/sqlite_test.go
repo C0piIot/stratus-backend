@@ -122,3 +122,33 @@ func TestBlobKeysOnAClosedStore(t *testing.T) {
 		t.Error("iterating a closed store reported no error")
 	}
 }
+
+// TestMusicOnAClosedStore covers the error path of every browse query at once.
+// A working database does not fail a GROUP BY on request, so a store that has
+// been shut under the query is the only way to reach them.
+func TestMusicOnAClosedStore(t *testing.T) {
+	t.Parallel()
+	store := newStore(t)
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	calls := map[string]func() error{
+		"Artists": func() error { _, err := store.Artists(t.Context(), "edu"); return err },
+		"Albums":  func() error { _, err := store.Albums(t.Context(), "edu", ""); return err },
+		"Tracks":  func() error { _, err := store.Tracks(t.Context(), "edu", "a", "b"); return err },
+		"TracksIn": func() error {
+			_, err := store.TracksIn(t.Context(), "edu", "music")
+			return err
+		},
+		"TrackByFile": func() error {
+			_, err := store.TrackByFile(t.Context(), "edu", 1)
+			return err
+		},
+	}
+	for name, call := range calls {
+		if err := call(); err == nil {
+			t.Errorf("%s against a closed store reported no error", name)
+		}
+	}
+}

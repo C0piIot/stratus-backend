@@ -131,6 +131,7 @@ type MediaIndex interface {
 type Repo interface {
 	Files
 	MediaIndex
+	Music
 }
 
 // Store is a database connection.

@@ -125,6 +125,7 @@ func media(fileID int64) db.Media {
 		DurationMS:  742_000,
 		Codec:       "hevc",
 		Artist:      "Boards of Canada",
+		AlbumArtist: "Various Artists",
 		Album:       "Music Has the Right to Children",
 		Title:       "Roygbiv",
 		TrackNo:     10,
