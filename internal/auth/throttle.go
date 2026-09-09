@@ -17,6 +17,22 @@ type Verifier interface {
 	Verify(ctx context.Context, username, password string) error
 }
 
+// TokenVerifier is Verifier for a client that sends a digest of the password
+// rather than the password: OpenSubsonic's md5(password + salt).
+//
+// It is a second interface rather than a second method on Verifier because not
+// every verifier can answer it. A digest cannot be recomputed from a hash, so
+// only a verifier holding the password itself qualifies -- which is what the
+// plaintext in this package is for, and what makes the protocol's own error for
+// "this server cannot do that" meaningful rather than theoretical.
+type TokenVerifier interface {
+	VerifyToken(ctx context.Context, username, token, salt string) error
+}
+
+// ErrTokenUnsupported means the verifier cannot check a digest, because it does
+// not hold anything a digest can be recomputed from.
+var ErrTokenUnsupported = errors.New("auth: token authentication not supported")
+
 // Throttle caps how fast credentials can be guessed, for everyone at once
 // rather than per client.
 //
@@ -74,7 +90,25 @@ func NewThrottle(v Verifier, cfg ThrottleConfig) *Throttle {
 
 // Verify implements Verifier.
 func (t *Throttle) Verify(ctx context.Context, username, password string) error {
-	err := t.verifier.Verify(ctx, username, password)
+	return t.delay(ctx, t.verifier.Verify(ctx, username, password))
+}
+
+// VerifyToken implements TokenVerifier, against the same bucket Verify uses. A
+// client cannot double its budget by alternating schemes between guesses, which
+// is the whole reason this goes through the throttle rather than around it.
+//
+// A verifier that cannot answer a digest is not a wrong password: the protocol
+// has a distinct answer for it, so the distinction survives to the adapter.
+func (t *Throttle) VerifyToken(ctx context.Context, username, token, salt string) error {
+	tv, ok := t.verifier.(TokenVerifier)
+	if !ok {
+		return ErrTokenUnsupported
+	}
+	return t.delay(ctx, tv.VerifyToken(ctx, username, token, salt))
+}
+
+// delay answers a success immediately and holds a failure for its turn.
+func (t *Throttle) delay(ctx context.Context, err error) error {
 	if err == nil {
 		return nil
 	}

@@ -6,8 +6,9 @@ Stratus is a self-hosted personal cloud for photos, calendar, music and video.
 Instead of shipping its own API and a client app per platform, it speaks
 protocols your existing apps already understand.
 
-> **Work in progress.** Files over WebDAV work today and the container is real.
-> CalDAV, OpenSubsonic, the web UI, thumbnails and sharing are not written yet.
+> **Work in progress.** Files over WebDAV and music over OpenSubsonic work
+> today, and the container is real. CalDAV, the web UI, thumbnails and sharing
+> are not written yet.
 > The tables below say what answers and what does not, rather than what is
 > intended — if a row says **works**, it works.
 
@@ -18,10 +19,15 @@ protocols your existing apps already understand.
 | WebDAV | files, photo backup, sync | rclone, Finder, Nautilus, FolderSync | **works** |
 | HTTP range | audio/video streaming | browsers, VLC, mpv | **works** |
 | CalDAV | calendar | DAVx5, Thunderbird, iOS/macOS | next |
-| OpenSubsonic | music | Symfonium, Substreamer, DSub, Feishin | next |
+| OpenSubsonic | music | Symfonium, Substreamer, DSub, Feishin | **works** † |
 | Web UI | log in, browse, download | any browser | planned |
 | CardDAV | contacts | DAVx5, Thunderbird | planned |
 | DLNA / UPnP-AV | TVs, set-top players | | planned |
+
+† The protocol works and is asserted end to end, up to and including streaming
+a track out of the shipped container. **No real client has been pointed at it
+yet**, so read that row as the server holding up its end rather than as a
+promise about any particular app.
 
 Nothing here is a private API: every feature is reachable from a client that
 already exists, which is why there is no Stratus app to install.
@@ -68,8 +74,9 @@ guarantee. The real defence against a lost update here is the strong ETag and
 JSON on stdout, one line per request: method, path, status, bytes, duration and
 the caller's address. No headers and no query string — one carries the
 credentials and the other is where a token would end up if a protocol ever put
-one there. `/healthz` logs at debug, because the container asks every thirty
-seconds and three thousand lines a day of nothing is not a log.
+one there. `/healthz` and `/readyz` log at debug, because the container asks
+every thirty seconds and three thousand lines a day of nothing is not a log — a
+failed readiness check logs its own reason at error level instead.
 
 ### Media metadata
 
@@ -80,10 +87,17 @@ of a video. Without it a library is a pile of files — there is no gallery by
 date and no music browsing.
 
 It runs in the background, in this process, and `STRATUS_INDEX_INTERVAL=0` turns
-it off. The queue is a query rather than a table: a file with no metadata row is
-a file to look at, so nothing is lost in a restart and a newly uploaded file is
-picked up on its own. A file that cannot be parsed gets a row saying why, or it
-would be read again on every pass forever.
+it off. **An upgrade that improves the extractor re-reads everything**: the
+queue is a query for files whose metadata is older than the current extractor,
+so raising its version puts the whole library back in it. That is deliberate --
+it is how a better extractor reaches what it already looked at, with no
+migration and no script -- but on a large library the first pass after an
+upgrade is not free.
+
+The queue is a query rather than a table: a file with no metadata row is a file
+to look at, so nothing is lost in a restart and a newly uploaded file is picked
+up on its own. A file that cannot be parsed gets a row saying why, or it would
+be read again on every pass forever.
 
 **ffprobe is required**, and the image ships a statically linked one we build —
 no package manager, no shell, one more layer. Photos are read in pure Go and
@@ -119,6 +133,52 @@ The two backends also clean up after themselves when they open: the disk one
 empties its reserved directory of interrupted uploads, and the S3 one aborts
 multipart uploads abandoned more than a day ago, which are invisible to a
 listing and billed until something ends them.
+
+## OpenSubsonic
+
+Mounted at `/rest/`, with the same credentials as WebDAV and, like it, only when
+they are set. The path is not a choice: every Subsonic client appends
+`/rest/<method>` to the base URL it is given, so an operator types
+`http://localhost:8080` and nothing else.
+
+**Browsing works both ways**, which is not optional: half the clients browse by
+tag and half by folder, and a server that answers only one of them is broken for
+the other half. By tag it is `getArtists`, `getArtist`, `getAlbum` and
+`getSong`, grouped by album artist so a compilation stays one album. By folder
+it is `getIndexes` and `getMusicDirectory` over the **real file tree** -- the
+directories are the ones you uploaded into, not folders invented from tags,
+which is the part other servers have had to fix.
+
+`stream` and `download` serve the file that was stored, unchanged. Ranges,
+conditional requests and seeking come from the same code that serves a video
+over WebDAV.
+
+What is not there yet, and it is better to know before installing a client:
+
+- **No cover art.** `getCoverArt` answers an error and albums carry no artwork,
+  because nothing extracts an embedded picture yet.
+- **No favourites, ratings, play counts or playlists.** Those are user state,
+  which means tables that do not exist. `scrobble` is not implemented, so
+  nothing counts a play either.
+- **No transcoding and no search yet.** `maxBitRate` and `format` are ignored
+  and the original is served; `search3`, `getAlbumList2` and `getGenres` are
+  the next piece of work, so a client's search and its home screen are empty
+  while its library is not.
+- **A file is in the library once the indexer has read it**, which is also how
+  long it takes to appear in a folder listing. That is the same rule for both
+  views, so they cannot disagree.
+
+Both authentication schemes are accepted: `p` carrying the password, and `t`
+carrying `md5(password + salt)`, which is what the [credentials](#credentials)
+section is about. Failed logins share one limit with WebDAV rather than having
+their own: it is the same single password, so alternating surfaces must not
+double an attacker's budget of guesses.
+
+Two properties of the protocol are worth knowing before reading a log. A
+response is **XML** unless `f=json` asks otherwise, and an **error arrives
+inside an HTTP 200** with a code in the body. A 404 from `/rest/` therefore
+means something else entirely: the surface is not mounted, because there are no
+credentials.
 
 ## Pluggable backends
 
@@ -291,6 +351,30 @@ The container runs non-root with a read-only root filesystem, all capabilities
 dropped and `no-new-privileges`. The healthcheck is the binary probing itself
 (`stratus -healthcheck`) since distroless ships no shell or curl.
 
+### Two health endpoints, and which is which
+
+`GET /healthz` is **liveness**: the process is up and serving. It touches no
+dependency, and that is deliberate — it is what the container healthcheck asks,
+and restarting the container does not fix a database on another host. A
+healthcheck that failed on a dependency outage would turn one broken dependency
+into a restart loop, and with `restart: unless-stopped` an endless one.
+
+`GET /readyz` answers the question an operator actually has, and drives nothing:
+
+```
+database: ok
+storage: ok
+```
+
+`503` if either does not answer, `not configured` for an install with no
+credentials — which is a legitimate state, not a fault, so it is still a `200`.
+The reason a check failed is logged with the dependency named and never put in
+the response: a driver error can carry the host it could not reach, and a DSN is
+not printed verbatim anywhere else either.
+
+Both are unauthenticated. What they disclose is that two backends respond, never
+a name, a DSN or a byte of content.
+
 ## Status
 
 Single user, and usable from a WebDAV client today: files go in and come out
@@ -302,11 +386,15 @@ Working now:
 - Both pluggable seams — disk and S3 for blobs, SQLite and PostgreSQL for
   metadata — each with a conformance suite that both of its drivers pass.
 - WebDAV, behind HTTP Basic with a global limit on failed logins.
+- OpenSubsonic: browsing by tag and by folder, and streaming, over both of the
+  protocol's authentication schemes and sharing that same limit. No cover art,
+  no user state, no transcoding, and no client has been tried against it yet.
 - EXIF, audio tags and video probing, indexed in the background.
 - A request log, migrations applied at startup, and a container asserted from
-  the outside by 39 smoke checks.
+  the outside by 44 smoke checks.
 
-Not there yet: CalDAV, OpenSubsonic, the web UI, thumbnails and sharing. Work
+Not there yet: search and the album lists a music client's home screen is made
+of, CalDAV, the web UI, thumbnails and sharing. Work
 and the decisions behind it are tracked on the
 [Stratus project board](https://github.com/users/C0piIot/projects/2), where
 `Priority` says when and the `decision` label says what still needs a call.

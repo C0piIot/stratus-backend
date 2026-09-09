@@ -127,7 +127,6 @@ internal/db/dbtest/       conformance suite every adapter must pass
 
 internal/files/           cross-protocol file invariants
 internal/calendar/        collections, objects, recurrence
-internal/music/           library model, browse, search
 internal/media/           EXIF/tag extraction, thumbnails, ffprobe
 internal/auth/            credential verification, per-protocol adapters
 
@@ -146,7 +145,7 @@ internal/web/             inbound adapter: server-rendered UI
   leak; the rule that matters is that no driver escapes its adapter package. A
   separate package of anemic types plus mappers would only separate two types
   that are the same thing in this project.
-- **Features** (`files`, `calendar`, `music`) own the invariants that must look
+- **Features** (`files`, `calendar`) own the invariants that must look
   identical from every protocol. `files` exists for a concrete reason: a file is
   a database row *plus* a blob, and if `dav` and `web` each wired storage and db
   themselves they would diverge on ETag computation and on what happens when the
@@ -176,6 +175,14 @@ Restraint here is principle 3, not laziness:
   vs Subsonic error codes vs an HTML page). The only shared part is the
   classification, which is already the sentinel errors. Create it when two
   handlers genuinely duplicate something.
+- **`music`.** There was a package pencilled in here for the library model, and
+  writing the OpenSubsonic adapter showed there is nothing for it to hold. An
+  album is not a row -- it is a `GROUP BY` over tags -- so the model is the
+  `db.Music` port and the queries behind it, and browsing is calling them. The
+  only logic above that is the id encoding and the envelope, which are the
+  protocol's and belong in `internal/subsonic`. A feature package here would be
+  a pass-through, and the day it stops being one (derived tables, a play count,
+  a playlist) is the day to create it.
 - **`photos`.** Photo backup is files plus EXIF indexing; the photo-ness lives in
   `media` and in date queries.
 - **Any job framework.** The indexer is a goroutine started by `app`.

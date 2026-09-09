@@ -27,6 +27,7 @@ import (
 	"github.com/C0piIot/stratus-backend/internal/storage"
 	"github.com/C0piIot/stratus-backend/internal/storage/disk"
 	"github.com/C0piIot/stratus-backend/internal/storage/s3"
+	"github.com/C0piIot/stratus-backend/internal/subsonic"
 )
 
 // probeTimeout bounds the self-probe used by the container healthcheck. A
@@ -46,6 +47,11 @@ const davPrefix = "/dav/"
 
 // davRealm is what a client shows when it asks for a password.
 const davRealm = "Stratus"
+
+// subsonicPrefix is where the music surface lives. Unlike davPrefix this is not
+// ours to choose: every Subsonic client appends /rest/<method> to whatever base
+// URL it is given.
+const subsonicPrefix = "/rest/"
 
 // probeKey is the same idea one layer up, in the blob store. It is a valid key
 // on every backend, and it never survives startup.
@@ -98,17 +104,17 @@ func New(cfg config.Config, version string) *App {
 
 // Handler builds the HTTP routes. Separate from Run so every protocol surface
 // can be tested through httptest without binding a port.
-//
-// deps is unused while /healthz is the only route. It is threaded through now
-// because WebDAV, CalDAV and the web UI all need it, and because a signature is
-// a better place to state that than a comment.
 func (a *App) Handler(deps Deps) http.Handler {
 	mux := http.NewServeMux()
+
+	// Liveness. It touches nothing on purpose -- see readiness in health.go for
+	// the endpoint that does, and why they are two.
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		// Nothing useful to do if the client hung up mid-write.
 		_, _ = io.WriteString(w, "ok\n")
 	})
+	mux.HandleFunc("GET /readyz", readiness(deps))
 
 	// No credentials, no file surface. Refusing to mount it is clearer than
 	// mounting something that answers 401 to everyone, and it means an install
@@ -119,6 +125,11 @@ func (a *App) Handler(deps Deps) http.Handler {
 		// are shared rather than reset per request.
 		verifier := auth.NewThrottle(creds, auth.DefaultThrottle)
 		mux.Handle(davPrefix, auth.Basic(davRealm, verifier, dav.Handler(davPrefix, service)))
+		// The same verifier, deliberately. Subsonic authenticates per request
+		// from the query string rather than through auth.Basic, and a second
+		// NewThrottle here would give an attacker a second budget of guesses at
+		// the one password this server has.
+		mux.Handle(subsonicPrefix, subsonic.Handler(subsonicPrefix, a.version, verifier, deps.Database, service))
 	}
 	return logRequests(mux)
 }
