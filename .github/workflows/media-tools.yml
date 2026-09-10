@@ -1,39 +1,48 @@
-# Publishes the trimmed ffprobe the server image copies in.
+# Publishes the trimmed media tools the server image copies in: ffprobe reads
+# files and ffmpeg turns them into pixels.
 #
 # Separate from ci.yml on purpose: this compiles C, and doing it in the server
 # Dockerfile would put a cross-architecture build on every commit. Here it runs
-# only when the recipe or the FFmpeg version changes, which is roughly never,
-# and the server build stays one COPY.
-name: ffprobe
+# only when a recipe or an FFmpeg version changes, which is roughly never, and
+# the server build stays two COPYs.
+name: media tools
 
 on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ['build/ffprobe/**', '.github/workflows/ffprobe.yml']
+    paths: ['build/ffprobe/**', 'build/ffmpeg/**', '.github/workflows/media-tools.yml']
 
 permissions:
   contents: read
   packages: write
 
 jobs:
-  # One native runner per architecture rather than one runner emulating the
-  # other: FFmpeg is a C build, and under QEMU it takes long enough to need a
-  # timeout nobody wants to reason about. Each job pushes its own architecture
-  # under a suffixed tag and the manifest is assembled afterwards.
+  # Two dimensions: the tool and the architecture. One native runner per
+  # architecture rather than one runner emulating the other, because FFmpeg is a
+  # C build and under QEMU it takes long enough to need a timeout nobody wants
+  # to reason about. Each job pushes its own architecture under a suffixed tag
+  # and the manifest is assembled afterwards.
   build:
     strategy:
       fail-fast: false
       matrix:
+        tool: [ffprobe, ffmpeg]
+        arch: [amd64, arm64]
+        # arch is a matrix key and not only an include value, so each of these
+        # merges into the combinations whose arch matches. Naming the platform
+        # and the runner in an include that carried neither would fuse both
+        # entries into every combination, and the last one would win: two jobs
+        # on the same architecture and nothing built for the other.
         include:
-          - platform: linux/amd64
-            arch: amd64
+          - arch: amd64
+            platform: linux/amd64
             runner: ubuntu-latest
-          - platform: linux/arm64
-            arch: arm64
+          - arch: arm64
+            platform: linux/arm64
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7.0.1
 
@@ -41,14 +50,15 @@ jobs:
         id: v
         env:
           OWNER: ${{ github.repository_owner }}
+          TOOL: ${{ matrix.tool }}
         run: |
-          version="$(sed -n 's/^ARG FFMPEG_VERSION=//p' build/ffprobe/Dockerfile)"
-          [ -n "$version" ] || { echo "no FFMPEG_VERSION in the Dockerfile"; exit 1; }
+          version="$(sed -n 's/^ARG FFMPEG_VERSION=//p' "build/$TOOL/Dockerfile")"
+          [ -n "$version" ] || { echo "no FFMPEG_VERSION in build/$TOOL/Dockerfile"; exit 1; }
           # A registry repository name has to be lowercase and the owner is not.
           owner="$(echo "$OWNER" | tr '[:upper:]' '[:lower:]')"
           {
             echo "version=$version"
-            echo "image=ghcr.io/$owner/stratus-ffprobe"
+            echo "image=ghcr.io/$owner/stratus-$TOOL"
           } >> "$GITHUB_OUTPUT"
 
       - uses: docker/setup-buildx-action@v4.3.0
@@ -61,17 +71,20 @@ jobs:
 
       # --platform is stated rather than left to the runner so that a runner on
       # the wrong architecture fails here instead of quietly emulating.
-      - name: build and push ${{ matrix.arch }}
+      - name: build and push ${{ matrix.tool }} ${{ matrix.arch }}
         run: |
           docker buildx build \
             --platform "${{ matrix.platform }}" \
             --tag "${{ steps.v.outputs.image }}:${{ steps.v.outputs.version }}-${{ matrix.arch }}" \
-            --push build/ffprobe
+            --push "build/${{ matrix.tool }}"
 
   # The version tag is a manifest list over the two architecture tags, so the
   # server Dockerfile can COPY --from it without naming an architecture.
   manifest:
     needs: build
+    strategy:
+      matrix:
+        tool: [ffprobe, ffmpeg]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -81,12 +94,13 @@ jobs:
         id: v
         env:
           OWNER: ${{ github.repository_owner }}
+          TOOL: ${{ matrix.tool }}
         run: |
-          version="$(sed -n 's/^ARG FFMPEG_VERSION=//p' build/ffprobe/Dockerfile)"
+          version="$(sed -n 's/^ARG FFMPEG_VERSION=//p' "build/$TOOL/Dockerfile")"
           owner="$(echo "$OWNER" | tr '[:upper:]' '[:lower:]')"
           {
             echo "version=$version"
-            echo "image=ghcr.io/$owner/stratus-ffprobe"
+            echo "image=ghcr.io/$owner/stratus-$TOOL"
           } >> "$GITHUB_OUTPUT"
 
       - uses: docker/setup-buildx-action@v4.3.0
