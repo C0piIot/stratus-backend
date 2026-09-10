@@ -486,3 +486,24 @@ func (r *fakeRows) Next(dest []driver.Value) error {
 	r.i++
 	return nil
 }
+
+// TestContains covers the escaping, which is the only reason this helper is not
+// a fmt.Sprintf at the call site. A term is text somebody typed, and LIKE reads
+// two of its characters as wildcards.
+func TestContains(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]string{
+		"björk":   `%björk%`,
+		"":        `%%`,
+		"100%":    `%100\%%`,
+		"a_b":     `%a\_b%`,
+		`back\sl`: `%back\\sl%`,
+		"%_\\":    `%\%\_\\%`,
+	}
+	for term, want := range tests {
+		if got := Contains(term); got != want {
+			t.Errorf("Contains(%q) = %q, want %q", term, got, want)
+		}
+	}
+}

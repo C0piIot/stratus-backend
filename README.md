@@ -149,6 +149,15 @@ it is `getIndexes` and `getMusicDirectory` over the **real file tree** -- the
 directories are the ones you uploaded into, not folders invented from tags,
 which is the part other servers have had to fix.
 
+**Search and the home screen work too**: `search3` and `search2`, `getAlbumList2`
+and `getAlbumList`, `getGenres` with `getSongsByGenre` behind it, and
+`getRandomSongs`. An empty search returns the library a page at a time, which is
+how a client downloads one to browse with no network. Matching is
+case-insensitive **past ASCII** -- searching for `BJÖRK` finds `Björk` -- and it
+is done against text the server folded rather than by asking the database,
+because SQLite and PostgreSQL do not agree on what `lower()` means for a letter
+with an accent on it.
+
 `stream` and `download` serve the file that was stored, unchanged. Ranges,
 conditional requests and seeking come from the same code that serves a video
 over WebDAV.
@@ -160,10 +169,12 @@ What is not there yet, and it is better to know before installing a client:
 - **No favourites, ratings, play counts or playlists.** Those are user state,
   which means tables that do not exist. `scrobble` is not implemented, so
   nothing counts a play either.
-- **No transcoding and no search yet.** `maxBitRate` and `format` are ignored
-  and the original is served; `search3`, `getAlbumList2` and `getGenres` are
-  the next piece of work, so a client's search and its home screen are empty
-  while its library is not.
+- **No transcoding.** `maxBitRate` and `format` are ignored and the original is
+  served, which is what `format=raw` asks for explicitly.
+- **Four of the ten album lists are empty**, and on purpose: "most played",
+  "top rated", "recently played" and "starred" are ordered by something only a
+  play count or a rating could provide, and nothing records either. The shelf
+  is blank rather than filled with something that is not what it says.
 - **A file is in the library once the indexer has read it**, which is also how
   long it takes to appear in a folder listing. That is the same rule for both
   views, so they cannot disagree.
@@ -386,15 +397,16 @@ Working now:
 - Both pluggable seams — disk and S3 for blobs, SQLite and PostgreSQL for
   metadata — each with a conformance suite that both of its drivers pass.
 - WebDAV, behind HTTP Basic with a global limit on failed logins.
-- OpenSubsonic: browsing by tag and by folder, and streaming, over both of the
-  protocol's authentication schemes and sharing that same limit. No cover art,
-  no user state, no transcoding, and no client has been tried against it yet.
+- OpenSubsonic: browsing by tag and by folder, search, the album lists a home
+  screen is made of, and streaming -- over both of the protocol's
+  authentication schemes and sharing that same limit. No cover art, no user
+  state, no transcoding, and no client has been tried against it yet.
 - EXIF, audio tags and video probing, indexed in the background.
 - A request log, migrations applied at startup, and a container asserted from
-  the outside by 44 smoke checks.
+  the outside by 45 smoke checks.
 
-Not there yet: search and the album lists a music client's home screen is made
-of, CalDAV, the web UI, thumbnails and sharing. Work
+Not there yet: CalDAV, the web UI, thumbnails and sharing -- and on the music
+side, cover art and anything that remembers what the user did. Work
 and the decisions behind it are tracked on the
 [Stratus project board](https://github.com/users/C0piIot/projects/2), where
 `Priority` says when and the `decision` label says what still needs a call.

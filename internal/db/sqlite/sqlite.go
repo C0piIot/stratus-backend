@@ -185,9 +185,16 @@ func (r *repo) ListFiles(ctx context.Context, owner, dir string) ([]db.File, err
 
 const mediaColumns = `file_id, kind, indexed_at, version, error, taken_at, width, height, orientation, latitude, longitude, camera, duration_ms, codec, artist, album, title, track_no, disc_no, year, genre, album_artist`
 
+// mediaWriteColumns is the read list plus the three folded columns a search
+// matches on. They are written and filtered but never read back: they are how
+// the row is stored, not part of what a db.Media is, so scanMedia does not know
+// about them.
+const mediaWriteColumns = mediaColumns + `, search_song, search_album, search_album_artist`
+
 // PutMedia implements db.MediaIndex.
 func (r *repo) PutMedia(ctx context.Context, m db.Media) error {
 	m = m.Normalize()
+	folded := m.Fold()
 
 	var takenAt any
 	if !m.TakenAt.IsZero() {
@@ -199,8 +206,8 @@ func (r *repo) PutMedia(ctx context.Context, m db.Media) error {
 		lat, lon = m.GPS.Latitude, m.GPS.Longitude
 	}
 
-	const query = `INSERT INTO media (` + mediaColumns + `)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	const query = `INSERT INTO media (` + mediaWriteColumns + `)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (file_id) DO UPDATE SET
 			kind = excluded.kind, indexed_at = excluded.indexed_at, version = excluded.version,
 			error = excluded.error, taken_at = excluded.taken_at, width = excluded.width,
@@ -209,14 +216,16 @@ func (r *repo) PutMedia(ctx context.Context, m db.Media) error {
 			duration_ms = excluded.duration_ms, codec = excluded.codec, artist = excluded.artist,
 			album = excluded.album, title = excluded.title, track_no = excluded.track_no,
 			disc_no = excluded.disc_no, year = excluded.year, genre = excluded.genre,
-			album_artist = excluded.album_artist`
+			album_artist = excluded.album_artist, search_song = excluded.search_song,
+			search_album = excluded.search_album,
+			search_album_artist = excluded.search_album_artist`
 
 	_, err := r.q.ExecContext(ctx, query,
 		m.FileID, string(m.Kind), m.IndexedAt.UnixMilli(), m.Version, m.Error, takenAt,
 		m.Width, m.Height, m.Orientation, lat, lon, m.Camera,
 		m.DurationMS, m.Codec, m.Artist, m.Album, m.Title,
 		m.TrackNo, m.DiscNo, m.Year, m.Genre,
-		m.AlbumArtist,
+		m.AlbumArtist, folded.Song, folded.Album, folded.AlbumArtist,
 	)
 	if err != nil {
 		return fmt.Errorf("put media for file %d: %w", m.FileID, mapErr(err))
@@ -299,16 +308,23 @@ func (r *repo) Artists(ctx context.Context, owner string) ([]db.Artist, error) {
 	return out, nil
 }
 
+// albumSelect and albumGroup are the aggregate every album listing shares.
+// Written once because two listings that counted an album's songs differently
+// would show a user two numbers for one album, and nobody would find out why.
+const (
+	albumSelect = `SELECT m.album_artist, m.album, COUNT(*), COALESCE(SUM(m.duration_ms), 0),
+			MAX(m.year), MAX(m.genre), MIN(f.mtime)
+		FROM media m JOIN files f ON f.id = m.file_id`
+	albumGroup = ` GROUP BY m.album_artist, m.album`
+)
+
 // Albums implements db.Repo.
 func (r *repo) Albums(ctx context.Context, owner, artist string) ([]db.Album, error) {
 	// The artist is matched or ignored by the same clause, so one query serves
 	// both a listing of the whole library and of one artist.
-	const query = `SELECT m.album_artist, m.album, COUNT(*), COALESCE(SUM(m.duration_ms), 0),
-			MAX(m.year), MAX(m.genre), MIN(f.mtime)
-		FROM media m JOIN files f ON f.id = m.file_id
+	const query = albumSelect + `
 		WHERE f.owner_id = ? AND m.kind = ? AND m.album <> ''
-		  AND (? = '' OR m.album_artist = ?)
-		GROUP BY m.album_artist, m.album
+		  AND (? = '' OR m.album_artist = ?)` + albumGroup + `
 		ORDER BY m.album_artist, m.album`
 
 	out, err := sqlutil.Collect(ctx, r.q, scanAlbum, query, owner, string(db.KindAudio), artist, artist)
@@ -360,6 +376,179 @@ func (r *repo) TrackByFile(ctx context.Context, owner string, fileID int64) (db.
 		return db.Track{}, fmt.Errorf("get track %d: %w", fileID, db.ErrNotFound)
 	}
 	return out[0], nil
+}
+
+// AlbumList implements db.Repo.
+//
+// The genre and the year are filtered in HAVING rather than in WHERE, and that
+// is not a style choice: an album's year is MAX(m.year) over its tracks and its
+// song count is COUNT(*) over them, so a WHERE that dropped the tracks not
+// matching would leave the album in the answer with the wrong numbers beside it.
+func (r *repo) AlbumList(ctx context.Context, owner string, f db.AlbumFilter) ([]db.Album, error) {
+	order, err := albumOrder(f.Order)
+	if err != nil {
+		return nil, err
+	}
+
+	query := albumSelect + `
+		WHERE f.owner_id = ? AND m.kind = ? AND m.album <> ''` + albumGroup + `
+		HAVING (? = '' OR SUM(CASE WHEN m.genre = ? THEN 1 ELSE 0 END) > 0)
+		   AND (? = 0 OR MAX(m.year) >= ?)
+		   AND (? = 0 OR MAX(m.year) <= ?)
+		ORDER BY ` + order + `
+		LIMIT ? OFFSET ?`
+
+	out, err := sqlutil.Collect(ctx, r.q, scanAlbum, query,
+		owner, string(db.KindAudio),
+		f.Genre, f.Genre, f.FromYear, f.FromYear, f.ToYear, f.ToYear,
+		f.Page.Limit, f.Page.Offset)
+	if err != nil {
+		return nil, fmt.Errorf("list albums: %w", mapErr(err))
+	}
+	return out, nil
+}
+
+// albumOrder is the ORDER BY for each way a client asks to see a library. Every
+// one of them ends in the same tie-break, so a page boundary lands in the same
+// place twice -- except the random one, which is a different set by definition.
+func albumOrder(o db.AlbumOrder) (string, error) {
+	const tie = `, m.album_artist, m.album`
+	switch o {
+	case db.AlbumsByName:
+		return `m.album, m.album_artist`, nil
+	case db.AlbumsByArtist:
+		return `m.album_artist, m.album`, nil
+	case db.AlbumsByAdded:
+		return `MIN(f.mtime) DESC` + tie, nil
+	case db.AlbumsByYear:
+		return `MAX(m.year)` + tie, nil
+	case db.AlbumsByYearDesc:
+		return `MAX(m.year) DESC` + tie, nil
+	case db.AlbumsRandom:
+		return `random()`, nil
+	default:
+		return "", fmt.Errorf("list albums: unknown order %q", o)
+	}
+}
+
+// TrackList implements db.Repo. The year is the track's own here, unlike
+// AlbumList: nothing is aggregated, so there is nothing to distort.
+func (r *repo) TrackList(ctx context.Context, owner string, f db.TrackFilter) ([]db.Track, error) {
+	order, err := trackOrder(f.Order)
+	if err != nil {
+		return nil, err
+	}
+
+	query := `SELECT ` + joinedFileColumns + `, ` + joinedMediaColumns + `
+		FROM media m JOIN files f ON f.id = m.file_id
+		WHERE f.owner_id = ? AND m.kind = ?
+		  AND (? = '' OR m.genre = ?)
+		  AND (? = 0 OR m.year >= ?)
+		  AND (? = 0 OR m.year <= ?)
+		ORDER BY ` + order + `
+		LIMIT ? OFFSET ?`
+
+	out, err := sqlutil.Collect(ctx, r.q, scanTrack, query,
+		owner, string(db.KindAudio),
+		f.Genre, f.Genre, f.FromYear, f.FromYear, f.ToYear, f.ToYear,
+		f.Page.Limit, f.Page.Offset)
+	if err != nil {
+		return nil, fmt.Errorf("list tracks: %w", mapErr(err))
+	}
+	return out, nil
+}
+
+func trackOrder(o db.TrackOrder) (string, error) {
+	switch o {
+	case db.TracksByPath:
+		return `f.path`, nil
+	case db.TracksRandom:
+		return `random()`, nil
+	default:
+		return "", fmt.Errorf("list tracks: unknown order %q", o)
+	}
+}
+
+// Genres implements db.Repo.
+//
+// The album count is over the same album key the listings group by, so a genre
+// and an album listing cannot disagree about what an album is. The separator is
+// a control character because a tag can contain any printable one, and two
+// albums must not collide because of where the join happened to fall.
+func (r *repo) Genres(ctx context.Context, owner string) ([]db.Genre, error) {
+	const query = `SELECT m.genre, COUNT(*),
+			COUNT(DISTINCT CASE WHEN m.album <> ''
+				THEN m.album_artist || char(31) || m.album END)
+		FROM media m JOIN files f ON f.id = m.file_id
+		WHERE f.owner_id = ? AND m.kind = ? AND m.genre <> ''
+		GROUP BY m.genre
+		ORDER BY m.genre`
+
+	out, err := sqlutil.Collect(ctx, r.q, scanGenre, query, owner, string(db.KindAudio))
+	if err != nil {
+		return nil, fmt.Errorf("list genres: %w", mapErr(err))
+	}
+	return out, nil
+}
+
+// Search implements db.Repo.
+//
+// Three queries, and every one of them matches a column this process folded
+// rather than calling lower() here: SQLite folds ASCII and PostgreSQL folds
+// Unicode, so the engine deciding would make the two drivers answer differently
+// for an accented capital.
+//
+// The folded columns are constant within an album, so the album and artist
+// filters live in WHERE and not HAVING -- unlike the genre and the year, which
+// are aggregates.
+func (r *repo) Search(ctx context.Context, owner string, f db.SearchFilter) (db.SearchResult, error) {
+	term := sqlutil.Contains(db.FoldQuery(f.Text))
+	kind := string(db.KindAudio)
+
+	const artists = `SELECT m.album_artist, COUNT(DISTINCT m.album)
+		FROM media m JOIN files f ON f.id = m.file_id
+		WHERE f.owner_id = ? AND m.kind = ? AND m.album_artist <> '' AND m.album <> ''
+		  AND m.search_album_artist LIKE ? ESCAPE '` + sqlutil.LikeEscape + `'
+		GROUP BY m.album_artist
+		ORDER BY m.album_artist
+		LIMIT ? OFFSET ?`
+
+	const albums = albumSelect + `
+		WHERE f.owner_id = ? AND m.kind = ? AND m.album <> ''
+		  AND m.search_album LIKE ? ESCAPE '` + sqlutil.LikeEscape + `'` + albumGroup + `
+		ORDER BY m.album_artist, m.album
+		LIMIT ? OFFSET ?`
+
+	tracks := `SELECT ` + joinedFileColumns + `, ` + joinedMediaColumns + `
+		FROM media m JOIN files f ON f.id = m.file_id
+		WHERE f.owner_id = ? AND m.kind = ?
+		  AND (m.search_song LIKE ? ESCAPE '` + sqlutil.LikeEscape + `'
+		    OR m.search_album LIKE ? ESCAPE '` + sqlutil.LikeEscape + `'
+		    OR m.search_album_artist LIKE ? ESCAPE '` + sqlutil.LikeEscape + `')
+		ORDER BY m.album_artist, m.album, m.disc_no, m.track_no, f.path
+		LIMIT ? OFFSET ?`
+
+	var out db.SearchResult
+	var err error
+	if out.Artists, err = sqlutil.Collect(ctx, r.q, scanArtist, artists,
+		owner, kind, term, f.Artists.Limit, f.Artists.Offset); err != nil {
+		return db.SearchResult{}, fmt.Errorf("search artists: %w", mapErr(err))
+	}
+	if out.Albums, err = sqlutil.Collect(ctx, r.q, scanAlbum, albums,
+		owner, kind, term, f.Albums.Limit, f.Albums.Offset); err != nil {
+		return db.SearchResult{}, fmt.Errorf("search albums: %w", mapErr(err))
+	}
+	if out.Tracks, err = sqlutil.Collect(ctx, r.q, scanTrack, tracks,
+		owner, kind, term, term, term, f.Tracks.Limit, f.Tracks.Offset); err != nil {
+		return db.SearchResult{}, fmt.Errorf("search tracks: %w", mapErr(err))
+	}
+	return out, nil
+}
+
+func scanGenre(rows *sql.Rows) (db.Genre, error) {
+	var g db.Genre
+	err := rows.Scan(&g.Name, &g.SongCount, &g.AlbumCount)
+	return g, err
 }
 
 func scanArtist(rows *sql.Rows) (db.Artist, error) {

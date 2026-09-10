@@ -71,6 +71,34 @@ func (b breaking) TrackByFile(ctx context.Context, owner string, fileID int64) (
 	return b.music.TrackByFile(ctx, owner, fileID)
 }
 
+func (b breaking) AlbumList(ctx context.Context, owner string, f db.AlbumFilter) ([]db.Album, error) {
+	if err := b.err("AlbumList"); err != nil {
+		return nil, err
+	}
+	return b.music.AlbumList(ctx, owner, f)
+}
+
+func (b breaking) TrackList(ctx context.Context, owner string, f db.TrackFilter) ([]db.Track, error) {
+	if err := b.err("TrackList"); err != nil {
+		return nil, err
+	}
+	return b.music.TrackList(ctx, owner, f)
+}
+
+func (b breaking) Genres(ctx context.Context, owner string) ([]db.Genre, error) {
+	if err := b.err("Genres"); err != nil {
+		return nil, err
+	}
+	return b.music.Genres(ctx, owner)
+}
+
+func (b breaking) Search(ctx context.Context, owner string, f db.SearchFilter) (db.SearchResult, error) {
+	if err := b.err("Search"); err != nil {
+		return db.SearchResult{}, err
+	}
+	return b.music.Search(ctx, owner, f)
+}
+
 func (b breaking) Stat(ctx context.Context, owner, path string) (db.File, error) {
 	if err := b.err("Stat"); err != nil {
 		return db.File{}, err
@@ -111,6 +139,9 @@ func TestABrokenBackendIsNotANotFound(t *testing.T) {
 		call   string
 		method string
 		id     func(track db.File) string
+		// extra is whatever else the endpoint needs before it will reach the
+		// call being broken.
+		extra  []string
 		binary bool
 	}{
 		{name: "listing artists", call: "Artists", method: "getArtists"},
@@ -131,6 +162,13 @@ func TestABrokenBackendIsNotANotFound(t *testing.T) {
 		},
 		{name: "reading the track to stream", call: "TrackByFile", method: "stream", id: theTrack, binary: true},
 		{name: "opening the bytes", call: "OpenFile", method: "stream", id: theTrack, binary: true},
+		{name: "listing albums", call: "AlbumList", method: "getAlbumList2", extra: []string{"type", "newest"}},
+		{name: "listing albums for an old client", call: "AlbumList", method: "getAlbumList", extra: []string{"type", "newest"}},
+		{name: "searching", call: "Search", method: "search3"},
+		{name: "searching for an old client", call: "Search", method: "search2"},
+		{name: "listing genres", call: "Genres", method: "getGenres"},
+		{name: "listing a genre", call: "TrackList", method: "getSongsByGenre", extra: []string{"genre", "Rock"}},
+		{name: "shuffling", call: "TrackList", method: "getRandomSongs"},
 	}
 
 	for _, tt := range tests {
@@ -142,11 +180,11 @@ func TestABrokenBackendIsNotANotFound(t *testing.T) {
 			b := breaking{music: l.meta, tree: l.files, fail: tt.call}
 			h := subsonic.Handler(prefix, serverVersion, l.verifier, b, b)
 
-			extra := []string{"f", "json"}
+			params := append([]string{"f", "json"}, tt.extra...)
 			if tt.id != nil {
-				extra = append(extra, "id", tt.id(track))
+				params = append(params, "id", tt.id(track))
 			}
-			rec := get(t, h, tt.method, query(extra...))
+			rec := get(t, h, tt.method, query(params...))
 			if tt.binary {
 				assertXMLError(t, rec, 0)
 				return

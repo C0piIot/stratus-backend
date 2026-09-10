@@ -2,6 +2,7 @@ package dbtest
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -29,6 +30,16 @@ func RunMusic(t *testing.T, newRepo func(t *testing.T) db.Repo) {
 		{"a missing track is ErrNotFound", musicTrackMissing},
 		{"owners do not see each other's music", musicOwnersAreSeparate},
 		{"what is not audio is not music", musicIgnoresOtherKinds},
+		{"a listing comes back in the order it was asked for", musicAlbumListOrders},
+		{"a listing pages without gaps or repeats", musicAlbumListPages},
+		{"filtering a listing does not distort what it counts", musicAlbumListFilters},
+		{"a listing of tracks filters and orders", musicTrackList},
+		{"an unknown order is refused rather than guessed", musicUnknownOrders},
+		{"genres count what they hold", musicGenres},
+		{"search matches all three things by name", musicSearch},
+		{"search does not depend on the engine's idea of case", musicSearchCase},
+		{"a wildcard in a search is text and not a wildcard", musicSearchWildcards},
+		{"an empty search is the whole library", musicSearchEmpty},
 	}
 
 	for _, tc := range cases {
@@ -291,6 +302,397 @@ func musicIgnoresOtherKinds(t *testing.T, s db.Repo) {
 	if len(artists) != 0 {
 		t.Errorf("Artists = %+v, want nothing", artists)
 	}
+}
+
+// musicAlbumListOrders pins each way a client asks to see a library. The names
+// and years are chosen so that no two orders agree, which is what makes the
+// assertions distinguish them.
+func musicAlbumListOrders(t *testing.T, s db.Repo) {
+	// Written oldest-arriving first, so the added order is not the same as any
+	// alphabetical one.
+	catalogue(t, s,
+		record{artist: "Zomby", album: "Aaron", year: 2011, genre: "Electronic"},
+		record{artist: "Autechre", album: "Zeta", year: 1994, genre: "Electronic"},
+		record{artist: "Móveis", album: "Meia", year: 2003, genre: "Rock"},
+	)
+
+	page := db.Page{Limit: 10}
+	tests := map[db.AlbumOrder][]string{
+		db.AlbumsByName:     {"Aaron", "Meia", "Zeta"},
+		db.AlbumsByArtist:   {"Zeta", "Meia", "Aaron"},
+		db.AlbumsByAdded:    {"Meia", "Zeta", "Aaron"},
+		db.AlbumsByYear:     {"Zeta", "Meia", "Aaron"},
+		db.AlbumsByYearDesc: {"Aaron", "Meia", "Zeta"},
+	}
+	for order, want := range tests {
+		got, err := s.AlbumList(t.Context(), owner, db.AlbumFilter{Order: order, Page: page})
+		if err != nil {
+			t.Fatalf("AlbumList(%s): %v", order, err)
+		}
+		if names := albumNames(got); !equal(names, want) {
+			t.Errorf("AlbumList(%s) = %v, want %v", order, names, want)
+		}
+	}
+
+	// A random listing is a different set by definition, so what is pinned is
+	// that it is the same albums and the limit is honoured.
+	random, err := s.AlbumList(t.Context(), owner, db.AlbumFilter{Order: db.AlbumsRandom, Page: db.Page{Limit: 2}})
+	if err != nil {
+		t.Fatalf("AlbumList(random): %v", err)
+	}
+	if len(random) != 2 {
+		t.Errorf("AlbumList(random) returned %d albums, want the limit", len(random))
+	}
+}
+
+func musicAlbumListPages(t *testing.T, s db.Repo) {
+	catalogue(t, s,
+		record{artist: "A", album: "One", year: 2001, genre: "Rock"},
+		record{artist: "B", album: "Two", year: 2002, genre: "Rock"},
+		record{artist: "C", album: "Three", year: 2003, genre: "Rock"},
+	)
+
+	// Two pages of two, which is how a client walks a library it cannot hold.
+	var seen []string
+	for offset := 0; offset < 4; offset += 2 {
+		f := db.AlbumFilter{Order: db.AlbumsByArtist, Page: db.Page{Limit: 2, Offset: offset}}
+		got, err := s.AlbumList(t.Context(), owner, f)
+		if err != nil {
+			t.Fatalf("AlbumList at offset %d: %v", offset, err)
+		}
+		seen = append(seen, albumNames(got)...)
+	}
+	if want := []string{"One", "Two", "Three"}; !equal(seen, want) {
+		t.Errorf("paging returned %v, want %v exactly once each", seen, want)
+	}
+
+	// A limit of zero is zero rows, the same answer PendingMedia gives. It is
+	// stated because the alternative reading -- "no limit" -- is the bug.
+	none, err := s.AlbumList(t.Context(), owner, db.AlbumFilter{Order: db.AlbumsByName})
+	if err != nil || len(none) != 0 {
+		t.Errorf("AlbumList with no limit = %+v, %v", none, err)
+	}
+}
+
+// musicAlbumListFilters is the case that says why the genre and the year are
+// filtered after grouping. An album with one track in a genre is in that genre,
+// and it still has to report all of its tracks: filtering them out first would
+// leave the album in the answer with half its songs.
+func musicAlbumListFilters(t *testing.T, s db.Repo) {
+	mixed := record{artist: "V", album: "Mixed", year: 1999, genre: "Rock"}
+	catalogue(t, s, mixed)
+	// A second track on the same album, in another genre and a later year.
+	other := song("V", "V", "Mixed", "Second", 2)
+	other.Genre = "Jazz"
+	other.Year = 1999
+	track(t, s, owner, "music/mixed-2.flac", other)
+	catalogue(t, s, record{artist: "W", album: "Elsewhere", year: 1970, genre: "Folk"})
+
+	page := db.Page{Limit: 10}
+	got, err := s.AlbumList(t.Context(), owner, db.AlbumFilter{Order: db.AlbumsByName, Genre: "Jazz", Page: page})
+	if err != nil {
+		t.Fatalf("AlbumList: %v", err)
+	}
+	if len(got) != 1 || got[0].Name != "Mixed" {
+		t.Fatalf("AlbumList by genre = %+v, want the album with a track in it", albumNames(got))
+	}
+	if got[0].SongCount != 2 {
+		t.Errorf("SongCount = %d, want 2: the filter must not drop the album's other tracks", got[0].SongCount)
+	}
+
+	// A year range, inclusive at both ends.
+	inRange, err := s.AlbumList(t.Context(), owner,
+		db.AlbumFilter{Order: db.AlbumsByName, FromYear: 1999, ToYear: 1999, Page: page})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if names := albumNames(inRange); !equal(names, []string{"Mixed"}) {
+		t.Errorf("AlbumList in 1999 = %v", names)
+	}
+	// Unbounded above, which is a zero rather than a large number.
+	from, err := s.AlbumList(t.Context(), owner,
+		db.AlbumFilter{Order: db.AlbumsByName, FromYear: 1980, Page: page})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if names := albumNames(from); !equal(names, []string{"Mixed"}) {
+		t.Errorf("AlbumList from 1980 = %v", names)
+	}
+}
+
+func musicTrackList(t *testing.T, s db.Repo) {
+	first := song("A", "A", "One", "First", 1)
+	first.Genre, first.Year = "Rock", 2001
+	second := song("A", "A", "One", "Second", 2)
+	second.Genre, second.Year = "Jazz", 2002
+	track(t, s, owner, "music/b.flac", second)
+	track(t, s, owner, "music/a.flac", first)
+
+	page := db.Page{Limit: 10}
+	got, err := s.TrackList(t.Context(), owner, db.TrackFilter{Order: db.TracksByPath, Page: page})
+	if err != nil {
+		t.Fatalf("TrackList: %v", err)
+	}
+	if titles := trackTitles(got); !equal(titles, []string{"First", "Second"}) {
+		t.Errorf("TrackList = %v, want path order", titles)
+	}
+
+	// The year is the track's own here, not an album's aggregate.
+	byGenre, err := s.TrackList(t.Context(), owner,
+		db.TrackFilter{Order: db.TracksByPath, Genre: "Jazz", Page: page})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if titles := trackTitles(byGenre); !equal(titles, []string{"Second"}) {
+		t.Errorf("TrackList by genre = %v", titles)
+	}
+	byYear, err := s.TrackList(t.Context(), owner,
+		db.TrackFilter{Order: db.TracksByPath, FromYear: 2002, ToYear: 2002, Page: page})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if titles := trackTitles(byYear); !equal(titles, []string{"Second"}) {
+		t.Errorf("TrackList by year = %v", titles)
+	}
+
+	random, err := s.TrackList(t.Context(), owner, db.TrackFilter{Order: db.TracksRandom, Page: db.Page{Limit: 1}})
+	if err != nil || len(random) != 1 {
+		t.Errorf("TrackList(random) = %+v, %v", trackTitles(random), err)
+	}
+}
+
+// musicUnknownOrders is the answer to a caller mistake: refuse it rather than
+// pick an order and return something plausible.
+func musicUnknownOrders(t *testing.T, s db.Repo) {
+	if _, err := s.AlbumList(t.Context(), owner, db.AlbumFilter{Order: "by vibe", Page: db.Page{Limit: 1}}); err == nil {
+		t.Error("AlbumList with an unknown order returned no error")
+	}
+	if _, err := s.TrackList(t.Context(), owner, db.TrackFilter{Order: "by vibe", Page: db.Page{Limit: 1}}); err == nil {
+		t.Error("TrackList with an unknown order returned no error")
+	}
+}
+
+func musicGenres(t *testing.T, s db.Repo) {
+	// Two albums in Rock, one of them with two tracks, and one track with no
+	// genre tag at all.
+	catalogue(t, s,
+		record{artist: "A", album: "One", year: 2001, genre: "Rock"},
+		record{artist: "B", album: "Two", year: 2002, genre: "Rock"},
+		record{artist: "C", album: "Three", year: 2003, genre: "Jazz"},
+	)
+	extra := song("A", "A", "One", "Second", 2)
+	extra.Genre = "Rock"
+	track(t, s, owner, "music/one-2.flac", extra)
+	untagged := song("D", "D", "Four", "Untagged", 1)
+	untagged.Genre = ""
+	track(t, s, owner, "music/four.flac", untagged)
+
+	got, err := s.Genres(t.Context(), owner)
+	if err != nil {
+		t.Fatalf("Genres: %v", err)
+	}
+	// Name order, and the track with no genre is in none of them.
+	if len(got) != 2 || got[0].Name != "Jazz" || got[1].Name != "Rock" {
+		t.Fatalf("Genres = %+v, want Jazz and Rock", got)
+	}
+	if got[1].SongCount != 3 {
+		t.Errorf("Rock SongCount = %d, want 3", got[1].SongCount)
+	}
+	// Two albums, not three tracks: the counts are not derivable from each
+	// other, which is why the schema asks for both.
+	if got[1].AlbumCount != 2 {
+		t.Errorf("Rock AlbumCount = %d, want 2", got[1].AlbumCount)
+	}
+}
+
+func musicSearch(t *testing.T, s db.Repo) {
+	catalogue(t, s,
+		record{artist: "Boards of Canada", album: "Geogaddi", year: 2002, genre: "Electronic"},
+		record{artist: "Autechre", album: "Tri Repetae", year: 1995, genre: "Electronic"},
+	)
+	// A track whose own title is the only place the word appears.
+	odd := song("Autechre", "Autechre", "Tri Repetae", "Leterel", 2)
+	track(t, s, owner, "music/leterel.flac", odd)
+
+	page := db.Page{Limit: 10}
+	all := db.SearchFilter{Text: "aute", Artists: page, Albums: page, Tracks: page}
+	got, err := s.Search(t.Context(), owner, all)
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(got.Artists) != 1 || got.Artists[0].Name != "Autechre" {
+		t.Errorf("Artists = %+v, want the one whose name matches", got.Artists)
+	}
+	// The album's own name does not contain the term, so the album bucket is
+	// empty even though its artist matched. Three questions, three answers.
+	if len(got.Albums) != 0 {
+		t.Errorf("Albums = %v, want none: no album name contains the term", albumNames(got.Albums))
+	}
+	// The tracks bucket is wider on purpose: a track matches on its title, its
+	// album or its artist, because that is how a client's search box is used.
+	if len(got.Tracks) != 2 {
+		t.Errorf("Tracks = %v, want both of that artist's", trackTitles(got.Tracks))
+	}
+
+	// A title nothing else shares.
+	one, err := s.Search(t.Context(), owner, db.SearchFilter{Text: "leterel", Tracks: page})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if titles := trackTitles(one.Tracks); !equal(titles, []string{"Leterel"}) {
+		t.Errorf("Search for a title = %v", titles)
+	}
+	// And the buckets with no page asked for come back empty rather than full.
+	if len(one.Artists) != 0 || len(one.Albums) != 0 {
+		t.Errorf("a zero page returned rows: %+v", one)
+	}
+}
+
+// musicSearchCase is the case that fails the moment somebody moves the folding
+// into SQL. SQLite's lower() folds ASCII and nothing else while PostgreSQL's
+// folds Unicode, so an accented capital is where the two engines part company --
+// and this suite is what says they must not.
+//
+// Every bucket is asserted separately and on purpose. An earlier version of
+// this case only counted tracks, and a track matches on its artist as well as
+// its title: it passed with lower() back in the SQL, because the one disjunct
+// that still read a folded column carried it.
+func musicSearchCase(t *testing.T, s db.Repo) {
+	catalogue(t, s, record{artist: "BJÖRK", album: "HOMOGENIC", year: 1997, genre: "Electronic"})
+	// A title of its own, so the song column is exercised by something the
+	// artist and album columns cannot answer.
+	m := song("BJÖRK", "BJÖRK", "HOMOGENIC", "JÓGA", 2)
+	track(t, s, owner, "music/joga.flac", m)
+
+	page := db.Page{Limit: 10}
+	tests := []struct {
+		term                    string
+		artists, albums, tracks int
+	}{
+		{term: "björk", artists: 1, albums: 0, tracks: 2},
+		{term: "BJÖRK", artists: 1, albums: 0, tracks: 2},
+		{term: "BjÖrK", artists: 1, albums: 0, tracks: 2},
+		{term: "homogenic", artists: 0, albums: 1, tracks: 2},
+		{term: "HOMOGENIC", artists: 0, albums: 1, tracks: 2},
+		// Only the title of one track, so nothing else can carry this one.
+		{term: "jóga", artists: 0, albums: 0, tracks: 1},
+		{term: "JÓGA", artists: 0, albums: 0, tracks: 1},
+	}
+
+	for _, tt := range tests {
+		got, err := s.Search(t.Context(), owner,
+			db.SearchFilter{Text: tt.term, Artists: page, Albums: page, Tracks: page})
+		if err != nil {
+			t.Fatalf("Search(%q): %v", tt.term, err)
+		}
+		if len(got.Artists) != tt.artists {
+			t.Errorf("Search(%q) found %d artists, want %d", tt.term, len(got.Artists), tt.artists)
+		}
+		if len(got.Albums) != tt.albums {
+			t.Errorf("Search(%q) found %d albums, want %d", tt.term, len(got.Albums), tt.albums)
+		}
+		if len(got.Tracks) != tt.tracks {
+			t.Errorf("Search(%q) found %d tracks, want %d", tt.term, len(got.Tracks), tt.tracks)
+		}
+	}
+}
+
+// musicSearchWildcards is the other half of not trusting the engine: % and _
+// are LIKE metacharacters, and a user typing one means the character.
+func musicSearchWildcards(t *testing.T, s db.Repo) {
+	catalogue(t, s,
+		record{artist: "Silk", album: "100% Silk", year: 2011, genre: "Electronic"},
+		record{artist: "Other", album: "Nothing Like It", year: 2011, genre: "Rock"},
+	)
+
+	page := db.Page{Limit: 10}
+	got, err := s.Search(t.Context(), owner, db.SearchFilter{Text: "%", Albums: page})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	// Unescaped, the pattern would be %%% and every album would match.
+	if names := albumNames(got.Albums); !equal(names, []string{"100% Silk"}) {
+		t.Errorf("Search(%%) = %v, want only the album with one in its name", names)
+	}
+}
+
+// musicSearchEmpty is required by the specification and by every client: an
+// empty query is how one walks the whole library for offline use.
+func musicSearchEmpty(t *testing.T, s db.Repo) {
+	catalogue(t, s,
+		record{artist: "A", album: "One", year: 2001, genre: "Rock"},
+		record{artist: "B", album: "Two", year: 2002, genre: "Rock"},
+	)
+
+	page := db.Page{Limit: 10}
+	got, err := s.Search(t.Context(), owner, db.SearchFilter{Artists: page, Albums: page, Tracks: page})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(got.Artists) != 2 || len(got.Albums) != 2 || len(got.Tracks) != 2 {
+		t.Errorf("an empty search returned %d artists, %d albums, %d tracks, want everything",
+			len(got.Artists), len(got.Albums), len(got.Tracks))
+	}
+}
+
+// record is one album of one track, which is all most cases need.
+type record struct {
+	artist, album, genre string
+	year                 int
+}
+
+// catalogue writes one track per record, each in its own file, one minute apart
+// -- so a listing by arrival is the reverse of the order written here.
+//
+// It writes the file itself rather than going through track() for exactly that
+// reason: the fixture's MTime is a constant, and with every album arriving at
+// the same instant the added order would be decided by the tie-break and the
+// case would pass whatever the ORDER BY said.
+func catalogue(t *testing.T, s db.Repo, records ...record) {
+	t.Helper()
+	base := time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC)
+
+	for i, rec := range records {
+		path := fmt.Sprintf("music/%d-%s.flac", i, rec.album)
+		f := file(path)
+		f.MTime = base.Add(time.Duration(i) * time.Minute)
+		stored := put(t, s, f)
+
+		m := song(rec.artist, rec.artist, rec.album, "Track", 1)
+		m.Genre, m.Year = rec.genre, rec.year
+		m.FileID = stored.ID
+		if err := s.PutMedia(t.Context(), m); err != nil {
+			t.Fatalf("PutMedia(%q): %v", path, err)
+		}
+	}
+}
+
+func albumNames(albums []db.Album) []string {
+	out := make([]string, len(albums))
+	for i, a := range albums {
+		out[i] = a.Name
+	}
+	return out
+}
+
+func trackTitles(tracks []db.Track) []string {
+	out := make([]string, len(tracks))
+	for i, tr := range tracks {
+		out[i] = tr.Media.Title
+	}
+	return out
+}
+
+func equal(got, want []string) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // song builds a plausible audio row. Every track gets the same duration so that

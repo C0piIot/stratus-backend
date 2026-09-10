@@ -462,6 +462,27 @@ TRACK
     *)                     bad "OpenSubsonic streams the stored bytes" "id '$song_id' gave '$streamed'" ;;
   esac
 
+  # And found by searching, which is the endpoint a client's search box is. The
+  # empty query is the one the specification requires: it is how a client
+  # downloads a library to browse with no network.
+  #
+  # Waited for like the listing above rather than asked once: what is being
+  # asserted is that a search finds an indexed file, and waiting for the
+  # indexer is part of getting one, not part of what is under test.
+  searched=""
+  for _ in $(seq 1 50); do
+    body="$(curl -fsS "http://$davhost/rest/search3.view?c=smoke&u=$davuser&t=$token&s=$salt&query=" 2>/dev/null || true)"
+    case "$body" in
+      *'track.mp3'*) searched=yes; break ;;
+    esac
+    sleep 0.2
+  done
+  if [ -n "$searched" ]; then
+    ok "OpenSubsonic finds it with an empty search"
+  else
+    bad "OpenSubsonic finds it with an empty search" "got '$body'"
+  fi
+
   # One line per request, which is the only way to see a 401 or a 409 after the
   # fact. The healthcheck is deliberately not in there.
   #

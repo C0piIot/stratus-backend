@@ -79,6 +79,22 @@ func Handler(prefix, serverVersion string, v Verifier, lib db.Music, tree Tree) 
 	mux.HandleFunc("GET /getIndexes", h.authed(h.indexes))
 	mux.HandleFunc("GET /getMusicDirectory", h.authed(h.musicDirectory))
 
+	// The listings a home screen and a search box are made of. The pairs are
+	// one endpoint and its predecessor: same data, older element names, for the
+	// clients that ask for those.
+	mux.HandleFunc("GET /getAlbumList2", h.authed(h.albumList2))
+	mux.HandleFunc("GET /getAlbumList", h.authed(h.albumList))
+	mux.HandleFunc("GET /search3", h.authed(h.search3))
+	mux.HandleFunc("GET /search2", h.authed(h.search2))
+	mux.HandleFunc("GET /getGenres", h.authed(h.genres))
+	mux.HandleFunc("GET /getSongsByGenre", h.authed(h.songsByGenre))
+	mux.HandleFunc("GET /getRandomSongs", h.authed(h.randomSongs))
+
+	// Answered empty rather than refused: there is nowhere to keep a favourite
+	// yet, and every client asks on sync.
+	mux.HandleFunc("GET /getStarred2", h.authed(h.starred2))
+	mux.HandleFunc("GET /getStarred", h.authed(h.starred))
+
 	// The bytes. Their errors are XML whatever f said, so they authenticate
 	// through their own wrapper.
 	mux.HandleFunc("GET /stream", h.authedBinary(h.stream))

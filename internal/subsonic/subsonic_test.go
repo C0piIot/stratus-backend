@@ -49,6 +49,13 @@ type library struct {
 	// verifier is kept so a test can build a second handler over the same
 	// credentials -- the failure cases do, with a library that breaks.
 	verifier *auth.Throttle
+	// arrived and arrivals are what give each fixture file a distinct arrival
+	// time: three uploads inside one millisecond arrive at the same truncated
+	// instant, and a listing by arrival would then be decided by its tie-break
+	// rather than by the order a test wrote them in. Counted forward from now
+	// so that a file is always newer than the directory made to hold it.
+	arrived  time.Time
+	arrivals int
 }
 
 func newLibrary(t *testing.T) *library {
@@ -77,43 +84,51 @@ func newLibrary(t *testing.T) *library {
 		files:    service,
 		meta:     meta,
 		verifier: verifier,
+		arrived:  time.Now().UTC(),
 	}
 }
 
-// add stores a file with metadata, creating the directories above it the way an
-// upload would have. The body is the path, so a stream can be told apart from
-// any other file in one assertion.
-func (l *library) add(t *testing.T, p string, m db.Media) db.File {
+// write stores a file and stamps it with the next arrival time. It is the one
+// place the fixtures touch the file layer.
+func (l *library) write(t *testing.T, p, body string) db.File {
 	t.Helper()
 	l.mkdirAll(t, db.ParentOf(p))
 
-	f, err := l.files.Write(t.Context(), username, p, strings.NewReader(p), int64(len(p)), "audio/flac")
+	f, err := l.files.Write(t.Context(), username, p, strings.NewReader(body), int64(len(body)), "audio/flac")
 	if err != nil {
 		t.Fatalf("Write(%q): %v", p, err)
 	}
-	if m.Kind == "" {
-		m.Kind = db.KindAudio
-	}
-	m.FileID = f.ID
-	m.IndexedAt = time.Now()
-	m.Version = 1
-	if err := l.meta.PutMedia(t.Context(), m); err != nil {
-		t.Fatalf("PutMedia(%q): %v", p, err)
+
+	l.arrivals++
+	f.MTime = l.arrived.Add(time.Duration(l.arrivals) * time.Minute)
+	if f, err = l.meta.PutFile(t.Context(), f); err != nil {
+		t.Fatalf("stamping %q: %v", p, err)
 	}
 	return f
+}
+
+// add stores a file with metadata. The body is the path, so a stream can be
+// told apart from any other file in one assertion.
+func (l *library) add(t *testing.T, p string, m db.Media) db.File {
+	t.Helper()
+	return l.index(t, l.write(t, p, p), m)
 }
 
 // addSized is add with a body of a chosen length, for the one property that is
 // computed from it.
 func (l *library) addSized(t *testing.T, p string, m db.Media, size int) db.File {
 	t.Helper()
-	l.mkdirAll(t, db.ParentOf(p))
+	return l.index(t, l.write(t, p, strings.Repeat("x", size)), m)
+}
 
-	body := strings.Repeat("x", size)
-	f, err := l.files.Write(t.Context(), username, p, strings.NewReader(body), int64(size), "audio/flac")
-	if err != nil {
-		t.Fatalf("Write(%q): %v", p, err)
-	}
+// addUnindexed is a file the indexer has not reached, which is not music yet.
+func (l *library) addUnindexed(t *testing.T, p string) db.File {
+	t.Helper()
+	return l.write(t, p, p)
+}
+
+func (l *library) index(t *testing.T, f db.File, m db.Media) db.File {
+	t.Helper()
 	if m.Kind == "" {
 		m.Kind = db.KindAudio
 	}
@@ -121,19 +136,7 @@ func (l *library) addSized(t *testing.T, p string, m db.Media, size int) db.File
 	m.IndexedAt = time.Now()
 	m.Version = 1
 	if err := l.meta.PutMedia(t.Context(), m); err != nil {
-		t.Fatalf("PutMedia(%q): %v", p, err)
-	}
-	return f
-}
-
-// addUnindexed is a file the indexer has not reached, which is not music yet.
-func (l *library) addUnindexed(t *testing.T, p string) db.File {
-	t.Helper()
-	l.mkdirAll(t, db.ParentOf(p))
-
-	f, err := l.files.Write(t.Context(), username, p, strings.NewReader(p), int64(len(p)), "audio/flac")
-	if err != nil {
-		t.Fatalf("Write(%q): %v", p, err)
+		t.Fatalf("PutMedia(%q): %v", f.Path, err)
 	}
 	return f
 }

@@ -51,6 +51,94 @@ type Track struct {
 	Media Media
 }
 
+// Page bounds a listing. Limit is required: every endpoint that pages has a
+// default and a maximum of its own, and a zero here means zero rows, the same
+// as PendingMedia.
+type Page struct {
+	Limit, Offset int
+}
+
+// AlbumOrder is how a listing of albums is sorted. There is one for each way a
+// client asks to see a library, and no more: the orders that need a play count
+// or a rating are not here, because nothing records either.
+type AlbumOrder string
+
+// The orders AlbumList answers.
+const (
+	// AlbumsByName and AlbumsByArtist are the two alphabetical listings.
+	AlbumsByName   AlbumOrder = "name"
+	AlbumsByArtist AlbumOrder = "artist"
+	// AlbumsByAdded is newest first, by when the earliest track of each album
+	// arrived. See Album.Created for why that is a real arrival time.
+	AlbumsByAdded AlbumOrder = "added"
+	// AlbumsByYear and AlbumsByYearDesc are the same listing in both
+	// directions, because a caller asks for either.
+	AlbumsByYear     AlbumOrder = "year"
+	AlbumsByYearDesc AlbumOrder = "year-desc"
+	// AlbumsRandom is a different set on every call, which is what it is for.
+	// Paging through it is meaningless and no caller does.
+	AlbumsRandom AlbumOrder = "random"
+)
+
+// AlbumFilter is a paged listing of albums.
+type AlbumFilter struct {
+	Order AlbumOrder
+	// Genre keeps the albums with at least one track in it. Empty means every
+	// album. An album has no genre of its own -- its tracks do -- so this
+	// matches on theirs, which is also what Genres counts.
+	Genre string
+	// FromYear and ToYear bound the year inclusively, zero for unbounded. They
+	// are a range and not a direction: the order says which way to read it.
+	FromYear, ToYear int
+	Page             Page
+}
+
+// TrackOrder is how a listing of tracks is sorted.
+type TrackOrder string
+
+// The orders TrackList answers.
+const (
+	TracksByPath TrackOrder = "path"
+	TracksRandom TrackOrder = "random"
+)
+
+// TrackFilter is a paged listing of tracks that is not an album and not a
+// folder: a genre, or a handful at random.
+type TrackFilter struct {
+	Order            TrackOrder
+	Genre            string
+	FromYear, ToYear int
+	Page             Page
+}
+
+// Genre is one genre in the library, with what it holds. Both counts are what a
+// client shows beside the name, and neither is derivable from the other.
+type Genre struct {
+	Name                  string
+	SongCount, AlbumCount int
+}
+
+// SearchFilter is one search over the three things a library holds. Each gets
+// its own page because a client pages them independently -- that is how it
+// walks the whole library for offline use.
+//
+// An empty Text matches everything. That is not a convenience: a client with no
+// query is asking for the library, and answering nothing would break the sync
+// every one of them does.
+type SearchFilter struct {
+	Text                    string
+	Artists, Albums, Tracks Page
+}
+
+// SearchResult is what one search answers. Three slices rather than three calls
+// because it is one action, and because a driver can hold one connection for
+// all of it.
+type SearchResult struct {
+	Artists []Artist
+	Albums  []Album
+	Tracks  []Track
+}
+
 // Music is the repository a music library browses. Separate from Files and
 // MediaIndex for the reason the other two are separate: a feature takes the
 // interface it uses.
@@ -86,4 +174,29 @@ type Music interface {
 	// because that is what a stream request carries: the client was given an
 	// id that names a row, not a name that names a tag.
 	TrackByFile(ctx context.Context, owner string, fileID int64) (Track, error)
+
+	// AlbumList is Albums for a client's home screen: sorted, filtered and
+	// paged rather than everything an artist has.
+	//
+	// A second method rather than options on Albums, because the two answer
+	// different questions. Albums is unbounded on purpose -- an artist's own
+	// albums must not be truncated by a default -- and adding a limit to it
+	// would make zero mean both "all" and "none" depending on the caller.
+	AlbumList(ctx context.Context, owner string, f AlbumFilter) ([]Album, error)
+
+	// TrackList is the listing that is neither an album nor a folder: the
+	// tracks of a genre, or a few at random. One method because they are one
+	// query with a different ORDER BY.
+	TrackList(ctx context.Context, owner string, f TrackFilter) ([]Track, error)
+
+	// Genres lists the genres in the library, in name order, with what each
+	// holds. A track with no genre tag is in none of them.
+	Genres(ctx context.Context, owner string) ([]Genre, error)
+
+	// Search matches artists, albums and tracks by name.
+	//
+	// Matching is case-insensitive **by construction rather than by SQL**: the
+	// comparison is against text this package folded with strings.ToLower, so
+	// the answer cannot depend on the engine's own lower(). See Media.Fold.
+	Search(ctx context.Context, owner string, f SearchFilter) (SearchResult, error)
 }

@@ -149,6 +149,22 @@ func TestMusicOnAClosedStore(t *testing.T) {
 			_, err := store.TrackByFile(t.Context(), "edu", 1)
 			return err
 		},
+		"AlbumList": func() error {
+			_, err := store.AlbumList(t.Context(), "edu",
+				db.AlbumFilter{Order: db.AlbumsByName, Page: db.Page{Limit: 1}})
+			return err
+		},
+		"TrackList": func() error {
+			_, err := store.TrackList(t.Context(), "edu",
+				db.TrackFilter{Order: db.TracksByPath, Page: db.Page{Limit: 1}})
+			return err
+		},
+		"Genres": func() error { _, err := store.Genres(t.Context(), "edu"); return err },
+		"Search": func() error {
+			_, err := store.Search(t.Context(), "edu",
+				db.SearchFilter{Text: "x", Artists: db.Page{Limit: 1}})
+			return err
+		},
 	}
 	for name, call := range calls {
 		if err := call(); err == nil {

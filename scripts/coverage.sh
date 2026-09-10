@@ -34,9 +34,9 @@ internal/config:100
 internal/dav:80
 internal/files:86
 internal/media:81
-internal/db:60
-internal/db/postgres:93
-internal/db/sqlite:92
+internal/db:61
+internal/db/postgres:94
+internal/db/sqlite:94
 internal/db/sqlutil:95
 internal/storage:98
 internal/storage/disk:83
@@ -65,6 +65,13 @@ internal/subsonic:100
 # halfway -- so removing it raised what was left. internal/db/sqlutil starts at
 # 95 because a package that holds no SQL can register a fault-injecting driver
 # and reach those branches on purpose, which neither adapter can.
+#
+# The drivers went 93 -> 94 and 92 -> 94, and internal/db 60 -> 61, with the
+# search queries (#85). Four new methods each, all of them Collect plus a scan,
+# and the branch each has that a working database will not take on request is
+# reached by closing the store under the query. internal/db rose because the
+# folding those queries match against is a pure function of the port, testable
+# where it lives.
 #
 # internal/subsonic starts at 100, which is high but is what the package is: it
 # does no I/O of its own beyond writing a response, so every branch is reachable

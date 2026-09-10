@@ -1,6 +1,9 @@
 package db
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 // Kind is what an extractor decided a file is.
 type Kind string
@@ -58,6 +61,42 @@ type Media struct {
 	// track. It falls back to Artist when the tag is absent, which is the
 	// common case for a record by one artist.
 	AlbumArtist string
+}
+
+// Folded is the lower-cased text a driver stores so that a search can match it.
+//
+// It exists because the two drivers do not agree on what lower() means: SQLite
+// folds ASCII and nothing else, while PostgreSQL folds Unicode, so the same
+// search for "BJÖRK" would find "Björk" on one and not the other. Folding here,
+// in Go, is what makes the two answer identically -- they compare bytes this
+// package produced rather than calling a function of their own.
+//
+// Three fields and not one concatenation, because a search answers three
+// separate questions. An artist must not match because the words were in the
+// title of one of its tracks.
+type Folded struct {
+	// Song is the track's own text: its title and the artist credited on it.
+	Song string
+	// Album and AlbumArtist are the two names an album is filed under, and the
+	// keys the album and artist listings group by.
+	Album, AlbumArtist string
+}
+
+// Fold returns the folded text for m. Drivers must store exactly this.
+func (m Media) Fold() Folded {
+	return Folded{
+		Song:        fold(m.Title, m.Artist),
+		Album:       fold(m.Album),
+		AlbumArtist: fold(m.AlbumArtist),
+	}
+}
+
+// FoldQuery folds a search term the same way, which is the other half of the
+// guarantee: both sides of the comparison go through the same function.
+func FoldQuery(text string) string { return fold(text) }
+
+func fold(parts ...string) string {
+	return strings.ToLower(strings.TrimSpace(strings.Join(parts, " ")))
 }
 
 // GPS is where a photo says it was taken.

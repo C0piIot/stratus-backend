@@ -44,6 +44,16 @@ type envelope struct {
 	Indexes      *indexes      `xml:"indexes,omitempty" json:"indexes,omitempty"`
 	Directory    *directory    `xml:"directory,omitempty" json:"directory,omitempty"`
 
+	AlbumList2    *albumList2    `xml:"albumList2,omitempty" json:"albumList2,omitempty"`
+	AlbumList     *albumList     `xml:"albumList,omitempty" json:"albumList,omitempty"`
+	SearchResult3 *searchResult3 `xml:"searchResult3,omitempty" json:"searchResult3,omitempty"`
+	SearchResult2 *searchResult2 `xml:"searchResult2,omitempty" json:"searchResult2,omitempty"`
+	Genres        *genres        `xml:"genres,omitempty" json:"genres,omitempty"`
+	SongsByGenre  *songList      `xml:"songsByGenre,omitempty" json:"songsByGenre,omitempty"`
+	RandomSongs   *songList      `xml:"randomSongs,omitempty" json:"randomSongs,omitempty"`
+	Starred2      *starred       `xml:"starred2,omitempty" json:"starred2,omitempty"`
+	Starred       *starred       `xml:"starred,omitempty" json:"starred,omitempty"`
+
 	// Extensions is the one payload that is a bare array on the response rather
 	// than the container-and-element pair every legacy payload uses. It has to
 	// be present even when empty, so it is a pointer: nil leaves it out, and a
