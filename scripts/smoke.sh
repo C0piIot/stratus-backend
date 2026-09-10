@@ -26,6 +26,9 @@ REF="$IMAGE:$TAG"
 # from 8.3 MB to 15.9 MB. The budget exists to catch growth nobody decided on,
 # so it moves when a decision fills it -- and only then.
 BIN_SIZE_FAIL=$((20 * 1024 * 1024))
+# ffprobe and ffmpeg together, which are trimmed builds of our own: 1.8 MB and
+# 4.1 MB today against the 128 MB one general-purpose static FFmpeg costs.
+TOOLS_SIZE_FAIL=$((10 * 1024 * 1024))
 
 BASE_IMAGE="gcr.io/distroless/static:nonroot"
 
@@ -97,22 +100,24 @@ section "Image properties"
 docker pull -q "$BASE_IMAGE" >/dev/null 2>&1 || true
 base_layers="$(docker image inspect -f '{{len .RootFS.Layers}}' "$BASE_IMAGE" 2>/dev/null || echo 0)"
 img_layers="$(docker image inspect -f '{{len .RootFS.Layers}}' "$REF")"
-# Two layers now: the binary and ffprobe. The number matters less than the fact
-# that it is counted -- a base swapped for something with a package manager in
-# it would show up here first.
-if [ "$base_layers" -gt 0 ] && [ "$((img_layers - base_layers))" -eq 2 ]; then
-  ok "adds exactly two layers over the base ($base_layers -> $img_layers)"
+# Three layers now: the binary, ffprobe and ffmpeg. The number matters less than
+# the fact that it is counted -- a base swapped for something with a package
+# manager in it would show up here first.
+if [ "$base_layers" -gt 0 ] && [ "$((img_layers - base_layers))" -eq 3 ]; then
+  ok "adds exactly three layers over the base ($base_layers -> $img_layers)"
 else
-  bad "adds exactly two layers over the base" "base=$base_layers image=$img_layers"
+  bad "adds exactly three layers over the base" "base=$base_layers image=$img_layers"
 fi
 
-# ffprobe is a requirement, so its absence has to fail here rather than at the
-# first video somebody uploads.
-if docker run --rm --entrypoint /usr/local/bin/ffprobe "$REF" -version >/dev/null 2>&1; then
-  ok "ffprobe runs inside the image"
-else
-  bad "ffprobe runs inside the image" "it is missing or not executable"
-fi
+# Both media tools are requirements, so an absence has to fail here rather than
+# at the first video somebody uploads or the first thumbnail somebody opens.
+for tool in ffprobe ffmpeg; do
+  if docker run --rm --entrypoint "/usr/local/bin/$tool" "$REF" -version >/dev/null 2>&1; then
+    ok "$tool runs inside the image"
+  else
+    bad "$tool runs inside the image" "it is missing or not executable"
+  fi
+done
 
 user="$(docker image inspect -f '{{.Config.User}}' "$REF")"
 if [ "$user" = "65532:65532" ]; then
@@ -147,6 +152,21 @@ if [ "$bin_size" -le "$BIN_SIZE_FAIL" ]; then
   ok "binary is $((bin_size / 1024 / 1024)) MB, within budget"
 else
   bad "binary within budget" "$((bin_size / 1024 / 1024)) MB exceeds $((BIN_SIZE_FAIL / 1024 / 1024)) MB"
+fi
+
+# The media tools, measured rather than trusted. This is the number the README
+# quotes, and the field it quotes has drifted before: a general-purpose static
+# FFmpeg is 128 MB, so a build that silently stopped being trimmed -- an
+# --enable-everything, a library autodetected in the build image -- would show
+# up here as a size and not as a mystery.
+docker cp "$cid:/usr/local/bin/ffprobe" "$bindir/ffprobe" >/dev/null
+docker cp "$cid:/usr/local/bin/ffmpeg" "$bindir/ffmpeg" >/dev/null
+tools_size=$(( $(stat -c '%s' "$bindir/ffprobe") + $(stat -c '%s' "$bindir/ffmpeg") ))
+if [ "$tools_size" -le "$TOOLS_SIZE_FAIL" ]; then
+  ok "ffprobe and ffmpeg are $((tools_size / 1024 / 1024)) MB together, within budget"
+else
+  bad "media tools within budget" \
+    "$((tools_size / 1024 / 1024)) MB exceeds $((TOOLS_SIZE_FAIL / 1024 / 1024)) MB"
 fi
 
 buildinfo="$(docker run --rm -v "$bindir:/b:ro" "golang:1.27.0-alpine3.24" go version -m /b/stratus 2>/dev/null || true)"

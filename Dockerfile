@@ -2,21 +2,23 @@
 
 ARG GO_VERSION=1.27.0
 ARG ALPINE_VERSION=3.24
-# A statically linked ffprobe, copied in rather than installed. Switching the
-# base to alpine or debian for a package would cost the three things this image
-# guarantees -- no shell, no coreutils, one static binary -- to gain one tool.
+# Two statically linked FFmpeg tools, copied in rather than installed. Switching
+# the base to alpine or debian for a package would cost the three things this
+# image guarantees -- no shell, no coreutils, static binaries -- to gain them.
 #
-# Ours rather than a general-purpose build: this one carries only the demuxers
-# build/ffprobe/Dockerfile enables, which is 1.7 MB against 128 MB. It is
-# published by .github/workflows/ffprobe.yml when that recipe changes, and this
-# tag has to name a version it published -- a tag that was never published fails
-# the build here, loudly, which is why nothing else guards it.
+# Ours rather than general-purpose builds: each carries only what Stratus uses,
+# which build/ffprobe/Dockerfile and build/ffmpeg/Dockerfile enable by hand
+# against the 128 MB a full static build costs. They are published by
+# .github/workflows/media-tools.yml when a recipe changes, and this tag has to
+# name a version it published -- a tag that was never published fails the build
+# here, loudly, which is why nothing else guards it.
 ARG FFMPEG_VERSION=7.1
 
 # --platform=$BUILDPLATFORM keeps the toolchain native and cross-compiles to the
 # target instead of emulating the whole build stage under QEMU. Go cross-compiles
 # for free, so a multi-arch build needs no binfmt setup at all.
 FROM ghcr.io/c0piiot/stratus-ffprobe:${FFMPEG_VERSION} AS ffprobe
+FROM ghcr.io/c0piiot/stratus-ffmpeg:${FFMPEG_VERSION} AS ffmpeg
 
 FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine${ALPINE_VERSION} AS build
 WORKDIR /src
@@ -37,11 +39,15 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 FROM gcr.io/distroless/static:nonroot AS runtime
 COPY --from=build /out/stratus /usr/local/bin/stratus
 
-# ffprobe reads the duration of a track and the dimensions of a video. It is a
-# requirement rather than an optional extra: half a media library is worse than
-# a server that says what it is missing. Only ffprobe, not ffmpeg -- the encoder
-# arrives with thumbnails.
+# One tool reads and the other decodes. ffprobe answers the duration of a track
+# and the dimensions of a video, which is what the indexer needs; ffmpeg turns a
+# HEIC or a video frame into pixels, which is what a thumbnail needs and what no
+# pure-Go decoder can do without cgo.
+#
+# Both are requirements rather than optional extras: half a media library is
+# worse than a server that says what it is missing.
 COPY --from=ffprobe /ffprobe /usr/local/bin/ffprobe
+COPY --from=ffmpeg /ffmpeg /usr/local/bin/ffmpeg
 
 ENV STRATUS_ADDR=":8080" \
     STRATUS_DATA_DIR="/data"

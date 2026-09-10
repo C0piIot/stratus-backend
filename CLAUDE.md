@@ -192,19 +192,33 @@ Restraint here is principle 3, not laziness:
 - Go, `net/http` from stdlib, **no web framework**.
 - `github.com/emersion/go-webdav` for DAV/CalDAV primitives.
 - `minio-go` for S3 (much lighter than `aws-sdk-go-v2`).
-- Media processing: **ffmpeg is a requirement, not an optional extra.** Without
+- Media processing: **FFmpeg is a requirement, not an optional extra.** Without
   it a track has no duration and a video no dimensions, and half a media library
-  is worse than an honest refusal to start. The image carries a statically linked
-  `ffprobe` copied into the same distroless base rather than switching to one
-  with a package manager; the encoder arrives with thumbnails.
+  is worse than an honest refusal to start. The image carries two statically
+  linked tools copied into the same distroless base rather than switching to one
+  with a package manager.
 
-  **We build that ffprobe** (`build/ffprobe/Dockerfile`, published by its own
-  workflow) rather than copying a general-purpose one: probing is demuxer work,
-  no frame is ever decoded, and a build carrying only the formats we index is
-  1.7 MB against 128 MB. The demuxer list mirrors `byExtension` in
-  `internal/media`, and a test holds the two together, because an extension
-  added without its demuxer fails at probe time in production rather than at
-  build time.
+  **We build both** (`build/ffprobe/Dockerfile` and `build/ffmpeg/Dockerfile`,
+  published by `.github/workflows/media-tools.yml`) rather than copying
+  general-purpose ones, which are 128 MB each and carry everything FFmpeg ships.
+  Two recipes and not one configure run producing both: ffprobe would inherit
+  decoders it has no use for and stop being 1.7 MB.
+
+  - **`ffprobe`, 1.7 MB.** Probing is demuxer work and no frame is ever decoded,
+    so the demuxer list mirrors `byExtension` in `internal/media` and a test
+    holds the two together — an extension added without its demuxer fails at
+    probe time in production rather than at build time.
+  - **`ffmpeg`, 3.9 MB.** Only for what Go cannot decode: HEIC, which needs
+    libheif and therefore cgo, and a frame out of a video. It decodes and
+    scales; the JPEG is written in Go, so it emits a rawvideo frame already
+    reduced rather than a full-size one. AV1 and camera raw are deliberately
+    out, and the audio encoders arrive with transcoding.
+
+  Each recipe asserts what it was asked for while it builds, and ffmpeg's also
+  decodes a committed HEIC and checks the byte count of the scaled pixels. That
+  is the assertion that matters: a codec list can be complete while the binary
+  still cannot read the format somebody uploads, because HEIF is read through
+  the mov demuxer and no flag name says so.
 - Config over convention: sane defaults, everything overridable by env var.
 - Web UI: `html/template`, Bootstrap and htmx vendored and `//go:embed`ed. No
   JavaScript toolchain, no custom CSS.

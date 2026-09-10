@@ -346,17 +346,28 @@ build rather than a note in a document.
 
 ## Container
 
-Multi-stage build, `distroless/static:nonroot` runtime, about 20 MB. The Go
-binary is most of it at 16.5 MB, beside a 1.7 MB `ffprobe` and a base under one
-megabyte.
+Multi-stage build, `distroless/static:nonroot` runtime, about 23 MB. The Go
+binary is most of it at 16.7 MB, beside 1.7 MB of `ffprobe`, 3.9 MB of `ffmpeg`
+and a base under one megabyte.
 
-That `ffprobe` is built here rather than taken off the shelf, in
-`build/ffprobe/Dockerfile`. A general-purpose static build is 128 MB and carries
-every decoder, encoder, filter and scaler FFmpeg ships; Stratus runs
-`-show_format -show_streams` and never decodes a frame, so it needs the demuxers
-for the formats it indexes and nothing else. The base stayed distroless rather
-than becoming alpine to get one tool — the image still has no shell and no
-package manager, and `scripts/smoke.sh` asserts it.
+**Both FFmpeg tools are built here rather than taken off the shelf**, in
+`build/ffprobe/Dockerfile` and `build/ffmpeg/Dockerfile`. A general-purpose
+static build is 128 MB and carries every decoder, encoder, filter and scaler
+FFmpeg ships. Ours carry what Stratus uses and nothing else, which is two
+different lists: `ffprobe` runs `-show_format -show_streams` and never decodes a
+frame, so it needs the demuxers for the formats indexed; `ffmpeg` decodes the
+formats Go cannot — HEIC, which is what a phone records, and a frame out of a
+video — and scales them, leaving the JPEG to be written in Go.
+
+Each recipe asserts itself while it builds, and `ffmpeg`'s does it by decoding a
+committed HEIC and checking the pixels come out the right size. That is the
+assertion worth having: every codec list can be right while the binary still
+cannot read the format somebody uploads. `scripts/smoke.sh` then measures both
+binaries against a budget, because a build that quietly stopped being trimmed
+would otherwise show up as a mystery rather than a number.
+
+The base stayed distroless rather than becoming alpine to get these tools — the
+image still has no shell and no package manager, and the smoke suite asserts it.
 
 The container runs non-root with a read-only root filesystem, all capabilities
 dropped and `no-new-privileges`. The healthcheck is the binary probing itself
@@ -403,7 +414,7 @@ Working now:
   state, no transcoding, and no client has been tried against it yet.
 - EXIF, audio tags and video probing, indexed in the background.
 - A request log, migrations applied at startup, and a container asserted from
-  the outside by 45 smoke checks.
+  the outside by 47 smoke checks.
 
 Not there yet: CalDAV, the web UI, thumbnails and sharing -- and on the music
 side, cover art and anything that remembers what the user did. Work
