@@ -18,6 +18,7 @@ import (
 	"github.com/C0piIot/stratus-backend/internal/db"
 	"github.com/C0piIot/stratus-backend/internal/db/sqlite"
 	"github.com/C0piIot/stratus-backend/internal/files"
+	"github.com/C0piIot/stratus-backend/internal/media"
 	"github.com/C0piIot/stratus-backend/internal/storage/disk"
 	"github.com/C0piIot/stratus-backend/internal/subsonic"
 )
@@ -46,6 +47,8 @@ type library struct {
 	http.Handler
 	files *files.Service
 	meta  *sqlite.Store
+	blobs *disk.Store
+	art   *media.Thumbs
 	// verifier is kept so a test can build a second handler over the same
 	// credentials -- the failure cases do, with a library that breaks.
 	verifier *auth.Throttle
@@ -78,11 +81,14 @@ func newLibrary(t *testing.T) *library {
 	}
 
 	service := files.New(blobs, meta)
+	thumbs := media.NewThumbs(blobs, service)
 	verifier := auth.NewThrottle(auth.Credentials{Username: username, Password: password}, auth.DefaultThrottle)
 	return &library{
-		Handler:  subsonic.Handler(prefix, serverVersion, verifier, meta, service),
+		Handler:  subsonic.Handler(prefix, serverVersion, verifier, meta, service, thumbs),
 		files:    service,
 		meta:     meta,
+		blobs:    blobs,
+		art:      thumbs,
 		verifier: verifier,
 		arrived:  time.Now().UTC(),
 	}
@@ -449,7 +455,7 @@ func TestTokenAuthAgainstAVerifierThatCannotAnswerIt(t *testing.T) {
 	t.Parallel()
 
 	throttle := auth.NewThrottle(passwordOnly{}, auth.DefaultThrottle)
-	h := subsonic.Handler(prefix, serverVersion, throttle, nil, nil)
+	h := subsonic.Handler(prefix, serverVersion, throttle, nil, nil, nil)
 
 	q := url.Values{"c": {"tests"}, "u": {username}, "t": {"whatever"}, "s": {"salt"}, "f": {"json"}}
 	if code := errorCode(t, get(t, h, "ping", q.Encode())); code != 41 {
@@ -574,7 +580,7 @@ func TestThrottledLoginIsNotARejection(t *testing.T) {
 	// held: it makes the second guess deterministic and instant.
 	creds := auth.Credentials{Username: username, Password: password}
 	throttle := auth.NewThrottle(creds, auth.ThrottleConfig{Every: time.Hour, Burst: 1, MaxWait: 0})
-	h := subsonic.Handler(prefix, serverVersion, throttle, nil, nil)
+	h := subsonic.Handler(prefix, serverVersion, throttle, nil, nil, nil)
 
 	wrong := url.Values{"c": {"tests"}, "u": {username}, "p": {"not it"}, "f": {"json"}}.Encode()
 	if code := errorCode(t, get(t, h, "ping", wrong)); code != 40 {

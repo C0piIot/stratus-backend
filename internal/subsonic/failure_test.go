@@ -24,6 +24,7 @@ import (
 type breaking struct {
 	music db.Music
 	tree  subsonic.Tree
+	art   subsonic.Art
 	fail  string
 }
 
@@ -120,6 +121,20 @@ func (b breaking) OpenFile(ctx context.Context, f db.File) (io.ReadSeekCloser, e
 	return b.tree.OpenFile(ctx, f)
 }
 
+func (b breaking) FolderCover(ctx context.Context, owner, path string) (db.File, error) {
+	if err := b.err("FolderCover"); err != nil {
+		return db.File{}, err
+	}
+	return b.art.FolderCover(ctx, owner, path)
+}
+
+func (b breaking) Open(ctx context.Context, f db.File, px int) (io.ReadCloser, int64, error) {
+	if err := b.err("Open"); err != nil {
+		return nil, 0, err
+	}
+	return b.art.Open(ctx, f, px)
+}
+
 // TestABrokenBackendIsNotANotFound walks every call a browse or stream request
 // makes and breaks it, one at a time.
 //
@@ -169,6 +184,18 @@ func TestABrokenBackendIsNotANotFound(t *testing.T) {
 		{name: "listing genres", call: "Genres", method: "getGenres"},
 		{name: "listing a genre", call: "TrackList", method: "getSongsByGenre", extra: []string{"genre", "Rock"}},
 		{name: "shuffling", call: "TrackList", method: "getRandomSongs"},
+		{
+			name: "finding the folder a cover is in", call: "Tracks",
+			method: "getCoverArt", id: fixed(albumIDOf("Björk", "Homogenic")), binary: true,
+		},
+		{
+			name: "looking for the cover", call: "FolderCover",
+			method: "getCoverArt", id: fixed(albumIDOf("Björk", "Homogenic")), binary: true,
+		},
+		{
+			name: "reading the cover", call: "Open",
+			method: "getCoverArt", id: fixed(albumIDOf("Björk", "Homogenic")), binary: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -176,9 +203,13 @@ func TestABrokenBackendIsNotANotFound(t *testing.T) {
 			t.Parallel()
 			l := newLibrary(t)
 			track := l.add(t, "music/Homogenic/01 Hunter.flac", song("Björk", "Homogenic", "Hunter", 1))
+			// A cover beside it, so the cases that break reading one get that
+			// far: without a picture the answer is "there is none" and the call
+			// under test is never made.
+			l.addImage(t, "music/Homogenic/cover.jpg", 100, 100)
 
-			b := breaking{music: l.meta, tree: l.files, fail: tt.call}
-			h := subsonic.Handler(prefix, serverVersion, l.verifier, b, b)
+			b := breaking{music: l.meta, tree: l.files, art: l.art, fail: tt.call}
+			h := subsonic.Handler(prefix, serverVersion, l.verifier, b, b, b)
 
 			params := append([]string{"f", "json"}, tt.extra...)
 			if tt.id != nil {
@@ -203,8 +234,8 @@ func TestTheRootIsNotStatted(t *testing.T) {
 	l := newLibrary(t)
 	l.add(t, "loose.flac", song("Loose", "Singles", "Loose", 1))
 
-	b := breaking{music: l.meta, tree: l.files, fail: "Stat"}
-	h := subsonic.Handler(prefix, serverVersion, l.verifier, b, b)
+	b := breaking{music: l.meta, tree: l.files, art: l.art, fail: "Stat"}
+	h := subsonic.Handler(prefix, serverVersion, l.verifier, b, b, b)
 
 	env := response(t, get(t, h, "getMusicDirectory", query("f", "json", "id", dirIDOf(""))))
 	if got, _ := env["status"].(string); got != "ok" {

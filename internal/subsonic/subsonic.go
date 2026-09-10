@@ -45,6 +45,7 @@ type handler struct {
 	// because clients are split down the middle on which one they browse.
 	lib  db.Music
 	tree Tree
+	art  Art
 	// serverVersion is this build, which OpenSubsonic requires in every
 	// envelope so a client can notice an upgrade and ask again what it does.
 	serverVersion string
@@ -55,8 +56,8 @@ type handler struct {
 // The prefix is stripped here rather than by the caller, for the reason the
 // WebDAV adapter gives: exactly one place should know the difference between
 // the path a client asks for and the method being called.
-func Handler(prefix, serverVersion string, v Verifier, lib db.Music, tree Tree) http.Handler {
-	h := &handler{verifier: v, lib: lib, tree: tree, serverVersion: serverVersion}
+func Handler(prefix, serverVersion string, v Verifier, lib db.Music, tree Tree, art Art) http.Handler {
+	h := &handler{verifier: v, lib: lib, tree: tree, art: art, serverVersion: serverVersion}
 
 	mux := http.NewServeMux()
 
@@ -99,6 +100,7 @@ func Handler(prefix, serverVersion string, v Verifier, lib db.Music, tree Tree) 
 	// through their own wrapper.
 	mux.HandleFunc("GET /stream", h.authedBinary(h.stream))
 	mux.HandleFunc("GET /download", h.authedBinary(h.download))
+	mux.HandleFunc("GET /getCoverArt", h.authedBinary(h.coverArt))
 
 	// A method this server does not implement gets an envelope with an error,
 	// not an HTML 404. Clients probe endpoints to decide which of their own

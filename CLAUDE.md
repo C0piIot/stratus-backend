@@ -219,6 +219,35 @@ Restraint here is principle 3, not laziness:
   is the assertion that matters: a codec list can be complete while the binary
   still cannot read the format somebody uploads, because HEIF is read through
   the mov demuxer and no flag name says so.
+- **Thumbnails are lazy, and they are blobs.** Generated on first request rather
+  than on upload, because a phone backing up five hundred photos would otherwise
+  pay a decode and a resize per PUT with the client waiting -- and because lazily
+  is the only path that also covers files which arrived some other way, such as a
+  bucket adopted in place.
+
+  They are kept in the blob store under `derived/<blobkey>/<size>.jpg` and not in
+  a cache of their own. A cache port with disk, database and Redis backends was
+  the first design and it is wrong twice: a third pluggable seam is what
+  principle 3 forbids, and Redis is named in principle 1 as a thing this project
+  does not have. The store already satisfies every requirement -- a container
+  with no volume loses nothing, deleting one regenerates it, and the key is a
+  pure function of the original's.
+
+  **That last property is what makes them collectable.** A derived object has no
+  database row and never will, so the sweep in `internal/files` would delete
+  every thumbnail an hour after it was made and the lazy path would generate it
+  again, forever -- a treadmill with no symptom beyond a CPU graph. The key
+  carries its parent's, so one rule covers both: a derived object is garbage
+  exactly when the blob it was made from is. A `derived` table with a foreign key
+  was the alternative, and it buys a guarantee for a migration and a query per
+  thumbnail served.
+
+  Sizes come from a fixed ladder, because the size is part of the key and an
+  arbitrary one means an unbounded set of objects nothing asks for twice.
+- `golang.org/x/image` for the scaler, which the standard library has no
+  equivalent of. JPEG and PNG are decoded and encoded by the stdlib; HEIC and
+  video frames need the ffmpeg above, so a format is either read in-process or
+  refused honestly, never read badly.
 - Config over convention: sane defaults, everything overridable by env var.
 - Web UI: `html/template`, Bootstrap and htmx vendored and `//go:embed`ed. No
   JavaScript toolchain, no custom CSS.

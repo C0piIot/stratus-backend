@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -14,6 +15,41 @@ import (
 // hour is far longer than any upload this project expects and far shorter than
 // anyone will notice.
 const DefaultGrace = time.Hour
+
+// DerivedPrefix is where everything generated from a file lives: thumbnails
+// today, transcoded segments later.
+//
+// It is a prefix and not a bucket or a table because the blob store already is
+// the cache, and a third pluggable seam is what principle 3 forbids. Beyond
+// tidiness it earns its keep twice: a lifecycle rule or a backup policy can
+// treat derived data differently from originals, and the key carries its
+// parent's -- which is what lets one sweep collect both.
+const DerivedPrefix = "derived/"
+
+// DerivedKey names an object generated from the blob at parent. The shape is
+// defined here, next to the sweep that has to read it back, so that a caller
+// cannot invent a key nothing will ever collect.
+func DerivedKey(parent, name string) string {
+	return DerivedPrefix + parent + "/" + name
+}
+
+// parentOf undoes DerivedKey: everything between the prefix and the last
+// segment is the blob the object was made from.
+//
+// The two results are independent. derived says the key is ours to reason
+// about; parent is empty when it is ours and yet names nothing, which is a key
+// this version did not write and cannot judge.
+func parentOf(key string) (parent string, derived bool) {
+	rest, ok := strings.CutPrefix(key, DerivedPrefix)
+	if !ok {
+		return "", false
+	}
+	i := strings.LastIndexByte(rest, '/')
+	if i <= 0 {
+		return "", true
+	}
+	return rest[:i], true
+}
 
 // ErrEmptyIndex is returned when the database references no blobs at all and
 // the store is not empty. See the check in Collect.
@@ -64,7 +100,29 @@ func (s *Service) Collect(ctx context.Context, olderThan time.Duration) (Collect
 			return done, ErrEmptyIndex
 		}
 
-		if _, live := referenced[info.Key]; live || info.ModTime.After(cutoff) {
+		// A derived object has no row of its own and never will: it is garbage
+		// exactly when the blob it was made from is. Without this rule the
+		// sweep would delete every thumbnail an hour after it was made and the
+		// lazy path would generate it again, forever -- a treadmill that shows
+		// up in a CPU graph and an egress bill rather than as a failure.
+		//
+		// It is also what catches an overwrite, which leaves the old blob
+		// orphaned *and* its thumbnails, filed under a key nothing will look
+		// for again.
+		var live bool
+		switch parent, derived := parentOf(info.Key); {
+		case derived && parent == "":
+			// Under the derived prefix and naming no parent, so nothing here
+			// can say whether it is garbage. Skipped rather than guessed at:
+			// deleting what cannot be judged is how a sweep becomes the thing
+			// that loses data.
+			continue
+		case derived:
+			_, live = referenced[parent]
+		default:
+			_, live = referenced[info.Key]
+		}
+		if live || info.ModTime.After(cutoff) {
 			continue
 		}
 		if err := s.blobs.Delete(ctx, info.Key); err != nil {
