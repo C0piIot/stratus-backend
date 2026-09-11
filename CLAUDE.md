@@ -27,7 +27,29 @@ Hard constraints, in the same spirit as the rest of the project:
 - **htmx only where it is genuinely required**, vendored and embedded like
   Bootstrap. Default to a plain form and a full page render.
 - The UI authenticates with its own session cookie, since the protocol surfaces
-  use Basic and token auth. Cookies mean CSRF protection on every mutating form.
+  use Basic and token auth. **The session is signed, not stored**: the value
+  carries who it is for and when it expires, under an HMAC keyed by a derivation
+  of the configured username and password. It lives in `internal/auth` beside
+  the other two credential adapters, so the password does not leave that
+  package.
+
+  What that buys is no state and no migration, and a password change that
+  revokes every session already issued. What it costs is the revocation in
+  between: signing out clears the browser's cookie and there is nothing else to
+  delete, so a copied cookie works until it expires -- hence a **seven-day
+  ceiling that is not renewed on use**, which is the only bound the design has.
+  A map in memory was the alternative: real revocation, at the price of a
+  restart signing everybody out.
+- CSRF is that cookie's `SameSite=Lax` plus `http.CrossOriginProtection` from
+  the standard library, and it is wired **inside `internal/web`** rather than by
+  the composition root. It is meaningless on the other surfaces -- a WebDAV or
+  Subsonic client is not a browser and sends no cookie -- and a caller that
+  forgot it would lose the defence with nothing to show for it. No synchroniser
+  token, so no new form can forget to carry one.
+- Every page is served under `default-src 'none'`, which is what embedding the
+  assets rather than linking a CDN is worth: `style-src 'self'` and
+  `script-src 'self'` are the whole policy, and the UI works on a network with
+  no route out.
 
 ## Configuration
 
@@ -259,5 +281,13 @@ Restraint here is principle 3, not laziness:
   refused honestly, never read badly.
 - Config over convention: sane defaults, everything overridable by env var.
 - Web UI: `html/template`, Bootstrap and htmx vendored and `//go:embed`ed. No
-  JavaScript toolchain, no custom CSS.
+  JavaScript toolchain, no custom CSS. Bootstrap 5.3.8 is in, CSS and its
+  prebuilt bundle both, byte for byte as published and with the checksums
+  recorded beside the `//go:embed`; htmx is not, and waits for a page that needs
+  it. The version is in the asset path, which is what lets the cache header say
+  `immutable`.
+
+  It costs 4 MB of binary -- three of them `html/template`, a third of one the
+  vendored assets -- which is the whole reason `scripts/smoke.sh` carries a size
+  budget: the number moved because a decision moved it.
 

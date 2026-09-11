@@ -1,0 +1,33 @@
+{{define "content" -}}
+<div class="row justify-content-center">
+  <div class="col-12 col-sm-8 col-md-6 col-lg-4">
+    <div class="card shadow-sm">
+      <div class="card-body p-4">
+        <h1 class="h4 card-title mb-3">Sign in</h1>
+
+        {{if .Error}}
+        <div class="alert alert-danger py-2" role="alert">{{.Error}}</div>
+        {{end}}
+
+        <form method="post" action="/login">
+          <input type="hidden" name="next" value="{{.Next}}">
+          <div class="mb-3">
+            <label class="form-label" for="username">Username</label>
+            <input class="form-control" id="username" name="username" type="text"
+                   autocomplete="username" value="{{.Username}}" autofocus required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label" for="password">Password</label>
+            <input class="form-control" id="password" name="password" type="password"
+                   autocomplete="current-password" required>
+          </div>
+          <button class="btn btn-primary w-100" type="submit">Sign in</button>
+        </form>
+      </div>
+    </div>
+    <p class="text-body-secondary small mt-3 mb-0">
+      These are the same credentials your WebDAV and OpenSubsonic clients use.
+    </p>
+  </div>
+</div>
+{{- end}}
