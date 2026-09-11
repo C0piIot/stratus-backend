@@ -175,12 +175,13 @@ over WebDAV.
 
 What is not there yet, and it is better to know before installing a client:
 
-- **Cover art comes from the folder, not from inside the files.** A
-  `cover.jpg`, `folder.jpg` or `front.jpg` beside the tracks is found, reduced
-  and served; a picture embedded in a FLAC or an MP4 is not read yet, because
-  the trimmed `ffmpeg` in the image carries no audio demuxers. Albums always
-  advertise a `coverArt` id, and asking for one that is not there is answered
-  as "there is none" — which is what a client draws a placeholder for.
+- **Cover art comes from two places, and Ogg is the one gap.** A `cover.jpg`,
+  `folder.jpg` or `front.jpg` beside the tracks is preferred, because finding it
+  is a listing the request already did; failing that, the picture inside the
+  first track is read — FLAC, MP3 and MP4 tags. Vorbis and Opus keep theirs
+  base64-encoded inside a comment and are not read yet. Albums always advertise
+  a `coverArt` id, and asking for one that is not there is answered as "there is
+  none", which is what a client draws a placeholder for.
 - **No favourites, ratings, play counts or playlists.** Those are user state,
   which means tables that do not exist. `scrobble` is not implemented, so
   nothing counts a play either.
@@ -425,16 +426,15 @@ Working now:
 - WebDAV, behind HTTP Basic with a global limit on failed logins.
 - OpenSubsonic: browsing by tag and by folder, search, the album lists a home
   screen is made of, and streaming -- over both of the protocol's
-  authentication schemes and sharing that same limit, with cover art from the
-  folder beside the music. No embedded artwork, no user state, no transcoding,
-  and no client has been tried against it yet.
+  authentication schemes and sharing that same limit, with cover art from
+  beside the music or out of the tags. No user state, no transcoding, and no
+  client has been tried against it yet.
 - EXIF, audio tags and video probing, indexed in the background.
 - A request log, migrations applied at startup, and a container asserted from
   the outside by 48 smoke checks.
 
 Not there yet: CalDAV, the web UI, photo thumbnails and sharing -- and on the
-music side, artwork embedded in the files and anything that remembers what the
-user did. Work
+music side, anything that remembers what the user did. Work
 and the decisions behind it are tracked on the
 [Stratus project board](https://github.com/users/C0piIot/projects/2), where
 `Priority` says when and the `decision` label says what still needs a call.

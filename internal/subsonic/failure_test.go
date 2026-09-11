@@ -121,18 +121,11 @@ func (b breaking) OpenFile(ctx context.Context, f db.File) (io.ReadSeekCloser, e
 	return b.tree.OpenFile(ctx, f)
 }
 
-func (b breaking) FolderCover(ctx context.Context, owner, path string) (db.File, error) {
-	if err := b.err("FolderCover"); err != nil {
-		return db.File{}, err
-	}
-	return b.art.FolderCover(ctx, owner, path)
-}
-
-func (b breaking) Open(ctx context.Context, f db.File, px int) (io.ReadCloser, int64, error) {
-	if err := b.err("Open"); err != nil {
+func (b breaking) Cover(ctx context.Context, owner, dir string, px int) (io.ReadCloser, int64, error) {
+	if err := b.err("Cover"); err != nil {
 		return nil, 0, err
 	}
-	return b.art.Open(ctx, f, px)
+	return b.art.Cover(ctx, owner, dir, px)
 }
 
 // TestABrokenBackendIsNotANotFound walks every call a browse or stream request
@@ -189,11 +182,7 @@ func TestABrokenBackendIsNotANotFound(t *testing.T) {
 			method: "getCoverArt", id: fixed(albumIDOf("Björk", "Homogenic")), binary: true,
 		},
 		{
-			name: "looking for the cover", call: "FolderCover",
-			method: "getCoverArt", id: fixed(albumIDOf("Björk", "Homogenic")), binary: true,
-		},
-		{
-			name: "reading the cover", call: "Open",
+			name: "reading the cover", call: "Cover",
 			method: "getCoverArt", id: fixed(albumIDOf("Björk", "Homogenic")), binary: true,
 		},
 	}

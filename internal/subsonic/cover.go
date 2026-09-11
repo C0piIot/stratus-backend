@@ -9,19 +9,19 @@ import (
 	"strconv"
 
 	"github.com/C0piIot/stratus-backend/internal/db"
+	"github.com/C0piIot/stratus-backend/internal/media"
 	"github.com/C0piIot/stratus-backend/internal/storage"
 )
 
-// Art is what this adapter needs to answer getCoverArt: where an album keeps
-// its picture, and that picture at a size.
+// Art is what this adapter needs to answer getCoverArt: a folder's picture, at
+// a size.
 //
-// The size is a number of pixels rather than one of a named set, so that
-// deciding which sizes exist stays where the thumbnails are made. A client asks
-// for what it wants to display and gets the nearest thing that is at least that
-// big.
+// One method, because where the picture comes from is not this package's
+// business: beside the tracks or inside one of them is a question about media
+// and not about the protocol. And the size is a number of pixels rather than one
+// of a named set, so that deciding which sizes exist stays where they are made.
 type Art interface {
-	FolderCover(ctx context.Context, owner, dir string) (db.File, error)
-	Open(ctx context.Context, f db.File, px int) (io.ReadCloser, int64, error)
+	Cover(ctx context.Context, owner, dir string, px int) (io.ReadCloser, int64, error)
 }
 
 // defaultCoverSize is what a client that does not say gets. The specification
@@ -50,22 +50,17 @@ func (h *handler) coverArt(w http.ResponseWriter, r *http.Request, username stri
 		return
 	}
 
-	cover, err := h.art.FolderCover(r.Context(), username, dir)
+	body, size, err := h.art.Cover(r.Context(), username, dir, coverSize(r))
 	switch {
-	case errors.Is(err, storage.ErrNotFound):
+	case errors.Is(err, storage.ErrNotFound), errors.Is(err, media.ErrNoEmbeddedCover):
 		// Not an error worth a code of its own: an album without a picture is
 		// the normal state of half a library, and a client draws a placeholder.
 		h.failXML(w, r, notFound("cover art"))
 		return
 	case err != nil:
-		h.failXML(w, r, h.internal(r, "look for cover art", err))
-		return
-	}
-
-	body, size, err := h.art.Open(r.Context(), cover, coverSize(r))
-	if err != nil {
-		// Includes the picture being a format this build cannot decode, which
-		// from the client's side is the same as there being none.
+		// A picture that is there and will not decode, or a backend that failed.
+		// Worth telling apart in a log even though a client draws the same
+		// placeholder either way.
 		h.failXML(w, r, h.internal(r, "read cover art", err))
 		return
 	}

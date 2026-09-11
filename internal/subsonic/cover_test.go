@@ -2,6 +2,7 @@ package subsonic_test
 
 import (
 	"bytes"
+	"encoding/binary"
 	"image"
 	"image/color"
 	"image/jpeg"
@@ -232,6 +233,72 @@ func TestCoverArtFromAPNG(t *testing.T) {
 	}
 }
 
+// TestCoverArtFromInsideTheTrack is the other place artwork lives, and for a
+// library bought as downloads it is the only place: no picture in the folder,
+// one inside the file.
+func TestCoverArtFromInsideTheTrack(t *testing.T) {
+	t.Parallel()
+	l := newLibrary(t)
+	l.addTrackWithCover(t, "music/Vespertine/01 Hidden Place.flac",
+		song("Björk", "Vespertine", "Hidden Place", 1), 600, 600)
+
+	rec := get(t, l, "getCoverArt", query("id", albumIDOf("Björk", "Vespertine"), "size", "300"))
+	if rec.Code != 200 {
+		t.Fatalf("getCoverArt = %d", rec.Code)
+	}
+	if got := rec.Header().Get("Content-Type"); got != "image/jpeg" {
+		t.Fatalf("Content-Type = %q", got)
+	}
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(rec.Body.Bytes()))
+	if err != nil {
+		t.Fatalf("the answer is not an image: %v", err)
+	}
+	if cfg.Width != 300 || cfg.Height != 300 {
+		t.Errorf("the embedded cover came back %dx%d, want 300x300", cfg.Width, cfg.Height)
+	}
+}
+
+// TestCoverArtPrefersTheFolderPicture: when both are there the file beside the
+// music wins, because finding it is a listing this request already did and
+// reading the other means parsing a tag.
+func TestCoverArtPrefersTheFolderPicture(t *testing.T) {
+	t.Parallel()
+	l := newLibrary(t)
+	track := l.addTrackWithCover(t, "music/Vespertine/01 Hidden Place.flac",
+		song("Björk", "Vespertine", "Hidden Place", 1), 600, 600)
+	beside := l.addImage(t, "music/Vespertine/cover.jpg", 400, 400)
+
+	rec := get(t, l, "getCoverArt", query("id", albumIDOf("Björk", "Vespertine"), "size", "96"))
+	if rec.Code != 200 {
+		t.Fatalf("getCoverArt = %d", rec.Code)
+	}
+	// Which one was used is visible in the store: the derived object is filed
+	// under the blob it was made from.
+	if _, err := l.blobs.Stat(t.Context(), files.DerivedKey(beside.BlobKey, "96.jpg")); err != nil {
+		t.Errorf("the folder picture was not the one used: %v", err)
+	}
+	if _, err := l.blobs.Stat(t.Context(), files.DerivedKey(track.BlobKey, "cover-96.jpg")); err == nil {
+		t.Error("the tag was parsed even though a picture was sitting beside the music")
+	}
+}
+
+// TestEmbeddedCoverIsFiledUnderTheTrack is what keeps it collectable: the
+// picture has no blob of its own, so the derived object hangs off the track's --
+// delete the track and its cover goes with it.
+func TestEmbeddedCoverIsFiledUnderTheTrack(t *testing.T) {
+	t.Parallel()
+	l := newLibrary(t)
+	track := l.addTrackWithCover(t, "music/Vespertine/01 Hidden Place.flac",
+		song("Björk", "Vespertine", "Hidden Place", 1), 200, 200)
+
+	if code := get(t, l, "getCoverArt", query("id", albumIDOf("Björk", "Vespertine"), "size", "96")).Code; code != 200 {
+		t.Fatalf("getCoverArt = %d", code)
+	}
+	if _, err := l.blobs.Stat(t.Context(), files.DerivedKey(track.BlobKey, "cover-96.jpg")); err != nil {
+		t.Errorf("the embedded cover is not filed under the track: %v", err)
+	}
+}
+
 // TestCoverArtOfAFolder is the folder-browsing half: a client that walked into
 // a directory asks for that directory's picture.
 func TestCoverArtOfAFolder(t *testing.T) {
@@ -327,31 +394,77 @@ func coverIDOfFirstSong(t *testing.T, l *library, albumID string) string {
 	return str(t, one["coverArt"])
 }
 
+// addTrackWithCover writes a FLAC carrying a picture in a PICTURE block, which
+// is the shape a tagger writes. Built here rather than committed so the case
+// that asserts the dimensions carries them.
+func (l *library) addTrackWithCover(t *testing.T, p string, m db.Media, w, h int) db.File {
+	t.Helper()
+
+	picture := jpegBytes(t, w, h)
+
+	// The block: a picture type, a MIME type and a description with their
+	// lengths, four dimensions nothing reads back, and the bytes.
+	var block bytes.Buffer
+	be := func(n uint32) { _ = binary.Write(&block, binary.BigEndian, n) }
+	be(3) // front cover
+	be(uint32(len("image/jpeg")))
+	block.WriteString("image/jpeg")
+	be(0) // no description
+	be(uint32(w))
+	be(uint32(h))
+	be(24)
+	be(0)
+	be(uint32(len(picture)))
+	block.Write(picture)
+
+	// The file: the magic, a STREAMINFO nothing reads, and the picture block
+	// last.
+	var file bytes.Buffer
+	file.WriteString("fLaC")
+	file.Write(append([]byte{0, 0, 0, 34}, make([]byte, 34)...))
+	n := block.Len()
+	file.Write([]byte{0x80 | 6, byte(n >> 16), byte(n >> 8), byte(n)})
+	file.Write(block.Bytes())
+
+	return l.index(t, l.write(t, p, file.String()), m)
+}
+
 // addImage writes a real picture of the given size, encoded from its extension.
 // A committed fixture would do, but generating one keeps the dimensions in the
 // case that asserts them.
 func (l *library) addImage(t *testing.T, p string, w, h int) db.File {
 	t.Helper()
 
-	img := image.NewRGBA(image.Rect(0, 0, w, h))
-	for y := range h {
-		for x := range w {
-			// A gradient rather than one colour: a flat image compresses to
-			// almost nothing and would hide a resize doing nothing at all.
-			img.Set(x, y, color.RGBA{R: uint8(x % 256), G: uint8(y % 256), B: 128, A: 255})
-		}
-	}
-
 	var body bytes.Buffer
 	var err error
-	switch {
-	case len(p) > 4 && p[len(p)-4:] == ".png":
-		err = png.Encode(&body, img)
-	default:
-		err = jpeg.Encode(&body, img, nil)
+	if len(p) > 4 && p[len(p)-4:] == ".png" {
+		err = png.Encode(&body, gradient(w, h))
+	} else {
+		err = jpeg.Encode(&body, gradient(w, h), nil)
 	}
 	if err != nil {
 		t.Fatalf("encoding %q: %v", p, err)
 	}
 	return l.write(t, p, body.String())
+}
+
+func jpegBytes(t *testing.T, w, h int) []byte {
+	t.Helper()
+	var out bytes.Buffer
+	if err := jpeg.Encode(&out, gradient(w, h), nil); err != nil {
+		t.Fatal(err)
+	}
+	return out.Bytes()
+}
+
+// gradient rather than one colour: a flat image compresses to almost nothing
+// and would hide a resize doing nothing at all.
+func gradient(w, h int) image.Image {
+	img := image.NewRGBA(image.Rect(0, 0, w, h))
+	for y := range h {
+		for x := range w {
+			img.Set(x, y, color.RGBA{R: uint8(x % 256), G: uint8(y % 256), B: 128, A: 255})
+		}
+	}
+	return img
 }

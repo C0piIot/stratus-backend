@@ -185,13 +185,13 @@ func TestOpenRefusesWhatItCannotRead(t *testing.T) {
 
 	// A format that needs ffmpeg, refused on its name before anything is read.
 	heic := write(t, service, "photos/one.heic", []byte("whatever"), "image/heic")
-	if _, _, err := th.Open(t.Context(), heic, 300); !errors.Is(err, ErrNoThumbnail) {
+	if _, _, err := th.open(t.Context(), heic, 300); !errors.Is(err, ErrNoThumbnail) {
 		t.Errorf("Open on a HEIC = %v, want ErrNoThumbnail", err)
 	}
 
 	// And a name that promises a JPEG over bytes that are not one.
 	broken := write(t, service, "photos/two.jpg", []byte("this is not a JPEG"), "image/jpeg")
-	if _, _, err := th.Open(t.Context(), broken, 300); !errors.Is(err, ErrNoThumbnail) {
+	if _, _, err := th.open(t.Context(), broken, 300); !errors.Is(err, ErrNoThumbnail) {
 		t.Errorf("Open on a broken JPEG = %v, want ErrNoThumbnail", err)
 	}
 }
@@ -200,7 +200,7 @@ func TestOpenRefusesWhatItCannotRead(t *testing.T) {
 // point: a folder often holds a back cover and a booklet scan too.
 func TestFolderCover(t *testing.T) {
 	t.Parallel()
-	th, service, _ := thumbs(t)
+	_, service, _ := thumbs(t)
 
 	writeImage(t, service, "music/album/thumb.png", 100, 100)
 	writeImage(t, service, "music/album/front.jpg", 100, 100)
@@ -208,12 +208,16 @@ func TestFolderCover(t *testing.T) {
 	// A track, so the directory is not only pictures.
 	write(t, service, "music/album/01.flac", []byte("audio"), "audio/flac")
 
-	got, err := th.FolderCover(t.Context(), owner, "music/album")
+	entries, err := service.List(t.Context(), owner, "music/album")
 	if err != nil {
-		t.Fatalf("FolderCover: %v", err)
+		t.Fatal(err)
+	}
+	got, ok := folderCover(entries)
+	if !ok {
+		t.Fatal("folderCover found nothing")
 	}
 	if got.Path != want.Path {
-		t.Errorf("FolderCover = %q, want the conventional name", got.Path)
+		t.Errorf("folderCover = %q, want the conventional name", got.Path)
 	}
 
 }
@@ -222,16 +226,20 @@ func TestFolderCover(t *testing.T) {
 // COVER.JPG in it and that is the same cover.
 func TestFolderCoverIgnoresCase(t *testing.T) {
 	t.Parallel()
-	th, service, _ := thumbs(t)
+	_, service, _ := thumbs(t)
 
 	want := writeImage(t, service, "music/album/COVER.JPG", 100, 100)
 
-	got, err := th.FolderCover(t.Context(), owner, "music/album")
+	entries, err := service.List(t.Context(), owner, "music/album")
 	if err != nil {
-		t.Fatalf("FolderCover: %v", err)
+		t.Fatal(err)
+	}
+	got, ok := folderCover(entries)
+	if !ok {
+		t.Fatal("folderCover found nothing")
 	}
 	if got.Path != want.Path {
-		t.Errorf("FolderCover = %q", got.Path)
+		t.Errorf("folderCover = %q", got.Path)
 	}
 }
 
@@ -245,19 +253,23 @@ func TestFolderCoverWithNoPicture(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := th.FolderCover(t.Context(), owner, "music/album"); !errors.Is(err, storage.ErrNotFound) {
-		t.Errorf("FolderCover with no picture = %v, want ErrNotFound", err)
+	entries, err := service.List(t.Context(), owner, "music/album")
+	if err != nil {
+		t.Fatal(err)
 	}
-	// A directory that is not there has no cover either, and that is not a
+	if got, ok := folderCover(entries); ok {
+		t.Errorf("folderCover found %q in a directory with no picture", got.Path)
+	}
+	// And a directory that is not there has no cover either, which is not a
 	// failure worth its own error: a listing of nothing is a listing.
-	if _, err := th.FolderCover(t.Context(), owner, "music/nowhere"); !errors.Is(err, storage.ErrNotFound) {
-		t.Errorf("FolderCover of a missing directory = %v, want ErrNotFound", err)
+	if _, _, err := th.Cover(t.Context(), owner, "music/nowhere", 96); !errors.Is(err, storage.ErrNotFound) {
+		t.Errorf("Cover of a missing directory = %v, want ErrNotFound", err)
 	}
 }
 
 func read(t *testing.T, th *Thumbs, f db.File, px int) []byte {
 	t.Helper()
-	body, size, err := th.Open(t.Context(), f, px)
+	body, size, err := th.open(t.Context(), f, px)
 	if err != nil {
 		t.Fatalf("Open(%q, %d): %v", f.Path, px, err)
 	}
@@ -279,26 +291,204 @@ func read(t *testing.T, th *Thumbs, f db.File, px int) []byte {
 func writeImage(t *testing.T, s *files.Service, path string, w, h int) db.File {
 	t.Helper()
 
-	img := image.NewRGBA(image.Rect(0, 0, w, h))
-	for y := range h {
-		for x := range w {
-			// A gradient rather than one colour: a flat image compresses to
-			// almost nothing and would hide a resize doing nothing at all.
-			img.Set(x, y, color.RGBA{R: uint8(x % 256), G: uint8(y % 256), B: 128, A: 255})
-		}
-	}
-
 	var body bytes.Buffer
 	var err error
 	mime := "image/jpeg"
 	if filepath.Ext(path) == ".png" {
 		mime = "image/png"
-		err = png.Encode(&body, img)
+		err = png.Encode(&body, gradientImage(w, h))
 	} else {
-		err = jpeg.Encode(&body, img, nil)
+		err = jpeg.Encode(&body, gradientImage(w, h), nil)
 	}
 	if err != nil {
 		t.Fatalf("encoding %q: %v", path, err)
 	}
 	return write(t, s, path, body.Bytes(), mime)
+}
+
+// gradientImage rather than one colour: a flat image compresses to almost
+// nothing and would hide a resize doing nothing at all.
+func gradientImage(w, h int) image.Image {
+	img := image.NewRGBA(image.Rect(0, 0, w, h))
+	for y := range h {
+		for x := range w {
+			img.Set(x, y, color.RGBA{R: uint8(x % 256), G: uint8(y % 256), B: 128, A: 255})
+		}
+	}
+	return img
+}
+
+// TestCoverFindsTheFolderPicture is the common case and the cheap one: a
+// listing this request already did answers it.
+func TestCoverFindsTheFolderPicture(t *testing.T) {
+	t.Parallel()
+	th, service, blobs := thumbs(t)
+
+	write(t, service, "music/album/01.flac", []byte("not really audio"), "audio/flac")
+	beside := writeImage(t, service, "music/album/cover.jpg", 500, 500)
+
+	body, _, err := th.Cover(t.Context(), owner, "music/album", 96)
+	if err != nil {
+		t.Fatalf("Cover: %v", err)
+	}
+	_ = body.Close()
+
+	if _, err := blobs.Stat(t.Context(), thumbKey(beside.BlobKey, thumbSmall)); err != nil {
+		t.Errorf("the folder picture was not the one used: %v", err)
+	}
+}
+
+// TestCoverFindsThePictureInsideTheTrack is the other place it lives, and for a
+// library bought as downloads it is the only one.
+func TestCoverFindsThePictureInsideTheTrack(t *testing.T) {
+	t.Parallel()
+	th, service, blobs := thumbs(t)
+
+	track := write(t, service, "music/album/01.flac", flacWithCover(t, 400, 400), "audio/flac")
+
+	got := coverBytes(t, th, "music/album", 96)
+	cfg, format, err := image.DecodeConfig(bytes.NewReader(got))
+	if err != nil {
+		t.Fatalf("the cover does not decode: %v", err)
+	}
+	if format != "jpeg" || cfg.Width != 96 {
+		t.Errorf("the embedded cover came back %s %dx%d", format, cfg.Width, cfg.Height)
+	}
+
+	// Filed under the track's blob, because the picture has no blob of its own:
+	// that is what lets the sweep take it when the track goes.
+	if _, err := blobs.Stat(t.Context(), coverKey(track.BlobKey, thumbSmall)); err != nil {
+		t.Errorf("the embedded cover is not filed under the track: %v", err)
+	}
+
+	// And the second ask reads it rather than parsing the tag again.
+	if _, err := blobs.Put(t.Context(), coverKey(track.BlobKey, thumbSmall),
+		bytes.NewReader([]byte("not a picture")), -1); err != nil {
+		t.Fatal(err)
+	}
+	if again := coverBytes(t, th, "music/album", 96); string(again) != "not a picture" {
+		t.Error("the second request parsed the tag again instead of reading what was kept")
+	}
+}
+
+// TestCoverPrefersTheFolderPicture: with both there, the file beside the music
+// wins. Finding it is a listing this request already did; the other means
+// parsing a tag.
+func TestCoverPrefersTheFolderPicture(t *testing.T) {
+	t.Parallel()
+	th, service, blobs := thumbs(t)
+
+	track := write(t, service, "music/album/01.flac", flacWithCover(t, 400, 400), "audio/flac")
+	beside := writeImage(t, service, "music/album/folder.jpg", 300, 300)
+
+	body, _, err := th.Cover(t.Context(), owner, "music/album", 96)
+	if err != nil {
+		t.Fatalf("Cover: %v", err)
+	}
+	_ = body.Close()
+
+	if _, err := blobs.Stat(t.Context(), thumbKey(beside.BlobKey, thumbSmall)); err != nil {
+		t.Errorf("the folder picture was not used: %v", err)
+	}
+	if _, err := blobs.Stat(t.Context(), coverKey(track.BlobKey, thumbSmall)); err == nil {
+		t.Error("the tag was parsed even though a picture was sitting beside the music")
+	}
+}
+
+func TestCoverOfAFolderWithNoPictureAnywhere(t *testing.T) {
+	t.Parallel()
+	th, service, _ := thumbs(t)
+
+	// A track with no tag, and a file that is not audio at all.
+	write(t, service, "music/album/01.flac", []byte("fLaC"), "audio/flac")
+	write(t, service, "music/album/notes.txt", []byte("liner notes"), "text/plain")
+
+	if _, _, err := th.Cover(t.Context(), owner, "music/album", 96); !errors.Is(err, ErrNoEmbeddedCover) {
+		t.Errorf("Cover = %v, want ErrNoEmbeddedCover", err)
+	}
+}
+
+func TestCoverOfAFolderWithNothingPlayable(t *testing.T) {
+	t.Parallel()
+	th, service, _ := thumbs(t)
+
+	write(t, service, "music/album/notes.txt", []byte("liner notes"), "text/plain")
+
+	// Nothing to look inside, which is a folder with no cover rather than a
+	// tag that could not be read.
+	if _, _, err := th.Cover(t.Context(), owner, "music/album", 96); !errors.Is(err, storage.ErrNotFound) {
+		t.Errorf("Cover = %v, want ErrNotFound", err)
+	}
+}
+
+// TestFirstTrack is the rule that keeps a folder of twelve tracks from costing
+// twelve ranged reads on every request that finds no art.
+func TestFirstTrack(t *testing.T) {
+	t.Parallel()
+	_, service, _ := thumbs(t)
+
+	write(t, service, "music/album/03 third.flac", []byte("x"), "audio/flac")
+	write(t, service, "music/album/01 first.mp3", []byte("x"), "audio/mpeg")
+	write(t, service, "music/album/02 second.m4a", []byte("x"), "audio/mp4")
+	write(t, service, "music/album/notes.txt", []byte("x"), "text/plain")
+	writeImage(t, service, "music/album/scan.jpg", 10, 10)
+	if _, err := service.Mkdir(t.Context(), owner, "music/album/extras"); err != nil {
+		t.Fatal(err)
+	}
+
+	entries, err := service.List(t.Context(), owner, "music/album")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, ok := firstTrack(entries)
+	if !ok {
+		t.Fatal("firstTrack found nothing in a folder of tracks")
+	}
+	// Path order, and nothing that is not audio.
+	if got.Path != "music/album/01 first.mp3" {
+		t.Errorf("firstTrack = %q", got.Path)
+	}
+
+	// A folder with no audio in it has no first track, which is what makes the
+	// answer "no cover" rather than an error.
+	entries, err = service.List(t.Context(), owner, "music")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := firstTrack(entries); ok {
+		t.Errorf("firstTrack = %q in a folder of directories", got.Path)
+	}
+}
+
+func coverBytes(t *testing.T, th *Thumbs, dir string, px int) []byte {
+	t.Helper()
+	body, size, err := th.Cover(t.Context(), owner, dir, px)
+	if err != nil {
+		t.Fatalf("Cover(%q): %v", dir, err)
+	}
+	defer func() { _ = body.Close() }()
+
+	got, err := io.ReadAll(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if int64(len(got)) != size {
+		t.Errorf("Cover reported %d bytes and returned %d", size, len(got))
+	}
+	return got
+}
+
+// flacWithCover builds a FLAC whose PICTURE block holds a real JPEG, which is
+// the shape a tagger writes.
+func flacWithCover(t *testing.T, w, h int) []byte {
+	t.Helper()
+
+	var picture bytes.Buffer
+	if err := jpeg.Encode(&picture, gradientImage(w, h), nil); err != nil {
+		t.Fatal(err)
+	}
+	return flacFile(
+		flacBlock(0, make([]byte, 34), false),
+		flacBlock(6, flacPicked(frontCover, picture.String()), true),
+	)
 }

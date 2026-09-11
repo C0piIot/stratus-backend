@@ -97,7 +97,27 @@ func NewThumbs(blobs storage.Storage, service *files.Service) *Thumbs {
 	return &Thumbs{blobs: blobs, files: service}
 }
 
-// Open returns a thumbnail of f at size, making it if this is the first ask.
+// Cover returns the artwork for the folder dir, at about px pixels.
+//
+// Two places hold it and this is the only thing that knows there are two: a
+// picture beside the tracks, or one inside the first of them. A caller asks for
+// a folder's cover and gets bytes.
+func (t *Thumbs) Cover(ctx context.Context, owner, dir string, px int) (io.ReadCloser, int64, error) {
+	entries, err := t.files.List(ctx, owner, dir)
+	if err != nil {
+		return nil, 0, fmt.Errorf("look for cover art in %q: %w", dir, err)
+	}
+
+	if picture, ok := folderCover(entries); ok {
+		return t.open(ctx, picture, px)
+	}
+	if track, ok := firstTrack(entries); ok {
+		return t.fromTrack(ctx, track, px)
+	}
+	return nil, 0, fmt.Errorf("cover art in %q: %w", dir, storage.ErrNotFound)
+}
+
+// open returns a thumbnail of f, making it if this is the first ask.
 //
 // Two requests for the same missing thumbnail both generate it and both write
 // it. That is deliberate rather than overlooked: the content is a pure function
@@ -105,19 +125,60 @@ func NewThumbs(blobs storage.Storage, service *files.Service) *Thumbs {
 // single-flight would be machinery guarding against duplicated work rather than
 // against a wrong answer. It becomes worth adding when a photo grid asks for
 // five hundred at once, which is #8's problem.
-func (t *Thumbs) Open(ctx context.Context, f db.File, px int) (io.ReadCloser, int64, error) {
+func (t *Thumbs) open(ctx context.Context, f db.File, px int) (io.ReadCloser, int64, error) {
 	size := snapSize(px)
-	key := thumbKey(f.BlobKey, size)
+	return t.cached(ctx, thumbKey(f.BlobKey, size), func() ([]byte, error) {
+		if !decodableInGo(f.Path) {
+			return nil, fmt.Errorf("%w: %s", ErrNoThumbnail, path.Ext(f.Path))
+		}
+		body, err := t.files.OpenFile(ctx, f)
+		if err != nil {
+			return nil, fmt.Errorf("open %q: %w", f.Path, err)
+		}
+		defer func() { _ = body.Close() }()
+		return reduceTo(body, f.Path, size)
+	})
+}
 
+// fromTrack returns a thumbnail of the picture inside a track.
+//
+// Filed under the track's blob and not the picture's, because the picture has no
+// blob of its own -- which is what keeps the sweep able to collect it: delete the
+// track and its cover goes with it.
+func (t *Thumbs) fromTrack(ctx context.Context, f db.File, px int) (io.ReadCloser, int64, error) {
+	size := snapSize(px)
+	return t.cached(ctx, coverKey(f.BlobKey, size), func() ([]byte, error) {
+		body, err := t.files.OpenFile(ctx, f)
+		if err != nil {
+			return nil, fmt.Errorf("open %q: %w", f.Path, err)
+		}
+		defer func() { _ = body.Close() }()
+
+		// Off the blob and through a ranged read: the tag is at the head of
+		// every one of these containers, so a track in a bucket costs a few
+		// kilobytes rather than the whole file.
+		picture, err := embeddedCover(body, f.Path)
+		if err != nil {
+			return nil, err
+		}
+		return reduceTo(bytes.NewReader(picture), f.Path, size)
+	})
+}
+
+// cached is the lazy half: answer what is stored, or make it, keep it and
+// answer that.
+func (t *Thumbs) cached(
+	ctx context.Context, key string, make func() ([]byte, error),
+) (io.ReadCloser, int64, error) {
 	body, info, err := t.blobs.Get(ctx, key, storage.All())
 	switch {
 	case err == nil:
 		return body, info.Size, nil
 	case !errors.Is(err, storage.ErrNotFound):
-		return nil, 0, fmt.Errorf("read the thumbnail of %q: %w", f.Path, err)
+		return nil, 0, fmt.Errorf("read %q: %w", key, err)
 	}
 
-	made, err := t.generate(ctx, f, size)
+	made, err := make()
 	if err != nil {
 		return nil, 0, err
 	}
@@ -127,6 +188,25 @@ func (t *Thumbs) Open(ctx context.Context, f db.File, px int) (io.ReadCloser, in
 		slog.WarnContext(ctx, "storing a thumbnail", "key", key, "err", err)
 	}
 	return io.NopCloser(bytes.NewReader(made)), int64(len(made)), nil
+}
+
+// reduceTo decodes, reduces and encodes, which is the same path whether the
+// pixels came from a file of their own or out of a tag.
+//
+// JPEG for everything, including a PNG cover: a thumbnail is a photograph of
+// something most of the time, transparency is not meaningful at this size, and
+// one output format means one path through every client.
+func reduceTo(r io.Reader, name string, size thumbSize) ([]byte, error) {
+	src, _, err := image.Decode(io.LimitReader(r, maxThumbSource))
+	if err != nil {
+		return nil, fmt.Errorf("%w: decoding %q: %w", ErrNoThumbnail, name, err)
+	}
+
+	var out bytes.Buffer
+	if err := jpeg.Encode(&out, reduce(src, int(size)), &jpeg.Options{Quality: thumbQuality}); err != nil {
+		return nil, fmt.Errorf("encode a thumbnail of %q: %w", name, err)
+	}
+	return out.Bytes(), nil
 }
 
 // coverNames are the file names an album's artwork goes by, in the order they
@@ -141,20 +221,11 @@ var coverNames = []string{
 // without help. A cover.webp exists in the wild and waits for that decoder.
 var coverExtensions = []string{".jpg", ".jpeg", ".png"}
 
-// FolderCover finds the artwork sitting beside the music in dir, or
-// storage.ErrNotFound if there is none.
+// folderCover picks the artwork out of a directory listing.
 //
 // This is where an album's cover lives for most libraries: ripped or downloaded
-// as a folder, with the picture next to the tracks. The other place is inside
-// the files themselves, which needs an FFmpeg build carrying the audio demuxers
-// and an image muxer -- see the issue, it is a recipe change and not a design
-// one.
-func (t *Thumbs) FolderCover(ctx context.Context, owner, dir string) (db.File, error) {
-	entries, err := t.files.List(ctx, owner, dir)
-	if err != nil {
-		return db.File{}, fmt.Errorf("look for cover art in %q: %w", dir, err)
-	}
-
+// as a folder, with the picture next to the tracks.
+func folderCover(entries []db.File) (db.File, bool) {
 	// By preference and not by directory order, so the same folder answers the
 	// same picture on every backend: the storage port does not promise an order
 	// and neither does a listing.
@@ -167,39 +238,31 @@ func (t *Thumbs) FolderCover(ctx context.Context, owner, dir string) (db.File, e
 	for _, name := range coverNames {
 		for _, ext := range coverExtensions {
 			if f, ok := byName[name+ext]; ok {
-				return f, nil
+				return f, true
 			}
 		}
 	}
-	return db.File{}, fmt.Errorf("cover art in %q: %w", dir, storage.ErrNotFound)
+	return db.File{}, false
 }
 
-// generate decodes the original, reduces it and encodes a JPEG.
+// firstTrack is the file whose tag is read when the folder holds no picture.
 //
-// JPEG for everything, including a PNG cover: a thumbnail is a photograph of
-// something most of the time, transparency is not meaningful at this size, and
-// one output format means one path through every client.
-func (t *Thumbs) generate(ctx context.Context, f db.File, size thumbSize) ([]byte, error) {
-	if !decodableInGo(f.Path) {
-		return nil, fmt.Errorf("%w: %s", ErrNoThumbnail, path.Ext(f.Path))
+// The *first* one in path order and not whichever has a picture, deliberately: a
+// folder of twelve tracks would otherwise cost twelve ranged reads on every
+// request that finds no art, and every track of a record carries the same cover
+// in practice. A folder whose first track alone is untagged reports no cover,
+// which is the price.
+func firstTrack(entries []db.File) (db.File, bool) {
+	best := db.File{}
+	for _, f := range entries {
+		if f.IsDir || byExtension[strings.ToLower(path.Ext(f.Path))] != db.KindAudio {
+			continue
+		}
+		if best.Path == "" || f.Path < best.Path {
+			best = f
+		}
 	}
-
-	body, err := t.files.OpenFile(ctx, f)
-	if err != nil {
-		return nil, fmt.Errorf("open %q: %w", f.Path, err)
-	}
-	defer func() { _ = body.Close() }()
-
-	src, _, err := image.Decode(io.LimitReader(body, maxThumbSource))
-	if err != nil {
-		return nil, fmt.Errorf("%w: decoding %q: %w", ErrNoThumbnail, f.Path, err)
-	}
-
-	var out bytes.Buffer
-	if err := jpeg.Encode(&out, reduce(src, int(size)), &jpeg.Options{Quality: thumbQuality}); err != nil {
-		return nil, fmt.Errorf("encode a thumbnail of %q: %w", f.Path, err)
-	}
-	return out.Bytes(), nil
+	return best, best.Path != ""
 }
 
 // reduce scales src to fit in a box of side px, keeping its aspect ratio and
@@ -232,11 +295,19 @@ func reduce(src image.Image, px int) image.Image {
 	return dst
 }
 
-// thumbKey is where a thumbnail lives. The size is in the name and the parent
-// blob is in the path, which is what lets one sweep collect both -- see
-// files.DerivedKey.
+// thumbKey and coverKey are where a derived picture lives. The size is in the
+// name and the parent blob is in the path, which is what lets one sweep collect
+// both -- see files.DerivedKey.
+//
+// Two names because one blob can have two derived pictures: a track is both
+// something with a thumbnail of its own one day and the place its album's cover
+// is kept today.
 func thumbKey(blobKey string, size thumbSize) string {
 	return files.DerivedKey(blobKey, strconv.Itoa(int(size))+".jpg")
+}
+
+func coverKey(blobKey string, size thumbSize) string {
+	return files.DerivedKey(blobKey, "cover-"+strconv.Itoa(int(size))+".jpg")
 }
 
 // decodableInGo reports whether this build can read the file without ffmpeg.
