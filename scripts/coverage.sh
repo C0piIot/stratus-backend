@@ -42,6 +42,7 @@ internal/storage:98
 internal/storage/disk:90
 internal/storage/s3:88
 internal/subsonic:100
+internal/web:97
 "
 
 # Not gated, and why:
@@ -72,6 +73,13 @@ internal/subsonic:100
 # reached by closing the store under the query. internal/db rose because the
 # folding those queries match against is a pure function of the port, testable
 # where it lives.
+#
+# internal/web starts at 97. What is uncovered there is one branch: a template
+# that fails halfway. It is why rendering goes through a buffer rather than
+# straight to the ResponseWriter, and it is unreachable on purpose -- the
+# templates are parsed at startup with template.Must and executed over a struct
+# of strings, so nothing is left that can fail. Deleting it to reach 100 would
+# delete the reason the buffer is there.
 #
 # internal/subsonic starts at 100, which is high but is what the package is: it
 # does no I/O of its own beyond writing a response, so every branch is reachable

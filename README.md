@@ -7,8 +7,8 @@ Instead of shipping its own API and a client app per platform, it speaks
 protocols your existing apps already understand.
 
 > **Work in progress.** Files over WebDAV and music over OpenSubsonic work
-> today, and the container is real. CalDAV, the web UI, thumbnails and sharing
-> are not written yet.
+> today, the web UI can sign you in and out, and the container is real. CalDAV,
+> the rest of that UI, photo thumbnails and sharing are not written yet.
 > The tables below say what answers and what does not, rather than what is
 > intended — if a row says **works**, it works.
 
@@ -20,7 +20,7 @@ protocols your existing apps already understand.
 | HTTP range | audio/video streaming | browsers, VLC, mpv | **works** |
 | CalDAV | calendar | DAVx5, Thunderbird, iOS/macOS | next |
 | OpenSubsonic | music | Symfonium, Substreamer, DSub, Feishin | **works** † |
-| Web UI | log in, browse, download | any browser | planned |
+| Web UI | sign in; browsing and downloading next | any browser | **partly** |
 | CardDAV | contacts | DAVx5, Thunderbird | planned |
 | DLNA / UPnP-AV | TVs, set-top players | | planned |
 
@@ -207,6 +207,45 @@ inside an HTTP 200** with a code in the body. A 404 from `/rest/` therefore
 means something else entirely: the surface is not mounted, because there are no
 credentials.
 
+## Web UI
+
+At the root, with the same credentials as everything else and, like the other
+surfaces, only when they are set: with none configured `/login` is a 404 rather
+than a form for a user who does not exist.
+
+What it does today is sign you in and out. Browsing and downloading files come
+next, then uploads and the calendar. It is a convenience for when reaching for
+rclone or DAVx5 is overkill, and it consumes the same internals the protocol
+handlers do — it will never grow a private JSON API of its own.
+
+**The session is a signed cookie rather than a row in a table.** The value says
+who it is for and when it expires, signed with a key derived from the configured
+username and password. Three consequences, in the order they are likely to
+surprise:
+
+- **Changing the password — or the username — signs every browser out.** That is
+  the revocation a stateless session has, and it is why the key comes from the
+  credentials rather than from a random secret.
+- **Restarting the container does not.** A session outlives the process that
+  issued it.
+- **Signing out clears the browser's cookie, and that is all it can do.** There
+  is no server-side record to delete, so a cookie copied elsewhere stays usable
+  until it expires. Sessions therefore last **seven days and are not renewed on
+  use**: that ceiling is the only bound this design has.
+
+The cookie is `HttpOnly` and `SameSite=Lax`, and `Secure` whenever the request
+arrived over HTTPS — directly, or through a proxy that says so with
+`X-Forwarded-Proto`. Not `Secure` unconditionally on purpose: on a plain
+`http://box.lan:8080` install the browser would store the cookie and never send
+it back.
+
+CSRF is that `SameSite=Lax` plus the standard library's
+`http.CrossOriginProtection`, which refuses a state-changing request the browser
+itself reports as cross-site. Bootstrap is embedded in the binary rather than
+pulled from a CDN, so every page is served under `default-src 'none'` and makes
+no outbound request at all — which is also what lets the UI work on a network
+with no route to the internet.
+
 ## Pluggable backends
 
 Two seams, and only two:
@@ -362,9 +401,11 @@ build rather than a note in a document.
 
 ## Container
 
-Multi-stage build, `distroless/static:nonroot` runtime, about 23 MB. The Go
-binary is most of it at 16.7 MB, beside 1.7 MB of `ffprobe`, 3.9 MB of `ffmpeg`
-and a base under one megabyte.
+Multi-stage build, `distroless/static:nonroot` runtime, about 27 MB. The Go
+binary is most of it at 21 MB, beside 1.7 MB of `ffprobe`, 3.9 MB of `ffmpeg`
+and a base under one megabyte. It grew 4 MB with the web UI: `html/template`
+costs about three of those and the embedded Bootstrap a third of one, which is
+what a page rendered by the standard library and served from the binary costs.
 
 **Both FFmpeg tools are built here rather than taken off the shelf**, in
 `build/ffprobe/Dockerfile` and `build/ffmpeg/Dockerfile`. A general-purpose
@@ -430,11 +471,13 @@ Working now:
   beside the music or out of the tags. No user state, no transcoding, and no
   client has been tried against it yet.
 - EXIF, audio tags and video probing, indexed in the background.
+- A web UI you can sign in and out of, with a signed-cookie session, a CSP that
+  allows nothing but the binary's own assets, and nothing else in it yet.
 - A request log, migrations applied at startup, and a container asserted from
-  the outside by 48 smoke checks.
+  the outside by 58 smoke checks.
 
-Not there yet: CalDAV, the web UI, photo thumbnails and sharing -- and on the
-music side, anything that remembers what the user did. Work
+Not there yet: CalDAV, the rest of the web UI, photo thumbnails and sharing --
+and on the music side, anything that remembers what the user did. Work
 and the decisions behind it are tracked on the
 [Stratus project board](https://github.com/users/C0piIot/projects/2), where
 `Priority` says when and the `decision` label says what still needs a call.

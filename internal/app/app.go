@@ -20,6 +20,7 @@ import (
 	"github.com/C0piIot/stratus-backend/internal/media"
 	"github.com/C0piIot/stratus-backend/internal/storage"
 	"github.com/C0piIot/stratus-backend/internal/subsonic"
+	"github.com/C0piIot/stratus-backend/internal/web"
 )
 
 // shutdownTimeout bounds how long in-flight requests get to finish.
@@ -110,6 +111,12 @@ func (a *App) Handler(deps Deps) http.Handler {
 		thumbs := media.NewThumbs(deps.Storage, service)
 		mux.Handle(subsonicPrefix,
 			subsonic.Handler(subsonicPrefix, a.version, verifier, deps.Database, service, thumbs))
+
+		// The browser surface, at the root, so everything the prefixes above did
+		// not claim is a page rather than a bare 404. Same verifier again, and
+		// a session signed with the configured password: see auth.Sessions for
+		// what that buys and what it costs.
+		mux.Handle("/", web.Handler(a.version, verifier, auth.NewSessions(creds, auth.DefaultSessionTTL)))
 	}
 	return logRequests(mux)
 }

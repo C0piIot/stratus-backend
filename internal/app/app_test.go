@@ -401,6 +401,85 @@ func TestSubsonicIsNotMountedWithoutCredentials(t *testing.T) {
 	}
 }
 
+// TestWebUIIsWired asserts the one thing about this surface that only the
+// composition root can get wrong. It is mounted at the root, so it answers
+// everything the other patterns did not claim -- which is what makes a page out
+// of a stray URL, and what would swallow /healthz if the routing were wrong.
+func TestWebUIIsWired(t *testing.T) {
+	t.Parallel()
+	base, stop := liveServer(t, map[string]string{
+		"STRATUS_USERNAME": "edu",
+		"STRATUS_PASSWORD": "an example password",
+	})
+	defer stop()
+
+	// The root wants a session, and says where the browser was going.
+	resp := request(t, http.MethodGet, base+"/")
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Errorf("GET / = %d, want 303 to the login form", resp.StatusCode)
+	}
+	if got := resp.Header.Get("Location"); got != "/login?next=%2F" {
+		t.Errorf("Location = %q", got)
+	}
+
+	// The form is served from the binary, Bootstrap and all.
+	form := request(t, http.MethodGet, base+"/login")
+	defer func() { _ = form.Body.Close() }()
+	body, err := io.ReadAll(form.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), `name="password"`) {
+		t.Error("GET /login served no login form")
+	}
+	css := request(t, http.MethodGet, base+"/static/bootstrap-5.3.8/bootstrap.min.css")
+	defer func() { _ = css.Body.Close() }()
+	if css.StatusCode != http.StatusOK {
+		t.Errorf("the stylesheet the form links = %d, want 200", css.StatusCode)
+	}
+
+	// And the endpoints registered before it still win, which is the assertion
+	// that a catch-all deserves.
+	health := request(t, http.MethodGet, base+"/healthz")
+	defer func() { _ = health.Body.Close() }()
+	if health.StatusCode != http.StatusOK {
+		t.Errorf("GET /healthz behind the UI = %d, want 200", health.StatusCode)
+	}
+}
+
+// TestWebUIIsNotMountedWithoutCredentials, for the reason the other two
+// surfaces are not: there is nobody to sign in as.
+func TestWebUIIsNotMountedWithoutCredentials(t *testing.T) {
+	t.Parallel()
+	base, stop := liveServer(t, map[string]string{})
+	defer stop()
+
+	resp := request(t, http.MethodGet, base+"/login")
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("GET /login with no credentials configured = %d, want 404", resp.StatusCode)
+	}
+}
+
+// request is a bare GET that does not follow redirects: where the server sends
+// a browser is half of what these tests are about.
+func request(t *testing.T, method, target string) *http.Response {
+	t.Helper()
+	req, err := http.NewRequestWithContext(t.Context(), method, target, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resp
+}
+
 // answer is a GET whose body is the whole response, which is what a Subsonic
 // answer is.
 func answer(t *testing.T, target string) string {

@@ -25,7 +25,14 @@ REF="$IMAGE:$TAG"
 # SQLite transpiled to Go and pgx is not small, and between them the binary went
 # from 8.3 MB to 15.9 MB. The budget exists to catch growth nobody decided on,
 # so it moves when a decision fills it -- and only then.
-BIN_SIZE_FAIL=$((20 * 1024 * 1024))
+# Raised again from 20 MB with the web UI, which took it from 16.9 MB to 21.0.
+# Measured rather than assumed: 0.3 MB is Bootstrap embedded instead of fetched
+# from a CDN, and the rest is html/template, which costs about 3 MB on its own
+# in a net/http program and a little more here. That is the price of the one
+# decision this budget exists to make visible -- a server-rendered UI from the
+# standard library -- and the remaining increments of it are templates, not
+# packages.
+BIN_SIZE_FAIL=$((25 * 1024 * 1024))
 # ffprobe and ffmpeg together, which are trimmed builds of our own: 1.8 MB and
 # 4.1 MB today against the 128 MB one general-purpose static FFmpeg costs.
 TOOLS_SIZE_FAIL=$((10 * 1024 * 1024))
@@ -247,6 +254,16 @@ if [ -z "$leftovers" ]; then
   ok "neither write probe is left behind"
 else
   bad "neither write probe is left behind" "found: $leftovers"
+fi
+
+# This container has no credentials configured, so there is nobody to sign in
+# as and the UI is not mounted at all -- the same rule as WebDAV and Subsonic.
+hostport="$(docker port "$name" 8080/tcp | head -1)"
+code="$(curl -s -o /dev/null -w '%{http_code}' "http://$hostport/login")"
+if [ "$code" = "404" ]; then
+  ok "no credentials, no web UI"
+else
+  bad "no credentials, no web UI" "GET /login = $code"
 fi
 docker rm -f "$name" >/dev/null 2>&1
 
@@ -524,6 +541,84 @@ TRACK
       fi
       ;;
     *) bad "getCoverArt reduces a picture found beside the music" "got '$code'" ;;
+  esac
+
+  # The web UI, driven the way a browser drives it: a cookie jar, a form post
+  # and a redirect. Its session is signed rather than stored, so what is asserted
+  # here is the whole round trip through the shipped binary.
+  jar="$(mktmp)/cookies"
+
+  code="$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' "http://$davhost/")"
+  case "$code" in
+    "303 http://$davhost/login?next=%2F") ok "the root asks a browser to sign in" ;;
+    *) bad "the root asks a browser to sign in" "got '$code'" ;;
+  esac
+
+  body="$(curl -fsS "http://$davhost/login" 2>/dev/null || true)"
+  case "$body" in
+    *'name="password"'*) ok "the login form is served" ;;
+    *)                   bad "the login form is served" "got '$(head -c 120 <<<"$body")'" ;;
+  esac
+
+  refused="$(curl -s -o /dev/null -w '%{http_code}' -c "$jar" \
+    --data-urlencode "username=$davuser" --data-urlencode "password=not it" \
+    "http://$davhost/login")"
+  if [ "$refused" = "401" ] && ! grep -q stratus_session "$jar" 2>/dev/null; then
+    ok "a wrong password gets no session"
+  else
+    bad "a wrong password gets no session" "status $refused"
+  fi
+
+  # -D -: the attributes are the assertion, and a cookie jar does not show them.
+  headers="$(curl -s -D - -o /dev/null -c "$jar" \
+    --data-urlencode "username=$davuser" --data-urlencode "password=$davpass" \
+    "http://$davhost/login")"
+  cookie="$(grep -i '^set-cookie: stratus_session=' <<<"$headers" | tr -d '\r')"
+  case "$cookie" in
+    # Secure first: this request arrived over plain HTTP, and a cookie the
+    # browser would never send back is worse than no cookie at all.
+    *Secure*) bad "signing in sets a session cookie" "marked Secure over plain HTTP: $cookie" ;;
+    *HttpOnly*SameSite=Lax*) ok "signing in sets an HttpOnly, SameSite=Lax cookie" ;;
+    *) bad "signing in sets a session cookie" "got '$cookie'" ;;
+  esac
+
+  body="$(curl -fsS -b "$jar" "http://$davhost/" 2>/dev/null || true)"
+  case "$body" in
+    *"Signed in as $davuser"*) ok "the session opens the page" ;;
+    *)                         bad "the session opens the page" "got '$(head -c 120 <<<"$body")'" ;;
+  esac
+
+  # The CSRF defence, from outside: a form on somebody else's page carries the
+  # cookie and must still be refused.
+  code="$(curl -s -o /dev/null -w '%{http_code}' -b "$jar" \
+    -H 'Sec-Fetch-Site: cross-site' -X POST "http://$davhost/logout")"
+  if [ "$code" = "403" ]; then
+    ok "a cross-site form post is refused"
+  else
+    bad "a cross-site form post is refused" "got $code"
+  fi
+
+  curl -s -o /dev/null -b "$jar" -c "$jar" -X POST "http://$davhost/logout"
+  code="$(curl -s -o /dev/null -w '%{http_code}' -b "$jar" "http://$davhost/")"
+  if [ "$code" = "303" ]; then
+    ok "signing out ends the session"
+  else
+    bad "signing out ends the session" "got $code"
+  fi
+
+  # Vendored into the binary, never a CDN: a self-hosted cloud has to work with
+  # no outbound network at all.
+  code="$(curl -s -o /dev/null -w '%{http_code} %{content_type} %{size_download}' \
+    "http://$davhost/static/bootstrap-5.3.8/bootstrap.min.css")"
+  case "$code" in
+    "200 text/css"*" 232111") ok "Bootstrap is served out of the binary" ;;
+    *) bad "Bootstrap is served out of the binary" "got '$code'" ;;
+  esac
+
+  csp="$(curl -s -D - -o /dev/null "http://$davhost/login" | grep -i '^content-security-policy:' | tr -d '\r')"
+  case "$csp" in
+    *"default-src 'none'"*) ok "the pages carry a content security policy" ;;
+    *)                      bad "the pages carry a content security policy" "got '$csp'" ;;
   esac
 
   # One line per request, which is the only way to see a 401 or a 409 after the

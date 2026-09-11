@@ -1,0 +1,42 @@
+{{define "content" -}}
+<h1 class="h3">Signed in as {{.User}}</h1>
+<p class="text-body-secondary">
+  This is the first piece of the web interface. Everything else is still served
+  to the clients that already speak these protocols.
+</p>
+
+<div class="row row-cols-1 row-cols-md-3 g-3 mt-1">
+  <div class="col">
+    <div class="card h-100">
+      <div class="card-body">
+        <h2 class="h6 card-title">Files</h2>
+        <p class="card-text small text-body-secondary mb-0">
+          WebDAV at <code>/dav/</code> — rclone, Finder, Nautilus, FolderSync.
+          Browsing and downloading from here comes next.
+        </p>
+      </div>
+    </div>
+  </div>
+  <div class="col">
+    <div class="card h-100">
+      <div class="card-body">
+        <h2 class="h6 card-title">Music</h2>
+        <p class="card-text small text-body-secondary mb-0">
+          OpenSubsonic at <code>/rest/</code> — Symfonium, Substreamer, DSub,
+          Feishin.
+        </p>
+      </div>
+    </div>
+  </div>
+  <div class="col">
+    <div class="card h-100">
+      <div class="card-body">
+        <h2 class="h6 card-title">Calendar</h2>
+        <p class="card-text small text-body-secondary mb-0">
+          Not written yet, over CalDAV or from here.
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+{{- end}}
