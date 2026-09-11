@@ -16,6 +16,7 @@ import (
 	"github.com/C0piIot/stratus-backend/internal/files"
 	"github.com/C0piIot/stratus-backend/internal/storage"
 	"github.com/C0piIot/stratus-backend/internal/storage/disk"
+	"github.com/C0piIot/stratus-backend/internal/storage/storagetest"
 )
 
 // thumbs wires the real backends, like the indexer's fixture: a thumbnail is a
@@ -491,4 +492,52 @@ func flacWithCover(t *testing.T, w, h int) []byte {
 		flacBlock(0, make([]byte, 34), false),
 		flacBlock(6, flacPicked(frontCover, picture.String()), true),
 	)
+}
+
+// TestAThumbnailThatCannotBeStoredIsStillServed is behaviour rather than an
+// error path: the picture is already made and in hand when the store refuses,
+// so refusing the request too would throw away work for no reason. It is
+// logged and served, and the next request makes it again.
+func TestAThumbnailThatCannotBeStoredIsStillServed(t *testing.T) {
+	t.Parallel()
+	_, service, blobs := thumbs(t)
+	f := writeImage(t, service, "photos/one.jpg", 400, 400)
+
+	th := NewThumbs(storagetest.FailOn(t, blobs, "Put"), service)
+	body, size, err := th.open(t.Context(), f, 96)
+	if err != nil {
+		t.Fatalf("open with a store that will not keep it = %v", err)
+	}
+	defer func() { _ = body.Close() }()
+
+	got, err := io.ReadAll(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if int64(len(got)) != size || len(got) == 0 {
+		t.Fatalf("open returned %d bytes and reported %d", len(got), size)
+	}
+	if cfg, _, derr := image.DecodeConfig(bytes.NewReader(got)); derr != nil || cfg.Width != 96 {
+		t.Errorf("the served thumbnail is %v, %v", cfg, derr)
+	}
+
+	// Nothing was kept, which is the part worth knowing: the work is repeated
+	// on every request until the store recovers.
+	if _, err := blobs.Stat(t.Context(), thumbKey(f.BlobKey, thumbSmall)); !errors.Is(err, storage.ErrNotFound) {
+		t.Errorf("something was stored after a Put that failed: %v", err)
+	}
+}
+
+// TestOpenReportsAStoreItCannotRead: a store that answers neither the object
+// nor ErrNotFound is broken, and regenerating on the strength of that would
+// hide an outage behind a CPU bill.
+func TestOpenReportsAStoreItCannotRead(t *testing.T) {
+	t.Parallel()
+	_, service, blobs := thumbs(t)
+	f := writeImage(t, service, "photos/one.jpg", 400, 400)
+
+	th := NewThumbs(storagetest.FailOn(t, blobs, "Get"), service)
+	if _, _, err := th.open(t.Context(), f, 96); !errors.Is(err, storagetest.ErrInjected) {
+		t.Errorf("open = %v, want the failure passed on", err)
+	}
 }

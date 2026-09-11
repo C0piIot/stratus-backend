@@ -32,7 +32,7 @@ internal/app:94
 internal/auth:100
 internal/config:100
 internal/dav:89
-internal/files:87
+internal/files:91
 internal/media:88
 internal/db:61
 internal/db/postgres:94
@@ -89,9 +89,15 @@ internal/subsonic:100
 # wrapper around storage.Storage cannot help the package that *is*
 # storage.Storage anyway.
 #
-# What genuinely needs the injector is narrower: failures that happen *after*
-# something else succeeded, chief among them the half of "blob first, row
-# second" where the row does not land. That is the rest of #53.
+# What genuinely needed the injector was narrower: failures that happen *after*
+# something else succeeded. internal/files went 87 -> 91 on those, and the case
+# that mattered was the half of "blob first, row second" where the row does not
+# land -- which turned out to need *both* seams failing, because Write already
+# removes the blob by hand and only a cleanup that fails too leaves the orphan
+# the sweep is for. The injectors are internal/storage/storagetest.FailOn and
+# internal/db/dbtest.FailOn, and every case they enable was checked by turning
+# them off: a test that still passes with no failure injected was testing
+# nothing.
 #
 # internal/media went 84 -> 88 with the embedded-cover parsers (#86): a tag is
 # a byte slice, so every bound and every malformed length is reachable from a
