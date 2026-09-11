@@ -45,6 +45,13 @@ func albumID(artist, album string) string {
 
 func dirID(path string) string { return dirPrefix + idEncoding.EncodeToString([]byte(path)) }
 
+// isSongID and isAlbumID say what kind of thing an id names without decoding
+// it, which is what getCoverArt needs: one endpoint takes ids of four kinds and
+// has to resolve each differently.
+func isSongID(id string) bool { return strings.HasPrefix(id, songPrefix) }
+
+func isAlbumID(id string) bool { return strings.HasPrefix(id, albumPrefix) }
+
 func parseSongID(id string) (int64, bool) {
 	rest, ok := strings.CutPrefix(id, songPrefix)
 	if !ok {

@@ -122,6 +122,17 @@ Two rules make it safe rather than dangerous:
   pointed somewhere new than a library somebody emptied. It logs and does
   nothing.
 
+**Generated files live under a `derived/` prefix in the same store**, and the
+sweep understands them: a thumbnail has no row of its own, so it is garbage
+exactly when the file it was made from is. One rule collects both, including
+after an overwrite, which leaves the old blob orphaned *and* its thumbnails
+filed under a key nothing will look for again.
+
+That prefix is worth knowing about beyond tidiness. Deleting everything under it
+is safe — the pictures are regenerated the next time something asks — and on S3
+it is where a lifecycle rule or a backup policy would treat derived data
+differently from originals.
+
 It runs daily and leaves anything written in the last hour alone. Both are
 `STRATUS_GC_INTERVAL` and `STRATUS_GC_GRACE` if you ever need them: `0` for the
 interval turns the sweep off, and the grace refuses to be `0` at all, since a
@@ -164,8 +175,12 @@ over WebDAV.
 
 What is not there yet, and it is better to know before installing a client:
 
-- **No cover art.** `getCoverArt` answers an error and albums carry no artwork,
-  because nothing extracts an embedded picture yet.
+- **Cover art comes from the folder, not from inside the files.** A
+  `cover.jpg`, `folder.jpg` or `front.jpg` beside the tracks is found, reduced
+  and served; a picture embedded in a FLAC or an MP4 is not read yet, because
+  the trimmed `ffmpeg` in the image carries no audio demuxers. Albums always
+  advertise a `coverArt` id, and asking for one that is not there is answered
+  as "there is none" — which is what a client draws a placeholder for.
 - **No favourites, ratings, play counts or playlists.** Those are user state,
   which means tables that do not exist. `scrobble` is not implemented, so
   nothing counts a play either.
@@ -410,14 +425,16 @@ Working now:
 - WebDAV, behind HTTP Basic with a global limit on failed logins.
 - OpenSubsonic: browsing by tag and by folder, search, the album lists a home
   screen is made of, and streaming -- over both of the protocol's
-  authentication schemes and sharing that same limit. No cover art, no user
-  state, no transcoding, and no client has been tried against it yet.
+  authentication schemes and sharing that same limit, with cover art from the
+  folder beside the music. No embedded artwork, no user state, no transcoding,
+  and no client has been tried against it yet.
 - EXIF, audio tags and video probing, indexed in the background.
 - A request log, migrations applied at startup, and a container asserted from
-  the outside by 47 smoke checks.
+  the outside by 48 smoke checks.
 
-Not there yet: CalDAV, the web UI, thumbnails and sharing -- and on the music
-side, cover art and anything that remembers what the user did. Work
+Not there yet: CalDAV, the web UI, photo thumbnails and sharing -- and on the
+music side, artwork embedded in the files and anything that remembers what the
+user did. Work
 and the decisions behind it are tracked on the
 [Stratus project board](https://github.com/users/C0piIot/projects/2), where
 `Priority` says when and the `decision` label says what still needs a call.

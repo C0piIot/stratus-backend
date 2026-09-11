@@ -129,7 +129,12 @@ func (a *App) Handler(deps Deps) http.Handler {
 		// from the query string rather than through auth.Basic, and a second
 		// NewThrottle here would give an attacker a second budget of guesses at
 		// the one password this server has.
-		mux.Handle(subsonicPrefix, subsonic.Handler(subsonicPrefix, a.version, verifier, deps.Database, service))
+		// Thumbnails are made from the blob store and kept in it, so the
+		// generator takes the store directly: a derived object has no database
+		// row and never will.
+		thumbs := media.NewThumbs(deps.Storage, service)
+		mux.Handle(subsonicPrefix,
+			subsonic.Handler(subsonicPrefix, a.version, verifier, deps.Database, service, thumbs))
 	}
 	return logRequests(mux)
 }

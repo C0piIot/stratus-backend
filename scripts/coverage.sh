@@ -32,8 +32,8 @@ internal/app:94
 internal/auth:100
 internal/config:100
 internal/dav:80
-internal/files:86
-internal/media:81
+internal/files:87
+internal/media:84
 internal/db:61
 internal/db/postgres:94
 internal/db/sqlite:94
@@ -77,6 +77,13 @@ internal/subsonic:100
 # does no I/O of its own beyond writing a response, so every branch is reachable
 # from httptest -- the two that report a client hanging up mid-response included,
 # through a ResponseWriter that fails on demand.
+#
+# internal/files went 86 -> 87 and internal/media 81 -> 84 with thumbnails
+# (#45): the sweep's new rule and the resize arithmetic are both pure functions
+# of their input, so the branches that matter are reachable without a backend
+# that fails on demand. internal/media also gained its own tests for a path
+# that a protocol adapter exercises -- coverage of it counts against the
+# package the test lives in, not the one the code does.
 #
 # internal/media is lower than the rest because running ffprobe cannot be tested
 # where there is no ffprobe. Interpreting its output is tested against captured

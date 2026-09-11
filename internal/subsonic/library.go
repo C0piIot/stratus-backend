@@ -81,6 +81,11 @@ type albumRef struct {
 	Created   string `xml:"created,attr" json:"created"`
 	Year      int    `xml:"year,attr,omitempty" json:"year,omitempty"`
 	Genre     string `xml:"genre,attr,omitempty" json:"genre,omitempty"`
+	// CoverArt is the id to ask getCoverArt for, and it is the album's own:
+	// sent whether or not there is a picture, because finding out costs a
+	// directory listing per album and a client already draws a placeholder
+	// when the answer is nothing. Every server does the same.
+	CoverArt string `xml:"coverArt,attr,omitempty" json:"coverArt,omitempty"`
 }
 
 // albumDetail is getAlbum: the same album with its tracks.
@@ -123,6 +128,7 @@ type child struct {
 	BitRate     int    `xml:"bitRate,attr,omitempty" json:"bitRate,omitempty"`
 	Path        string `xml:"path,attr,omitempty" json:"path,omitempty"`
 	Created     string `xml:"created,attr,omitempty" json:"created,omitempty"`
+	CoverArt    string `xml:"coverArt,attr,omitempty" json:"coverArt,omitempty"`
 	// Type is "music" for a track. The other values in the schema are for
 	// surfaces this server does not have.
 	Type string `xml:"type,attr,omitempty" json:"type,omitempty"`
@@ -155,6 +161,10 @@ func songOf(t db.Track) child {
 	if t.Media.AlbumArtist != "" && t.Media.Album != "" {
 		c.AlbumID = albumID(t.Media.AlbumArtist, t.Media.Album)
 		c.ArtistID = artistID(t.Media.AlbumArtist)
+		// The album's picture and not the track's: a folder holds one cover for
+		// the record, so every track asking for its own would be the same
+		// listing done once per row.
+		c.CoverArt = c.AlbumID
 	}
 	if t.Media.DurationMS > 0 {
 		c.BitRate = int(t.File.Size * 8 / t.Media.DurationMS)
@@ -165,11 +175,12 @@ func songOf(t db.Track) child {
 // folderOf renders a directory row as a Child.
 func folderOf(f db.File) child {
 	return child{
-		ID:      dirID(f.Path),
-		Parent:  dirID(db.ParentOf(f.Path)),
-		IsDir:   true,
-		Title:   path.Base(f.Path),
-		Created: stamp(f.MTime),
+		ID:       dirID(f.Path),
+		Parent:   dirID(db.ParentOf(f.Path)),
+		IsDir:    true,
+		Title:    path.Base(f.Path),
+		Created:  stamp(f.MTime),
+		CoverArt: dirID(f.Path),
 	}
 }
 
@@ -184,6 +195,7 @@ func albumOf(a db.Album) albumRef {
 		Created:   stamp(a.Created),
 		Year:      a.Year,
 		Genre:     a.Genre,
+		CoverArt:  albumID(a.Artist, a.Name),
 	}
 }
 
@@ -207,6 +219,7 @@ func albumChild(a db.Album) child {
 		Genre:    a.Genre,
 		Duration: seconds(a.DurationMS),
 		Created:  stamp(a.Created),
+		CoverArt: albumID(a.Artist, a.Name),
 	}
 }
 

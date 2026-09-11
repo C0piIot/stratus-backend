@@ -158,3 +158,96 @@ func TestCollectRefusesAnEmptyIndex(t *testing.T) {
 		t.Error("it deleted something anyway")
 	}
 }
+
+// TestCollectKeepsDerivedObjectsAlive is the rule this sweep gained with
+// thumbnails, and the reason it is not optional.
+//
+// A derived object has no row of its own and never will. Without the rule, every
+// thumbnail would be swept an hour after it was made and the lazy path would
+// generate it again -- forever. That failure has no symptom: nothing is wrong,
+// nothing is missing, and the cost shows up in a CPU graph and an egress bill
+// rather than in a log.
+func TestCollectKeepsDerivedObjectsAlive(t *testing.T) {
+	t.Parallel()
+	s, blobs := service(t)
+
+	live := write(t, s, "photo.jpg", "the original")
+	derived := files.DerivedKey(live.BlobKey, "300.jpg")
+	if _, err := blobs.Put(t.Context(), derived, strings.NewReader("a thumbnail"), -1); err != nil {
+		t.Fatal(err)
+	}
+
+	// No grace at all, so age cannot be what saves it.
+	done, err := s.Collect(t.Context(), 0)
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	if done.Deleted != 0 {
+		t.Errorf("Collect deleted %d objects from a library with no garbage in it", done.Deleted)
+	}
+	if _, err := blobs.Stat(t.Context(), derived); err != nil {
+		t.Errorf("the thumbnail of a live file was collected: %v", err)
+	}
+}
+
+// TestCollectSweepsDerivedObjectsWithTheirParent is the other half, and the
+// case a key convention buys over a table: the derived key carries its
+// parent's, so one rule collects both -- including after an overwrite, which
+// leaves the old blob orphaned and its thumbnails filed under a key nothing
+// will ever look for again.
+func TestCollectSweepsDerivedObjectsWithTheirParent(t *testing.T) {
+	t.Parallel()
+	s, blobs := service(t)
+
+	first := write(t, s, "photo.jpg", "version one")
+	orphaned := files.DerivedKey(first.BlobKey, "300.jpg")
+	if _, err := blobs.Put(t.Context(), orphaned, strings.NewReader("a thumbnail"), -1); err != nil {
+		t.Fatal(err)
+	}
+
+	second := write(t, s, "photo.jpg", "version two")
+	kept := files.DerivedKey(second.BlobKey, "300.jpg")
+	if _, err := blobs.Put(t.Context(), kept, strings.NewReader("the new thumbnail"), -1); err != nil {
+		t.Fatal(err)
+	}
+
+	done, err := s.Collect(t.Context(), 0)
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	// The overwritten blob and its thumbnail, and nothing else.
+	if done.Deleted != 2 {
+		t.Errorf("Collect deleted %d objects, want the old blob and its thumbnail", done.Deleted)
+	}
+	if _, err := blobs.Stat(t.Context(), orphaned); !errors.Is(err, storage.ErrNotFound) {
+		t.Errorf("the thumbnail of the overwritten blob survived: %v", err)
+	}
+	if _, err := blobs.Stat(t.Context(), kept); err != nil {
+		t.Errorf("the live file's thumbnail was collected: %v", err)
+	}
+	if _, err := blobs.Stat(t.Context(), second.BlobKey); err != nil {
+		t.Errorf("the live blob was collected: %v", err)
+	}
+}
+
+// TestCollectLeavesAnUnparseableDerivedKeyAlone is the conservative half of the
+// rule: an object directly under the prefix names no parent, so nothing can say
+// whether it is garbage. Deleting what cannot be judged is how a sweep becomes
+// the thing that loses data.
+func TestCollectLeavesAnUnparseableDerivedKeyAlone(t *testing.T) {
+	t.Parallel()
+	s, blobs := service(t)
+
+	write(t, s, "photo.jpg", "the original")
+	stray := files.DerivedPrefix + "stray"
+	if _, err := blobs.Put(t.Context(), stray, strings.NewReader("?"), -1); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := s.Collect(t.Context(), 0); err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	if _, err := blobs.Stat(t.Context(), stray); err != nil {
+		t.Errorf("an object nothing can judge was deleted: %v", err)
+	}
+}

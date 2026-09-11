@@ -503,6 +503,29 @@ TRACK
     bad "OpenSubsonic finds it with an empty search" "got '$body'"
   fi
 
+  # Cover art, which is a thumbnail made on demand and kept in the blob store.
+  # A real 400x400 JPEG uploaded over WebDAV like anything else, so what is
+  # asserted is the whole path from outside the container: a picture found in a
+  # folder by name, decoded, reduced and served.
+  curl -fsS -u "$davuser:$davpass" -X PUT --data-binary "@scripts/testdata/cover.jpg" \
+    "http://$davhost/dav/cover.jpg" >/dev/null 2>&1
+  coverfile="$(mktmp)/cover.jpg"
+  code="$(curl -s -o "$coverfile" -w '%{http_code} %{content_type}' \
+    "http://$davhost/rest/getCoverArt.view?c=smoke&u=$davuser&t=$token&s=$salt&id=d-&size=96")"
+  # Smaller than the 2 KB that went in, because it was reduced to 96 pixels,
+  # and still a JPEG: a passthrough of the original would be the same size.
+  coversize="$(stat -c '%s' "$coverfile" 2>/dev/null || echo 0)"
+  case "$code" in
+    "200 image/jpeg"*)
+      if [ "$coversize" -gt 100 ] && [ "$coversize" -lt 2102 ]; then
+        ok "getCoverArt reduces a picture found beside the music ($coversize bytes)"
+      else
+        bad "getCoverArt reduces a picture found beside the music" "$coversize bytes"
+      fi
+      ;;
+    *) bad "getCoverArt reduces a picture found beside the music" "got '$code'" ;;
+  esac
+
   # One line per request, which is the only way to see a 401 or a 409 after the
   # fact. The healthcheck is deliberately not in there.
   #

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/C0piIot/stratus-backend/internal/db"
@@ -49,10 +50,20 @@ func indexer(t *testing.T) (*Indexer, *files.Service, db.Store) {
 
 func write(t *testing.T, s *files.Service, path string, body []byte, mimeType string) db.File {
 	t.Helper()
-	// The tree invariant applies here too: a file needs its directory.
-	if dir := db.ParentOf(path); dir != "" {
-		if _, err := s.Mkdir(t.Context(), owner, dir); err != nil {
-			t.Fatalf("Mkdir(%q): %v", dir, err)
+	// The tree invariant applies here too: a file needs its directory, and
+	// every directory above it. Made one segment at a time and tolerant of one
+	// that is already there, so a case can write two files into one folder.
+	var built string
+	for seg := range strings.SplitSeq(db.ParentOf(path), "/") {
+		if seg == "" {
+			continue
+		}
+		if built != "" {
+			built += "/"
+		}
+		built += seg
+		if _, err := s.Mkdir(t.Context(), owner, built); err != nil && !errors.Is(err, db.ErrConflict) {
+			t.Fatalf("Mkdir(%q): %v", built, err)
 		}
 	}
 	f, err := s.Write(t.Context(), owner, path, bytes.NewReader(body), int64(len(body)), mimeType)
