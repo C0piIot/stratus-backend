@@ -1,5 +1,11 @@
 package app
 
+// The startup checks that need a blob store which misbehaves, and the one fake
+// that serves them.
+//
+// TestDepsClose lives here rather than beside Deps because it shares that fake:
+// splitting them by the name of the function under test would leave the fixture
+// in a file that no longer says why it exists.
 import (
 	"bytes"
 	"context"

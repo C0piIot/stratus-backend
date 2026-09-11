@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/C0piIot/stratus-backend/internal/app"
@@ -131,4 +132,87 @@ func TestHealthzIgnoresDependencies(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Errorf("GET /healthz with both dependencies gone = %d, want 200", rec.Code)
 	}
+}
+
+func TestHealthURL(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		addr    string
+		want    string
+		wantErr bool
+	}{
+		{name: "port only maps to loopback", addr: ":8080", want: "http://127.0.0.1:8080/healthz"},
+		{name: "ipv4 wildcard maps to loopback", addr: "0.0.0.0:8080", want: "http://127.0.0.1:8080/healthz"},
+		{name: "ipv6 wildcard maps to loopback", addr: "[::]:8080", want: "http://127.0.0.1:8080/healthz"},
+		{name: "explicit host is kept", addr: "127.0.0.1:9000", want: "http://127.0.0.1:9000/healthz"},
+		{name: "ipv6 literal is bracketed", addr: "[::1]:9000", want: "http://[::1]:9000/healthz"},
+		{name: "hostname is kept", addr: "stratus.local:80", want: "http://stratus.local:80/healthz"},
+		{name: "missing port is an error", addr: "127.0.0.1", wantErr: true},
+		{name: "garbage is an error", addr: "not an address", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := app.HealthURL(tt.addr)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("HealthURL(%q) = %q, want error", tt.addr, got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("HealthURL(%q): %v", tt.addr, err)
+			}
+			if got != tt.want {
+				t.Errorf("HealthURL(%q) = %q, want %q", tt.addr, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestProbe(t *testing.T) {
+	t.Parallel()
+
+	t.Run("healthy server", func(t *testing.T) {
+		t.Parallel()
+		srv := httptest.NewServer(app.New(testConfig(t), "test").Handler(app.Deps{}))
+		defer srv.Close()
+		if err := app.Probe(strings.TrimPrefix(srv.URL, "http://")); err != nil {
+			t.Errorf("Probe: %v", err)
+		}
+	})
+
+	t.Run("unhealthy status is an error", func(t *testing.T) {
+		t.Parallel()
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusInternalServerError)
+		}))
+		defer srv.Close()
+		err := app.Probe(strings.TrimPrefix(srv.URL, "http://"))
+		if err == nil {
+			t.Fatal("Probe succeeded against a 500")
+		}
+		if !strings.Contains(err.Error(), "500") {
+			t.Errorf("error should mention the status, got %v", err)
+		}
+	})
+
+	t.Run("nothing listening is an error", func(t *testing.T) {
+		t.Parallel()
+		// Bind then immediately close to get a port nothing is listening on.
+		srv := httptest.NewServer(app.New(testConfig(t), "test").Handler(app.Deps{}))
+		hostPort := strings.TrimPrefix(srv.URL, "http://")
+		srv.Close()
+		if err := app.Probe(hostPort); err == nil {
+			t.Error("Probe succeeded with nothing listening")
+		}
+	})
+
+	t.Run("bad address is an error", func(t *testing.T) {
+		t.Parallel()
+		if err := app.Probe("not an address"); err == nil {
+			t.Error("Probe succeeded on a malformed address")
+		}
+	})
 }
