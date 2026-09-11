@@ -340,15 +340,193 @@ func TestWithoutAnAuthenticatedUser(t *testing.T) {
 	// PROPFIND goes with an empty body: a body that is not XML is rejected
 	// before the request ever reaches the backend, which would test the parser
 	// rather than the check.
-	for _, tt := range []struct{ method, body string }{
-		{http.MethodGet, ""},
-		{http.MethodPut, "x"},
-		{"MKCOL", ""},
-		{"PROPFIND", ""},
+	// Every entry point, not a sample of them: the check sits in each one, so
+	// one that forgot it would be the one nobody listed here.
+	for _, tt := range []struct {
+		method, body string
+		headers      []string
+	}{
+		{method: http.MethodGet},
+		{method: http.MethodPut, body: "x"},
+		{method: http.MethodDelete},
+		{method: "MKCOL"},
+		{method: "PROPFIND"},
+		{method: "MOVE", headers: []string{"Destination", "/dav/moved.txt"}},
+		{method: "COPY", headers: []string{"Destination", "/dav/copied.txt"}},
 	} {
-		rec := do(t, h, tt.method, "/dav/notes.txt", tt.body)
+		rec := do(t, h, tt.method, "/dav/notes.txt", tt.body, tt.headers...)
 		if rec.Code != http.StatusUnauthorized {
 			t.Errorf("%s with no user = %d, want 401", tt.method, rec.Code)
 		}
+	}
+}
+
+// TestConditionalDelete is the other place the conditional headers are read.
+// A client that deletes what it believes it has read is protecting itself from
+// removing somebody else's change, and RemoveAll has to honour that the way PUT
+// does.
+func TestConditionalDelete(t *testing.T) {
+	t.Parallel()
+	h := server(t)
+	do(t, h, http.MethodPut, "/dav/notes.txt", "first")
+	etag := do(t, h, http.MethodGet, "/dav/notes.txt", "").Header().Get("ETag")
+
+	if got := do(t, h, http.MethodDelete, "/dav/notes.txt", "", "If-Match", `"stale"`).Code; got != http.StatusPreconditionFailed {
+		t.Errorf("DELETE with a stale If-Match = %d, want 412", got)
+	}
+	if got := do(t, h, http.MethodGet, "/dav/notes.txt", "").Code; got != http.StatusOK {
+		t.Error("the refused DELETE removed the file anyway")
+	}
+
+	if got := do(t, h, http.MethodDelete, "/dav/notes.txt", "", "If-Match", etag).Code; got != http.StatusNoContent {
+		t.Errorf("DELETE with a matching If-Match = %d, want 204", got)
+	}
+	if got := do(t, h, http.MethodGet, "/dav/notes.txt", "").Code; got != http.StatusNotFound {
+		t.Error("the file survived a delete that was allowed")
+	}
+}
+
+// TestCopyEdges covers what COPY does that MOVE does not: it refuses a
+// collection outright, and it reports 201 or 204 depending on whether the
+// destination was there.
+func TestCopyEdges(t *testing.T) {
+	t.Parallel()
+	h := server(t)
+	do(t, h, "MKCOL", "/dav/album", "")
+	do(t, h, http.MethodPut, "/dav/album/one.txt", "one")
+	do(t, h, http.MethodPut, "/dav/two.txt", "two")
+
+	// Copying a collection means walking a tree and writing every blob in it,
+	// which is #43's subject. Answering 501 is the honest refusal.
+	if got := do(t, h, "COPY", "/dav/album", "", "Destination", "/dav/copy").Code; got != http.StatusNotImplemented {
+		t.Errorf("COPY of a collection = %d, want 501", got)
+	}
+	// A destination that does not exist yet is created, which is 201.
+	if got := do(t, h, "COPY", "/dav/two.txt", "", "Destination", "/dav/three.txt").Code; got != http.StatusCreated {
+		t.Errorf("COPY to a new path = %d, want 201", got)
+	}
+	// Over something that does exist it is 204, and the bytes are the source's.
+	if got := do(t, h, "COPY", "/dav/album/one.txt", "", "Destination", "/dav/three.txt").Code; got != http.StatusNoContent {
+		t.Errorf("COPY over an existing file = %d, want 204", got)
+	}
+	if got := do(t, h, http.MethodGet, "/dav/three.txt", "").Body.String(); got != "one" {
+		t.Errorf("the copy reads %q, want the source", got)
+	}
+	// And Overwrite: F refuses rather than replacing.
+	if got := do(t, h, "COPY", "/dav/two.txt", "", "Destination", "/dav/three.txt", "Overwrite", "F").Code; got != http.StatusPreconditionFailed {
+		t.Errorf("COPY with Overwrite: F onto an existing file = %d, want 412", got)
+	}
+	if got := do(t, h, http.MethodGet, "/dav/three.txt", "").Body.String(); got != "one" {
+		t.Errorf("the refused COPY wrote anyway: %q", got)
+	}
+	// The source is still there, which is the whole difference from MOVE.
+	if got := do(t, h, http.MethodGet, "/dav/album/one.txt", "").Code; got != http.StatusOK {
+		t.Error("COPY removed the source")
+	}
+}
+
+// TestMoveOntoACollection is a destructive operation the specification
+// requires: RFC 4918 9.9.3 says a MOVE with overwrite allowed performs a DELETE
+// with infinite depth on the destination first. So the collection goes, and
+// what this pins is that it goes *whole* -- a row left under a path that is now
+// a file would be a subtree nothing can reach and nothing can delete.
+func TestMoveOntoACollection(t *testing.T) {
+	t.Parallel()
+	h := server(t)
+	do(t, h, "MKCOL", "/dav/album", "")
+	do(t, h, http.MethodPut, "/dav/album/one.txt", "one")
+	do(t, h, http.MethodPut, "/dav/two.txt", "two")
+
+	// Overwrite: F is how a client says it did not mean that.
+	if got := do(t, h, "MOVE", "/dav/two.txt", "", "Destination", "/dav/album", "Overwrite", "F").Code; got != http.StatusPreconditionFailed {
+		t.Errorf("MOVE with Overwrite: F onto a collection = %d, want 412", got)
+	}
+	if got := do(t, h, http.MethodGet, "/dav/album/one.txt", "").Code; got != http.StatusOK {
+		t.Fatal("the refused MOVE deleted the collection anyway")
+	}
+
+	if got := do(t, h, "MOVE", "/dav/two.txt", "", "Destination", "/dav/album").Code; got != http.StatusNoContent {
+		t.Fatalf("MOVE onto a collection = %d, want 204", got)
+	}
+	if got := do(t, h, http.MethodGet, "/dav/album", "").Body.String(); got != "two" {
+		t.Errorf("the destination reads %q, want the moved file", got)
+	}
+	// And nothing is left underneath a path that is now a file.
+	if got := do(t, h, http.MethodGet, "/dav/album/one.txt", "").Code; got != http.StatusNotFound {
+		t.Errorf("a row survived under the replaced collection: GET = %d", got)
+	}
+}
+
+// TestCopyOutsideTheCollection is destPath's other half, asserted for COPY
+// because MOVE already has it: a destination on somebody else's server is 502
+// rather than a path we quietly rewrite.
+func TestCopyOutsideTheCollection(t *testing.T) {
+	t.Parallel()
+	h := server(t)
+	do(t, h, http.MethodPut, "/dav/one.txt", "one")
+
+	if got := do(t, h, "COPY", "/dav/one.txt", "", "Destination", "/elsewhere/one.txt").Code; got != http.StatusBadGateway {
+		t.Errorf("COPY outside the collection = %d, want 502", got)
+	}
+}
+
+// TestLockDepth is what a client reads back to know what it holds: LOCK defaults
+// to infinite depth and only "0" means this resource alone. Answering the wrong
+// one is not a lie about a lock we keep -- we keep none -- but it is a lie about
+// the answer, and a client that parses it deserves the truth.
+func TestLockDepth(t *testing.T) {
+	t.Parallel()
+	h := server(t)
+	do(t, h, http.MethodPut, "/dav/notes.txt", "one")
+
+	const body = `<?xml version="1.0"?><D:lockinfo xmlns:D="DAV:">` +
+		`<D:lockscope><D:exclusive/></D:lockscope><D:locktype><D:write/></D:locktype></D:lockinfo>`
+
+	deep := do(t, h, "LOCK", "/dav/notes.txt", body, "Content-Type", "application/xml")
+	if !strings.Contains(deep.Body.String(), "<D:depth>infinity</D:depth>") {
+		t.Errorf("LOCK with no Depth header answered %s", deep.Body.String())
+	}
+	shallow := do(t, h, "LOCK", "/dav/notes.txt", body, "Content-Type", "application/xml", "Depth", "0")
+	if !strings.Contains(shallow.Body.String(), "<D:depth>0</D:depth>") {
+		t.Errorf("LOCK with Depth: 0 answered %s", shallow.Body.String())
+	}
+}
+
+// TestLockOfANameThatNeedsEscaping: the lock root is a URL written into XML by
+// hand, so a name with an ampersand in it is where that goes wrong -- and a
+// malformed document is worse than no lock at all, because a client cannot
+// parse its way out of it.
+func TestLockOfANameThatNeedsEscaping(t *testing.T) {
+	t.Parallel()
+	h := server(t)
+	// Percent-encoded because a raw space is not a request target; the
+	// ampersand is legal in a path and is the character under test.
+	const target = "/dav/rock%20&%20roll.txt"
+	do(t, h, http.MethodPut, target, "one")
+
+	const body = `<?xml version="1.0"?><D:lockinfo xmlns:D="DAV:">` +
+		`<D:lockscope><D:exclusive/></D:lockscope><D:locktype><D:write/></D:locktype></D:lockinfo>`
+	rec := do(t, h, "LOCK", target, body, "Content-Type", "application/xml")
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("LOCK = %d", rec.Code)
+	}
+	if strings.Contains(rec.Body.String(), "roll & rock") || strings.Contains(rec.Body.String(), "& roll") {
+		t.Errorf("the ampersand reached the document unescaped: %s", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "&amp;") {
+		t.Errorf("the lock root is not escaped: %s", rec.Body.String())
+	}
+}
+
+// TestContentTypeIgnoresTheCaseOfTheExtension, because a camera writes IMG.JPG
+// and a distroless image has no table to fall back on.
+func TestContentTypeIgnoresTheCaseOfTheExtension(t *testing.T) {
+	t.Parallel()
+	h := server(t)
+	do(t, h, http.MethodPut, "/dav/IMG_0001.HEIC", "not really a heic")
+
+	if got := do(t, h, http.MethodGet, "/dav/IMG_0001.HEIC", "").Header().Get("Content-Type"); got != "image/heic" {
+		t.Errorf("Content-Type = %q, want image/heic", got)
 	}
 }
