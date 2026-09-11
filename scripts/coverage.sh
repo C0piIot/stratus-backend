@@ -31,7 +31,7 @@ FLOORS="
 internal/app:94
 internal/auth:100
 internal/config:100
-internal/dav:80
+internal/dav:89
 internal/files:87
 internal/media:88
 internal/db:61
@@ -39,7 +39,7 @@ internal/db/postgres:94
 internal/db/sqlite:94
 internal/db/sqlutil:95
 internal/storage:98
-internal/storage/disk:83
+internal/storage/disk:90
 internal/storage/s3:88
 internal/subsonic:100
 "
@@ -77,6 +77,21 @@ internal/subsonic:100
 # does no I/O of its own beyond writing a response, so every branch is reachable
 # from httptest -- the two that report a client hanging up mid-response included,
 # through a ResponseWriter that fails on demand.
+#
+# internal/dav went 80 -> 89 and internal/storage/disk 83 -> 90 with #53, and
+# how says more than the number. That issue's premise was that the floors were
+# low because nothing here can be made to fail on demand, and it proposed a
+# fault injector over the two ports. Measured, the two lowest floors in the
+# project needed no such thing: dav's gaps were conditional-request combinations
+# and an error table, both reachable from an ordinary request or from a unit
+# test of the two pure functions involved; disk's were the operating system
+# refusing, which a test provokes with an awkward path and a chmod -- and a
+# wrapper around storage.Storage cannot help the package that *is*
+# storage.Storage anyway.
+#
+# What genuinely needs the injector is narrower: failures that happen *after*
+# something else succeeded, chief among them the half of "blob first, row
+# second" where the row does not land. That is the rest of #53.
 #
 # internal/media went 84 -> 88 with the embedded-cover parsers (#86): a tag is
 # a byte slice, so every bound and every malformed length is reachable from a
