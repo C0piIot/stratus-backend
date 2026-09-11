@@ -413,14 +413,16 @@ func TestWebUIIsWired(t *testing.T) {
 	})
 	defer stop()
 
-	// The root wants a session, and says where the browser was going.
+	// The root is the tree, and the tree wants a session.
 	resp := request(t, http.MethodGet, base+"/")
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusSeeOther {
-		t.Errorf("GET / = %d, want 303 to the login form", resp.StatusCode)
+	if resp.StatusCode != http.StatusSeeOther || resp.Header.Get("Location") != "/files/" {
+		t.Errorf("GET / = %d to %q, want 303 to /files/", resp.StatusCode, resp.Header.Get("Location"))
 	}
-	if got := resp.Header.Get("Location"); got != "/login?next=%2F" {
-		t.Errorf("Location = %q", got)
+	tree := request(t, http.MethodGet, base+"/files/")
+	defer func() { _ = tree.Body.Close() }()
+	if got := tree.Header.Get("Location"); got != "/login?next=%2Ffiles%2F" {
+		t.Errorf("GET /files/ without a session went to %q, want the login form", got)
 	}
 
 	// The form is served from the binary, Bootstrap and all.

@@ -548,10 +548,10 @@ TRACK
   # here is the whole round trip through the shipped binary.
   jar="$(mktmp)/cookies"
 
-  code="$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' "http://$davhost/")"
+  code="$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' "http://$davhost/files/")"
   case "$code" in
-    "303 http://$davhost/login?next=%2F") ok "the root asks a browser to sign in" ;;
-    *) bad "the root asks a browser to sign in" "got '$code'" ;;
+    "303 http://$davhost/login?next=%2Ffiles%2F") ok "the tree asks a browser to sign in" ;;
+    *) bad "the tree asks a browser to sign in" "got '$code'" ;;
   esac
 
   body="$(curl -fsS "http://$davhost/login" 2>/dev/null || true)"
@@ -582,10 +582,34 @@ TRACK
     *) bad "signing in sets a session cookie" "got '$cookie'" ;;
   esac
 
-  body="$(curl -fsS -b "$jar" "http://$davhost/" 2>/dev/null || true)"
-  case "$body" in
-    *"Signed in as $davuser"*) ok "the session opens the page" ;;
-    *)                         bad "the session opens the page" "got '$(head -c 120 <<<"$body")'" ;;
+  # -L: the root is a signpost to the tree, so following it is the assertion
+  # that both halves are wired. What comes back is the listing of files this
+  # very script put in over WebDAV -- the same tree, reached two ways.
+  body="$(curl -fsSL -b "$jar" "http://$davhost/" 2>/dev/null || true)"
+  missing=""
+  for f in notes.txt track.mp3 cover.jpg; do
+    case "$body" in *">$f<"*) ;; *) missing="$missing $f" ;; esac
+  done
+  signed_in=""
+  case "$body" in *">$davuser<"*) signed_in=yes ;; esac
+  if [ -z "$missing" ] && [ -n "$signed_in" ]; then
+    ok "the session opens the tree, and it lists what WebDAV uploaded"
+  else
+    bad "the session opens the tree" "missing:${missing:- nothing}, $(head -c 120 <<<"$body")"
+  fi
+
+  # Opening a file hands over the bytes, as an attachment: this origin serves
+  # the UI, and somebody's upload is not the UI's to render inside it.
+  headers="$(curl -s -D - -o /dev/null -b "$jar" "http://$davhost/files/notes.txt")"
+  downloaded="$(curl -s -b "$jar" "http://$davhost/files/notes.txt")"
+  case "$headers" in
+    *[Cc]ontent-[Dd]isposition*attachment*)
+      if [ "$downloaded" = "smoke" ]; then
+        ok "opening a file downloads the stored bytes"
+      else
+        bad "opening a file downloads the stored bytes" "got '$downloaded'"
+      fi ;;
+    *) bad "opening a file downloads it as an attachment" "$(grep -i '^content-' <<<"$headers" | tr -d '\r' | tr '\n' ' ')" ;;
   esac
 
   # The CSRF defence, from outside: a form on somebody else's page carries the

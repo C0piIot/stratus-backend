@@ -29,7 +29,7 @@ var staticFS embed.FS
 
 const (
 	pageLogin = "login.html"
-	pageHome  = "home.html"
+	pageFiles = "files.html"
 	pageError = "error.html"
 )
 
@@ -38,7 +38,7 @@ const (
 // what lets the layout call it.
 var pages = map[string]*template.Template{
 	pageLogin: parse(pageLogin),
-	pageHome:  parse(pageHome),
+	pageFiles: parse(pageFiles),
 	pageError: parse(pageError),
 }
 
@@ -61,6 +61,10 @@ type view struct {
 	Error    string
 	Message  string
 	Next     string
+	// Crumbs and Entries are the file listing: the trail back to the root, and
+	// what is in this directory.
+	Crumbs  []crumb
+	Entries []entry
 }
 
 // render writes a whole page or none of it. The buffer is the point: a template

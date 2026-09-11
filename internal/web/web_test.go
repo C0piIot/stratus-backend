@@ -5,10 +5,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/C0piIot/stratus-backend/internal/auth"
+	"github.com/C0piIot/stratus-backend/internal/db/sqlite"
+	"github.com/C0piIot/stratus-backend/internal/files"
+	"github.com/C0piIot/stratus-backend/internal/storage/disk"
 	"github.com/C0piIot/stratus-backend/internal/web"
 )
 
@@ -24,15 +28,48 @@ func credentials() auth.Credentials {
 	return auth.Credentials{Username: username, Password: examplePassword}
 }
 
-// newHandler builds the UI over the real credentials. A nil verifier means
-// those same credentials, which is what the server does.
+// newHandler builds the UI over the real credentials and an empty tree. A nil
+// verifier means those same credentials, which is what the server does.
 func newHandler(t *testing.T, v auth.Verifier) http.Handler {
 	t.Helper()
 	creds := credentials()
 	if v == nil {
 		v = creds
 	}
-	return web.Handler(version, v, auth.NewSessions(creds, auth.DefaultSessionTTL))
+	return web.Handler(version, v, auth.NewSessions(creds, auth.DefaultSessionTTL), service(t))
+}
+
+// browser is newHandler and the service behind it, for the tests that have to
+// put something in the tree before they can browse it.
+func browser(t *testing.T) (http.Handler, *files.Service) {
+	t.Helper()
+	s := service(t)
+	creds := credentials()
+	return web.Handler(version, creds, auth.NewSessions(creds, auth.DefaultSessionTTL), s), s
+}
+
+// service is the real file layer over real backends in a temporary directory,
+// for the reason internal/dav's tests give: an adapter tested only against
+// fakes tests the fakes.
+func service(t *testing.T) *files.Service {
+	t.Helper()
+	dir := t.TempDir()
+
+	blobs, err := disk.New(filepath.Join(dir, "blobs"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = blobs.Close() })
+
+	meta, err := sqlite.New(t.Context(), filepath.Join(dir, "stratus.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = meta.Close() })
+	if err := meta.Migrate(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	return files.New(blobs, meta)
 }
 
 // refusing answers every login with one error, for the arms a correct password
@@ -89,32 +126,44 @@ func signIn(t *testing.T, h http.Handler) *http.Cookie {
 	return c
 }
 
-func TestHomeNeedsASession(t *testing.T) {
+func TestBrowsingNeedsASession(t *testing.T) {
 	t.Parallel()
 	h := newHandler(t, nil)
 
-	rec := get(t, h, "/")
+	rec := get(t, h, "/files/")
 	if rec.Code != http.StatusSeeOther {
-		t.Fatalf("GET / without a session = %d, want 303", rec.Code)
+		t.Fatalf("GET /files/ without a session = %d, want 303", rec.Code)
 	}
-	if got := rec.Header().Get("Location"); got != "/login?next=%2F" {
+	if got := rec.Header().Get("Location"); got != "/login?next=%2Ffiles%2F" {
 		t.Errorf("Location = %q, want the login form with where we were going", got)
 	}
-	if body := rec.Body.String(); strings.Contains(body, "Signed in") {
-		t.Error("the home page was rendered to somebody with no session")
+	if body := rec.Body.String(); strings.Contains(body, "breadcrumb") {
+		t.Error("the listing was rendered to somebody with no session")
 	}
 }
 
-func TestHomeWithASession(t *testing.T) {
+// TestTheRootIsTheTree: one canonical URL per directory, so "/" is a signpost
+// rather than a second page listing the same thing.
+func TestTheRootIsTheTree(t *testing.T) {
 	t.Parallel()
 	h := newHandler(t, nil)
 
 	rec := get(t, h, "/", signIn(t, h))
+	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/files/" {
+		t.Errorf("GET / = %d to %q, want 303 to /files/", rec.Code, rec.Header().Get("Location"))
+	}
+}
+
+func TestThePageAroundTheListing(t *testing.T) {
+	t.Parallel()
+	h := newHandler(t, nil)
+
+	rec := get(t, h, "/files/", signIn(t, h))
 	if rec.Code != http.StatusOK {
-		t.Fatalf("GET / with a session = %d, want 200", rec.Code)
+		t.Fatalf("GET /files/ with a session = %d, want 200", rec.Code)
 	}
 	body := rec.Body.String()
-	if !strings.Contains(body, "Signed in as "+username) {
+	if !strings.Contains(body, ">"+username+"<") {
 		t.Error("the page does not say who is signed in")
 	}
 	// The sign-out form is the only way out, so its absence is a bug rather
@@ -138,11 +187,12 @@ func TestASessionFromAnotherPasswordIsNotOne(t *testing.T) {
 	before := signIn(t, newHandler(t, nil))
 
 	after := web.Handler(version, credentials(),
-		auth.NewSessions(auth.Credentials{Username: username, Password: "example a different one"}, auth.DefaultSessionTTL))
+		auth.NewSessions(auth.Credentials{Username: username, Password: "example a different one"}, auth.DefaultSessionTTL),
+		service(t))
 
-	rec := get(t, after, "/", before)
+	rec := get(t, after, "/files/", before)
 	if rec.Code != http.StatusSeeOther {
-		t.Errorf("GET / with a stale cookie = %d, want 303 to the login form", rec.Code)
+		t.Errorf("GET /files/ with a stale cookie = %d, want 303 to the login form", rec.Code)
 	}
 }
 
