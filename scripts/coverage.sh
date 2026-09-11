@@ -33,7 +33,7 @@ internal/auth:100
 internal/config:100
 internal/dav:80
 internal/files:87
-internal/media:84
+internal/media:88
 internal/db:61
 internal/db/postgres:94
 internal/db/sqlite:94
@@ -77,6 +77,12 @@ internal/subsonic:100
 # does no I/O of its own beyond writing a response, so every branch is reachable
 # from httptest -- the two that report a client hanging up mid-response included,
 # through a ResponseWriter that fails on demand.
+#
+# internal/media went 84 -> 88 with the embedded-cover parsers (#86): a tag is
+# a byte slice, so every bound and every malformed length is reachable from a
+# hand-built fixture without a backend that fails on demand. What is left
+# uncovered there is the seek and store failures, which need the injector #53 is
+# about.
 #
 # internal/files went 86 -> 87 and internal/media 81 -> 84 with thumbnails
 # (#45): the sweep's new rule and the resize arithmetic are both pure functions

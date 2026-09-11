@@ -244,6 +244,15 @@ Restraint here is principle 3, not laziness:
 
   Sizes come from a fixed ladder, because the size is part of the key and an
   arbitrary one means an unbounded set of objects nothing asks for twice.
+
+  **A picture inside a track is read in Go rather than by ffmpeg**, and that is
+  the same argument as EXIF: the storage port reads ranges, so a parser that
+  seeks takes the first few kilobytes of a FLAC and stops, while ffmpeg needs a
+  local file and would spool a 50 MB track out of a bucket to lift a 200 KB
+  picture out of its head. It also keeps that binary honest as the thing for
+  pixels Go cannot produce. FLAC's PICTURE block, ID3v2's APIC frame and MP4's
+  covr atom cover a real library; Vorbis and Opus keep theirs base64-encoded in
+  a comment and are not read yet.
 - `golang.org/x/image` for the scaler, which the standard library has no
   equivalent of. JPEG and PNG are decoded and encoded by the stdlib; HEIC and
   video frames need the ffmpeg above, so a format is either read in-process or
