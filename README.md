@@ -7,8 +7,9 @@ Instead of shipping its own API and a client app per platform, it speaks
 protocols your existing apps already understand.
 
 > **Work in progress.** Files over WebDAV and music over OpenSubsonic work
-> today, the web UI can sign you in and out, and the container is real. CalDAV,
-> the rest of that UI, photo thumbnails and sharing are not written yet.
+> today, the web UI browses and downloads them, and the container is real.
+> CalDAV, uploading from the browser, photo thumbnails and sharing are not
+> written yet.
 > The tables below say what answers and what does not, rather than what is
 > intended — if a row says **works**, it works.
 
@@ -20,7 +21,7 @@ protocols your existing apps already understand.
 | HTTP range | audio/video streaming | browsers, VLC, mpv | **works** |
 | CalDAV | calendar | DAVx5, Thunderbird, iOS/macOS | next |
 | OpenSubsonic | music | Symfonium, Substreamer, DSub, Feishin | **works** † |
-| Web UI | sign in; browsing and downloading next | any browser | **partly** |
+| Web UI | sign in, browse, download | any browser | **partly** |
 | CardDAV | contacts | DAVx5, Thunderbird | planned |
 | DLNA / UPnP-AV | TVs, set-top players | | planned |
 
@@ -213,10 +214,17 @@ At the root, with the same credentials as everything else and, like the other
 surfaces, only when they are set: with none configured `/login` is a 404 rather
 than a form for a user who does not exist.
 
-What it does today is sign you in and out. Browsing and downloading files come
-next, then uploads and the calendar. It is a convenience for when reaching for
-rclone or DAVx5 is overkill, and it consumes the same internals the protocol
-handlers do — it will never grow a private JSON API of its own.
+What it does today is sign you in, walk the tree and hand you a file. Uploading
+and the calendar come next. It is a convenience for when reaching for rclone or
+DAVx5 is overkill, and it consumes the same internals the protocol handlers do —
+it will never grow a private JSON API of its own.
+
+**One URL per directory, and the same one per file**: `/files/photos/2026` is a
+page, `/files/photos/2026/img.jpg` is the picture. Opening a file downloads it
+rather than rendering it in the page — this origin serves the UI, and a file
+somebody uploaded is not the UI's to display inside it. Downloads go through
+`http.ServeContent`, so ranges, conditional requests and resuming a half-finished
+download behave exactly as they do on the streaming surface.
 
 **The session is a signed cookie rather than a row in a table.** The value says
 who it is for and when it expires, signed with a key derived from the configured
@@ -471,12 +479,12 @@ Working now:
   beside the music or out of the tags. No user state, no transcoding, and no
   client has been tried against it yet.
 - EXIF, audio tags and video probing, indexed in the background.
-- A web UI you can sign in and out of, with a signed-cookie session, a CSP that
-  allows nothing but the binary's own assets, and nothing else in it yet.
+- A web UI: sign in, walk the tree, download a file. A signed-cookie session and
+  a CSP that allows nothing but the binary's own assets.
 - A request log, migrations applied at startup, and a container asserted from
-  the outside by 58 smoke checks.
+  the outside by 59 smoke checks.
 
-Not there yet: CalDAV, the rest of the web UI, photo thumbnails and sharing --
+Not there yet: CalDAV, uploading from the browser, photo thumbnails and sharing --
 and on the music side, anything that remembers what the user did. Work
 and the decisions behind it are tracked on the
 [Stratus project board](https://github.com/users/C0piIot/projects/2), where

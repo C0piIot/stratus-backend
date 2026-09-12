@@ -1,0 +1,50 @@
+{{define "content" -}}
+<nav aria-label="breadcrumb">
+  <ol class="breadcrumb">
+    {{range .Crumbs}}
+    {{if .Last}}
+    <li class="breadcrumb-item active" aria-current="page">{{.Name}}</li>
+    {{else}}
+    <li class="breadcrumb-item"><a href="{{.Href}}">{{.Name}}</a></li>
+    {{end}}
+    {{end}}
+  </ol>
+</nav>
+
+{{if .Entries}}
+<div class="card">
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0">
+      <thead>
+        <tr>
+          <th scope="col">Name</th>
+          <th scope="col" class="text-end">Size</th>
+          <th scope="col" class="text-end d-none d-sm-table-cell">Modified</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{range .Entries}}
+        <tr>
+          <td><a href="{{.Href}}" class="text-decoration-none">{{.Name}}{{if .IsDir}}/{{end}}</a></td>
+          <td class="text-end text-body-secondary">{{.Size}}</td>
+          <td class="text-end text-body-secondary d-none d-sm-table-cell">{{.Modified}}</td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+</div>
+{{else}}
+<div class="card">
+  <div class="card-body text-body-secondary">
+    This folder is empty. Put something in it with a WebDAV client — rclone,
+    Finder, Nautilus or FolderSync — at <code>/dav/</code>.
+  </div>
+</div>
+{{end}}
+
+<p class="text-body-secondary small mt-3 mb-0">
+  Opening a file downloads it. Uploading from here, and the calendar, are not
+  written yet.
+</p>
+{{- end}}

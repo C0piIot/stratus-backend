@@ -248,8 +248,8 @@ func TestAnExpiredSessionIsNoSession(t *testing.T) {
 	value, _ := sessions.Issue(username, time.Now().Add(-2*auth.DefaultSessionTTL))
 
 	h := newHandler(t, nil)
-	rec := get(t, h, "/", &http.Cookie{Name: "stratus_session", Value: value})
+	rec := get(t, h, "/files/", &http.Cookie{Name: "stratus_session", Value: value})
 	if rec.Code != http.StatusSeeOther {
-		t.Errorf("GET / with an expired session = %d, want 303 to the login form", rec.Code)
+		t.Errorf("GET /files/ with an expired session = %d, want 303 to the login form", rec.Code)
 	}
 }

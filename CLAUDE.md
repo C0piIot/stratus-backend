@@ -50,6 +50,20 @@ Hard constraints, in the same spirit as the rest of the project:
   assets rather than linking a CDN is worth: `style-src 'self'` and
   `script-src 'self'` are the whole policy, and the UI works on a network with
   no route out.
+- **One URL per directory and the same one per file**, under `/files/`. A
+  directory renders a page and a file hands over its bytes, because to somebody
+  typing a URL they are the same thing.
+
+  A file is served as an **attachment, never inline**. This origin serves the
+  UI, and a file somebody uploaded is not the UI's to render inside it -- the
+  content security policy above would already stop a script in an uploaded
+  HTML page, and the disposition is what stops the question from arising. The
+  day a preview is worth having is the day to decide where it renders, and the
+  answer will not be "the same origin as the session cookie".
+
+  The bytes go out through `http.ServeContent` over the seeker `internal/files`
+  returns, so ranges, conditional requests and a resumed download are the
+  standard library's, not this package's.
 
 ## Configuration
 

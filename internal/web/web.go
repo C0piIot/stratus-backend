@@ -4,10 +4,11 @@
 // It is a consumer of the same internals as the protocol adapters and must
 // never grow a private JSON API for its own use -- that is how principle 2
 // erodes, one endpoint at a time. What it does have that they do not is a
-// session, because a browser cannot be asked for a password on every request,
-// and that is the whole subject of this package: a signed cookie from
-// internal/auth, a login form to obtain one, and the CSRF defence a
-// cookie-authenticated surface needs.
+// session, because a browser cannot be asked for a password on every request:
+// hence a signed cookie from internal/auth, a login form to obtain one, and the
+// CSRF defence a cookie-authenticated surface needs. What it renders on top of
+// that is the same tree WebDAV serves -- one URL per directory, and the same
+// one per file.
 package web
 
 import (
@@ -15,6 +16,8 @@ import (
 	"strings"
 
 	"github.com/C0piIot/stratus-backend/internal/auth"
+	"github.com/C0piIot/stratus-backend/internal/db"
+	"github.com/C0piIot/stratus-backend/internal/files"
 )
 
 // assetPrefix carries the vendored library's version, which is what makes the
@@ -33,6 +36,7 @@ type handler struct {
 	version  string
 	verifier auth.Verifier
 	sessions *auth.Sessions
+	files    *files.Service
 }
 
 // Handler builds the UI. It is mounted at the root, so it is also what answers
@@ -42,11 +46,16 @@ type handler struct {
 // root, unlike the Basic auth in front of WebDAV: it is meaningless on any
 // other surface -- a WebDAV or Subsonic client is not a browser and sends no
 // cookie -- and a caller that forgot it would lose the defence silently.
-func Handler(version string, v auth.Verifier, s *auth.Sessions) http.Handler {
-	h := &handler{version: version, verifier: v, sessions: s}
+func Handler(version string, v auth.Verifier, s *auth.Sessions, service *files.Service) http.Handler {
+	h := &handler{version: version, verifier: v, sessions: s, files: service}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /{$}", h.authenticated(h.home))
+	// One canonical URL per directory, so the root is a redirect rather than a
+	// second page that lists the same thing.
+	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, filesPrefix, http.StatusSeeOther)
+	})
+	mux.HandleFunc("GET /files/{path...}", h.authenticated(h.browse))
 	mux.HandleFunc("GET /login", h.loginForm)
 	mux.HandleFunc("POST /login", h.login)
 	mux.HandleFunc("POST /logout", h.logout)
@@ -56,19 +65,9 @@ func Handler(version string, v auth.Verifier, s *auth.Sessions) http.Handler {
 	return secureHeaders(http.NewCrossOriginProtection().Handler(mux))
 }
 
-// home is the whole UI for now: who you are signed in as, and an honest list of
-// what is not built yet.
-func (h *handler) home(w http.ResponseWriter, _ *http.Request, user string) {
-	h.render(w, http.StatusOK, pageHome, view{Title: "Files", User: user})
-}
-
 func (h *handler) notFound(w http.ResponseWriter, r *http.Request) {
 	user, _ := h.session(r)
-	h.render(w, http.StatusNotFound, pageError, view{
-		Title:   "Not found",
-		User:    user,
-		Message: "There is nothing at " + r.URL.Path + ".",
-	})
+	h.fail(w, r, user, db.ErrNotFound)
 }
 
 // assets serves the embedded files.
