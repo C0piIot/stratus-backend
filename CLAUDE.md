@@ -189,11 +189,11 @@ internal/db/sqlutil/      plumbing both SQL adapters share, and not one line of 
 internal/db/dbtest/       conformance suite every adapter must pass
 
 internal/files/           cross-protocol file invariants
-internal/calendar/        collections, objects, recurrence
+internal/calendar/        collections, objects, recurrence            -- not yet
 internal/media/           EXIF/tag extraction, thumbnails, ffprobe
 internal/auth/            credential verification, per-protocol adapters
 
-internal/dav/             inbound adapter: WebDAV + CalDAV
+internal/dav/             inbound adapter: WebDAV (CalDAV not yet)
 internal/subsonic/        inbound adapter: OpenSubsonic
 internal/web/             inbound adapter: server-rendered UI
 ```

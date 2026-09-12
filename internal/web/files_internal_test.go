@@ -13,6 +13,10 @@ import (
 // port validates too -- FileByPath refuses the same strings -- which is exactly
 // why this needs its own test: a request would still be refused if this stopped
 // checking, and nothing would say so.
+//
+// internal/dav tests its twin through requests instead. The two functions stay
+// separate for the reason toPath's comment gives, so this table is the only
+// place the cleaning itself is pinned down.
 func TestToPath(t *testing.T) {
 	t.Parallel()
 
@@ -54,6 +58,31 @@ func TestToPath(t *testing.T) {
 				t.Errorf("toPath(%q) = %q, want %q", tt.raw, got, tt.want)
 			}
 		})
+	}
+}
+
+// TestBaseName is the other half of "a name is not a path". Three forms feed
+// it -- an upload, a new folder, a rename -- and each of them would be a way
+// out of the directory it was shown in if this returned anything else.
+func TestBaseName(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct{ sent, want string }{
+		{sent: "img.jpg", want: "img.jpg"},
+		{sent: "holiday/img.jpg", want: "img.jpg"},
+		{sent: `C:\Users\edu\img.jpg`, want: "img.jpg"},
+		{sent: "../../img.jpg", want: "img.jpg"},
+		{sent: "/etc/passwd", want: "passwd"},
+		{sent: `..\..\img.jpg`, want: "img.jpg"},
+		// What is left is not a name, and db.ValidatePath is what refuses it.
+		{sent: "", want: "."},
+		{sent: "..", want: ".."},
+		{sent: "/", want: "/"},
+	}
+	for _, tt := range tests {
+		if got := baseName(tt.sent); got != tt.want {
+			t.Errorf("baseName(%q) = %q, want %q", tt.sent, got, tt.want)
+		}
 	}
 }
 

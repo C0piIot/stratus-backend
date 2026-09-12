@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"path"
 	"strconv"
-	"strings"
 
 	"github.com/C0piIot/stratus-backend/internal/db"
 )
@@ -70,7 +69,7 @@ func (h *handler) upload(w http.ResponseWriter, r *http.Request, user string) {
 		// Not validated here: Write refuses the same paths, with the same error
 		// and therefore the same page, and a check that can never answer
 		// differently from the one below it is a check nothing can test.
-		target := path.Join(dir, uploadName(part.FileName()))
+		target := path.Join(dir, baseName(part.FileName()))
 		// Size -1: a multipart part does not say how long it is, and Write is
 		// built for exactly that -- the ETag is a digest of what was actually
 		// stored rather than a guess from a length.
@@ -89,18 +88,7 @@ func (h *handler) upload(w http.ResponseWriter, r *http.Request, user string) {
 	}
 
 	// See other, so a reload does not offer to send the files again.
-	//nolint:gosec // G710: href builds a path under /files/ out of what toPath already tidied.
-	http.Redirect(w, r, href(dir)+"?added="+strconv.Itoa(added), http.StatusSeeOther)
-}
-
-// uploadName is the filename a browser sent, reduced to a name.
-//
-// Only the last element survives: a directory upload sends a relative path, an
-// old Windows browser sends a whole one with backslashes, and a hostile client
-// sends whatever it likes. What is left still goes through db.ValidatePath,
-// which is where "." and ".." are refused.
-func uploadName(sent string) string {
-	return path.Base(strings.ReplaceAll(sent, `\`, "/"))
+	redirectLocal(w, r, href(dir)+"?added="+strconv.Itoa(added))
 }
 
 // uploadType is what the file will be served back as. The browser's word for

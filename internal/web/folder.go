@@ -25,7 +25,7 @@ func (h *handler) newFolder(w http.ResponseWriter, r *http.Request, user string)
 	// arrives is whatever the client typed, and a name is not a path. What is
 	// left can still be nothing, or the dots that mean somewhere else -- and
 	// joining those would quietly name a directory that already exists.
-	name := uploadName(r.PostFormValue("name"))
+	name := baseName(r.PostFormValue("name"))
 	switch name {
 	case ".", "..", "/":
 		h.badRequest(w, user, "A folder needs a name.")
@@ -39,6 +39,5 @@ func (h *handler) newFolder(w http.ResponseWriter, r *http.Request, user string)
 		h.fail(w, r, user, err)
 		return
 	}
-	//nolint:gosec // G710: href builds a path under /files/ out of what toPath already tidied.
-	http.Redirect(w, r, href(target), http.StatusSeeOther)
+	redirectLocal(w, r, href(target))
 }
