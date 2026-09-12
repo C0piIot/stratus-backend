@@ -49,6 +49,7 @@ func (h *handler) browse(w http.ResponseWriter, r *http.Request, user string) {
 	h.render(w, http.StatusOK, pageFiles, view{
 		Title:   pageTitle(p),
 		User:    user,
+		Notice:  uploaded(r.URL.Query().Get("added")),
 		Crumbs:  crumbs(p),
 		Entries: entries(children),
 	})
@@ -100,6 +101,13 @@ func (h *handler) fail(w http.ResponseWriter, r *http.Request, user string, err 
 		h.render(w, http.StatusBadRequest, pageError, view{
 			Title: "Bad request", User: user,
 			Message: "That is not a path this server can answer.",
+		})
+	// 409 rather than 400, for the reason WebDAV gives it: the request is
+	// inconsistent with the tree rather than malformed.
+	case errors.Is(err, db.ErrConflict):
+		h.render(w, http.StatusConflict, pageError, view{
+			Title: "Not possible here", User: user,
+			Message: "Something is already in the way of that.",
 		})
 	default:
 		// Anything else is this server's fault, so it is logged here and

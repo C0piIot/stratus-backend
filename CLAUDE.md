@@ -64,6 +64,17 @@ Hard constraints, in the same spirit as the rest of the project:
   The bytes go out through `http.ServeContent` over the seeker `internal/files`
   returns, so ranges, conditional requests and a resumed download are the
   standard library's, not this package's.
+- **An upload streams from the socket into the blob store**, part by part, using
+  `r.MultipartReader` rather than `ParseMultipartForm` -- which would spool every
+  file to a temporary one first. This is where somebody puts a 4 GB video, so the
+  bytes are never on this machine twice, and the size a part does not declare is
+  the `-1` `files.Write` already takes.
+
+  It **replaces** what was at that name, because a `PUT` over WebDAV does, and
+  one door behaving differently from the other is worse than the surprise. The
+  filename is reduced to its last element before it is used -- a directory
+  upload sends a relative path and an old browser a whole Windows one -- and
+  what is left is refused by `files.Write` if it is still not a path.
 
 ## Configuration
 
