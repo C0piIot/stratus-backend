@@ -3,6 +3,8 @@ package web
 import (
 	"net/http"
 	"path"
+
+	"github.com/C0piIot/stratus-backend/internal/db"
 )
 
 // renamePrefix is where a new name is asked for. A page of its own rather than
@@ -18,7 +20,7 @@ func (h *handler) renameForm(w http.ResponseWriter, r *http.Request, user string
 	h.render(w, http.StatusOK, pageRename, view{
 		Title: "Rename", User: user,
 		Name: path.Base(target), IsDir: f.IsDir,
-		Action: link(renamePrefix, target), Back: href(parentOf(target)),
+		Action: link(renamePrefix, target), Back: href(db.ParentOf(target)),
 	})
 }
 
@@ -31,20 +33,19 @@ func (h *handler) rename(w http.ResponseWriter, r *http.Request, user string) {
 		return
 	}
 
-	name := uploadName(r.PostFormValue("name"))
+	name := baseName(r.PostFormValue("name"))
 	switch name {
 	case ".", "..", "/":
 		h.badRequest(w, user, "A new name is needed.")
 		return
 	}
 
-	parent := parentOf(target)
+	parent := db.ParentOf(target)
 	to := path.Join(parent, name)
 	if to == target {
 		// Nothing asked for, so nothing done -- and back to where the form was
 		// opened from, which is what a Cancel would have done anyway.
-		//nolint:gosec // G710: href builds a path under /files/ out of what toPath already tidied.
-		http.Redirect(w, r, href(parent), http.StatusSeeOther)
+		redirectLocal(w, r, href(parent))
 		return
 	}
 
@@ -71,6 +72,5 @@ func (h *handler) rename(w http.ResponseWriter, r *http.Request, user string) {
 		h.fail(w, r, user, err)
 		return
 	}
-	//nolint:gosec // G710: as above.
-	http.Redirect(w, r, href(parent), http.StatusSeeOther)
+	redirectLocal(w, r, href(parent))
 }

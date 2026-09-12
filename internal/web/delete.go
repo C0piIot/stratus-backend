@@ -3,6 +3,8 @@ package web
 import (
 	"net/http"
 	"path"
+
+	"github.com/C0piIot/stratus-backend/internal/db"
 )
 
 // deletePrefix is where a delete is confirmed. There is no trash bin and the
@@ -18,7 +20,7 @@ func (h *handler) deleteForm(w http.ResponseWriter, r *http.Request, user string
 	h.render(w, http.StatusOK, pageDelete, view{
 		Title: "Delete", User: user,
 		Name: path.Base(target), IsDir: f.IsDir,
-		Action: link(deletePrefix, target), Back: href(parentOf(target)),
+		Action: link(deletePrefix, target), Back: href(db.ParentOf(target)),
 	})
 }
 
@@ -32,6 +34,5 @@ func (h *handler) remove(w http.ResponseWriter, r *http.Request, user string) {
 		h.fail(w, r, user, err)
 		return
 	}
-	//nolint:gosec // G710: href builds a path under /files/ out of what toPath already tidied.
-	http.Redirect(w, r, href(parentOf(target)), http.StatusSeeOther)
+	redirectLocal(w, r, href(db.ParentOf(target)))
 }

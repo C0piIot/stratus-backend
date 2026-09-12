@@ -53,7 +53,7 @@ func Handler(version string, v auth.Verifier, s *auth.Sessions, service *files.S
 	// One canonical URL per directory, so the root is a redirect rather than a
 	// second page that lists the same thing.
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, filesPrefix, http.StatusSeeOther)
+		redirectLocal(w, r, filesPrefix)
 	})
 	mux.HandleFunc("GET /files/{path...}", h.authenticated(h.browse))
 	mux.HandleFunc("POST /files/{path...}", h.authenticated(h.upload))

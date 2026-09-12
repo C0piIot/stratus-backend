@@ -112,7 +112,6 @@ linters:
             - "**/internal/db/**"
             - "**/internal/files/**"
             - "**/internal/calendar/**"
-            - "**/internal/music/**"
             - "**/internal/media/**"
             - "**/internal/auth/**"
             - "**/internal/config/**"

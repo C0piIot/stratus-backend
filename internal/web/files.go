@@ -127,6 +127,13 @@ func (h *handler) fail(w http.ResponseWriter, r *http.Request, user string, err 
 // validation every other surface uses -- there is no second implementation of
 // what a path may contain, which is what keeps traversal a solved problem
 // rather than a solved-twice one.
+//
+// internal/dav has the same four lines, and they stay duplicated on purpose:
+// db.ValidatePath rejects rather than cleans, deliberately, because silently
+// rewriting a stored path is how two names come to point at one row. Tidying a
+// URL before it becomes a path is therefore the job of whoever speaks HTTP, and
+// each adapter answers a bad one in its own shape -- a page here, an
+// HTTPError there.
 func toPath(name string) (string, error) {
 	p := strings.Trim(path.Clean("/"+name), "/")
 	if p == "" {
@@ -145,13 +152,15 @@ func link(prefix, p string) string {
 	return u.String()
 }
 
-// parentOf is the directory a thing is in, with the root spelled the way the
-// tree spells it rather than the way path.Dir does.
-func parentOf(p string) string {
-	if dir := path.Dir(p); dir != "." {
-		return dir
-	}
-	return ""
+// baseName is the last element of whatever a client sent, and nothing else.
+//
+// Every form here takes a name from somebody: an upload sends a filename, a new
+// folder and a rename send a typed one. A directory upload sends a relative
+// path, an old browser a whole Windows one, and a hostile client whatever it
+// likes -- so what is used is the last element, and db.ValidatePath refuses it
+// downstream if even that is not a name.
+func baseName(sent string) string {
+	return path.Base(strings.ReplaceAll(sent, `\`, "/"))
 }
 
 // editing resolves what a form is about: the path in the URL and the row it
@@ -173,6 +182,17 @@ func (h *handler) editing(w http.ResponseWriter, r *http.Request, user string) (
 		return "", db.File{}, false
 	}
 	return target, f, true
+}
+
+// redirectLocal sends the browser somewhere else on this server.
+//
+// One function so there is one line to audit: gosec's taint analysis cannot see
+// through safeNext or href -- both of which build a path under this server --
+// and seven identical nolint comments scattered about would be seven places for
+// a real open redirect to hide.
+func redirectLocal(w http.ResponseWriter, r *http.Request, target string) {
+	//nolint:gosec // G710: every caller passes href's or safeNext's output.
+	http.Redirect(w, r, target, http.StatusSeeOther)
 }
 
 // badRequest is the answer to a form that was never going to work. It is the

@@ -16,7 +16,7 @@ func (h *handler) authenticated(page func(http.ResponseWriter, *http.Request, st
 	return func(w http.ResponseWriter, r *http.Request) {
 		user, err := h.session(r)
 		if err != nil {
-			http.Redirect(w, r, "/login?next="+url.QueryEscape(r.URL.RequestURI()), http.StatusSeeOther)
+			redirectLocal(w, r, "/login?next="+url.QueryEscape(r.URL.RequestURI()))
 			return
 		}
 		page(w, r, user)
@@ -37,8 +37,7 @@ func (h *handler) loginForm(w http.ResponseWriter, r *http.Request) {
 	// Already signed in: showing the form again would invite a pointless second
 	// login, and the answer to "where was I going" is the same either way.
 	if _, err := h.session(r); err == nil {
-		//nolint:gosec // G710 cannot see through safeNext, which is what makes next a local path.
-		http.Redirect(w, r, next, http.StatusSeeOther)
+		redirectLocal(w, r, next)
 		return
 	}
 	h.render(w, http.StatusOK, pageLogin, view{Title: "Sign in", Next: next})
@@ -73,15 +72,14 @@ func (h *handler) login(w http.ResponseWriter, r *http.Request) {
 
 	value, expires := h.sessions.Issue(user, time.Now())
 	setSession(w, r, value, expires)
-	//nolint:gosec // G710 as above: next came through safeNext.
-	http.Redirect(w, r, next, http.StatusSeeOther)
+	redirectLocal(w, r, next)
 }
 
 // logout clears the cookie, which is all a stateless session can be asked for:
 // there is no record of it on the server to delete. See auth.Sessions.
 func (h *handler) logout(w http.ResponseWriter, r *http.Request) {
 	clearSession(w, r)
-	http.Redirect(w, r, "/login", http.StatusSeeOther)
+	redirectLocal(w, r, "/login")
 }
 
 // safeNext keeps the login form from becoming an open redirect. Only a path on
