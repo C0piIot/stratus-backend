@@ -402,6 +402,7 @@ make test-race   # under the race detector (Debian image: -race needs cgo)
 make test-s3     # the storage conformance suite against a throwaway MinIO
 make test-db     # the metadata conformance suite against a throwaway PostgreSQL
 make cover       # coverage, against a floor per package
+make deps        # the modules in the binary, against deps.allow
 make lint        # golangci-lint, version pinned in .golangci-version
 make smoke       # build the image and assert its runtime properties
 make env         # show the resolved toolchain
@@ -411,6 +412,16 @@ make env         # show the resolved toolchain
 non-root with no shell, that it survives a read-only root filesystem with all
 capabilities dropped, and that a data directory it cannot write to makes the
 server refuse to start rather than come up healthy and fail on the first upload.
+
+`deps.allow` lists every module linked into the binary — 33 of them today, from
+six direct dependencies. The rest arrive by transit: `minio-go` brings an INI
+parser for an AWS credentials file this server never reads, and a YAML parser
+besides. None of that is fatal, and all of it arrived without anybody deciding.
+The smoke suite compares the list against the shipped binary, so a new module is
+a line in a diff rather than a surprise: when the build fails, `make deps-update`
+rewrites the file and the diff says what came in. Names without versions, because
+a gate that failed on every weekly version bump would be switched off by the
+second month.
 
 `make cover` holds each package to a floor listed in `scripts/coverage.sh`, set
 at the number reached the day it was added so it can only go up. A single total
@@ -498,7 +509,7 @@ Working now:
   rename and delete. A signed-cookie session and a CSP that allows nothing but
   the binary's own assets.
 - A request log, migrations applied at startup, and a container asserted from
-  the outside by 63 smoke checks.
+  the outside by 64 smoke checks.
 
 Not there yet: CalDAV, renaming a folder that has anything in it, photo
 thumbnails and sharing --

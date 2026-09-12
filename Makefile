@@ -182,6 +182,14 @@ tidy: | $(CACHE_DIR)
 tidy-check: | $(CACHE_DIR)
 	$(GO) mod tidy -diff
 
+## deps: check the modules linked into the binary against deps.allow
+deps: build
+	@$(GO) version -m dist/stratus | ./scripts/deps.sh
+
+## deps-update: record the modules linked into the binary in deps.allow
+deps-update: build
+	@$(GO) version -m dist/stratus | ./scripts/deps.sh --update
+
 ## vuln: scan for known vulnerabilities
 vuln: | $(CACHE_DIR)
 	$(GO) run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
@@ -332,6 +340,6 @@ version:
 	@echo $(VERSION)
 
 .PHONY: help env up down restart logs ps health image build fmt fmt-check vet \
-        lint tidy tidy-check vuln test test-race test-s3 test-db minio-up \
+        lint tidy tidy-check vuln deps deps-update test test-race test-s3 test-db minio-up \
         minio-down postgres-up postgres-down cover smoke ci shell clean \
         clean-data version

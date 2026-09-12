@@ -188,6 +188,15 @@ else
   bad "binary built with -trimpath" "not in build settings"
 fi
 
+# The dependency budget (#5). Measured on the artifact rather than on go.mod,
+# which requires two modules that never reach it: what matters is the code that
+# actually runs on somebody's machine. scripts/deps.sh explains the list.
+if deps_out="$(printf '%s\n' "$buildinfo" | ./scripts/deps.sh 2>&1)"; then
+  ok "every module in the binary is one deps.allow names ($deps_out)"
+else
+  bad "every module in the binary is one deps.allow names" "$(tr '\n' ' ' <<<"$deps_out")"
+fi
+
 # A static binary has no PT_INTERP segment. readelf comes with the Debian image.
 if docker run --rm -v "$bindir:/b:ro" "golang:1.27.0-trixie" \
      sh -c 'readelf -l /b/stratus 2>/dev/null | grep -q INTERP'; then
