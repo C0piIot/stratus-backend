@@ -52,6 +52,9 @@ func (h *handler) browse(w http.ResponseWriter, r *http.Request, user string) {
 		Notice:  uploaded(r.URL.Query().Get("added")),
 		Crumbs:  crumbs(p),
 		Entries: entries(children),
+		// Where this page's two forms post: into the directory being listed.
+		Here:    href(p),
+		Folders: (&url.URL{Path: folderPrefix + p}).String(),
 	})
 }
 
