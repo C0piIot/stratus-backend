@@ -60,6 +60,7 @@ type view struct {
 	Username string
 	Error    string
 	Message  string
+	Notice   string
 	Next     string
 	// Crumbs and Entries are the file listing: the trail back to the root, and
 	// what is in this directory.

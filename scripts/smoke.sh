@@ -612,6 +612,19 @@ TRACK
     *) bad "opening a file downloads it as an attachment" "$(grep -i '^content-' <<<"$headers" | tr -d '\r' | tr '\n' ' ')" ;;
   esac
 
+  # Uploaded through the browser form, read back through WebDAV: two doors into
+  # one tree, which is most of the architecture in a single assertion.
+  updir="$(mktmp)"
+  printf 'from the browser' > "$updir/upload.txt"
+  code="$(curl -s -o /dev/null -w '%{http_code}' -b "$jar" \
+    -F "file=@$updir/upload.txt" "http://$davhost/files/")"
+  back="$(curl -fsS -u "$davuser:$davpass" "http://$davhost/dav/upload.txt" 2>/dev/null || true)"
+  if [ "$code" = "303" ] && [ "$back" = "from the browser" ]; then
+    ok "a file uploaded in the browser is there over WebDAV"
+  else
+    bad "a file uploaded in the browser is there over WebDAV" "upload answered $code, WebDAV gave '$back'"
+  fi
+
   # The CSRF defence, from outside: a form on somebody else's page carries the
   # cookie and must still be refused.
   code="$(curl -s -o /dev/null -w '%{http_code}' -b "$jar" \

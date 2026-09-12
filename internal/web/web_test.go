@@ -10,8 +10,10 @@ import (
 	"testing"
 
 	"github.com/C0piIot/stratus-backend/internal/auth"
+	"github.com/C0piIot/stratus-backend/internal/db"
 	"github.com/C0piIot/stratus-backend/internal/db/sqlite"
 	"github.com/C0piIot/stratus-backend/internal/files"
+	"github.com/C0piIot/stratus-backend/internal/storage"
 	"github.com/C0piIot/stratus-backend/internal/storage/disk"
 	"github.com/C0piIot/stratus-backend/internal/web"
 )
@@ -53,6 +55,14 @@ func browser(t *testing.T) (http.Handler, *files.Service) {
 // fakes tests the fakes.
 func service(t *testing.T) *files.Service {
 	t.Helper()
+	blobs, meta := backends(t)
+	return files.New(blobs, meta)
+}
+
+// backends are those two seams on their own, for the tests that put a fault
+// injector in front of one of them.
+func backends(t *testing.T) (storage.Storage, db.Store) {
+	t.Helper()
 	dir := t.TempDir()
 
 	blobs, err := disk.New(filepath.Join(dir, "blobs"))
@@ -69,7 +79,15 @@ func service(t *testing.T) *files.Service {
 	if err := meta.Migrate(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	return files.New(blobs, meta)
+	return blobs, meta
+}
+
+// handlerOver is web.Handler over a service somebody else assembled, which is
+// how a test gets a broken backend behind the pages.
+func handlerOver(t *testing.T, s *files.Service) http.Handler {
+	t.Helper()
+	creds := credentials()
+	return web.Handler(version, creds, auth.NewSessions(creds, auth.DefaultSessionTTL), s)
 }
 
 // refusing answers every login with one error, for the arms a correct password
