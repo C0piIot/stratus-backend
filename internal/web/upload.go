@@ -44,7 +44,7 @@ func (h *handler) upload(w http.ResponseWriter, r *http.Request, user string) {
 	if err != nil {
 		// Not the tree's fault and not a path: whatever was posted, it was not
 		// a form with files in it.
-		h.badUpload(w, user, "That was not a file upload.")
+		h.badRequest(w, user, "That was not a file upload.")
 		return
 	}
 
@@ -58,7 +58,7 @@ func (h *handler) upload(w http.ResponseWriter, r *http.Request, user string) {
 			// A body this server cannot read to the end is the sender's to fix,
 			// whether it was truncated on the way or malformed to begin with --
 			// a header with a control character in it lands here too.
-			h.badUpload(w, user, "The upload did not arrive whole.")
+			h.badRequest(w, user, "The upload did not arrive whole.")
 			return
 		}
 		// A part with no filename is an ordinary form field, not a file.
@@ -93,9 +93,9 @@ func (h *handler) upload(w http.ResponseWriter, r *http.Request, user string) {
 	http.Redirect(w, r, href(dir)+"?added="+strconv.Itoa(added), http.StatusSeeOther)
 }
 
-// badUpload is the answer to a body that was never going to work. It is the
-// client's mistake, so it says what it can without a stack trace.
-func (h *handler) badUpload(w http.ResponseWriter, user, message string) {
+// badRequest is the answer to a form that was never going to work. It is the
+// client's mistake, so it says what it can and no more.
+func (h *handler) badRequest(w http.ResponseWriter, user, message string) {
 	h.render(w, http.StatusBadRequest, pageError, view{
 		Title: "Bad request", User: user, Message: message,
 	})

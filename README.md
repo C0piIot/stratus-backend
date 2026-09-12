@@ -20,7 +20,7 @@ protocols your existing apps already understand.
 | HTTP range | audio/video streaming | browsers, VLC, mpv | **works** |
 | CalDAV | calendar | DAVx5, Thunderbird, iOS/macOS | next |
 | OpenSubsonic | music | Symfonium, Substreamer, DSub, Feishin | **works** † |
-| Web UI | sign in, browse, download, upload | any browser | **partly** |
+| Web UI | sign in, browse, upload, download | any browser | **partly** |
 | CardDAV | contacts | DAVx5, Thunderbird | planned |
 | DLNA / UPnP-AV | TVs, set-top players | | planned |
 
@@ -213,10 +213,11 @@ At the root, with the same credentials as everything else and, like the other
 surfaces, only when they are set: with none configured `/login` is a 404 rather
 than a form for a user who does not exist.
 
-What it does today is sign you in, walk the tree, hand you a file and take one
-back. Making folders and the calendar come next. It is a convenience for when
-reaching for rclone or DAVx5 is overkill, and it consumes the same internals the
-protocol handlers do — it will never grow a private JSON API of its own.
+What it does today is sign you in, walk the tree, hand you a file, take one back
+and make a folder to put it in. The calendar waits for CalDAV to exist. It is a
+convenience for when reaching for rclone or DAVx5 is overkill, and it consumes
+the same internals the protocol handlers do — it will never grow a private JSON
+API of its own.
 
 **One URL per directory, and the same one per file**: `/files/photos/2026` is a
 page, `/files/photos/2026/img.jpg` is the picture. Opening a file downloads it
@@ -229,8 +230,10 @@ download behave exactly as they do on the streaming surface.
 already in that folder is overwritten, and the blob it leaves behind is swept up
 later like any other. The files stream from the browser straight into storage
 rather than being spooled to a temporary file first, so the size limit is your
-disk, and a folder you cannot see from the browser yet is one to make with a
-WebDAV client.
+disk.
+
+Nothing can be renamed or deleted from the browser yet — for that, and for
+anything in bulk, a WebDAV client is still the tool.
 
 **The session is a signed cookie rather than a row in a table.** The value says
 who it is for and when it expires, signed with a key derived from the configured
@@ -485,13 +488,14 @@ Working now:
   beside the music or out of the tags. No user state, no transcoding, and no
   client has been tried against it yet.
 - EXIF, audio tags and video probing, indexed in the background.
-- A web UI: sign in, walk the tree, download a file, upload one. A signed-cookie
-  session and a CSP that allows nothing but the binary's own assets.
+- A web UI: sign in, walk the tree, download a file, upload one, make a folder.
+  A signed-cookie session and a CSP that allows nothing but the binary's own
+  assets.
 - A request log, migrations applied at startup, and a container asserted from
-  the outside by 60 smoke checks.
+  the outside by 61 smoke checks.
 
-Not there yet: CalDAV, making a folder from the browser, photo thumbnails and
-sharing --
+Not there yet: CalDAV, renaming or deleting from the browser, photo thumbnails
+and sharing --
 and on the music side, anything that remembers what the user did. Work
 and the decisions behind it are tracked on the
 [Stratus project board](https://github.com/users/C0piIot/projects/2), where

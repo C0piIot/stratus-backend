@@ -75,6 +75,10 @@ Hard constraints, in the same spirit as the rest of the project:
   filename is reduced to its last element before it is used -- a directory
   upload sends a relative path and an old browser a whole Windows one -- and
   what is left is refused by `files.Write` if it is still not a path.
+- **A new folder posts to `/folders/<parent>`**, not to the listing's own URL
+  with a different body. Two forms on one page mean two endpoints: telling them
+  apart by what happens to be in the body -- a file part or a text field --
+  would be a piece of cleverness that is wrong once and then permanent.
 
 ## Configuration
 

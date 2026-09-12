@@ -63,9 +63,11 @@ type view struct {
 	Notice   string
 	Next     string
 	// Crumbs and Entries are the file listing: the trail back to the root, and
-	// what is in this directory.
+	// what is in this directory. Here and Folders are where its two forms post.
 	Crumbs  []crumb
 	Entries []entry
+	Here    string
+	Folders string
 }
 
 // render writes a whole page or none of it. The buffer is the point: a template

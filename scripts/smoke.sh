@@ -625,6 +625,19 @@ TRACK
     bad "a file uploaded in the browser is there over WebDAV" "upload answered $code, WebDAV gave '$back'"
   fi
 
+  # A folder made in the browser is a collection over WebDAV, and the only way
+  # to show that is to put something in it through the other door.
+  code="$(curl -s -o /dev/null -w '%{http_code}' -b "$jar" \
+    --data-urlencode "name=made here" "http://$davhost/folders/")"
+  put="$(curl -s -o /dev/null -w '%{http_code}' -u "$davuser:$davpass" \
+    -X PUT --data-binary 'inside' "http://$davhost/dav/made%20here/inside.txt")"
+  if [ "$code" = "303" ] && [ "$put" = "201" ]; then
+    ok "a folder made in the browser is a collection over WebDAV"
+  else
+    bad "a folder made in the browser is a collection over WebDAV" \
+      "the form answered $code, the PUT into it answered $put"
+  fi
+
   # The CSRF defence, from outside: a form on somebody else's page carries the
   # cookie and must still be refused.
   code="$(curl -s -o /dev/null -w '%{http_code}' -b "$jar" \

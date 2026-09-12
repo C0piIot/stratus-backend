@@ -57,6 +57,7 @@ func Handler(version string, v auth.Verifier, s *auth.Sessions, service *files.S
 	})
 	mux.HandleFunc("GET /files/{path...}", h.authenticated(h.browse))
 	mux.HandleFunc("POST /files/{path...}", h.authenticated(h.upload))
+	mux.HandleFunc("POST /folders/{path...}", h.authenticated(h.newFolder))
 	mux.HandleFunc("GET /login", h.loginForm)
 	mux.HandleFunc("POST /login", h.login)
 	mux.HandleFunc("POST /logout", h.logout)

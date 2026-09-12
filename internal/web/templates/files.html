@@ -15,17 +15,33 @@
 <div class="alert alert-success py-2" role="status">{{.Notice}}</div>
 {{end}}
 
-<form method="post" enctype="multipart/form-data" class="card card-body mb-3">
-  <div class="row g-2 align-items-center">
-    <div class="col">
-      <input class="form-control" type="file" name="file" multiple required
-             aria-label="Files to upload here">
+<div class="card card-body mb-3">
+  <form method="post" action="{{.Here}}" enctype="multipart/form-data">
+    <div class="row g-2 align-items-center">
+      <div class="col">
+        <input class="form-control" type="file" name="file" multiple required
+               aria-label="Files to upload here">
+      </div>
+      <div class="col-auto">
+        <button class="btn btn-primary" type="submit">Upload</button>
+      </div>
     </div>
-    <div class="col-auto">
-      <button class="btn btn-primary" type="submit">Upload</button>
+  </form>
+
+  <hr class="my-3">
+
+  <form method="post" action="{{.Folders}}">
+    <div class="row g-2 align-items-center">
+      <div class="col">
+        <input class="form-control" type="text" name="name" required
+               placeholder="New folder" aria-label="Name of the new folder">
+      </div>
+      <div class="col-auto">
+        <button class="btn btn-outline-secondary" type="submit">Create</button>
+      </div>
     </div>
-  </div>
-</form>
+  </form>
+</div>
 
 {{if .Entries}}
 <div class="card">
@@ -53,7 +69,7 @@
 {{else}}
 <div class="card">
   <div class="card-body text-body-secondary">
-    This folder is empty. Upload something above, or point a WebDAV client —
+    This folder is empty. Put something in it above, or point a WebDAV client —
     rclone, Finder, Nautilus or FolderSync — at <code>/dav/</code>.
   </div>
 </div>
@@ -61,7 +77,6 @@
 
 <p class="text-body-secondary small mt-3 mb-0">
   Opening a file downloads it, and uploading one with a name that is already
-  here replaces it — the same as a PUT over WebDAV. Making folders, and the
-  calendar, are not written yet.
+  here replaces it — the same as a PUT over WebDAV.
 </p>
 {{- end}}
