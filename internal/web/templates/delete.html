@@ -1,0 +1,20 @@
+{{define "content" -}}
+<div class="row justify-content-center">
+  <div class="col-12 col-md-8 col-lg-6">
+    <h1 class="h4">Delete {{if .IsDir}}folder{{else}}file{{end}}</h1>
+    <div class="card card-body">
+      <p class="mb-3">
+        <code>{{.Name}}</code>
+        {{if .IsDir}}and everything inside it{{end}}
+        will be deleted. There is no trash bin, so this cannot be undone.
+      </p>
+      <div class="d-flex gap-2">
+        <form method="post" action="{{.Action}}">
+          <button class="btn btn-danger" type="submit">Delete</button>
+        </form>
+        <a class="btn btn-outline-secondary" href="{{.Back}}">Cancel</a>
+      </div>
+    </div>
+  </div>
+</div>
+{{- end}}
