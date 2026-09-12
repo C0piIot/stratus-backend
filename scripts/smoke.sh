@@ -638,6 +638,28 @@ TRACK
       "the form answered $code, the PUT into it answered $put"
   fi
 
+  # The same file, renamed and then deleted in the browser, checked through the
+  # other door each time: one thing's whole life, seen from both sides.
+  code="$(curl -s -o /dev/null -w '%{http_code}' -b "$jar" \
+    --data-urlencode "name=renamed.txt" "http://$davhost/rename/upload.txt")"
+  old="$(curl -s -o /dev/null -w '%{http_code}' -u "$davuser:$davpass" "http://$davhost/dav/upload.txt")"
+  new="$(curl -fsS -u "$davuser:$davpass" "http://$davhost/dav/renamed.txt" 2>/dev/null || true)"
+  if [ "$code" = "303" ] && [ "$old" = "404" ] && [ "$new" = "from the browser" ]; then
+    ok "a file renamed in the browser has the new name over WebDAV"
+  else
+    bad "a file renamed in the browser has the new name over WebDAV" \
+      "the form answered $code, the old name $old, the new one '$new'"
+  fi
+
+  code="$(curl -s -o /dev/null -w '%{http_code}' -b "$jar" -X POST "http://$davhost/delete/renamed.txt")"
+  gone="$(curl -s -o /dev/null -w '%{http_code}' -u "$davuser:$davpass" "http://$davhost/dav/renamed.txt")"
+  if [ "$code" = "303" ] && [ "$gone" = "404" ]; then
+    ok "a file deleted in the browser is gone over WebDAV"
+  else
+    bad "a file deleted in the browser is gone over WebDAV" \
+      "the form answered $code, WebDAV answered $gone"
+  fi
+
   # The CSRF defence, from outside: a form on somebody else's page carries the
   # cookie and must still be refused.
   code="$(curl -s -o /dev/null -w '%{http_code}' -b "$jar" \

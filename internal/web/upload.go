@@ -93,14 +93,6 @@ func (h *handler) upload(w http.ResponseWriter, r *http.Request, user string) {
 	http.Redirect(w, r, href(dir)+"?added="+strconv.Itoa(added), http.StatusSeeOther)
 }
 
-// badRequest is the answer to a form that was never going to work. It is the
-// client's mistake, so it says what it can and no more.
-func (h *handler) badRequest(w http.ResponseWriter, user, message string) {
-	h.render(w, http.StatusBadRequest, pageError, view{
-		Title: "Bad request", User: user, Message: message,
-	})
-}
-
 // uploadName is the filename a browser sent, reduced to a name.
 //
 // Only the last element survives: a directory upload sends a relative path, an

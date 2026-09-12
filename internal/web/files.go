@@ -54,7 +54,7 @@ func (h *handler) browse(w http.ResponseWriter, r *http.Request, user string) {
 		Entries: entries(children),
 		// Where this page's two forms post: into the directory being listed.
 		Here:    href(p),
-		Folders: (&url.URL{Path: folderPrefix + p}).String(),
+		Folders: link(folderPrefix, p),
 	})
 }
 
@@ -135,10 +135,60 @@ func toPath(name string) (string, error) {
 	return p, db.ValidatePath(p)
 }
 
-// href is the URL of a path in the tree, escaped for a browser to follow.
-func href(p string) string {
-	u := url.URL{Path: filesPrefix + p}
+// href is the URL of a path in the tree, and link is the same for the other
+// prefixes -- the forms and the two pages that act on one thing. Escaped, so a
+// browser can follow what it is given.
+func href(p string) string { return link(filesPrefix, p) }
+
+func link(prefix, p string) string {
+	u := url.URL{Path: prefix + p}
 	return u.String()
+}
+
+// parentOf is the directory a thing is in, with the root spelled the way the
+// tree spells it rather than the way path.Dir does.
+func parentOf(p string) string {
+	if dir := path.Dir(p); dir != "." {
+		return dir
+	}
+	return ""
+}
+
+// editing resolves what a form is about: the path in the URL and the row it
+// names. The root is not one of them -- nothing in the tree names it, and there
+// is nowhere above it to go back to.
+func (h *handler) editing(w http.ResponseWriter, r *http.Request, user string) (string, db.File, bool) {
+	target, err := toPath(r.PathValue("path"))
+	if err != nil {
+		h.fail(w, r, user, err)
+		return "", db.File{}, false
+	}
+	if target == "" {
+		h.badRequest(w, user, "There is nothing there to change.")
+		return "", db.File{}, false
+	}
+	f, err := h.files.Stat(r.Context(), user, target)
+	if err != nil {
+		h.fail(w, r, user, err)
+		return "", db.File{}, false
+	}
+	return target, f, true
+}
+
+// badRequest is the answer to a form that was never going to work. It is the
+// client's mistake, so it says what it can and no more.
+func (h *handler) badRequest(w http.ResponseWriter, user, message string) {
+	h.render(w, http.StatusBadRequest, pageError, view{
+		Title: "Bad request", User: user, Message: message,
+	})
+}
+
+// conflict is fail's 409 with something specific to say. The generic one is
+// right for "something is already there" and useless for the rest.
+func (h *handler) conflict(w http.ResponseWriter, user, message string) {
+	h.render(w, http.StatusConflict, pageError, view{
+		Title: "Not possible here", User: user, Message: message,
+	})
 }
 
 func pageTitle(dir string) string {
@@ -176,6 +226,10 @@ type entry struct {
 	IsDir    bool
 	Size     string
 	Modified string
+	// Where the two things that can be done to it are asked for. Both are
+	// pages: a rename needs a name, and a delete cannot be undone.
+	Rename string
+	Delete string
 }
 
 func entries(children []db.File) []entry {
@@ -191,6 +245,8 @@ func entries(children []db.File) []entry {
 			Href:     href(c.Path),
 			IsDir:    c.IsDir,
 			Modified: c.MTime.Format("2006-01-02 15:04"),
+			Rename:   link(renamePrefix, c.Path),
+			Delete:   link(deletePrefix, c.Path),
 		}
 		if c.IsDir {
 			dirs = append(dirs, e)
