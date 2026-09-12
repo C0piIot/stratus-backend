@@ -52,6 +52,7 @@
           <th scope="col">Name</th>
           <th scope="col" class="text-end">Size</th>
           <th scope="col" class="text-end d-none d-sm-table-cell">Modified</th>
+          <th scope="col"><span class="visually-hidden">Actions</span></th>
         </tr>
       </thead>
       <tbody>
@@ -60,6 +61,10 @@
           <td><a href="{{.Href}}" class="text-decoration-none">{{.Name}}{{if .IsDir}}/{{end}}</a></td>
           <td class="text-end text-body-secondary">{{.Size}}</td>
           <td class="text-end text-body-secondary d-none d-sm-table-cell">{{.Modified}}</td>
+          <td class="text-end text-nowrap">
+            <a class="link-secondary small text-decoration-none me-3" href="{{.Rename}}">Rename</a>
+            <a class="link-danger small text-decoration-none" href="{{.Delete}}">Delete</a>
+          </td>
         </tr>
         {{end}}
       </tbody>

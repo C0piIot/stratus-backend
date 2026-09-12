@@ -75,6 +75,18 @@ Hard constraints, in the same spirit as the rest of the project:
   filename is reduced to its last element before it is used -- a directory
   upload sends a relative path and an old browser a whole Windows one -- and
   what is left is refused by `files.Write` if it is still not a path.
+- **Renaming and deleting are pages, not buttons in the row.** Each is a GET
+  that asks and a POST that does: a rename needs a name typed into something,
+  and a delete cannot be undone -- there is no trash bin, so the page in between
+  is the only chance to have not meant it. It also keeps the listing from
+  carrying two forms per row.
+
+  A rename is a rename, not a move: the field is reduced to one path element, so
+  a typed path cannot quietly carry a file across the tree. A folder with
+  anything in it cannot be renamed at all -- the metadata port refuses to move a
+  directory that still has descendants, and the page says that rather than the
+  generic "something is in the way", which would send somebody looking for a
+  thing that is not there.
 - **A new folder posts to `/folders/<parent>`**, not to the listing's own URL
   with a different body. Two forms on one page mean two endpoints: telling them
   apart by what happens to be in the body -- a file part or a text field --

@@ -42,7 +42,7 @@ internal/storage:98
 internal/storage/disk:90
 internal/storage/s3:88
 internal/subsonic:100
-internal/web:97
+internal/web:98
 "
 
 # Not gated, and why:
@@ -74,12 +74,17 @@ internal/web:97
 # folding those queries match against is a pure function of the port, testable
 # where it lives.
 #
-# internal/web starts at 97. What is uncovered there is one branch: a template
-# that fails halfway. It is why rendering goes through a buffer rather than
-# straight to the ResponseWriter, and it is unreachable on purpose -- the
-# templates are parsed at startup with template.Must and executed over a struct
-# of strings, so nothing is left that can fail. Deleting it to reach 100 would
-# delete the reason the buffer is there.
+# internal/web started at 97 and went to 98 with renaming and deleting, which
+# arrived with the fault injection the rest of this file talks about: a database
+# that refuses a delete, and one that cannot say what is inside a folder.
+#
+# What is left uncovered there is two branches, both unreachable on purpose. One
+# is a template that fails halfway, which is why rendering goes through a buffer
+# rather than straight to the ResponseWriter -- the templates are parsed at
+# startup with template.Must and executed over a struct of strings, so nothing
+# is left that can fail. The other is opening a directory as a file, which the
+# page that serves bytes checks for and the page that routes to it already
+# decided. Deleting either to reach 100 would delete the reason it is there.
 #
 # internal/subsonic starts at 100, which is high but is what the package is: it
 # does no I/O of its own beyond writing a response, so every branch is reachable

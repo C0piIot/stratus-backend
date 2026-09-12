@@ -28,18 +28,22 @@ var templateFS embed.FS
 var staticFS embed.FS
 
 const (
-	pageLogin = "login.html"
-	pageFiles = "files.html"
-	pageError = "error.html"
+	pageLogin  = "login.html"
+	pageFiles  = "files.html"
+	pageRename = "rename.html"
+	pageDelete = "delete.html"
+	pageError  = "error.html"
 )
 
 // Each page is parsed with the layout into a set of its own. One set for all of
 // them cannot work: every page defines the same "content" template, which is
 // what lets the layout call it.
 var pages = map[string]*template.Template{
-	pageLogin: parse(pageLogin),
-	pageFiles: parse(pageFiles),
-	pageError: parse(pageError),
+	pageLogin:  parse(pageLogin),
+	pageFiles:  parse(pageFiles),
+	pageRename: parse(pageRename),
+	pageDelete: parse(pageDelete),
+	pageError:  parse(pageError),
 }
 
 func parse(page string) *template.Template {
@@ -68,6 +72,12 @@ type view struct {
 	Entries []entry
 	Here    string
 	Folders string
+	// Name, IsDir, Action and Back are the two pages that act on one thing:
+	// what it is called, what it is, where the form posts and where Cancel goes.
+	Name   string
+	IsDir  bool
+	Action string
+	Back   string
 }
 
 // render writes a whole page or none of it. The buffer is the point: a template
