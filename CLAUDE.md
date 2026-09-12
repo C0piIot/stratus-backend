@@ -320,6 +320,17 @@ Restraint here is principle 3, not laziness:
   equivalent of. JPEG and PNG are decoded and encoded by the stdlib; HEIC and
   video frames need the ffmpeg above, so a format is either read in-process or
   refused honestly, never read badly.
+- **Principle 5 is a gate, not an intention.** `deps.allow` lists every module
+  linked into the binary and `scripts/smoke.sh` checks it against the shipped
+  one, so a transitive arrival is a line in a diff. `depguard` is the other half
+  and answers a different question: it forbids a handful of imports by name in
+  *our* code, while this counts what actually ends up in the artifact --
+  including the parsers a client library drags in and the `github.com/pkg/errors`
+  that `depguard` forbids us and `imagemeta` ships anyway.
+
+  Module names without versions: Dependabot bumps one every week, and a gate
+  that failed on each would be turned off by the second month. A bump that drags
+  something new in still shows, because the list changes.
 - Config over convention: sane defaults, everything overridable by env var.
 - Web UI: `html/template`, Bootstrap and htmx vendored and `//go:embed`ed. No
   JavaScript toolchain, no custom CSS. Bootstrap 5.3.8 is in, CSS and its
