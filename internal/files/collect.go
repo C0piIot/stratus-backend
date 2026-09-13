@@ -17,7 +17,8 @@ import (
 const DefaultGrace = time.Hour
 
 // DerivedPrefix is where everything generated from a file lives: thumbnails
-// today, transcoded segments later.
+// today, transcoded segments later -- which will have to be one object each
+// under a leaf name, or packed into one, for the reason DerivedKey gives.
 //
 // It is a prefix and not a bucket or a table because the blob store already is
 // the cache, and a third pluggable seam is what principle 3 forbids. Beyond
@@ -29,7 +30,18 @@ const DerivedPrefix = "derived/"
 // DerivedKey names an object generated from the blob at parent. The shape is
 // defined here, next to the sweep that has to read it back, so that a caller
 // cannot invent a key nothing will ever collect.
+//
+// name is one segment, and that is the whole of the key rule this project has:
+// no key Stratus writes may be a prefix of another, because S3 holds "a" and
+// "a/b" at once and a filesystem cannot. A nested name breaks that on the disk
+// backend and breaks parentOf everywhere -- it cuts at the last slash, so the
+// object would name a parent no row holds and the sweep would delete it an hour
+// later. It panics rather than returning an error because every caller passes a
+// constant: a slash here is a bug in this repository, not a condition to handle.
 func DerivedKey(parent, name string) string {
+	if strings.Contains(name, "/") {
+		panic(fmt.Sprintf("files: derived name %q is not one segment", name))
+	}
 	return DerivedPrefix + parent + "/" + name
 }
 

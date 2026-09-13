@@ -138,7 +138,23 @@ Rules that follow from this:
 
 Narrow interface: `Put`, `Get` (range-capable), `Delete`, `Stat`, `List`.
 Backends: **disk** and **s3**, both implemented; ftp and others later.
-Blobs are content-addressed where practical; the DB holds the naming.
+
+**A blob key is an opaque string the database owns**, never derived from the
+path and never from a content hash. That is what would let a Nextcloud bucket be
+adopted in place: its objects are already named `urn:oid:<fileid>` with the tree
+in its own database, so importing one is a batch of row inserts rather than a
+server-side copy of every byte. Content-addressing would spend that migration
+and buy nothing back, since the keys this project generates are opaque anyway.
+
+**No key Stratus writes is a prefix of another.** S3 holds `a` and `a/b` at
+once; a filesystem cannot, so the disk backend fails the second `Put` and the
+two backends would diverge on a key only one of them can take. `ValidateKey`
+cannot catch it -- it sees one key, and the collision is a property of the set --
+and it must not try: a rule rejecting anything not of our shape would reject an
+adopted key too. The guarantee lives in the two constructors instead.
+`newBlobKey` is four segments with a random leaf, and `DerivedKey` takes a
+single segment and panics on anything else, which is also what keeps it the
+inverse of the `parentOf` the sweep reads keys back with.
 
 ### Metadata database — `internal/db`
 
