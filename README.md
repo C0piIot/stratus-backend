@@ -429,6 +429,13 @@ would say nothing useful: `internal/storage/s3` measures 15% or 90% depending on
 whether MinIO is running, which is also what makes the floor catch a conformance
 suite that skipped instead of running.
 
+CI publishes `ghcr.io/c0piiot/stratus-backend:main` on every merge, multi-arch,
+and — where a repository sets a `FLY_APP` variable — deploys that exact digest to
+a test instance on Fly. It is one job at the end of a pipeline that has already
+run the linters, the race detector, both conformance suites, the coverage floors
+and the container suite, so nothing reaches it that has not been through all of
+them. Anywhere `FLY_APP` is unset, including every fork, the job does not run.
+
 `.golangci.yml` uses `depguard` to enforce the architecture rules from
 [`CLAUDE.md`](CLAUDE.md), so a driver type leaking out of its package is a failed
 build rather than a note in a document.

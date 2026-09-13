@@ -147,6 +147,11 @@ jobs:
     permissions:
       contents: read
       packages: write
+    outputs:
+      # What was pushed, by digest. The deploy below takes this rather than the
+      # :main tag, so what runs is the thing this job built and not whatever
+      # that tag points at by the time it is pulled.
+      image: ${{ steps.pushed.outputs.ref }}
     steps:
       - uses: actions/checkout@v7.0.1
         with:
@@ -178,4 +183,37 @@ jobs:
             --platform linux/amd64,linux/arm64 \
             --build-arg "VERSION=$(git describe --tags --always --dirty)" \
             --tag "${{ steps.img.outputs.image }}:main" \
+            --metadata-file meta.json \
             --push .
+
+      - name: the digest it pushed
+        id: pushed
+        env:
+          IMAGE: ${{ steps.img.outputs.image }}
+        run: echo "ref=$IMAGE@$(jq -r '."containerimage.digest"' meta.json)" >> "$GITHUB_OUTPUT"
+
+  # A test instance kept on the last green main, and nothing else. It does
+  # nothing in a fork or in any repo where FLY_APP is unset, which is what keeps
+  # this from being a deploy recipe pretending to be one -- see issue #13.
+  #
+  # No fly.toml and no checkout: `flyctl deploy --app X --image Y` takes the
+  # machine's configuration from the platform and swaps the image, so the only
+  # thing this workflow knows about the instance is its name.
+  deploy:
+    name: deploy
+    needs: publish
+    if: vars.FLY_APP != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: superfly/flyctl-actions/setup-flyctl@v1.4
+
+      - name: deploy what publish pushed
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          flyctl deploy \
+            --app "${{ vars.FLY_APP }}" \
+            --image "${{ needs.publish.outputs.image }}" \
+            --ha=false \
+            --wait-timeout 5m
