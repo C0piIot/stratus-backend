@@ -156,6 +156,15 @@ adopted key too. The guarantee lives in the two constructors instead.
 single segment and panics on anything else, which is also what keeps it the
 inverse of the `parentOf` the sweep reads keys back with.
 
+**Nor do two keys differ only in case**, and for the same reason: a
+case-insensitive filesystem -- APFS, exFAT, a Windows share, all of them
+plausible under `STRATUS_DATA_PATH` -- would collapse such a pair into one file
+while S3 held two objects, and the second `Put` would destroy the first. The
+generated part of a key is RFC 4648 base32, which has no lowercase in it, so the
+pair is unrepresentable rather than rejected. Both properties are the same rule:
+**the constructors own the shape of a key, the validator only owns what a single
+key may contain.**
+
 ### Metadata database — `internal/db`
 
 Repository-style interface, hand-written SQL per driver, **no ORM**.

@@ -1,6 +1,9 @@
 package files
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // DerivedKey and parentOf have to stay inverses of each other, and nothing
 // catches it when they stop: a key the sweep reads back wrong is not a failed
@@ -34,4 +37,26 @@ func TestDerivedKeyRefusesANestedName(t *testing.T) {
 		}
 	}()
 	DerivedKey("blobs/ab/cd/efgh", "hls/seg001.ts")
+}
+
+// Two keys differing only in case are one file on APFS, exFAT and a Windows
+// share -- all of them plausible homes for STRATUS_DATA_PATH -- so the disk
+// backend would let the second Put overwrite the first while S3 held two
+// objects. ValidateKey cannot reject the pair, since it sees one key at a time,
+// so the property holds by construction instead: rand.Text is RFC 4648 base32,
+// which has no lowercase in it. A generator returning hex or base64 would keep
+// passing every other test in this package and quietly reintroduce it.
+func TestBlobKeysCannotDifferOnlyInCase(t *testing.T) {
+	t.Parallel()
+
+	for range 100 {
+		key := newBlobKey()
+		rest, ok := strings.CutPrefix(key, "blobs/")
+		if !ok {
+			t.Fatalf("newBlobKey = %q, want the blobs/ prefix", key)
+		}
+		if strings.ToUpper(rest) != rest {
+			t.Fatalf("newBlobKey = %q: the generated part is not single-case, so two keys can differ only in case", key)
+		}
+	}
 }
