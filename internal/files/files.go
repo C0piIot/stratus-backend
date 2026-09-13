@@ -248,8 +248,12 @@ func removeTree(ctx context.Context, r db.Repo, owner, path string) ([]string, e
 	return keys, nil
 }
 
-// requireParent is the tree invariant the database cannot express: a row whose
+// requireParent is the half of the tree invariant that stays in Go: a row whose
 // parent is missing is unreachable, and WebDAV answers 409 for it.
+//
+// A foreign key from (owner_id, parent_path) was weighed against this and
+// refused: it sees existence and nothing of is_dir, so the second check below
+// would stay regardless. CLAUDE.md carries the rest of the price.
 func (s *Service) requireParent(ctx context.Context, r db.Repo, owner, path string) error {
 	parent := db.ParentOf(path)
 	if parent == "" {

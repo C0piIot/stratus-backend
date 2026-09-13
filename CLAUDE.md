@@ -175,6 +175,35 @@ the best validator of the port and the most expensive to keep.
 
 Hard rule: no driver-specific SQL or types leak outside the driver package.
 
+**The tree invariant is half SQL and half Go, and that asymmetry is a decision.**
+That a directory with anything in it cannot be deleted or moved is a `NOT EXISTS`
+inside each driver's statement, so it is one round trip and cannot race a
+concurrent insert. That a row's parent exists is `files.requireParent` instead.
+A foreign key from `(owner_id, parent_path)` to `(owner_id, path)` would be the
+obvious way to move the second half down beside the first, and it is refused on
+price rather than on principle:
+
+- **It enforces half of the check.** The parent must exist *and* be a directory,
+  and no constraint can see `is_dir`, so `notes.txt/inner.txt` would satisfy it.
+  The Go check stays either way, which makes the constraint a second and weaker
+  statement of the same rule rather than a replacement for it.
+- **It would not simplify the drivers.** Telling "no such row" from "not empty"
+  is already shared in `sqlutil.CheckAffected`, so the `NOT EXISTS` costs two
+  lines per statement, while `ON DELETE RESTRICT` would cost a foreign-key branch
+  in each driver's `mapErr` and keep `CheckAffected` regardless.
+- **The root has no row.** `parent_path` is `''` at the top level and no row can
+  satisfy that, so it also needs a nullable column or a self-referencing row per
+  owner, and either one leaks into every query that lists the root.
+
+What it buys against all that is a backstop in the database for a bug in the one
+package that writes rows. Worth revisiting if a second writer appears.
+
+One cost that does not count today and will: SQLite has no `ALTER TABLE ADD
+CONSTRAINT`, so adding the constraint after a release means rebuilding the table,
+and the `PRAGMA foreign_keys=OFF` that needs is silently ignored inside a
+transaction -- which is how `db.Migrate` applies every migration. Until the first
+real deployment it would simply go into `0001_files.sql`.
+
 ## Architecture
 
 Ports and adapters at **two** boundaries, and nowhere else. This is principle 3
