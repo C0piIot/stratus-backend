@@ -431,10 +431,16 @@ suite that skipped instead of running.
 
 CI publishes `ghcr.io/c0piiot/stratus-backend:main` on every merge, multi-arch,
 and — where a repository sets a `FLY_APP` variable — deploys that exact digest to
-a test instance on Fly. It is one job at the end of a pipeline that has already
-run the linters, the race detector, both conformance suites, the coverage floors
-and the container suite, so nothing reaches it that has not been through all of
-them. Anywhere `FLY_APP` is unset, including every fork, the job does not run.
+a test instance described by [`fly.toml`](fly.toml). It is one job at the end of
+a pipeline that has already run the linters, the race detector, both conformance
+suites, the coverage floors and the container suite, so nothing reaches it that
+has not been through all of them. Anywhere `FLY_APP` is unset, including every
+fork, the job does not run.
+
+That instance is deliberately disposable: the smallest machine Fly sells, and
+**no volume**. The data directory is the machine's own disk, so every deploy is
+a server with nothing in it — which makes it a fine place to point a client at
+and a terrible place to keep anything.
 
 `.golangci.yml` uses `depguard` to enforce the architecture rules from
 [`CLAUDE.md`](CLAUDE.md), so a driver type leaking out of its package is a failed

@@ -192,13 +192,14 @@ jobs:
           IMAGE: ${{ steps.img.outputs.image }}
         run: echo "ref=$IMAGE@$(jq -r '."containerimage.digest"' meta.json)" >> "$GITHUB_OUTPUT"
 
-  # A test instance kept on the last green main, and nothing else. It does
+  # A throwaway instance kept on the last green main, and nothing else. It does
   # nothing in a fork or in any repo where FLY_APP is unset, which is what keeps
   # this from being a deploy recipe pretending to be one -- see issue #13.
   #
-  # No fly.toml and no checkout: `flyctl deploy --app X --image Y` takes the
-  # machine's configuration from the platform and swaps the image, so the only
-  # thing this workflow knows about the instance is its name.
+  # fly.toml carries the machine, so changing its size or its settings is a
+  # commit rather than somebody's shell history; --app takes the name from a
+  # variable so a fork deploys the same configuration to its own instance. The
+  # image is the digest publish just pushed, not the tag it pushed it under.
   deploy:
     name: deploy
     needs: publish
@@ -206,6 +207,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      - uses: actions/checkout@v7.0.1
+
       - uses: superfly/flyctl-actions/setup-flyctl@v1.4
 
       - name: deploy what publish pushed
@@ -215,5 +218,5 @@ jobs:
           flyctl deploy \
             --app "${{ vars.FLY_APP }}" \
             --image "${{ needs.publish.outputs.image }}" \
-            --ha=false \
+            --ha=false --yes \
             --wait-timeout 5m

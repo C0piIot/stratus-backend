@@ -1,0 +1,50 @@
+# Fly.io: the throwaway instance CI keeps on the last green main.
+#
+# Test infrastructure, not a recommended way to run this. Two things make that
+# literal: the smallest machine there is, and **no volume** -- the data
+# directory sits on the machine's own disk, which the next deploy replaces
+# along with the image. Every merge to main is a fresh server with nothing in
+# it. Whatever you upload to it is gone by the next one.
+#
+# /tmp rather than /data because there is no mount: the image runs as 65532 and
+# cannot create a directory at the root of its filesystem, while /tmp is there
+# and writable. It is the machine's disk either way, not memory.
+#
+#   fly secrets set STRATUS_USERNAME=... STRATUS_PASSWORD=...   # once
+#   fly deploy --ha=false                                       # by hand
+#
+# CI deploys this same file with the digest it just published; see ci.yml.
+app = "stratus-edu"
+primary_region = "cdg"
+
+[build]
+  # What CI publishes on every merge to main: multi-arch and public, so Fly
+  # takes it as published.
+  image = "ghcr.io/c0piiot/stratus-backend:main"
+
+[env]
+  STRATUS_ADDR = ":8080"
+  STRATUS_DATA_DIR = "/tmp/stratus"
+
+[http_service]
+  internal_port = 8080
+  # Fly terminates TLS and forwards the scheme, which is what makes the session
+  # cookie Secure -- see overTLS in internal/web.
+  force_https = true
+  # Nobody is watching it most of the time, so it sleeps and the first request
+  # wakes it. Data survives a sleep -- it is the same machine and the same disk
+  # -- and does not survive a deploy.
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "15s"
+    method = "GET"
+    path = "/healthz"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
