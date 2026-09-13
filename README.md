@@ -438,10 +438,19 @@ suites, the coverage floors and the container suite, so nothing reaches it that
 has not been through all of them. Anywhere `FLY_APP` is unset, including every
 fork, the job does not run.
 
-That instance is deliberately disposable: the smallest machine Fly sells, and
-**no volume**. The data directory is the machine's own disk, so every deploy is
-a server with nothing in it — which makes it a fine place to point a client at
-and a terrible place to keep anything.
+That instance is deliberately disposable, and deliberately open: the smallest
+machine Fly sells, **no volume**, and **the password is the version string in
+the page footer** — the short sha of the commit it is running, which anybody can
+read off this repository. Three things follow, and none of them is an accident:
+
+- **Anyone can sign in and upload to it.** It is a demo, it holds nothing but
+  the demo, and it is not a place to put anything of yours.
+- **Every deploy changes the password**, so every client and every browser
+  session is logged out by the next merge to `main`. Reconfiguring a Subsonic
+  client after a merge is the cost of not having a secret to manage.
+- **Every deploy wipes the disk**, which is the other half of why that is
+  tolerable: whatever a stranger leaves there survives until the next merge and
+  no longer.
 
 Which is why the deploy ends by seeding it: `scripts/seed-demo.sh` fetches a
 4.4 MB bundle of freely licensed media — five photographs with their EXIF, two
