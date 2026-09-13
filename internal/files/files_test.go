@@ -155,6 +155,17 @@ func TestParentMustBeADirectory(t *testing.T) {
 	if !errors.Is(err, db.ErrConflict) {
 		t.Errorf("Write under a file = %v, want ErrConflict", err)
 	}
+
+	// The other two writers, because this is the branch no database constraint
+	// could take over: a foreign key would find the parent row and be satisfied
+	// by it, file or directory.
+	if _, err := s.Mkdir(t.Context(), owner, "notes.txt/inner"); !errors.Is(err, db.ErrConflict) {
+		t.Errorf("Mkdir under a file = %v, want ErrConflict", err)
+	}
+	write(t, s, "photo.jpg", "bytes")
+	if err := s.Move(t.Context(), owner, "photo.jpg", "notes.txt/photo.jpg"); !errors.Is(err, db.ErrConflict) {
+		t.Errorf("Move under a file = %v, want ErrConflict", err)
+	}
 }
 
 func TestMkdirThenWriteInside(t *testing.T) {
