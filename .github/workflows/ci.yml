@@ -133,7 +133,7 @@ jobs:
         run: |
           docker buildx build \
             --platform linux/amd64,linux/arm64 \
-            --build-arg "VERSION=$(git describe --tags --always --dirty)" \
+            --build-arg "VERSION=$(git describe --tags --match "v*" --always --dirty)" \
             .
 
   # Publishes only after lint, test and the container assertions have passed:
@@ -181,7 +181,7 @@ jobs:
         run: |
           docker buildx build \
             --platform linux/amd64,linux/arm64 \
-            --build-arg "VERSION=$(git describe --tags --always --dirty)" \
+            --build-arg "VERSION=$(git describe --tags --match "v*" --always --dirty)" \
             --tag "${{ steps.img.outputs.image }}:main" \
             --metadata-file meta.json \
             --push .
@@ -211,6 +211,20 @@ jobs:
 
       - uses: superfly/flyctl-actions/setup-flyctl@v1.4
 
+      # The password lives here and nowhere else. --stage does not restart
+      # anything: the secrets are applied by the deploy below, which was going to
+      # restart the machine anyway.
+      - name: stage the instance's password
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          DEMO_PASSWORD: ${{ secrets.DEMO_PASSWORD }}
+        run: |
+          if [ -z "$DEMO_PASSWORD" ]; then
+            echo "no DEMO_PASSWORD secret: the instance keeps whatever it has"
+            exit 0
+          fi
+          flyctl secrets set --stage --app "${{ vars.FLY_APP }}" STRATUS_PASSWORD="$DEMO_PASSWORD"
+
       - name: deploy what publish pushed
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
@@ -220,3 +234,20 @@ jobs:
             --image "${{ needs.publish.outputs.image }}" \
             --ha=false --yes \
             --wait-timeout 5m
+
+      # The machine keeps nothing, so every deploy lands on an empty tree. This
+      # fills it with the demo bundle and then asks the server what it did with
+      # it -- the only check this project runs against something deployed.
+      - name: seed the demo media
+        env:
+          DEMO_PASSWORD: ${{ secrets.DEMO_PASSWORD }}
+        run: |
+          if [ -z "$DEMO_PASSWORD" ]; then
+            echo "no DEMO_PASSWORD secret: nothing to seed with"
+            exit 0
+          fi
+          # The username is not a secret and lives in fly.toml, which is what
+          # the instance is actually configured from.
+          STRATUS_USERNAME="$(sed -n 's/^ *STRATUS_USERNAME *= *"\(.*\)"/\1/p' fly.toml)" \
+          STRATUS_PASSWORD="$DEMO_PASSWORD" \
+            ./scripts/seed-demo.sh "https://${{ vars.FLY_APP }}.fly.dev"

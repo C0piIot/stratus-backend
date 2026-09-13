@@ -91,7 +91,7 @@ wait_serving() {
 # ---------------------------------------------------------------------------
 section "Build"
 # ---------------------------------------------------------------------------
-VERSION="$(git describe --tags --always --dirty 2>/dev/null || echo dev)"
+VERSION="$(git describe --tags --match "v*" --always --dirty 2>/dev/null || echo dev)"
 if docker build --build-arg "VERSION=$VERSION" -t "$REF" . >/dev/null 2>&1; then
   ok "image builds ($REF)"
 else

@@ -13,12 +13,13 @@ GO_VERSION     ?= $(shell awk '/^go /{print $$2}' go.mod)
 ALPINE_VERSION ?= 3.24
 DEBIAN_SUITE   ?= trixie
 IMAGE          ?= stratus-backend
-VERSION        ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+VERSION        ?= $(shell git describe --tags --match "v*" --always --dirty 2>/dev/null || echo dev)
 
 # These mirror the interpolation names used by compose.yaml.
 STRATUS_PORT      ?= 8080
 STRATUS_DATA_PATH ?= ./data
 STRATUS_LOG_LEVEL ?= info
+BASE              ?= http://localhost:8080
 STRATUS_UID       ?= $(shell id -u)
 STRATUS_GID       ?= $(shell id -g)
 STRATUS_VERSION   := $(VERSION)
@@ -216,6 +217,13 @@ cover: | $(CACHE_DIR)
 	@$(GO) tool cover -func=coverage.out | tail -1
 	@./scripts/coverage.sh coverage.out
 
+## demo: put the demo media into a running instance (BASE=http://localhost:8080)
+#
+# The same script CI runs against the test instance after every deploy. It needs
+# the credentials that instance was configured with.
+demo:
+	@BASE="$(BASE)" ./scripts/seed-demo.sh
+
 ## smoke: build the image and assert its runtime properties
 smoke:
 	./scripts/smoke.sh
@@ -340,6 +348,6 @@ version:
 	@echo $(VERSION)
 
 .PHONY: help env up down restart logs ps health image build fmt fmt-check vet \
-        lint tidy tidy-check vuln deps deps-update test test-race test-s3 test-db minio-up \
+        lint tidy tidy-check vuln deps deps-update demo test test-race test-s3 test-db minio-up \
         minio-down postgres-up postgres-down cover smoke ci shell clean \
         clean-data version

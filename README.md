@@ -405,6 +405,7 @@ make cover       # coverage, against a floor per package
 make deps        # the modules in the binary, against deps.allow
 make lint        # golangci-lint, version pinned in .golangci-version
 make smoke       # build the image and assert its runtime properties
+make demo        # put the demo media into a running instance
 make env         # show the resolved toolchain
 ```
 
@@ -441,6 +442,26 @@ That instance is deliberately disposable: the smallest machine Fly sells, and
 **no volume**. The data directory is the machine's own disk, so every deploy is
 a server with nothing in it — which makes it a fine place to point a client at
 and a terrible place to keep anything.
+
+Which is why the deploy ends by seeding it: `scripts/seed-demo.sh` fetches a
+4.4 MB bundle of freely licensed media — five photographs with their EXIF, two
+tagged tracks with a cover, fifteen seconds of video — and puts it in over
+WebDAV, then asks the server what it did with it: the files read back, the
+indexer found the artist, the album has a cover and the video answers a range
+request. It is the only check here that runs against something deployed rather
+than against an image on the build machine, and `make demo BASE=…` runs the same
+thing against a local instance.
+
+The bundle is a release asset rather than a directory in this repository,
+because the whole clone is 6.6 MB and carrying the media would double it for
+everybody, forever. `scripts/demo/SHA256SUMS` pins the bytes and
+`scripts/demo/CREDITS.md` carries the attribution.
+
+Two things that demo does not show, and it is worth knowing which: the
+photographs have **no thumbnails** in the browser yet, and the video
+**downloads rather than plays**, because the UI serves files as attachments on
+purpose. What it does show is the file tree, downloads, and the whole music
+library in a Subsonic client.
 
 `.golangci.yml` uses `depguard` to enforce the architecture rules from
 [`CLAUDE.md`](CLAUDE.md), so a driver type leaking out of its package is a failed
