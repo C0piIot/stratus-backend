@@ -1,16 +1,17 @@
 # Fly.io: the throwaway instance CI keeps on the last green main.
 #
-# Test infrastructure, not a recommended way to run this. Two things make that
-# literal: the smallest machine there is, and **no volume** -- the data
-# directory sits on the machine's own disk, which the next deploy replaces
-# along with the image. Every merge to main is a fresh server with nothing in
-# it. Whatever you upload to it is gone by the next one.
+# Test infrastructure, not a recommended way to run this. Three things make that
+# literal: the smallest machine there is, **no volume** -- the data directory
+# sits on the machine's own disk, which the next deploy replaces along with the
+# image -- and a password that is the version in the page footer, which is the
+# short sha of the commit deployed and therefore public. Every merge to main is
+# a fresh server with nothing in it, a new password, and every client logged
+# out. Do not put anything here that you would miss.
 #
 # /tmp rather than /data because there is no mount: the image runs as 65532 and
 # cannot create a directory at the root of its filesystem, while /tmp is there
 # and writable. It is the machine's disk either way, not memory.
 #
-#   fly secrets set STRATUS_PASSWORD=...                        # once
 #   fly deploy --ha=false                                       # by hand
 #   make demo BASE=https://<app>.fly.dev                        # the demo media
 #
@@ -27,8 +28,8 @@ primary_region = "cdg"
   STRATUS_ADDR = ":8080"
   STRATUS_DATA_DIR = "/tmp/stratus"
   # Not a secret, and the seeding step reads it from here so there is one place
-  # that says who the user is. The password is a Fly secret, staged by CI from
-  # the DEMO_PASSWORD repository secret.
+  # that says who the user is. Neither is the password: CI stages it on every
+  # deploy as the version string this build carries.
   STRATUS_USERNAME = "demo"
   # The demo is seeded seconds after the machine starts, and a minute of waiting
   # for the indexer would make the music look missing. Nothing else about this

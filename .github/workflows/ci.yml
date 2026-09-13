@@ -152,6 +152,11 @@ jobs:
       # :main tag, so what runs is the thing this job built and not whatever
       # that tag points at by the time it is pulled.
       image: ${{ steps.pushed.outputs.ref }}
+      # The string the binary prints as its version and the UI shows in its
+      # footer. Computed once, here, so that what is deployed, what is stamped
+      # into the binary and what the test instance uses as a password cannot
+      # drift apart.
+      version: ${{ steps.version.outputs.value }}
     steps:
       - uses: actions/checkout@v7.0.1
         with:
@@ -177,11 +182,15 @@ jobs:
       # No QEMU: the Go stage cross-compiles and the two stages it copies from
       # -- distroless and our ffprobe -- are both multi-arch images that are
       # only ever copied out of, never run.
+      - name: version
+        id: version
+        run: echo "value=$(git describe --tags --match 'v*' --always --dirty)" >> "$GITHUB_OUTPUT"
+
       - name: build and push :main
         run: |
           docker buildx build \
             --platform linux/amd64,linux/arm64 \
-            --build-arg "VERSION=$(git describe --tags --match "v*" --always --dirty)" \
+            --build-arg "VERSION=${{ steps.version.outputs.value }}" \
             --tag "${{ steps.img.outputs.image }}:main" \
             --metadata-file meta.json \
             --push .
@@ -211,19 +220,19 @@ jobs:
 
       - uses: superfly/flyctl-actions/setup-flyctl@v1.4
 
-      # The password lives here and nowhere else. --stage does not restart
-      # anything: the secrets are applied by the deploy below, which was going to
-      # restart the machine anyway.
+      # The password is the version in the footer, which is the short sha of the
+      # commit being deployed. There is no secret to keep and it rotates by
+      # itself; what it costs is said in the README, out loud: this repository is
+      # public, so that instance is too, and every deploy logs every client out.
+      #
+      # --stage does not restart anything: the secret is applied by the deploy
+      # below, which was going to restart the machine anyway.
       - name: stage the instance's password
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
-          DEMO_PASSWORD: ${{ secrets.DEMO_PASSWORD }}
         run: |
-          if [ -z "$DEMO_PASSWORD" ]; then
-            echo "no DEMO_PASSWORD secret: the instance keeps whatever it has"
-            exit 0
-          fi
-          flyctl secrets set --stage --app "${{ vars.FLY_APP }}" STRATUS_PASSWORD="$DEMO_PASSWORD"
+          flyctl secrets set --stage --app "${{ vars.FLY_APP }}" \
+            STRATUS_PASSWORD="${{ needs.publish.outputs.version }}"
 
       - name: deploy what publish pushed
         env:
@@ -239,15 +248,9 @@ jobs:
       # fills it with the demo bundle and then asks the server what it did with
       # it -- the only check this project runs against something deployed.
       - name: seed the demo media
-        env:
-          DEMO_PASSWORD: ${{ secrets.DEMO_PASSWORD }}
         run: |
-          if [ -z "$DEMO_PASSWORD" ]; then
-            echo "no DEMO_PASSWORD secret: nothing to seed with"
-            exit 0
-          fi
-          # The username is not a secret and lives in fly.toml, which is what
-          # the instance is actually configured from.
+          # The username is not a secret either, and lives in fly.toml, which is
+          # what the instance is actually configured from.
           STRATUS_USERNAME="$(sed -n 's/^ *STRATUS_USERNAME *= *"\(.*\)"/\1/p' fly.toml)" \
-          STRATUS_PASSWORD="$DEMO_PASSWORD" \
+          STRATUS_PASSWORD="${{ needs.publish.outputs.version }}" \
             ./scripts/seed-demo.sh "https://${{ vars.FLY_APP }}.fly.dev"
