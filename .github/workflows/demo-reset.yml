@@ -1,0 +1,86 @@
+name: demo reset
+
+# The test instance is open on purpose -- its password is the version in its
+# footer, which anybody can read off this repository -- so what keeps it from
+# being worth abusing is that it forgets everything, every hour.
+#
+# A deploy replaces the machine's filesystem along with the image, so
+# redeploying what is *already* running is exactly a wipe: same commit, same
+# binary, same password, empty tree. Nothing here upgrades anything; the
+# pipeline in ci.yml is what deploys new code.
+#
+# GitHub's schedule is best effort and runs late under load, and it stops
+# altogether after sixty days with no push to the repository. Neither matters
+# for a demo, and both are why this can be run by hand as well.
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One at a time, and never cancelled halfway: a reset that stopped between the
+# deploy and the seeding would leave the demo empty until the next hour.
+concurrency:
+  group: demo-reset
+  cancel-in-progress: false
+
+env:
+  FLY_APP: ${{ vars.FLY_APP }}
+
+jobs:
+  reset:
+    name: reset
+    # Nothing to reset where no instance is configured, which is every fork.
+    if: vars.FLY_APP != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - uses: superfly/flyctl-actions/setup-flyctl@v1.4
+
+      - name: what it runs, and what it answers to
+        id: running
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          # Asked of the server rather than worked out from git: this job resets
+          # whatever is deployed, which is not necessarily this commit, and the
+          # version it reports is its password. Every OpenSubsonic answer carries
+          # it -- including the refusal you get for asking with no credentials,
+          # which is why this needs none.
+          version="$(curl -fsS "https://$FLY_APP.fly.dev/rest/ping.view" |
+            sed -n 's/.*serverVersion="\([^"]*\)".*/\1/p')"
+          [ -n "$version" ] || { echo "the instance did not say what it is running"; exit 1; }
+
+          image="$(flyctl image show --app "$FLY_APP" --json |
+            jq -r '.[0] | "\(.Registry)/\(.Repository)@\(.Digest)"')"
+          case "$image" in
+          */*@sha256:*) ;;
+          *)
+            echo "not an image reference: $image"
+            exit 1
+            ;;
+          esac
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+          echo "resetting $FLY_APP: $version"
+
+      - name: put it back on an empty disk
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          flyctl deploy \
+            --app "$FLY_APP" \
+            --image "${{ steps.running.outputs.image }}" \
+            --ha=false --yes \
+            --wait-timeout 5m
+
+      - name: seed the demo media again
+        run: |
+          STRATUS_USERNAME="$(sed -n 's/^ *STRATUS_USERNAME *= *"\(.*\)"/\1/p' fly.toml)" \
+          STRATUS_PASSWORD="${{ steps.running.outputs.version }}" \
+            ./scripts/seed-demo.sh "https://$FLY_APP.fly.dev"

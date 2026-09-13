@@ -6,7 +6,9 @@
 # image -- and a password that is the version in the page footer, which is the
 # short sha of the commit deployed and therefore public. Every merge to main is
 # a fresh server with nothing in it, a new password, and every client logged
-# out. Do not put anything here that you would miss.
+# out -- and on the hour, every hour, .github/workflows/demo-reset.yml empties
+# it again without changing what it runs. Do not put anything here that you
+# would miss.
 #
 # /tmp rather than /data because there is no mount: the image runs as 65532 and
 # cannot create a directory at the root of its filesystem, while /tmp is there
