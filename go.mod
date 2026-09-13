@@ -5,7 +5,7 @@ go 1.27.0
 require (
 	github.com/emersion/go-webdav v0.7.0
 	github.com/evanoberholster/imagemeta v1.0.0
-	github.com/jackc/pgx/v5 v5.10.0
+	github.com/jackc/pgx/v5 v5.11.0
 	github.com/minio/minio-go/v7 v7.3.0
 	golang.org/x/image v0.46.0
 	modernc.org/sqlite v1.58.0
