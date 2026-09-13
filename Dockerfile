@@ -31,10 +31,18 @@ COPY . .
 ARG VERSION=dev
 ARG TARGETOS
 ARG TARGETARCH
+# COVER is empty for every image this project publishes, and set only by
+# `make smoke-cover`, which builds a throwaway twin so the container suite can
+# report what it covers. Instrumentation in a release artifact would be a
+# performance cost and a file the server writes that nobody asked for; the
+# argument exists so the measured binary is the same build as the shipped one
+# in every other respect. atomic to match the mode `make cover` uses.
+ARG COVER=
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} \
-    go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/stratus ./cmd/stratus
+    go build -trimpath ${COVER:+-cover -covermode=atomic} \
+      -ldflags "-s -w -X main.version=${VERSION}" -o /out/stratus ./cmd/stratus
 
 FROM gcr.io/distroless/static:nonroot AS runtime
 COPY --from=build /out/stratus /usr/local/bin/stratus
