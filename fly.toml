@@ -10,8 +10,9 @@
 # cannot create a directory at the root of its filesystem, while /tmp is there
 # and writable. It is the machine's disk either way, not memory.
 #
-#   fly secrets set STRATUS_USERNAME=... STRATUS_PASSWORD=...   # once
+#   fly secrets set STRATUS_PASSWORD=...                        # once
 #   fly deploy --ha=false                                       # by hand
+#   make demo BASE=https://<app>.fly.dev                        # the demo media
 #
 # CI deploys this same file with the digest it just published; see ci.yml.
 app = "stratus-edu"
@@ -25,6 +26,14 @@ primary_region = "cdg"
 [env]
   STRATUS_ADDR = ":8080"
   STRATUS_DATA_DIR = "/tmp/stratus"
+  # Not a secret, and the seeding step reads it from here so there is one place
+  # that says who the user is. The password is a Fly secret, staged by CI from
+  # the DEMO_PASSWORD repository secret.
+  STRATUS_USERNAME = "demo"
+  # The demo is seeded seconds after the machine starts, and a minute of waiting
+  # for the indexer would make the music look missing. Nothing else about this
+  # instance is tuned.
+  STRATUS_INDEX_INTERVAL = "5s"
 
 [http_service]
   internal_port = 8080
