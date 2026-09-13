@@ -448,9 +448,12 @@ read off this repository. Three things follow, and none of them is an accident:
 - **Every deploy changes the password**, so every client and every browser
   session is logged out by the next merge to `main`. Reconfiguring a Subsonic
   client after a merge is the cost of not having a secret to manage.
-- **Every deploy wipes the disk**, which is the other half of why that is
-  tolerable: whatever a stranger leaves there survives until the next merge and
-  no longer.
+- **It wipes itself every hour**, on top of wiping on every deploy. That is what
+  makes an open instance not worth abusing: whatever anybody leaves there —
+  including you — is gone within the hour, and the demo media is put back.
+  `.github/workflows/demo-reset.yml` redeploys the image that is already
+  running, which replaces the machine's filesystem without changing a line of
+  what it runs.
 
 Which is why the deploy ends by seeding it: `scripts/seed-demo.sh` fetches a
 4.4 MB bundle of freely licensed media — five photographs with their EXIF, two
