@@ -21,6 +21,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -44,6 +45,7 @@ func Run(t *testing.T, newStore func(t *testing.T) storage.Storage) {
 		{"put rejects a size that does not match", putSizeMismatch},
 		{"empty objects are objects", emptyObject},
 		{"large objects stream", largeObject},
+		{"objects above the multipart threshold round trip", multipartObject},
 		{"missing objects report ErrNotFound", missingObject},
 		{"delete is idempotent", deleteIdempotent},
 		{"ranges", ranges},
@@ -54,6 +56,7 @@ func Run(t *testing.T, newStore func(t *testing.T) storage.Storage) {
 		{"list with no prefix lists everything", listEverything},
 		{"list reflects deletes", listAfterDelete},
 		{"list can be abandoned early", listBreak},
+		{"list pages past a thousand keys", listPastOnePage},
 		{"a cancelled context is honoured", cancelledContext},
 	}
 
@@ -173,6 +176,80 @@ func largeObject(t *testing.T, s storage.Storage) {
 	// that matters: it is what seeking in a media player becomes.
 	if got := get(t, s, key, storage.Slice(1<<20, 16)); !bytes.Equal(got, body[1<<20:1<<20+16]) {
 		t.Errorf("Get(Slice) = %v, want %v", got, body[1<<20:1<<20+16])
+	}
+}
+
+// multipartObject covers the write path every video takes and no other case
+// reaches. minio-go sends a single PUT below 16 MiB and switches to a multipart
+// upload above it, so largeObject's 3 MiB -- and everything else here -- has
+// only ever exercised the simple path. A backend that assembles the parts
+// wrongly loses the middle of a file and reports success, which is the worst
+// shape a storage bug can have.
+//
+// The range asked for straddles the boundary between the first part and the
+// second, because that is where a bad assembly shows.
+func multipartObject(t *testing.T, s storage.Storage) {
+	const (
+		key      = "video/holiday.mp4"
+		partSize = 16 << 20
+		size     = partSize + (1 << 20)
+	)
+	body := make([]byte, size)
+	for i := range body {
+		// Not a constant byte: a seam that duplicated or dropped a part would
+		// still compare equal against one.
+		body[i] = byte(i%251 + 1)
+	}
+
+	put(t, s, key, body)
+
+	if got := get(t, s, key, storage.All()); !bytes.Equal(got, body) {
+		t.Errorf("Get returned %d bytes, want the %d written", len(got), len(body))
+	}
+	seam := storage.Slice(partSize-16, 32)
+	if got := get(t, s, key, seam); !bytes.Equal(got, body[partSize-16:partSize+16]) {
+		t.Errorf("Get across the part boundary = %v, want %v", got, body[partSize-16:partSize+16])
+	}
+}
+
+// listPastOnePage is the case the rest of the listing tests cannot be: S3 caps
+// a response at 1000 keys and expects the client to follow a continuation
+// token, so with five objects a backend that reads one page and stops looks
+// exactly like one that works. The sweep in internal/files lists the whole
+// store, and a photo library passes a thousand blobs in a week.
+//
+// The puts are concurrent because 1001 sequential round trips to an object
+// store is a minute of test time; t.Errorf rather than the put helper, since
+// t.Fatalf from another goroutine does not fail the test it was meant to.
+func listPastOnePage(t *testing.T, s storage.Storage) {
+	const n = 1001
+
+	var wg sync.WaitGroup
+	inflight := make(chan struct{}, 16)
+	for i := range n {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			inflight <- struct{}{}
+			defer func() { <-inflight }()
+
+			key := "page/" + strconv.Itoa(i)
+			if _, err := s.Put(t.Context(), key, strings.NewReader("x"), 1); err != nil {
+				t.Errorf("Put(%q): %v", key, err)
+			}
+		}()
+	}
+	wg.Wait()
+
+	var seen int
+	for _, err := range s.List(t.Context(), "page/") {
+		if err != nil {
+			t.Fatalf("List: %v", err)
+		}
+		seen++
+	}
+	if seen != n {
+		t.Errorf("listed %d of %d objects: the second page was not read", seen, n)
 	}
 }
 
