@@ -110,27 +110,31 @@ func TestLoadStrings(t *testing.T) {
 func TestLoadLogLevel(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name  string
-		value string
-		want  slog.Level
+		name    string
+		value   string
+		want    slog.Level
+		wantErr bool
 	}{
 		{name: "debug", value: "debug", want: slog.LevelDebug},
 		{name: "info", value: "info", want: slog.LevelInfo},
 		{name: "already uppercase", value: "WARN", want: slog.LevelWarn},
 		{name: "mixed case", value: "ErRoR", want: slog.LevelError},
 		{name: "offset syntax", value: "debug+2", want: slog.LevelDebug + 2},
-		// Current behaviour, pinned rather than endorsed: an unparseable level
-		// silently becomes the default. See the open question in the PR.
-		{name: "garbage falls back", value: "nonsense", want: config.DefaultLogLevel},
-		{name: "numeric falls back", value: "3", want: config.DefaultLogLevel},
-		{name: "empty falls back", value: "", want: config.DefaultLogLevel},
+		{name: "a typo is an error", value: "debgu", wantErr: true},
+		{name: "a number is an error", value: "3", wantErr: true},
+		// Unset is the one value that falls back, because not setting an
+		// optional variable is not a mistake.
+		{name: "empty is the default", value: "", want: config.DefaultLogLevel},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got := load(t, map[string]string{"STRATUS_LOG_LEVEL": tt.value})
-			if got.LogLevel != tt.want {
-				t.Errorf("LogLevel = %v, want %v", got.LogLevel, tt.want)
+			cfg, err := config.Load(env(map[string]string{"STRATUS_LOG_LEVEL": tt.value}))
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("Load = %v, wantErr %v", err, tt.wantErr)
+			}
+			if err == nil && cfg.LogLevel != tt.want {
+				t.Errorf("LogLevel = %v, want %v", cfg.LogLevel, tt.want)
 			}
 		})
 	}

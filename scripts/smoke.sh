@@ -808,6 +808,9 @@ refuses "a username with no password refuses to start" -e STRATUS_USERNAME=edu
 refuses "a malformed database DSN refuses to start" -e STRATUS_DB_DSN=nonsense
 refuses "an unsupported database scheme refuses to start" -e STRATUS_DB_DSN=mysql://user:pass@db/stratus
 refuses "an unreachable database refuses to start" -e STRATUS_DB_DSN=postgres://u:p@127.0.0.1:1/stratus?sslmode=disable
+# The one that reads as harmless and is not: a level nobody can parse used to
+# start the server at info, and whoever set it debugged blind.
+refuses "an unparseable log level refuses to start" -e STRATUS_LOG_LEVEL=debgu
 
 # ---------------------------------------------------------------------------
 section "Compose healthcheck"
