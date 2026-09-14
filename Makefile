@@ -211,9 +211,9 @@ test-race: | $(CACHE_DIR)
 # skip, their packages collapse, and scripts/coverage.sh turns those silent skips
 # into a failed build.
 cover: | $(CACHE_DIR)
-	@$(MAKE) --no-print-directory minio-up postgres-up
+	@$(MAKE) --no-print-directory garage-up postgres-up
 	@$(GO_SVC) test $(TEST_FLAGS) -covermode=atomic -coverprofile=coverage.out ./...; status=$$?; \
-		$(MAKE) --no-print-directory minio-down postgres-down; exit $$status
+		$(MAKE) --no-print-directory garage-down postgres-down; exit $$status
 	@$(GO) tool cover -func=coverage.out | tail -1
 	@./scripts/coverage.sh coverage.out
 
@@ -258,18 +258,28 @@ ci: fmt-check vet lint tidy-check test-race test-s3 test-db cover smoke smoke-co
 
 # --- services for tests ---------------------------------------------------
 #
-# The conformance suites need the real thing: MinIO for the storage port,
+# The conformance suites need the real thing: Garage for the storage port,
 # PostgreSQL for the metadata port. Without them those tests skip, which is what
 # keeps `make test` useful on a machine with nothing running -- and is exactly
 # why `make ci` runs the targets below, so a skip never becomes permanent.
+#
+# Garage rather than MinIO since #116: MinIO's community edition was archived in
+# April 2026 with no release since September 2025, so the pinned image was the
+# last one that would ever exist. The client library is a different project and
+# is not going anywhere -- minio-go is Apache-2.0 and actively released, and the
+# S3 driver keeps using it.
 
-MINIO_IMAGE    ?= quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+GARAGE_IMAGE   ?= dxflrs/garage:v2.3.0
 POSTGRES_IMAGE ?= postgres:18-alpine
 
 TEST_NET       := stratus-test
-MINIO_NAME     := stratus-test-minio
-MINIO_USER     := stratus
-MINIO_PASS     := stratus-test-secret
+GARAGE_NAME    := stratus-test-garage
+# Garage names a key rather than a user, and the suite creates a bucket per
+# case, so the pair below is imported into the throwaway node and then allowed
+# to create buckets. Fixed rather than generated because the test process has to
+# be told them, and fake enough to read as fake.
+GARAGE_KEY     := GKstratustestaccesskey000
+GARAGE_SECRET  := stratus-test-secret-0000000000000000000000000000
 POSTGRES_NAME  := stratus-test-postgres
 POSTGRES_USER  := stratus
 POSTGRES_PASS  := stratus-test-secret
@@ -277,16 +287,16 @@ POSTGRES_PASS  := stratus-test-secret
 # CI has a native toolchain and reaches the services on their published ports;
 # the container toolchain reaches them by name on a shared docker network.
 ifeq ($(GO_MODE),native)
-  S3_ENDPOINT   := 127.0.0.1:9000
+  S3_ENDPOINT   := 127.0.0.1:3900
   POSTGRES_HOST := 127.0.0.1:5432
   GO_SVC        := go
 else
-  S3_ENDPOINT   := $(MINIO_NAME):9000
+  S3_ENDPOINT   := $(GARAGE_NAME):3900
   POSTGRES_HOST := $(POSTGRES_NAME):5432
   GO_SVC         = $(DOCKER_RUN) --network $(TEST_NET) -e CGO_ENABLED=0 \
-                     -e STRATUS_TEST_S3_ENDPOINT=$(MINIO_NAME):9000 \
-                     -e STRATUS_TEST_S3_ACCESS_KEY=$(MINIO_USER) \
-                     -e STRATUS_TEST_S3_SECRET_KEY=$(MINIO_PASS) \
+                     -e STRATUS_TEST_S3_ENDPOINT=$(GARAGE_NAME):3900 \
+                     -e STRATUS_TEST_S3_ACCESS_KEY=$(GARAGE_KEY) \
+                     -e STRATUS_TEST_S3_SECRET_KEY=$(GARAGE_SECRET) \
                      -e STRATUS_TEST_POSTGRES_DSN=$(POSTGRES_DSN) \
                      $(GO_IMAGE) go
 endif
@@ -296,15 +306,15 @@ POSTGRES_DSN   := postgres://$(POSTGRES_USER):$(POSTGRES_PASS)@$(POSTGRES_HOST)/
 # Target-specific, not global: exporting these everywhere would stop `make test`
 # from skipping and make it fail instead whenever the services are not running.
 test-s3 test-db cover: export STRATUS_TEST_S3_ENDPOINT := $(S3_ENDPOINT)
-test-s3 test-db cover: export STRATUS_TEST_S3_ACCESS_KEY := $(MINIO_USER)
-test-s3 test-db cover: export STRATUS_TEST_S3_SECRET_KEY := $(MINIO_PASS)
+test-s3 test-db cover: export STRATUS_TEST_S3_ACCESS_KEY := $(GARAGE_KEY)
+test-s3 test-db cover: export STRATUS_TEST_S3_SECRET_KEY := $(GARAGE_SECRET)
 test-s3 test-db cover: export STRATUS_TEST_POSTGRES_DSN := $(POSTGRES_DSN)
 
-## test-s3: run the storage conformance suite against a throwaway MinIO
+## test-s3: run the storage conformance suite against a throwaway Garage
 test-s3: | $(CACHE_DIR)
-	@$(MAKE) --no-print-directory minio-up
+	@$(MAKE) --no-print-directory garage-up
 	@$(GO_SVC) test $(TEST_FLAGS) ./internal/storage/s3/...; status=$$?; \
-		$(MAKE) --no-print-directory minio-down; exit $$status
+		$(MAKE) --no-print-directory garage-down; exit $$status
 
 ## test-db: run the metadata conformance suite against a throwaway PostgreSQL
 test-db: | $(CACHE_DIR)
@@ -315,22 +325,43 @@ test-db: | $(CACHE_DIR)
 $(TEST_NET):
 	@docker network inspect $(TEST_NET) >/dev/null 2>&1 || docker network create $(TEST_NET) >/dev/null
 
-## minio-up: start the throwaway MinIO used by test-s3
-minio-up: $(TEST_NET)
-	@docker rm -f $(MINIO_NAME) >/dev/null 2>&1 || true
-	@docker run -d --name $(MINIO_NAME) --network $(TEST_NET) -p 127.0.0.1:9000:9000 \
-		-e MINIO_ROOT_USER=$(MINIO_USER) -e MINIO_ROOT_PASSWORD=$(MINIO_PASS) \
-		$(MINIO_IMAGE) server /data >/dev/null
-	@for i in $$(seq 1 100); do \
-		curl -fsS http://127.0.0.1:9000/minio/health/live >/dev/null 2>&1 && \
-			{ echo "minio ready on $(S3_ENDPOINT)"; exit 0; }; \
+## garage-up: start the throwaway Garage used by test-s3
+#
+# Three steps where MinIO took one. The node comes up, /health reports it ready
+# -- which is later than the socket opening, because --single-node applies a
+# layout first -- and only then can a key be imported.
+#
+# The RPC secret is generated per run rather than written down: Garage refuses
+# to start without one, and a throwaway node's is not something to check in.
+# This is the one host tool the target needs beyond docker -- without openssl
+# the secret comes out empty and Garage says so in the log this target prints.
+#
+# The two key commands have their output captured rather than discarded: the
+# CLI logs its RPC handshake to stderr on every call, and a node that answered
+# /health and still refuses a key is a failure worth reading in full instead of
+# a suite that quietly has no credentials.
+garage-up: $(TEST_NET)
+	@docker rm -f $(GARAGE_NAME) >/dev/null 2>&1 || true
+	@docker run -d --name $(GARAGE_NAME) --network $(TEST_NET) \
+		-p 127.0.0.1:3900:3900 -p 127.0.0.1:3903:3903 \
+		-v "$(CURDIR)/scripts/garage.toml":/etc/garage.toml:ro \
+		-e GARAGE_RPC_SECRET="$$(openssl rand -hex 32)" \
+		$(GARAGE_IMAGE) /garage server --single-node >/dev/null
+	@for i in $$(seq 1 150); do \
+		curl -fsS http://127.0.0.1:3903/health >/dev/null 2>&1 && break; \
 		sleep 0.2; \
-	done; \
-	echo "minio did not become healthy:"; docker logs $(MINIO_NAME); exit 1
+		[ $$i -lt 150 ] || { echo "garage did not become healthy:"; docker logs $(GARAGE_NAME); exit 1; }; \
+	done
+	@out=$$(docker exec $(GARAGE_NAME) /garage key import --yes -n stratus-test \
+		$(GARAGE_KEY) $(GARAGE_SECRET) 2>&1) || \
+		{ echo "garage: importing the test key failed:"; echo "$$out"; exit 1; }
+	@out=$$(docker exec $(GARAGE_NAME) /garage key allow --create-bucket $(GARAGE_KEY) 2>&1) || \
+		{ echo "garage: allowing bucket creation failed:"; echo "$$out"; exit 1; }
+	@echo "garage ready on $(S3_ENDPOINT)"
 
-## minio-down: remove the throwaway MinIO
-minio-down:
-	@docker rm -f $(MINIO_NAME) >/dev/null 2>&1 || true
+## garage-down: remove the throwaway Garage
+garage-down:
+	@docker rm -f $(GARAGE_NAME) >/dev/null 2>&1 || true
 
 ## postgres-up: start the throwaway PostgreSQL used by test-db
 postgres-up: $(TEST_NET)
@@ -373,6 +404,6 @@ version:
 	@echo $(VERSION)
 
 .PHONY: help env up down restart logs ps health image build fmt fmt-check vet \
-        lint tidy tidy-check vuln deps deps-update demo test test-race test-s3 test-db minio-up \
-        minio-down postgres-up postgres-down cover smoke smoke-cover ci shell clean \
+        lint tidy tidy-check vuln deps deps-update demo test test-race test-s3 test-db garage-up \
+        garage-down postgres-up postgres-down cover smoke smoke-cover ci shell clean \
         clean-data version

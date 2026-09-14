@@ -347,7 +347,7 @@ One DSN, and its scheme selects the backend:
 ```
 file:///data/blobs
 s3://KEY:SECRET@s3.eu-west-1.amazonaws.com/bucket?region=eu-west-1
-s3://KEY:SECRET@minio.lan:9000/stratus?tls=false
+s3://KEY:SECRET@garage.lan:3900/stratus?tls=false
 ```
 
 The server writes, reads back and removes one object at startup, so wrong
@@ -399,7 +399,7 @@ the same commands work on a laptop without Go and on a CI runner with it.
 make ci          # everything CI runs
 make test        # unit tests
 make test-race   # under the race detector (Debian image: -race needs cgo)
-make test-s3     # the storage conformance suite against a throwaway MinIO
+make test-s3     # the storage conformance suite against a throwaway Garage
 make test-db     # the metadata conformance suite against a throwaway PostgreSQL
 make cover       # coverage, against a floor per package
 make deps        # the modules in the binary, against deps.allow
@@ -428,7 +428,7 @@ second month.
 `make cover` holds each package to a floor listed in `scripts/coverage.sh`, set
 at the number reached the day it was added so it can only go up. A single total
 would say nothing useful: `internal/storage/s3` measures 15% or 90% depending on
-whether MinIO is running, which is also what makes the floor catch a conformance
+whether Garage is running, which is also what makes the floor catch a conformance
 suite that skipped instead of running.
 
 `make smoke-cover` runs the container suite a second time against a twin of the

@@ -93,7 +93,7 @@ jobs:
       # The conformance suite against a real S3 API. Docker is already on the
       # runner, and a `services:` block could not pass `server /data` to the
       # image anyway.
-      - name: S3 conformance against MinIO
+      - name: S3 conformance against Garage
         run: make test-s3
 
       - name: metadata conformance against PostgreSQL

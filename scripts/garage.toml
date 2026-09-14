@@ -1,0 +1,36 @@
+# The throwaway Garage the storage conformance suite runs against. `make
+# garage-up` starts it and `make test-s3` destroys it; nothing here describes a
+# deployment, and Stratus itself never reads this file.
+#
+# MinIO took two environment variables and no file. Garage wants a file, and
+# that is most of what the swap cost -- see issue #116 for why it was made.
+#
+# The RPC secret is deliberately absent: the Makefile generates one per run and
+# passes it as GARAGE_RPC_SECRET, so nothing that looks like a credential is
+# checked in.
+
+metadata_dir = "/var/lib/garage/meta"
+data_dir = "/var/lib/garage/data"
+
+# One file and no tuning, against LMDB's default. The data does not outlive the
+# container, so durability is not what is being chosen here.
+db_engine = "sqlite"
+
+# A single node has nothing to replicate to, and Garage refuses to serve until
+# the layout it was given can satisfy this number.
+replication_factor = 1
+
+rpc_bind_addr = "[::]:3901"
+rpc_public_addr = "127.0.0.1:3901"
+
+[s3_api]
+# What the suite's client signs its requests with. A mismatch here surfaces as a
+# 403 that reads exactly like bad credentials.
+s3_region = "us-east-1"
+api_bind_addr = "[::]:3900"
+
+[admin]
+# Carried only for GET /health, which needs no token and reports the node ready
+# rather than merely listening -- the layout is applied a moment after the
+# socket opens, and a suite that starts in between fails.
+api_bind_addr = "[::]:3903"

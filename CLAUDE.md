@@ -308,7 +308,9 @@ Restraint here is principle 3, not laziness:
 
 - Go, `net/http` from stdlib, **no web framework**.
 - `github.com/emersion/go-webdav` for DAV/CalDAV primitives.
-- `minio-go` for S3 (much lighter than `aws-sdk-go-v2`).
+- `minio-go` for S3 (much lighter than `aws-sdk-go-v2`). The client, not the
+  server: MinIO the server was archived in April 2026 and the conformance suite
+  moved to Garage (#116), while minio-go is Apache-2.0 and still released.
 - Media processing: **FFmpeg is a requirement, not an optional extra.** Without
   it a track has no duration and a video no dimensions, and half a media library
   is worse than an honest refusal to start. The image carries two statically
