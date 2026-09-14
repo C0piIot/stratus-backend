@@ -83,10 +83,19 @@ func Load(getenv func(string) string) (Config, error) {
 	cfg := Config{
 		Addr:     lookup(getenv, "STRATUS_ADDR", DefaultAddr),
 		DataDir:  lookup(getenv, "STRATUS_DATA_DIR", DefaultDataDir),
-		LogLevel: parseLevel(lookup(getenv, "STRATUS_LOG_LEVEL", "")),
 		Username: getenv("STRATUS_USERNAME"),
 		Password: Secret(getenv("STRATUS_PASSWORD")),
 	}
+
+	// Refused rather than defaulted, which is the rule every other setting in
+	// this function already follows: a typo would otherwise start the server at
+	// info and leave whoever set it debugging blind, wondering why the lines
+	// they asked for never appear.
+	level, err := parseLevel(lookup(getenv, "STRATUS_LOG_LEVEL", ""))
+	if err != nil {
+		return Config{}, fmt.Errorf("STRATUS_LOG_LEVEL: %w", err)
+	}
+	cfg.LogLevel = level
 
 	storage, err := ParseStorageDSN(lookup(getenv, "STRATUS_STORAGE_DSN", defaultStorageDSN(cfg.DataDir)))
 	if err != nil {
@@ -166,13 +175,19 @@ func lookup(getenv func(string) string, key, fallback string) string {
 // parseLevel falls back to the default on anything it cannot parse. See the
 // note in Load's tests: whether a typo should instead be a startup error is an
 // open question, deliberately left as it was.
-func parseLevel(raw string) slog.Level {
+// parseLevel reads a level name, case-insensitively and with slog's offset
+// syntax -- "debug+2" is a level below debug, which is how a client library
+// asks for more than this program names.
+//
+// Unset is the default and not an error: the variable is optional. Anything
+// else that does not parse is, since it can only be a mistake.
+func parseLevel(raw string) (slog.Level, error) {
 	if raw == "" {
-		return DefaultLogLevel
+		return DefaultLogLevel, nil
 	}
 	var lvl slog.Level
 	if err := lvl.UnmarshalText([]byte(strings.ToUpper(raw))); err != nil {
-		return DefaultLogLevel
+		return 0, fmt.Errorf("%q is not a level, try debug, info, warn or error", raw)
 	}
-	return lvl
+	return lvl, nil
 }

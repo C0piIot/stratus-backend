@@ -334,7 +334,7 @@ make up STRATUS_PORT=9000 STRATUS_DATA_PATH=/srv/stratus
 | `STRATUS_PORT` | `8080` | host port the backend is published on |
 | `STRATUS_DATA_PATH` | `./data` | host dir for blobs, the database and temporary files |
 | `STRATUS_UID` / `STRATUS_GID` | invoking user | user the container runs as |
-| `STRATUS_LOG_LEVEL` | `info` | `debug` / `info` / `warn` / `error` |
+| `STRATUS_LOG_LEVEL` | `info` | `debug` / `info` / `warn` / `error`; anything else refuses to start |
 | `STRATUS_STORAGE_DSN` | `file://<data>/blobs` | blob backend; the scheme picks it |
 | `STRATUS_DB_DSN` | `sqlite://<data>/stratus.db` | metadata backend; likewise |
 | `STRATUS_USERNAME` | unset | the single user |
@@ -565,7 +565,7 @@ Working now:
   rename and delete. A signed-cookie session and a CSP that allows nothing but
   the binary's own assets.
 - A request log, migrations applied at startup, and a container asserted from
-  the outside by 64 smoke checks.
+  the outside by 65 smoke checks.
 
 Not there yet: CalDAV, renaming a folder that has anything in it, photo
 thumbnails and sharing --
