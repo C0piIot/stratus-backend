@@ -211,9 +211,9 @@ test-race: | $(CACHE_DIR)
 # skip, their packages collapse, and scripts/coverage.sh turns those silent skips
 # into a failed build.
 cover: | $(CACHE_DIR)
-	@$(MAKE) --no-print-directory minio-up postgres-up
+	@$(MAKE) --no-print-directory silo-up postgres-up
 	@$(GO_SVC) test $(TEST_FLAGS) -covermode=atomic -coverprofile=coverage.out ./...; status=$$?; \
-		$(MAKE) --no-print-directory minio-down postgres-down; exit $$status
+		$(MAKE) --no-print-directory silo-down postgres-down; exit $$status
 	@$(GO) tool cover -func=coverage.out | tail -1
 	@./scripts/coverage.sh coverage.out
 
@@ -258,18 +258,32 @@ ci: fmt-check vet lint tidy-check test-race test-s3 test-db cover smoke smoke-co
 
 # --- services for tests ---------------------------------------------------
 #
-# The conformance suites need the real thing: MinIO for the storage port,
+# The conformance suites need the real thing: Silo for the storage port,
 # PostgreSQL for the metadata port. Without them those tests skip, which is what
 # keeps `make test` useful on a machine with nothing running -- and is exactly
 # why `make ci` runs the targets below, so a skip never becomes permanent.
+#
+# Silo rather than MinIO since #116: MinIO's community edition was archived in
+# April 2026 with no release since September 2025, so the image pinned here was
+# the last one that would ever exist and no security fix was coming. Silo is a
+# maintained fork of it, which is why this is an image name and not a rewrite --
+# same environment variables, same port, same health endpoint.
+#
+# What that buys in diff it gives up in independence, and the trade is #20's:
+# a fork of MinIO holds MinIO's opinion of what S3 means, so it cannot catch an
+# assumption shaped like MinIO's behaviour. Garage was the alternative and is
+# written up there.
+#
+# The client library is a different project and is not going anywhere: minio-go
+# is Apache-2.0 and actively released, and the S3 driver keeps using it.
 
-MINIO_IMAGE    ?= quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+SILO_IMAGE     ?= pgsty/silo:RELEASE.2026-09-03T13-18-01Z
 POSTGRES_IMAGE ?= postgres:18-alpine
 
 TEST_NET       := stratus-test
-MINIO_NAME     := stratus-test-minio
-MINIO_USER     := stratus
-MINIO_PASS     := stratus-test-secret
+SILO_NAME      := stratus-test-silo
+SILO_USER      := stratus
+SILO_PASS      := stratus-test-secret
 POSTGRES_NAME  := stratus-test-postgres
 POSTGRES_USER  := stratus
 POSTGRES_PASS  := stratus-test-secret
@@ -281,12 +295,12 @@ ifeq ($(GO_MODE),native)
   POSTGRES_HOST := 127.0.0.1:5432
   GO_SVC        := go
 else
-  S3_ENDPOINT   := $(MINIO_NAME):9000
+  S3_ENDPOINT   := $(SILO_NAME):9000
   POSTGRES_HOST := $(POSTGRES_NAME):5432
   GO_SVC         = $(DOCKER_RUN) --network $(TEST_NET) -e CGO_ENABLED=0 \
-                     -e STRATUS_TEST_S3_ENDPOINT=$(MINIO_NAME):9000 \
-                     -e STRATUS_TEST_S3_ACCESS_KEY=$(MINIO_USER) \
-                     -e STRATUS_TEST_S3_SECRET_KEY=$(MINIO_PASS) \
+                     -e STRATUS_TEST_S3_ENDPOINT=$(SILO_NAME):9000 \
+                     -e STRATUS_TEST_S3_ACCESS_KEY=$(SILO_USER) \
+                     -e STRATUS_TEST_S3_SECRET_KEY=$(SILO_PASS) \
                      -e STRATUS_TEST_POSTGRES_DSN=$(POSTGRES_DSN) \
                      $(GO_IMAGE) go
 endif
@@ -296,15 +310,15 @@ POSTGRES_DSN   := postgres://$(POSTGRES_USER):$(POSTGRES_PASS)@$(POSTGRES_HOST)/
 # Target-specific, not global: exporting these everywhere would stop `make test`
 # from skipping and make it fail instead whenever the services are not running.
 test-s3 test-db cover: export STRATUS_TEST_S3_ENDPOINT := $(S3_ENDPOINT)
-test-s3 test-db cover: export STRATUS_TEST_S3_ACCESS_KEY := $(MINIO_USER)
-test-s3 test-db cover: export STRATUS_TEST_S3_SECRET_KEY := $(MINIO_PASS)
+test-s3 test-db cover: export STRATUS_TEST_S3_ACCESS_KEY := $(SILO_USER)
+test-s3 test-db cover: export STRATUS_TEST_S3_SECRET_KEY := $(SILO_PASS)
 test-s3 test-db cover: export STRATUS_TEST_POSTGRES_DSN := $(POSTGRES_DSN)
 
-## test-s3: run the storage conformance suite against a throwaway MinIO
+## test-s3: run the storage conformance suite against a throwaway Silo
 test-s3: | $(CACHE_DIR)
-	@$(MAKE) --no-print-directory minio-up
+	@$(MAKE) --no-print-directory silo-up
 	@$(GO_SVC) test $(TEST_FLAGS) ./internal/storage/s3/...; status=$$?; \
-		$(MAKE) --no-print-directory minio-down; exit $$status
+		$(MAKE) --no-print-directory silo-down; exit $$status
 
 ## test-db: run the metadata conformance suite against a throwaway PostgreSQL
 test-db: | $(CACHE_DIR)
@@ -315,22 +329,25 @@ test-db: | $(CACHE_DIR)
 $(TEST_NET):
 	@docker network inspect $(TEST_NET) >/dev/null 2>&1 || docker network create $(TEST_NET) >/dev/null
 
-## minio-up: start the throwaway MinIO used by test-s3
-minio-up: $(TEST_NET)
-	@docker rm -f $(MINIO_NAME) >/dev/null 2>&1 || true
-	@docker run -d --name $(MINIO_NAME) --network $(TEST_NET) -p 127.0.0.1:9000:9000 \
-		-e MINIO_ROOT_USER=$(MINIO_USER) -e MINIO_ROOT_PASSWORD=$(MINIO_PASS) \
-		$(MINIO_IMAGE) server /data >/dev/null
+## silo-up: start the throwaway Silo used by test-s3
+#
+# MINIO_ROOT_USER and the health path are the fork's inheritance, not a typo:
+# Silo keeps MinIO's interface, which is the whole reason it was chosen.
+silo-up: $(TEST_NET)
+	@docker rm -f $(SILO_NAME) >/dev/null 2>&1 || true
+	@docker run -d --name $(SILO_NAME) --network $(TEST_NET) -p 127.0.0.1:9000:9000 \
+		-e MINIO_ROOT_USER=$(SILO_USER) -e MINIO_ROOT_PASSWORD=$(SILO_PASS) \
+		$(SILO_IMAGE) server /data >/dev/null
 	@for i in $$(seq 1 100); do \
 		curl -fsS http://127.0.0.1:9000/minio/health/live >/dev/null 2>&1 && \
-			{ echo "minio ready on $(S3_ENDPOINT)"; exit 0; }; \
+			{ echo "silo ready on $(S3_ENDPOINT)"; exit 0; }; \
 		sleep 0.2; \
 	done; \
-	echo "minio did not become healthy:"; docker logs $(MINIO_NAME); exit 1
+	echo "silo did not become healthy:"; docker logs $(SILO_NAME); exit 1
 
-## minio-down: remove the throwaway MinIO
-minio-down:
-	@docker rm -f $(MINIO_NAME) >/dev/null 2>&1 || true
+## silo-down: remove the throwaway Silo
+silo-down:
+	@docker rm -f $(SILO_NAME) >/dev/null 2>&1 || true
 
 ## postgres-up: start the throwaway PostgreSQL used by test-db
 postgres-up: $(TEST_NET)
@@ -373,6 +390,6 @@ version:
 	@echo $(VERSION)
 
 .PHONY: help env up down restart logs ps health image build fmt fmt-check vet \
-        lint tidy tidy-check vuln deps deps-update demo test test-race test-s3 test-db minio-up \
-        minio-down postgres-up postgres-down cover smoke smoke-cover ci shell clean \
+        lint tidy tidy-check vuln deps deps-update demo test test-race test-s3 test-db silo-up \
+        silo-down postgres-up postgres-down cover smoke smoke-cover ci shell clean \
         clean-data version

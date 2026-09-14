@@ -49,7 +49,7 @@ func testConfig(t *testing.T) s3.Config {
 	t.Helper()
 	endpoint := os.Getenv(endpointEnv)
 	if endpoint == "" {
-		t.Skipf("%s is not set; `make test-s3` starts MinIO and sets it", endpointEnv)
+		t.Skipf("%s is not set; `make test-s3` starts Silo and sets it", endpointEnv)
 	}
 	return s3.Config{
 		Endpoint:  endpoint,
