@@ -18,3 +18,4 @@
 # toolchain caches (bind-mounted into the build container)
 /.cache/
 coverage.out
+/coverage-smoke/

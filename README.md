@@ -405,6 +405,7 @@ make cover       # coverage, against a floor per package
 make deps        # the modules in the binary, against deps.allow
 make lint        # golangci-lint, version pinned in .golangci-version
 make smoke       # build the image and assert its runtime properties
+make smoke-cover # the same suite against an instrumented twin, for coverage
 make demo        # put the demo media into a running instance
 make env         # show the resolved toolchain
 ```
@@ -429,6 +430,15 @@ at the number reached the day it was added so it can only go up. A single total
 would say nothing useful: `internal/storage/s3` measures 15% or 90% depending on
 whether MinIO is running, which is also what makes the floor catch a conformance
 suite that skipped instead of running.
+
+`make smoke-cover` runs the container suite a second time against a twin of the
+image built with `go build -cover`, and writes `coverage-smoke.out`. The shipped
+image is never instrumented, and the assertions about the artefact itself — its
+size, its layers, its lack of a shell — stay measured on the one that ships. It
+answers what unit coverage structurally cannot: `cmd/stratus` reads 0% there and
+100% here, because flags and exit codes are only reachable by running the
+binary. The two profiles are kept apart rather than merged, since a floor an
+end-to-end run can satisfy has stopped being a statement about unit tests.
 
 CI publishes `ghcr.io/c0piiot/stratus-backend:main` on every merge, multi-arch,
 and — where a repository sets a `FLY_APP` variable — deploys that exact digest to

@@ -228,8 +228,33 @@ demo:
 smoke:
 	./scripts/smoke.sh
 
+## smoke-cover: the same suite again, against an instrumented image
+#
+# What `make cover` cannot see: the container suite drives the binary from the
+# outside, so every statement it reaches -- cmd/stratus above all, which no unit
+# test imports -- reads as uncovered. This runs it a second time against a
+# `go build -cover` twin of the image and converts the counters into a profile.
+#
+# It is a separate profile rather than one merged into coverage.out on purpose.
+# A floor that an end-to-end run can satisfy stops being a statement about unit
+# tests, and the number worth having here is what the container exercises.
+#
+# The directory is 0777 because the containers write it as whoever they run as:
+# the host user for the serving cases, the image's nonroot uid for the startup
+# failure matrix.
+smoke-cover: | $(CACHE_DIR)
+	@rm -rf coverage-smoke coverage-smoke.out
+	@mkdir -m 777 -p coverage-smoke
+	@COVER=1 COVERDIR="$(CURDIR)/coverage-smoke" ./scripts/smoke.sh
+	@$(GO) tool covdata textfmt -i=coverage-smoke -o=coverage-smoke.out
+	@printf '\n\033[1mContainer coverage\033[0m\n'
+	@$(GO) tool covdata percent -i=coverage-smoke | \
+		awk '{ sub(/^.*stratus-backend\//, "", $$1); sub(/%$$/, "", $$3); \
+		       printf "  %-28s %5s%%\n", $$1, $$3 }'
+	@printf '\n  profile: coverage-smoke.out\n\n'
+
 ## ci: everything CI runs, in one command
-ci: fmt-check vet lint tidy-check test-race test-s3 test-db cover smoke
+ci: fmt-check vet lint tidy-check test-race test-s3 test-db cover smoke smoke-cover
 
 # --- services for tests ---------------------------------------------------
 #
@@ -349,5 +374,5 @@ version:
 
 .PHONY: help env up down restart logs ps health image build fmt fmt-check vet \
         lint tidy tidy-check vuln deps deps-update demo test test-race test-s3 test-db minio-up \
-        minio-down postgres-up postgres-down cover smoke ci shell clean \
+        minio-down postgres-up postgres-down cover smoke smoke-cover ci shell clean \
         clean-data version

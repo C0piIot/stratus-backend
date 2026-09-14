@@ -15,6 +15,22 @@ IMAGE="${IMAGE:-stratus-backend}"
 TAG="${TAG:-smoke}"
 REF="$IMAGE:$TAG"
 
+# COVER=1 builds a second image from the same Dockerfile with `go build -cover`
+# and points the runtime assertions at that one, writing counters into COVERDIR.
+# Everything claimed about the artefact itself -- its size, its layer count, its
+# lack of a shell -- keeps being measured against $REF, because an instrumented
+# binary is not what anybody runs and a suite that says otherwise is measuring
+# the wrong thing. See `make smoke-cover`.
+COVER="${COVER:-}"
+COVER_REF="$IMAGE:$TAG-cover"
+COVERDIR="${COVERDIR:-}"
+RUN_REF="$REF"
+cover_args=()
+if [ -n "$COVER" ]; then
+  [ -n "$COVERDIR" ] || { printf 'COVER=1 needs COVERDIR set to a writable directory\n' >&2; exit 2; }
+  cover_args=(-e GOCOVERDIR=/cover -v "$COVERDIR:/cover")
+fi
+
 # Budget on the binary rather than the image: with the containerd image store
 # (Docker 24+ default) `docker image inspect .Size` reports the COMPRESSED size
 # while `docker image ls` reports the uncompressed one, so a byte budget on the
@@ -53,8 +69,20 @@ bad()  { fail=$((fail + 1)); printf '  %s %s\n' "$(red ✗)" "$1"; [ $# -gt 1 ] 
 
 section() { printf '\n\033[1m%s\033[0m\n' "$1"; }
 
+# Coverage counters are written when the process exits, and `docker rm -f` is a
+# SIGKILL, which takes them with it. Under COVER every container is asked to
+# stop first -- app.Run drains on SIGTERM and returns, which is an exit Go
+# flushes.
+stop_container() {
+  # || true, not &&: the failure cases exit on their own under --rm, so by the
+  # time this runs there is often nothing left to stop, and errexit would take
+  # the suite down with it.
+  if [ -n "$COVER" ]; then docker stop -t 10 "$1" >/dev/null 2>&1 || true; fi
+  docker rm -f "$1" >/dev/null 2>&1 || true
+}
+
 cleanup() {
-  for c in ${containers[@]+"${containers[@]}"}; do docker rm -f "$c" >/dev/null 2>&1 || true; done
+  for c in ${containers[@]+"${containers[@]}"}; do stop_container "$c"; done
   for v in ${volumes[@]+"${volumes[@]}"};    do docker volume rm -f "$v" >/dev/null 2>&1 || true; done
   for d in ${tmpdirs[@]+"${tmpdirs[@]}"};    do rm -rf "$d" 2>/dev/null || true; done
 }
@@ -71,7 +99,8 @@ mktmp() { local d; d="$(mktemp -d)"; tmpdirs+=("$d"); printf '%s' "$d"; }
 run_detached() {
   local name="$1"; shift
   containers+=("$name")
-  docker run -d --name "$name" -p "127.0.0.1::8080" "$@" "$REF" >/dev/null
+  docker run -d --name "$name" -p "127.0.0.1::8080" \
+    ${cover_args[@]+"${cover_args[@]}"} "$@" "$RUN_REF" >/dev/null
 }
 
 wait_serving() {
@@ -97,6 +126,15 @@ if docker build --build-arg "VERSION=$VERSION" -t "$REF" . >/dev/null 2>&1; then
 else
   bad "image builds" "docker build failed; rerun without -q to see why"
   echo; echo "aborting: nothing to test"; exit 1
+fi
+
+# Not an assertion: this image is a measuring instrument, not something the
+# project ships, so nothing here claims anything about it.
+if [ -n "$COVER" ]; then
+  docker build --build-arg "VERSION=$VERSION" --build-arg COVER=1 -t "$COVER_REF" . >/dev/null 2>&1 ||
+    { echo; echo "aborting: the instrumented image did not build"; exit 1; }
+  RUN_REF="$COVER_REF"
+  printf '  runtime assertions run against %s, counters into %s\n' "$COVER_REF" "$COVERDIR"
 fi
 
 # ---------------------------------------------------------------------------
@@ -208,7 +246,7 @@ fi
 # ---------------------------------------------------------------------------
 section "Flags"
 # ---------------------------------------------------------------------------
-out="$(docker run --rm "$REF" -version 2>&1 || true)"
+out="$(docker run --rm ${cover_args[@]+"${cover_args[@]}"} "$RUN_REF" -version 2>&1 || true)"
 if [ "$out" = "stratus $VERSION" ]; then
   ok "-version reports the injected version"
 else
@@ -217,7 +255,7 @@ fi
 
 # The healthcheck must fail when nothing is listening, otherwise it can never
 # mark a wedged container unhealthy.
-if docker run --rm "$REF" -healthcheck >/dev/null 2>&1; then
+if docker run --rm ${cover_args[@]+"${cover_args[@]}"} "$RUN_REF" -healthcheck >/dev/null 2>&1; then
   bad "-healthcheck fails with nothing listening" "it succeeded, so the probe proves nothing"
 else
   ok "-healthcheck fails with nothing listening"
@@ -274,7 +312,7 @@ if [ "$code" = "404" ]; then
 else
   bad "no credentials, no web UI" "GET /login = $code"
 fi
-docker rm -f "$name" >/dev/null 2>&1
+stop_container "$name"
 
 # ---------------------------------------------------------------------------
 section "Startup: hardened runtime"
@@ -290,7 +328,7 @@ if wait_serving "$name"; then
 else
   bad "serves under hardening flags" "$(docker logs "$name" 2>&1 | tail -3)"
 fi
-docker rm -f "$name" >/dev/null 2>&1
+stop_container "$name"
 
 # ---------------------------------------------------------------------------
 section "Data directory failure matrix"
@@ -312,11 +350,12 @@ expect_startup_failure() {
   containers+=("$name")
   start=$SECONDS
   set +e
-  out="$(timeout "$STARTUP_DEADLINE" docker run --rm --name "$name" "$@" "$REF" 2>&1)"
+  out="$(timeout "$STARTUP_DEADLINE" docker run --rm --name "$name" \
+    ${cover_args[@]+"${cover_args[@]}"} "$@" "$RUN_REF" 2>&1)"
   rc=$?
   set -e
   elapsed=$((SECONDS - start))
-  docker rm -f "$name" >/dev/null 2>&1
+  stop_container "$name"
 
   if [ "$rc" -eq 124 ]; then
     bad "$what" "still running after ${STARTUP_DEADLINE}s; it should refuse to start"
@@ -369,7 +408,7 @@ if wait_serving "$name"; then
 else
   bad "a stale write probe does not block startup" "$(docker logs "$name" 2>&1 | tail -3)"
 fi
-docker rm -f "$name" >/dev/null 2>&1
+stop_container "$name"
 
 # ---------------------------------------------------------------------------
 section "Protocol surfaces"
@@ -745,7 +784,7 @@ TRACK
 else
   bad "the container with credentials starts" "$(docker logs "$davname" 2>&1 | tail -3)"
 fi
-docker rm -f "$davname" >/dev/null 2>&1
+stop_container "$davname"
 
 # ---------------------------------------------------------------------------
 section "Configuration failure matrix"
@@ -755,7 +794,7 @@ section "Configuration failure matrix"
 
 refuses() {
   local name="$1"; shift
-  if docker run --rm "$@" "$REF" >/dev/null 2>&1; then
+  if docker run --rm ${cover_args[@]+"${cover_args[@]}"} "$@" "$RUN_REF" >/dev/null 2>&1; then
     bad "$name" "the server started"
   else
     ok "$name"

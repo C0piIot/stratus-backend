@@ -48,7 +48,9 @@ internal/web:98
 # Not gated, and why:
 #   cmd/stratus                   flags and exit codes; what it does is asserted
 #                                 by scripts/smoke.sh, which unit coverage
-#                                 cannot see.
+#                                 cannot see. `make smoke-cover` now measures it
+#                                 -- 100% of statements, in a profile of its own
+#                                 that these floors deliberately do not read.
 #   internal/storage/storagetest  the conformance suite itself. It runs from the
 #   internal/db/dbtest            disk, s3, sqlite and postgres tests, and Go
 #                                 attributes that coverage to them, not to it.

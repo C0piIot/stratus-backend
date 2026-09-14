@@ -126,6 +126,18 @@ jobs:
       - name: smoke tests
         run: make smoke
 
+      # The same assertions again, against a twin of the image built with
+      # `go build -cover`. It is what measures cmd/stratus and the startup
+      # paths, which no unit test can import.
+      - name: smoke tests with coverage
+        run: make smoke-cover
+
+      - uses: actions/upload-artifact@v7.0.1
+        with:
+          name: coverage-smoke
+          path: coverage-smoke.out
+          retention-days: 7
+
       # Self-hosters run arm64 (Raspberry Pi and friends). The build stage
       # cross-compiles, so this needs no QEMU. Build only here: the publish job
       # below does it again with --push, and only once this one has passed.
