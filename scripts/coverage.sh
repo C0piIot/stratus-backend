@@ -3,7 +3,7 @@
 # Per-package coverage floors.
 #
 # A single total would be noise here. internal/storage/s3 measures 15% or 90%
-# depending on whether MinIO is running, cmd/stratus is main(), and
+# depending on whether Silo is running, cmd/stratus is main(), and
 # internal/storage/storagetest is executed from the tests of the packages it
 # checks -- coverage Go does not attribute back to it.
 #
@@ -17,7 +17,7 @@
 # own dependencies, so there is nowhere to inject one that fails. Deleting the
 # log to protect the number would be the metric wagging the code.
 #
-# One consequence worth knowing: if MinIO is not running, the S3 conformance
+# One consequence worth knowing: if Silo is not running, the S3 conformance
 # suite skips and internal/storage/s3 drops to ~15%, so this script turns a
 # silent skip into a failed build.
 #
@@ -132,7 +132,7 @@ internal/web:98
 # reports, and executing it is asserted by scripts/smoke.sh inside the image
 # that has it.
 #
-# internal/storage/s3 likewise: the multipart sweep is exercised against MinIO,
+# internal/storage/s3 likewise: the multipart sweep is exercised against Silo,
 # but the two branches that report a failure from the listing or the abort need
 # a server that fails on demand.
 #

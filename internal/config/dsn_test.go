@@ -88,7 +88,7 @@ func TestParseS3DSNOptions(t *testing.T) {
 		raw     string
 		wantTLS bool
 	}{
-		{name: "tls off for a local MinIO", raw: s3DSN("?tls=false"), wantTLS: false},
+		{name: "tls off for a local S3", raw: s3DSN("?tls=false"), wantTLS: false},
 		{name: "tls on explicitly", raw: s3DSN("?tls=true"), wantTLS: true},
 		{name: "tls accepts 0", raw: s3DSN("?tls=0"), wantTLS: false},
 		{name: "no parameters at all", raw: s3DSN(""), wantTLS: true},

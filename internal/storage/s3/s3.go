@@ -33,7 +33,7 @@ type Config struct {
 	SecretKey string
 	// Region may be empty, in which case the server is asked.
 	Region string
-	// UseTLS talks https. Off is for MinIO on a private network.
+	// UseTLS talks https. Off is for a self-hosted S3 on a private network.
 	UseTLS bool
 }
 

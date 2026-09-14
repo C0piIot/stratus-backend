@@ -18,7 +18,7 @@ func TestAbortUploadsBefore(t *testing.T) {
 	t.Parallel()
 	endpoint := os.Getenv("STRATUS_TEST_S3_ENDPOINT")
 	if endpoint == "" {
-		t.Skip("STRATUS_TEST_S3_ENDPOINT is not set; `make test-s3` starts MinIO and sets it")
+		t.Skip("STRATUS_TEST_S3_ENDPOINT is not set; `make test-s3` starts Silo and sets it")
 	}
 
 	client, err := minio.New(endpoint, &minio.Options{
