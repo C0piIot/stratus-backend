@@ -299,6 +299,7 @@ MYSQL_PASS     := stratus-test-secret
 ifeq ($(GO_MODE),native)
   S3_ENDPOINT   := 127.0.0.1:9000
   POSTGRES_HOST := 127.0.0.1:5432
+  MYSQL_HOST    := 127.0.0.1:3306
   GO_SVC        := go
 else
   S3_ENDPOINT   := $(SILO_NAME):9000
