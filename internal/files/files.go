@@ -16,7 +16,6 @@ package files
 
 import (
 	"context"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -123,7 +122,7 @@ func (s *Service) Write(ctx context.Context, owner, path string, body io.Reader,
 	// import adopt somebody else's bucket (#24), and it means an overwrite that
 	// fails halfway has not destroyed the previous content. The cost is an
 	// orphaned blob per overwrite, which is #17's job.
-	key := newBlobKey()
+	key := newBlobKey(path)
 	digest := sha256.New()
 
 	info, err := s.blobs.Put(ctx, key, io.TeeReader(body, digest), size)
@@ -271,14 +270,6 @@ func (s *Service) requireParent(ctx context.Context, r db.Repo, owner, path stri
 		return fmt.Errorf("%w: %q is not a directory", db.ErrConflict, parent)
 	}
 	return nil
-}
-
-// newBlobKey is random and fanned out two levels, because a hundred thousand
-// photos in one directory is slow on most filesystems and no help in a bucket
-// either.
-func newBlobKey() string {
-	name := rand.Text()
-	return "blobs/" + name[0:2] + "/" + name[2:4] + "/" + name[4:]
 }
 
 // etag is unquoted: the quotes are HTTP framing, and the adapters that speak
