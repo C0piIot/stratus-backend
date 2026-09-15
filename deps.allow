@@ -4,10 +4,12 @@
 # scripts/smoke.sh against the one inside the image. A module that appears here
 # is a module somebody decided to ship; adding one is a line in a diff rather
 # than a transitive surprise -- see scripts/deps.sh and issue #5.
+filippo.io/edwards25519
 github.com/cespare/xxhash/v2
 github.com/dustin/go-humanize
 github.com/emersion/go-webdav
 github.com/evanoberholster/imagemeta
+github.com/go-sql-driver/mysql
 github.com/google/uuid
 github.com/jackc/pgpassfile
 github.com/jackc/pgservicefile

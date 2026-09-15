@@ -19,6 +19,7 @@ import (
 	"github.com/C0piIot/stratus-backend/internal/auth"
 	"github.com/C0piIot/stratus-backend/internal/config"
 	"github.com/C0piIot/stratus-backend/internal/db"
+	"github.com/C0piIot/stratus-backend/internal/db/mysql"
 	"github.com/C0piIot/stratus-backend/internal/db/postgres"
 	"github.com/C0piIot/stratus-backend/internal/db/sqlite"
 	"github.com/C0piIot/stratus-backend/internal/files"
@@ -164,6 +165,12 @@ func openDatabase(ctx context.Context, dsn config.DatabaseDSN) (db.Store, error)
 		return store, nil
 	case config.SchemePostgres:
 		store, err := postgres.New(ctx, dsn.ConnString.Reveal())
+		if err != nil {
+			return nil, err
+		}
+		return store, nil
+	case config.SchemeMySQL:
+		store, err := mysql.New(ctx, dsn.ConnString.Reveal())
 		if err != nil {
 			return nil, err
 		}

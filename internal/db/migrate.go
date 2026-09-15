@@ -93,12 +93,26 @@ func apply(ctx context.Context, sqlDB *sql.DB, m Migration) error {
 // statements splits a migration into single statements, because pgx speaks the
 // extended protocol and will not accept several in one Exec.
 //
-// The split is on semicolons, so a migration may not contain one inside a
+// Line comments are dropped before the split rather than passed through. They
+// are where a schema says why it is shaped the way it is -- MySQL's needs a
+// paragraph -- and a prose sentence contains a semicolon sooner or later, which
+// the split would take for the end of a statement.
+//
+// The split is still on semicolons, so a migration may not contain one inside a
 // string literal or a trigger body. That is a real limit and a cheap one: it is
-// checked by the fact that every migration has to run on both drivers.
+// checked by the fact that every migration has to run on every driver.
 func statements(sql string) []string {
+	var body strings.Builder
+	for line := range strings.SplitSeq(sql, "\n") {
+		if i := strings.Index(line, "--"); i >= 0 {
+			line = line[:i]
+		}
+		body.WriteString(line)
+		body.WriteByte('\n')
+	}
+
 	var out []string
-	for stmt := range strings.SplitSeq(sql, ";") {
+	for stmt := range strings.SplitSeq(body.String(), ";") {
 		if trimmed := strings.TrimSpace(stmt); trimmed != "" {
 			out = append(out, trimmed)
 		}
