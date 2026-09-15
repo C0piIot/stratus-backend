@@ -202,7 +202,7 @@ One cost that does not count today and will: SQLite has no `ALTER TABLE ADD
 CONSTRAINT`, so adding the constraint after a release means rebuilding the table,
 and the `PRAGMA foreign_keys=OFF` that needs is silently ignored inside a
 transaction -- which is how `db.Migrate` applies every migration. Until the first
-real deployment it would simply go into `0001_files.sql`.
+real deployment it would simply go into `0001_schema.sql`.
 
 ## Architecture
 

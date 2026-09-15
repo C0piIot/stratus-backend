@@ -366,6 +366,11 @@ Migrations run at startup: a self-hosted binary should not ask you to press a
 button after an upgrade. Rolling *back* to an older image is refused rather than
 attempted, because a schema from the future is not something to guess at.
 
+Until the first tagged release the schema is rewritten rather than migrated: the
+history is one initial migration and stays that way while it changes. A database
+made by an earlier `:main` image is therefore refused by that same guard, and the
+answer is to delete it rather than upgrade it.
+
 SQLite takes no DSN parameters. WAL, `foreign_keys` and `busy_timeout` are
 correctness requirements for a server, not preferences, so they are set for you.
 
