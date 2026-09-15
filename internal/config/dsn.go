@@ -22,6 +22,7 @@ const (
 const (
 	SchemeSQLite     = "sqlite"
 	SchemePostgres   = "postgres"
+	SchemeMySQL      = "mysql"
 	schemePostgreSQL = "postgresql"
 )
 
@@ -221,11 +222,13 @@ func ParseDatabaseDSN(raw string) (DatabaseDSN, error) {
 	case SchemeSQLite:
 		return parseSQLiteDSN(u)
 	case SchemePostgres, schemePostgreSQL:
-		return parsePostgresDSN(u)
+		return parseServerDSN(u, SchemePostgres)
+	case SchemeMySQL:
+		return parseServerDSN(u, SchemeMySQL)
 	case "":
-		return DatabaseDSN{}, fmt.Errorf("database DSN has no scheme; use %s:// or %s://", SchemeSQLite, SchemePostgres)
+		return DatabaseDSN{}, fmt.Errorf("database DSN has no scheme; use %s://, %s:// or %s://", SchemeSQLite, SchemePostgres, SchemeMySQL)
 	default:
-		return DatabaseDSN{}, fmt.Errorf("unsupported database scheme %q; use %s or %s", u.Scheme, SchemeSQLite, SchemePostgres)
+		return DatabaseDSN{}, fmt.Errorf("unsupported database scheme %q; use %s, %s or %s", u.Scheme, SchemeSQLite, SchemePostgres, SchemeMySQL)
 	}
 }
 
@@ -246,22 +249,25 @@ func parseSQLiteDSN(u *url.URL) (DatabaseDSN, error) {
 	return DatabaseDSN{Scheme: SchemeSQLite, Path: u.Path, safe: SchemeSQLite + "://" + u.Path}, nil
 }
 
-func parsePostgresDSN(u *url.URL) (DatabaseDSN, error) {
+// parseServerDSN covers the two drivers that connect to a server rather than
+// open a file. They differ in their dialect, not in how an operator writes
+// where the database is, and one grammar for both is one thing less to look up.
+func parseServerDSN(u *url.URL, scheme string) (DatabaseDSN, error) {
 	if u.Host == "" {
-		return DatabaseDSN{}, errors.New("postgres DSN needs a host")
+		return DatabaseDSN{}, fmt.Errorf("%s DSN needs a host", scheme)
 	}
 	if name := strings.Trim(u.Path, "/"); name == "" || strings.Contains(name, "/") {
-		return DatabaseDSN{}, errors.New("postgres DSN needs exactly one path segment, the database name")
+		return DatabaseDSN{}, fmt.Errorf("%s DSN needs exactly one path segment, the database name", scheme)
 	}
 
 	// Parameters are passed through rather than allow-listed, unlike the S3
-	// DSN. Postgres has a large, documented, legitimate set of them, and pgx
-	// rejects what it does not know when it connects -- which happens at
-	// startup, so a typo still fails fast.
+	// DSN. Both servers have a large, documented, legitimate set of them, and
+	// both drivers reject what they do not know when they connect -- which
+	// happens at startup, so a typo still fails fast.
 	normalized := *u
-	normalized.Scheme = SchemePostgres
+	normalized.Scheme = scheme
 
-	dsn := DatabaseDSN{Scheme: SchemePostgres, ConnString: Secret(normalized.String())}
+	dsn := DatabaseDSN{Scheme: scheme, ConnString: Secret(normalized.String())}
 
 	safe := normalized
 	if u.User != nil {

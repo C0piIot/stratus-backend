@@ -207,13 +207,13 @@ test-race: | $(CACHE_DIR)
 
 ## cover: run tests with coverage and enforce the per-package floors
 #
-# The services are up for this one: without them the S3 and PostgreSQL suites
-# skip, their packages collapse, and scripts/coverage.sh turns those silent skips
-# into a failed build.
+# The services are up for this one: without them the S3, PostgreSQL and MySQL
+# suites skip, their packages collapse, and scripts/coverage.sh turns those
+# silent skips into a failed build.
 cover: | $(CACHE_DIR)
-	@$(MAKE) --no-print-directory silo-up postgres-up
+	@$(MAKE) --no-print-directory silo-up postgres-up mysql-up
 	@$(GO_SVC) test $(TEST_FLAGS) -covermode=atomic -coverprofile=coverage.out ./...; status=$$?; \
-		$(MAKE) --no-print-directory silo-down postgres-down; exit $$status
+		$(MAKE) --no-print-directory silo-down postgres-down mysql-down; exit $$status
 	@$(GO) tool cover -func=coverage.out | tail -1
 	@./scripts/coverage.sh coverage.out
 
@@ -259,7 +259,7 @@ ci: fmt-check vet lint tidy-check test-race test-s3 test-db cover smoke smoke-co
 # --- services for tests ---------------------------------------------------
 #
 # The conformance suites need the real thing: Silo for the storage port,
-# PostgreSQL for the metadata port. Without them those tests skip, which is what
+# PostgreSQL and MySQL for the metadata port. Without them those tests skip, which is what
 # keeps `make test` useful on a machine with nothing running -- and is exactly
 # why `make ci` runs the targets below, so a skip never becomes permanent.
 #
@@ -279,6 +279,7 @@ ci: fmt-check vet lint tidy-check test-race test-s3 test-db cover smoke smoke-co
 
 SILO_IMAGE     ?= pgsty/silo:RELEASE.2026-09-03T13-18-01Z
 POSTGRES_IMAGE ?= postgres:18-alpine
+MYSQL_IMAGE    ?= mysql:8.4
 
 TEST_NET       := stratus-test
 SILO_NAME      := stratus-test-silo
@@ -287,25 +288,34 @@ SILO_PASS      := stratus-test-secret
 POSTGRES_NAME  := stratus-test-postgres
 POSTGRES_USER  := stratus
 POSTGRES_PASS  := stratus-test-secret
+# MySQL creates a database per case, which needs an account that can, so this
+# one is root. It is a container the target below creates and destroys.
+MYSQL_NAME     := stratus-test-mysql
+MYSQL_USER     := root
+MYSQL_PASS     := stratus-test-secret
 
 # CI has a native toolchain and reaches the services on their published ports;
 # the container toolchain reaches them by name on a shared docker network.
 ifeq ($(GO_MODE),native)
   S3_ENDPOINT   := 127.0.0.1:9000
   POSTGRES_HOST := 127.0.0.1:5432
+  MYSQL_HOST    := 127.0.0.1:3306
   GO_SVC        := go
 else
   S3_ENDPOINT   := $(SILO_NAME):9000
   POSTGRES_HOST := $(POSTGRES_NAME):5432
+  MYSQL_HOST    := $(MYSQL_NAME):3306
   GO_SVC         = $(DOCKER_RUN) --network $(TEST_NET) -e CGO_ENABLED=0 \
                      -e STRATUS_TEST_S3_ENDPOINT=$(SILO_NAME):9000 \
                      -e STRATUS_TEST_S3_ACCESS_KEY=$(SILO_USER) \
                      -e STRATUS_TEST_S3_SECRET_KEY=$(SILO_PASS) \
                      -e STRATUS_TEST_POSTGRES_DSN=$(POSTGRES_DSN) \
+                     -e STRATUS_TEST_MYSQL_DSN=$(MYSQL_DSN) \
                      $(GO_IMAGE) go
 endif
 
 POSTGRES_DSN   := postgres://$(POSTGRES_USER):$(POSTGRES_PASS)@$(POSTGRES_HOST)/postgres?sslmode=disable
+MYSQL_DSN      := mysql://$(MYSQL_USER):$(MYSQL_PASS)@$(MYSQL_HOST)/mysql
 
 # Target-specific, not global: exporting these everywhere would stop `make test`
 # from skipping and make it fail instead whenever the services are not running.
@@ -313,6 +323,7 @@ test-s3 test-db cover: export STRATUS_TEST_S3_ENDPOINT := $(S3_ENDPOINT)
 test-s3 test-db cover: export STRATUS_TEST_S3_ACCESS_KEY := $(SILO_USER)
 test-s3 test-db cover: export STRATUS_TEST_S3_SECRET_KEY := $(SILO_PASS)
 test-s3 test-db cover: export STRATUS_TEST_POSTGRES_DSN := $(POSTGRES_DSN)
+test-s3 test-db cover: export STRATUS_TEST_MYSQL_DSN := $(MYSQL_DSN)
 
 ## test-s3: run the storage conformance suite against a throwaway Silo
 test-s3: | $(CACHE_DIR)
@@ -320,11 +331,11 @@ test-s3: | $(CACHE_DIR)
 	@$(GO_SVC) test $(TEST_FLAGS) ./internal/storage/s3/...; status=$$?; \
 		$(MAKE) --no-print-directory silo-down; exit $$status
 
-## test-db: run the metadata conformance suite against a throwaway PostgreSQL
+## test-db: run the metadata conformance suite against PostgreSQL and MySQL
 test-db: | $(CACHE_DIR)
-	@$(MAKE) --no-print-directory postgres-up
+	@$(MAKE) --no-print-directory postgres-up mysql-up
 	@$(GO_SVC) test $(TEST_FLAGS) ./internal/db/...; status=$$?; \
-		$(MAKE) --no-print-directory postgres-down; exit $$status
+		$(MAKE) --no-print-directory postgres-down mysql-down; exit $$status
 
 $(TEST_NET):
 	@docker network inspect $(TEST_NET) >/dev/null 2>&1 || docker network create $(TEST_NET) >/dev/null
@@ -362,6 +373,27 @@ postgres-up: $(TEST_NET)
 		sleep 0.2; \
 	done; \
 	echo "postgres did not become ready:"; docker logs $(POSTGRES_NAME); exit 1
+
+## mysql-up: start the throwaway MySQL used by test-db
+#
+# Slower to come up than the others, which is what the longer wait is for:
+# MySQL initialises a data directory on first start, and a suite that began
+# before it finished would fail as a connection error rather than as a test.
+mysql-up: $(TEST_NET)
+	@docker rm -f $(MYSQL_NAME) >/dev/null 2>&1 || true
+	@docker run -d --name $(MYSQL_NAME) --network $(TEST_NET) -p 127.0.0.1:3306:3306 \
+		-e MYSQL_ROOT_PASSWORD=$(MYSQL_PASS) -e MYSQL_DATABASE=stratus \
+		$(MYSQL_IMAGE) >/dev/null
+	@for i in $$(seq 1 300); do \
+		docker exec $(MYSQL_NAME) mysqladmin ping -h 127.0.0.1 --silent >/dev/null 2>&1 && \
+			{ echo "mysql ready on $(MYSQL_HOST)"; exit 0; }; \
+		sleep 0.5; \
+	done; \
+	echo "mysql did not become ready:"; docker logs $(MYSQL_NAME); exit 1
+
+## mysql-down: remove the throwaway MySQL
+mysql-down:
+	@docker rm -f $(MYSQL_NAME) >/dev/null 2>&1 || true
 
 ## postgres-down: remove the throwaway PostgreSQL
 postgres-down:

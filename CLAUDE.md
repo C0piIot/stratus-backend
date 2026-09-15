@@ -179,10 +179,24 @@ key may contain.**
 ### Metadata database — `internal/db`
 
 Repository-style interface, hand-written SQL per driver, **no ORM**.
-Drivers: **sqlite** via `modernc.org/sqlite` and **postgres** via `pgx`, both
-pure Go and both passing the same conformance suite. MySQL was considered and
-left out on purpose — it is the only genuinely different dialect, which makes it
-the best validator of the port and the most expensive to keep.
+Drivers: **sqlite** via `modernc.org/sqlite`, **postgres** via `pgx` and
+**mysql** via `go-sql-driver`, all three pure Go and all three passing the same
+conformance suite.
+
+MySQL was left out until somebody wanted it (#27), and what it cost when it
+arrived was the estimate: a third set of hand-written queries, and three
+corrections nothing else had needed. It cannot index a `TEXT` path, so
+uniqueness rides on a `path_hash` column that exists in no other driver -- the
+schema shape is the driver's own business, which is why nothing compares the
+three. It has no `RETURNING`, so a write that needs its row back is two
+statements. And a subquery may not name the table an `UPDATE` or `DELETE` is
+writing, so the guard that refuses to empty a directory goes through a derived
+table with a `LIMIT` in it, which is what stops the optimiser merging it back.
+
+Its collation default is accent- and case-insensitive, which would have made
+`Photo.jpg` and `phóto.jpg` one row under a unique index; the schema pins
+`utf8mb4_0900_bin`. That is the same class of silent collapse as #16, one layer
+down.
 
 Hard rule: no driver-specific SQL or types leak outside the driver package.
 

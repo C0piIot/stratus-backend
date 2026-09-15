@@ -34,9 +34,10 @@ internal/config:100
 internal/dav:89
 internal/files:91
 internal/media:88
-internal/db:61
+internal/db:63
 internal/db/postgres:94
 internal/db/sqlite:94
+internal/db/mysql:91
 internal/db/sqlutil:95
 internal/storage:98
 internal/storage/disk:90
@@ -153,6 +154,17 @@ internal/web:98
 # internal/dav sits lower than the rest on purpose: most of what is left
 # uncovered there is one error branch per protocol edge, and the ones worth
 # pinning -- the status codes RFC 4918 is specific about -- are asserted.
+#
+# internal/db went 61 -> 63 with the MySQL driver, which did not touch it: the
+# migration runner now strips line comments before splitting a file on
+# semicolons, because MySQL's schema needs a paragraph explaining itself and a
+# paragraph contains a semicolon.
+#
+# internal/db/mysql starts at 91, under the other two drivers, and the gap is
+# where the dialect costs it: a PutFile that upserts and then reads, and a DSN
+# translated from a URL rather than handed to the driver, are both branches the
+# other two do not have. What is left uncovered is their error paths, which need
+# a server that fails between two statements.
 #
 # internal/db has a low floor for the same reason: db.Migrate is exercised by
 # both driver packages, and the import cycle that keeps drivers out of the port
