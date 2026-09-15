@@ -144,7 +144,17 @@ path and never from a content hash. That is what would let a Nextcloud bucket be
 adopted in place: its objects are already named `urn:oid:<fileid>` with the tree
 in its own database, so importing one is a batch of row inserts rather than a
 server-side copy of every byte. Content-addressing would spend that migration
-and buy nothing back, since the keys this project generates are opaque anyway.
+and buy nothing back.
+
+Opaque to the code, not to a person. `newBlobKey` files an object under
+`<kind>/<year>/<month>/<day>/<id>[.<ext>]`, where the kind and the extension are
+inherited from the name the file arrived with and the date is the upload's
+(#123). That is best effort for exactly one reader -- somebody looking at a data
+directory with no database left, who would otherwise find a hundred thousand
+indistinguishable files. **Nothing parses it back.** The day something reads a
+kind out of a key, the layout is a schema and changing it is a migration; and
+since nothing does, a store can hold every generation of the shape at once,
+including keys this project never wrote.
 
 **No key Stratus writes is a prefix of another.** S3 holds `a` and `a/b` at
 once; a filesystem cannot, so the disk backend fails the second `Put` and the
@@ -152,16 +162,17 @@ two backends would diverge on a key only one of them can take. `ValidateKey`
 cannot catch it -- it sees one key, and the collision is a property of the set --
 and it must not try: a rule rejecting anything not of our shape would reject an
 adopted key too. The guarantee lives in the two constructors instead.
-`newBlobKey` is four segments with a random leaf, and `DerivedKey` takes a
+`newBlobKey` puts a random leaf at a fixed depth, and `DerivedKey` takes a
 single segment and panics on anything else, which is also what keeps it the
 inverse of the `parentOf` the sweep reads keys back with.
 
 **Nor do two keys differ only in case**, and for the same reason: a
 case-insensitive filesystem -- APFS, exFAT, a Windows share, all of them
 plausible under `STRATUS_DATA_PATH` -- would collapse such a pair into one file
-while S3 held two objects, and the second `Put` would destroy the first. The
-generated part of a key is RFC 4648 base32, which has no lowercase in it, so the
-pair is unrepresentable rather than rejected. Both properties are the same rule:
+while S3 held two objects, and the second `Put` would destroy the first. The id is
+RFC 4648 base32, which has no lowercase in it, and everything a caller can
+influence -- the kind, the extension -- is lowercased on the way in, so the pair
+is unrepresentable rather than rejected. Both properties are the same rule:
 **the constructors own the shape of a key, the validator only owns what a single
 key may contain.**
 

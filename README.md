@@ -105,6 +105,19 @@ straight off the blob, so a photo in a bucket costs a few kilobytes rather than
 the whole file. Audio and video go through ffprobe, which needs a local file, so
 those are spooled to the data directory and removed afterwards.
 
+### What the blob store looks like
+
+An object is stored under `<kind>/<year>/<month>/<day>/<id>.<ext>` — for
+instance `image/2026/09/15/K3XR…Q7.jpg`. The kind is one of `image`, `video`,
+`audio`, `document` or `other`, and both it and the extension are inherited from
+the name the file was uploaded with; the date is the day it was uploaded.
+
+**The database is still what names your files**, and the layout does not change
+that: nothing reads a key back, and a file whose name lied about its type stays
+filed under the wrong kind. It is best effort, for one situation — you have lost
+the database and are looking at the data directory. Without it you would be
+looking at a hundred thousand files called nothing.
+
 ### Orphaned blobs
 
 A write puts the bytes down before the row, and takes a fresh blob key every
