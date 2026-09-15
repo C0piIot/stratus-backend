@@ -207,13 +207,13 @@ test-race: | $(CACHE_DIR)
 
 ## cover: run tests with coverage and enforce the per-package floors
 #
-# The services are up for this one: without them the S3 and PostgreSQL suites
-# skip, their packages collapse, and scripts/coverage.sh turns those silent skips
-# into a failed build.
+# The services are up for this one: without them the S3, PostgreSQL and MySQL
+# suites skip, their packages collapse, and scripts/coverage.sh turns those
+# silent skips into a failed build.
 cover: | $(CACHE_DIR)
-	@$(MAKE) --no-print-directory silo-up postgres-up
+	@$(MAKE) --no-print-directory silo-up postgres-up mysql-up
 	@$(GO_SVC) test $(TEST_FLAGS) -covermode=atomic -coverprofile=coverage.out ./...; status=$$?; \
-		$(MAKE) --no-print-directory silo-down postgres-down; exit $$status
+		$(MAKE) --no-print-directory silo-down postgres-down mysql-down; exit $$status
 	@$(GO) tool cover -func=coverage.out | tail -1
 	@./scripts/coverage.sh coverage.out
 
