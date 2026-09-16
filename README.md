@@ -588,7 +588,7 @@ Working now:
   rename and delete. A signed-cookie session and a CSP that allows nothing but
   the binary's own assets.
 - A request log, migrations applied at startup, and a container asserted from
-  the outside by 65 smoke checks.
+  the outside by 66 smoke checks.
 
 Not there yet: CalDAV, renaming a folder that has anything in it, photo
 thumbnails and sharing --

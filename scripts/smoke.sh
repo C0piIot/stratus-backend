@@ -495,6 +495,18 @@ if wait_serving "$davname"; then
     bad "PROPFIND answers a multistatus" "got $code"
   fi
 
+  # The body this time, because #126 was a 207 with the wrong thing in it: a
+  # Depth 1 listing has to carry the collection it was asked about, not only its
+  # members. Matched on the element content rather than a namespace prefix the
+  # library is free to change, and /dav/ is the one href in the document that is
+  # exactly that -- every member is /dav/something.
+  propfind="$(curl -fsS -u "$davuser:$davpass" -H 'Depth: 1' \
+    -X PROPFIND "http://$davhost/dav/" 2>/dev/null || true)"
+  case "$propfind" in
+    *'>/dav/<'*) ok "a PROPFIND listing includes the collection itself" ;;
+    *)           bad "a PROPFIND listing includes the collection itself" "no self entry in the multistatus" ;;
+  esac
+
   # The other protocol surface, in the image that has to serve it. Token auth
   # rather than the password, because it is the scheme every current client
   # uses and md5(password + salt) is the whole reason the password is held as
