@@ -8,6 +8,7 @@ package app_test
 
 import (
 	"errors"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -260,10 +261,10 @@ func TestRunRejectsAnUnreachableDatabase(t *testing.T) {
 func TestRunRejectsAnUnknownDatabaseScheme(t *testing.T) {
 	t.Parallel()
 	cfg := runConfig(t, map[string]string{})
-	cfg.Database = config.DatabaseDSN{Scheme: "mysql"}
+	cfg.Database = config.DatabaseDSN{Scheme: "oracle"}
 
 	err := runToShutdown(t, cfg)
-	if err == nil || !strings.Contains(err.Error(), "mysql") {
+	if err == nil || !strings.Contains(err.Error(), "oracle") {
 		t.Errorf("Run = %v, want it to name the unsupported scheme", err)
 	}
 }
@@ -337,6 +338,27 @@ func TestRunAgainstPostgres(t *testing.T) {
 
 	if err := runToShutdown(t, runConfig(t, map[string]string{"STRATUS_DB_DSN": dsn})); err != nil {
 		t.Errorf("Run against PostgreSQL = %v, want a clean start and shutdown", err)
+	}
+}
+
+// TestRunAgainstMySQL is the same wiring against the third driver. It points at
+// a database of its own -- the one mysql-up asks the image to create -- because
+// Run migrates what it opens and the conformance suite is busy making and
+// dropping databases beside it.
+func TestRunAgainstMySQL(t *testing.T) {
+	t.Parallel()
+	admin := os.Getenv("STRATUS_TEST_MYSQL_DSN")
+	if admin == "" {
+		t.Skip("STRATUS_TEST_MYSQL_DSN is not set; `make test-db` or `make cover` set it")
+	}
+	u, err := url.Parse(admin)
+	if err != nil {
+		t.Fatalf("parse STRATUS_TEST_MYSQL_DSN: %v", err)
+	}
+	u.Path = "/stratus"
+
+	if err := runToShutdown(t, runConfig(t, map[string]string{"STRATUS_DB_DSN": u.String()})); err != nil {
+		t.Errorf("Run against MySQL = %v, want a clean start and shutdown", err)
 	}
 }
 

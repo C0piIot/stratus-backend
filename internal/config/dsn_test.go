@@ -381,6 +381,26 @@ func TestParsePostgresDSN(t *testing.T) {
 	}
 }
 
+func TestParseMySQLDSN(t *testing.T) {
+	t.Parallel()
+	const raw = "mysql://stratus:" + dbPassword + "@db.lan:3306/stratus?charset=utf8mb4"
+
+	got, err := config.ParseDatabaseDSN(raw)
+	if err != nil {
+		t.Fatalf("ParseDatabaseDSN: %v", err)
+	}
+	if got.Scheme != config.SchemeMySQL {
+		t.Errorf("Scheme = %q, want %q", got.Scheme, config.SchemeMySQL)
+	}
+	if !strings.Contains(got.ConnString.Reveal(), dbPassword) {
+		t.Error("the connection string lost its password")
+	}
+	// The same rule the other DSNs follow: what is printed carries no secret.
+	if strings.Contains(got.String(), dbPassword) {
+		t.Errorf("String() leaks the password: %q", got.String())
+	}
+}
+
 func TestParseDatabaseDSNRejects(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -391,7 +411,7 @@ func TestParseDatabaseDSNRejects(t *testing.T) {
 		{name: "blank", raw: "   "},
 		{name: "no scheme", raw: "/data/stratus.db"},
 		{name: "unknown scheme", raw: "mongodb://localhost/stratus"},
-		{name: "mysql, which is not implemented", raw: "mysql://user:pass@localhost/stratus"},
+		{name: "mysql with no database name", raw: "mysql://user:pass@localhost/"},
 		{name: "file, which is the other seam", raw: "file:///data/blobs"},
 		{name: "sqlite with two slashes", raw: "sqlite://data/stratus.db"},
 		{name: "sqlite with a relative path", raw: "sqlite:data/stratus.db"},
@@ -402,6 +422,8 @@ func TestParseDatabaseDSNRejects(t *testing.T) {
 		{name: "postgres without a host", raw: "postgres:///stratus"},
 		{name: "postgres without a database", raw: "postgres://user:pass@localhost:5432"},
 		{name: "postgres with an empty database", raw: "postgres://user:pass@localhost:5432/"},
+		{name: "mysql without a host", raw: "mysql:///stratus"},
+		{name: "mysql with a path of two segments", raw: "mysql://user:pass@localhost:3306/a/b"},
 		{name: "postgres with a path too deep", raw: "postgres://user:pass@localhost:5432/stratus/public"},
 		// url.Parse itself rejects this one, and its error embeds the input.
 		{name: "not a URL at all", raw: "postgres://ho%zzst/stratus"},

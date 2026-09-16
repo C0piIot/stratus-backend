@@ -96,4 +96,21 @@ CREATE INDEX a_id ON a (id);
 			t.Error("an empty statement survived the split")
 		}
 	}
+
+	// A comment is prose, and prose has semicolons in it. Before they were
+	// stripped, the sentence below ended a statement halfway through and the
+	// rest of the file arrived at the server as a syntax error.
+	const commented = `
+-- Why this table is shaped like this; the reason has a semicolon in it.
+CREATE TABLE a (
+    id INTEGER -- and so does the column; here it is again.
+);
+`
+	only := statements(commented)
+	if len(only) != 1 {
+		t.Fatalf("split into %d statements, want 1: %q", len(only), only)
+	}
+	if strings.Contains(only[0], "--") {
+		t.Errorf("a comment survived into the statement: %q", only[0])
+	}
 }

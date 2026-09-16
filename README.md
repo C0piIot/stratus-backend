@@ -288,8 +288,8 @@ Two seams, and only two:
 
 - **Blob storage** — `disk` and `s3`, both implemented and both passing the same
   conformance suite.
-- **Metadata database** — `sqlite` and `postgres`, both pure Go. No
-  driver-specific SQL leaves its driver package, and both pass the same
+- **Metadata database** — `sqlite`, `postgres` and `mysql`, all three pure Go.
+  No driver-specific SQL leaves its driver package, and all three pass the same
   conformance suite.
 
 ## Quickstart
@@ -373,7 +373,11 @@ printed.
 ```
 sqlite:///data/stratus.db
 postgres://user:pass@db.lan:5432/stratus?sslmode=require
+mysql://user:pass@db.lan:3306/stratus
 ```
+
+MySQL is 8.0.19 or newer, for the upsert syntax the driver uses. MariaDB is a
+different database wearing the same name and is not what it is tested against.
 
 Migrations run at startup: a self-hosted binary should not ask you to press a
 button after an upgrade. Rolling *back* to an older image is refused rather than
@@ -418,7 +422,7 @@ make ci          # everything CI runs
 make test        # unit tests
 make test-race   # under the race detector (Debian image: -race needs cgo)
 make test-s3     # the storage conformance suite against a throwaway Silo
-make test-db     # the metadata conformance suite against a throwaway PostgreSQL
+make test-db     # the metadata conformance suite against PostgreSQL and MySQL
 make cover       # coverage, against a floor per package
 make deps        # the modules in the binary, against deps.allow
 make lint        # golangci-lint, version pinned in .golangci-version
@@ -570,8 +574,9 @@ up.
 
 Working now:
 
-- Both pluggable seams — disk and S3 for blobs, SQLite and PostgreSQL for
-  metadata — each with a conformance suite that both of its drivers pass.
+- Both pluggable seams — disk and S3 for blobs, SQLite, PostgreSQL and MySQL
+  for metadata — each with a conformance suite every one of its drivers
+  passes.
 - WebDAV, behind HTTP Basic with a global limit on failed logins.
 - OpenSubsonic: browsing by tag and by folder, search, the album lists a home
   screen is made of, and streaming -- over both of the protocol's
