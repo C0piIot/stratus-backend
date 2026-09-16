@@ -121,7 +121,22 @@ func (f *fileSystem) Stat(ctx context.Context, name string) (*webdav.FileInfo, e
 	return f.toFileInfo(file), nil
 }
 
-// ReadDir implements webdav.FileSystem.
+// ReadDir implements webdav.FileSystem, and it returns the directory itself
+// before what is in it.
+//
+// That reads like a bug and is the opposite of one. RFC 4918 9.1 says a Depth 1
+// PROPFIND "applies to the resource and its internal members", and go-webdav
+// builds the whole multistatus out of what this returns: for a collection it
+// calls Stat only to learn that it is one, throws that result away, and never
+// adds the collection back. Its own LocalFileSystem roots its walk at the
+// directory for exactly this reason. Deleting the self entry as redundant is
+// #126 coming back.
+//
+// The entry comes from Stat rather than a lookup of our own because the root is
+// not a row, and one place in this file should know that. The cost is that the
+// collection is looked up twice per PROPFIND -- the library has already done it
+// and has nowhere to hand it over -- which is one indexed read against a listing
+// that is already several.
 func (f *fileSystem) ReadDir(ctx context.Context, name string, recursive bool) ([]webdav.FileInfo, error) {
 	p, err := toPath(name)
 	if err != nil {
@@ -129,6 +144,11 @@ func (f *fileSystem) ReadDir(ctx context.Context, name string, recursive bool) (
 	}
 
 	owner, err := f.owner(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	self, err := f.Stat(ctx, name)
 	if err != nil {
 		return nil, err
 	}
@@ -143,7 +163,8 @@ func (f *fileSystem) ReadDir(ctx context.Context, name string, recursive bool) (
 		return nil, mapErr(err)
 	}
 
-	out := make([]webdav.FileInfo, 0, len(listing))
+	out := make([]webdav.FileInfo, 0, len(listing)+1)
+	out = append(out, *self)
 	for _, file := range listing {
 		out = append(out, *f.toFileInfo(file))
 	}

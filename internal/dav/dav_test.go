@@ -1,10 +1,13 @@
 package dav_test
 
 import (
+	"encoding/xml"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -113,6 +116,60 @@ func TestRangeRequest(t *testing.T) {
 	}
 }
 
+// hrefs is every <D:response> href in a multistatus, in the order the server
+// sent them.
+//
+// Parsed rather than grepped because strings.Contains cannot answer the
+// question this file asks: "/dav/album" is a substring of "/dav/album/one.txt",
+// so a listing that omits the collection looks exactly like one that includes
+// it -- and that difference is the whole of #126. It cannot see a duplicate
+// either.
+func hrefs(t *testing.T, rec *httptest.ResponseRecorder) []string {
+	t.Helper()
+	if rec.Code != http.StatusMultiStatus {
+		t.Fatalf("PROPFIND = %d, want 207:\n%s", rec.Code, rec.Body.String())
+	}
+
+	var ms struct {
+		XMLName   xml.Name `xml:"DAV: multistatus"`
+		Responses []struct {
+			Href string `xml:"DAV: href"`
+		} `xml:"DAV: response"`
+	}
+	// Namespaced rather than by local name: it costs nothing here and turns
+	// "some XML came back" into "a DAV multistatus came back".
+	if err := xml.Unmarshal(rec.Body.Bytes(), &ms); err != nil {
+		t.Fatalf("the multistatus does not parse: %v\n%s", err, rec.Body.String())
+	}
+
+	out := make([]string, 0, len(ms.Responses))
+	for _, r := range ms.Responses {
+		href, err := url.PathUnescape(strings.TrimSpace(r.Href))
+		if err != nil {
+			t.Fatalf("href %q does not decode: %v", r.Href, err)
+		}
+		out = append(out, href)
+	}
+	return out
+}
+
+// wantHrefs compares a listing as a set, since the order of the members is the
+// server's business -- except for the first entry, which the callers that care
+// about check themselves.
+func wantHrefs(t *testing.T, got []string, want ...string) {
+	t.Helper()
+	sorted := slices.Clone(got)
+	slices.Sort(sorted)
+	slices.Sort(want)
+	if !slices.Equal(sorted, want) {
+		t.Errorf("hrefs = %v, want %v", got, want)
+	}
+}
+
+// TestPropfind is the regression test for #126: a Depth 1 listing is the
+// collection and its members, not its members alone. A client reads the
+// collection's own properties out of the entry whose href is the one it asked
+// for, and without it has to spend a second request to learn them.
 func TestPropfind(t *testing.T) {
 	t.Parallel()
 	h := server(t)
@@ -120,16 +177,79 @@ func TestPropfind(t *testing.T) {
 	do(t, h, http.MethodPut, "/dav/album/one.txt", "one")
 	do(t, h, http.MethodPut, "/dav/album/two.txt", "two")
 
-	rec := do(t, h, "PROPFIND", "/dav/album", "", "Depth", "1")
-	if rec.Code != http.StatusMultiStatus {
-		t.Fatalf("PROPFIND = %d, want 207", rec.Code)
+	got := hrefs(t, do(t, h, "PROPFIND", "/dav/album", "", "Depth", "1"))
+	wantHrefs(t, got, "/dav/album", "/dav/album/one.txt", "/dav/album/two.txt")
+
+	// First, which is where mod_dav, sabre/dav and go-webdav's own local
+	// backend put it, and what a client that takes response[0] expects.
+	if len(got) > 0 && got[0] != "/dav/album" {
+		t.Errorf("hrefs[0] = %q, want the collection itself", got[0])
 	}
-	body := rec.Body.String()
-	for _, want := range []string{"/dav/album/one.txt", "/dav/album/two.txt"} {
-		if !strings.Contains(body, want) {
-			t.Errorf("the listing does not mention %s:\n%s", want, body)
-		}
+}
+
+// TestPropfindDepthZero pins the shape the self entry above is copied from: one
+// response, and the same href a Depth 1 listing now carries for it.
+func TestPropfindDepthZero(t *testing.T) {
+	t.Parallel()
+	h := server(t)
+	do(t, h, "MKCOL", "/dav/album", "")
+	do(t, h, http.MethodPut, "/dav/album/one.txt", "one")
+
+	wantHrefs(t, hrefs(t, do(t, h, "PROPFIND", "/dav/album", "", "Depth", "0")), "/dav/album")
+}
+
+// TestPropfindOfAnEmptyCollection is the other half of #126, and the pair is the
+// point: before the self entry, an empty collection and one that does not exist
+// were both zero members, and no client could tell them apart without asking a
+// second time.
+func TestPropfindOfAnEmptyCollection(t *testing.T) {
+	t.Parallel()
+	h := server(t)
+	do(t, h, "MKCOL", "/dav/empty", "")
+
+	wantHrefs(t, hrefs(t, do(t, h, "PROPFIND", "/dav/empty", "", "Depth", "1")), "/dav/empty")
+
+	if code := do(t, h, "PROPFIND", "/dav/missing", "", "Depth", "1").Code; code != http.StatusNotFound {
+		t.Errorf("PROPFIND of a missing collection = %d, want 404", code)
 	}
+}
+
+// TestPropfindOfTheRoot covers the collection that has no database row, and
+// pins the one asymmetry in the hrefs: the root carries a trailing slash and
+// every other collection does not. That is what Depth 0 has always answered,
+// and this change only makes it visible inside a listing -- a client comparing
+// hrefs has to normalise before it compares.
+func TestPropfindOfTheRoot(t *testing.T) {
+	t.Parallel()
+	h := server(t)
+	do(t, h, "MKCOL", "/dav/album", "")
+	do(t, h, http.MethodPut, "/dav/notes.txt", "notes")
+
+	wantHrefs(t, hrefs(t, do(t, h, "PROPFIND", "/dav/", "", "Depth", "1")),
+		"/dav/", "/dav/album", "/dav/notes.txt")
+}
+
+// TestPropfindOfAFile pins that none of this reaches a resource that is not a
+// collection: the library answers those from Stat alone.
+func TestPropfindOfAFile(t *testing.T) {
+	t.Parallel()
+	h := server(t)
+	do(t, h, http.MethodPut, "/dav/notes.txt", "notes")
+
+	wantHrefs(t, hrefs(t, do(t, h, "PROPFIND", "/dav/notes.txt", "", "Depth", "1")), "/dav/notes.txt")
+}
+
+// TestPropfindEscapesTheSelfHref: the collection's own href goes through the
+// same encoder its members do, which is worth one case because the self entry
+// is the one nothing exercised before.
+func TestPropfindEscapesTheSelfHref(t *testing.T) {
+	t.Parallel()
+	h := server(t)
+	do(t, h, "MKCOL", "/dav/rock%20&%20roll", "")
+	do(t, h, http.MethodPut, "/dav/rock%20&%20roll/song.mp3", "song")
+
+	wantHrefs(t, hrefs(t, do(t, h, "PROPFIND", "/dav/rock%20&%20roll", "", "Depth", "1")),
+		"/dav/rock & roll", "/dav/rock & roll/song.mp3")
 }
 
 func TestPropfindInfiniteDepth(t *testing.T) {
@@ -139,12 +259,15 @@ func TestPropfindInfiniteDepth(t *testing.T) {
 	do(t, h, "MKCOL", "/dav/album/raw", "")
 	do(t, h, http.MethodPut, "/dav/album/raw/deep.txt", "deep")
 
-	rec := do(t, h, "PROPFIND", "/dav/", "", "Depth", "infinity")
-	if rec.Code != http.StatusMultiStatus {
-		t.Fatalf("PROPFIND = %d, want 207", rec.Code)
-	}
-	if !strings.Contains(rec.Body.String(), "/dav/album/raw/deep.txt") {
-		t.Errorf("an infinite-depth listing missed the deepest file:\n%s", rec.Body.String())
+	got := hrefs(t, do(t, h, "PROPFIND", "/dav/", "", "Depth", "infinity"))
+	wantHrefs(t, got, "/dav/", "/dav/album", "/dav/album/raw", "/dav/album/raw/deep.txt")
+
+	// Exactly once each: prepending the collection to a recursive walk is how a
+	// tree grows duplicates, and a substring match could never see one.
+	sorted := slices.Clone(got)
+	slices.Sort(sorted)
+	if len(slices.Compact(sorted)) != len(got) {
+		t.Errorf("a listing repeated an href: %v", got)
 	}
 }
 
