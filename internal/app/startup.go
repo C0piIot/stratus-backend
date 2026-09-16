@@ -65,7 +65,7 @@ func (a *App) open(ctx context.Context) (deps Deps, err error) {
 	startupCtx, cancel := context.WithTimeout(ctx, startupTimeout)
 	defer cancel()
 
-	if deps.Storage, err = openStorage(startupCtx, a.cfg.Storage); err != nil {
+	if deps.Storage, err = openStorage(startupCtx, a.cfg.Storage, a.cfg.DataDir); err != nil {
 		return deps, err
 	}
 	if err = probeStorage(startupCtx, deps.Storage); err != nil {
@@ -127,7 +127,7 @@ func checkCredentials(cfg config.Config) error {
 
 // openStorage builds the backend the DSN selects. Knowing that both schemes
 // exist is the composition root's job and nobody else's.
-func openStorage(ctx context.Context, dsn config.StorageDSN) (storage.Storage, error) {
+func openStorage(ctx context.Context, dsn config.StorageDSN, dataDir string) (storage.Storage, error) {
 	switch dsn.Scheme {
 	case config.SchemeFile:
 		store, err := disk.New(dsn.Dir)
@@ -143,6 +143,10 @@ func openStorage(ctx context.Context, dsn config.StorageDSN) (storage.Storage, e
 			SecretKey: dsn.SecretKey.Reveal(),
 			Region:    dsn.Region,
 			UseTLS:    dsn.UseTLS,
+			// Under the data directory for the same reason the indexer's spool
+			// is: a resumable upload's tail can be megabytes and must not land
+			// on whatever /tmp happens to be.
+			SpoolDir: filepath.Join(dataDir, ".uploads"),
 		})
 		if err != nil {
 			return nil, err

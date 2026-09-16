@@ -193,7 +193,9 @@ func TestRunProbesTheBlobStore(t *testing.T) {
 		t.Fatalf("the blob directory was never created: %v", err)
 	}
 	for _, e := range entries {
-		if e.Name() != ".tmp" {
+		// The two reserved directories the disk backend keeps: writes in flight
+		// and uploads waiting to be resumed. Everything else is a leak.
+		if e.Name() != ".tmp" && e.Name() != ".uploads" {
 			t.Errorf("the probe left %q behind", e.Name())
 		}
 	}

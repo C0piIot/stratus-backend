@@ -23,6 +23,10 @@ var (
 	ErrInvalidKey   = errors.New("storage: invalid key")
 	ErrInvalidRange = errors.New("storage: invalid range")
 	ErrSizeMismatch = errors.New("storage: size mismatch")
+	// ErrUploadOffset is an append that does not start where the store left
+	// off. It is what a client learns from, so it is a sentinel rather than a
+	// driver's own words: tus answers 409 to it and the client asks again.
+	ErrUploadOffset = errors.New("storage: upload offset mismatch")
 )
 
 // ObjectInfo is everything a backend can report about an object without reading
@@ -85,4 +89,44 @@ type Storage interface {
 	// iterator. A bucket holds a hundred thousand photos; a listing of it must
 	// not have to fit in memory first.
 	List(ctx context.Context, prefix string) iter.Seq2[ObjectInfo, error]
+
+	// StartUpload begins a write that arrives over several calls and returns
+	// the id naming it until it is completed or abandoned.
+	//
+	// This half of the port exists because a PUT is all or nothing: a phone
+	// uploading a four-gigabyte video over mobile data restarts from zero on
+	// every drop, and no retry loop above the port can change that (#122). Both
+	// backends can honour it truthfully -- a file grows, a multipart upload
+	// gains parts -- which is why it is here rather than an optional interface
+	// a caller has to test for.
+	//
+	// Nothing an upload has accepted is visible to Get, Stat or List until
+	// CompleteUpload. That is what keeps an upload in flight out of reach of
+	// the sweep in internal/files, which deletes what no row points at.
+	StartUpload(ctx context.Context, key string) (string, error)
+
+	// AppendUpload writes r at offset and returns the offset after it.
+	//
+	// offset is a precondition and not a seek: it must be what the store has
+	// already accepted, and anything else is ErrUploadOffset. That is what
+	// makes a retried append -- which is what a timeout produces -- a refusal
+	// rather than duplicated bytes, and it is the reason this port can be
+	// honest on S3, where there is no way to fill a hole after the fact.
+	//
+	// The size of r is the caller's business. A backend that wants its writes a
+	// certain size arranges that for itself rather than making a phone learn
+	// its rules.
+	AppendUpload(ctx context.Context, key, id string, offset int64, r io.Reader) (int64, error)
+
+	// UploadOffset reports how much of the upload the store has accepted, which
+	// is what a resumed upload asks after anything has restarted.
+	UploadOffset(ctx context.Context, key, id string) (int64, error)
+
+	// CompleteUpload publishes what was accepted as the object at key,
+	// replacing whatever was there, and ends the upload.
+	CompleteUpload(ctx context.Context, key, id string) (ObjectInfo, error)
+
+	// AbortUpload discards an upload and everything it accepted. Like Delete it
+	// is idempotent: an upload that is already gone is not an error.
+	AbortUpload(ctx context.Context, key, id string) error
 }

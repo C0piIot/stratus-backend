@@ -139,6 +139,29 @@ Rules that follow from this:
 Narrow interface: `Put`, `Get` (range-capable), `Delete`, `Stat`, `List`.
 Backends: **disk** and **s3**, both implemented; ftp and others later.
 
+**A second half for writes that arrive over several calls** -- `StartUpload`,
+`AppendUpload`, `UploadOffset`, `CompleteUpload`, `AbortUpload` -- because a
+`PUT` is all or nothing and a phone on mobile data restarts a four-gigabyte
+video from zero on every drop (#122). Required rather than an optional
+interface: both backends honour it truthfully, a file growing and a multipart
+upload gaining parts, and the conformance suite makes them prove it.
+
+Two rules make that implementable on both. The offset is **a precondition, not
+a seek** -- an append says where it believes the store is and is refused
+otherwise -- so a retried chunk is a conflict rather than duplicated bytes, and
+S3, which cannot fill a hole after the fact, is not asked to. And **the chunk
+size is the backend's problem**: the s3 one spools the tail that is not yet a
+whole part, rather than making a phone learn that S3 refuses a part under 5 MB.
+What that spool holds is counted as accepted, so the offset a client is told is
+one a restart cannot take back.
+
+Nothing an upload has accepted is visible to `Get`, `Stat` or `List` until it
+completes, which is what keeps it out of reach of the sweep in `internal/files`.
+The disk backend keeps them in a second reserved directory for that reason: the
+first one is emptied when the store opens, on the argument that what is in it
+belongs to a dead process, and an upload somebody will resume tomorrow is the
+opposite of that.
+
 **A blob key is an opaque string the database owns**, never derived from the
 path and never from a content hash. That is what would let a Nextcloud bucket be
 adopted in place: its objects are already named `urn:oid:<fileid>` with the tree

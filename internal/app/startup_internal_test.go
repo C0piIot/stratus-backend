@@ -23,6 +23,10 @@ import (
 // looks healthy, so each of its steps needs to be the one that catches a
 // failure.
 type fakeStore struct {
+	// Embedded for the methods this fake has no opinion about -- the resumable
+	// upload half of the port -- which panic if anything here reaches them.
+	storage.Storage
+
 	putErr    error
 	getErr    error
 	deleteErr error

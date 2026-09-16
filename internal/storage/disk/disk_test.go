@@ -200,3 +200,42 @@ func TestReopeningSweepsTemporaries(t *testing.T) {
 		t.Errorf("the store holds %v", got)
 	}
 }
+
+// TestCompleteUploadUnderAFile covers the half of the object-or-prefix rule
+// that an upload can reach: the key is published with a rename, and a rename
+// needs its parents, which cannot be made under an object.
+func TestCompleteUploadUnderAFile(t *testing.T) {
+	t.Parallel()
+	s, _ := newStore(t)
+
+	if _, err := s.Put(t.Context(), "notes.txt", strings.NewReader("x"), 1); err != nil {
+		t.Fatal(err)
+	}
+	id, err := s.StartUpload(t.Context(), "notes.txt/inside.txt")
+	if err != nil {
+		t.Fatalf("StartUpload: %v", err)
+	}
+	if _, err := s.CompleteUpload(t.Context(), "notes.txt/inside.txt", id); err == nil {
+		t.Error("CompleteUpload under an object succeeded, want an error")
+	}
+}
+
+// TestUploadOnAReadOnlyRoot is the operating system refusing, which is most of
+// what is left uncovered in this file and is provoked rather than injected.
+func TestUploadOnAReadOnlyRoot(t *testing.T) {
+	t.Parallel()
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores mode bits, so this cannot fail as root")
+	}
+	s, dir := newStore(t)
+
+	uploads := filepath.Join(dir, ".uploads")
+	if err := os.Chmod(uploads, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(uploads, 0o750) })
+
+	if _, err := s.StartUpload(t.Context(), "video/clip.mp4"); err == nil {
+		t.Error("StartUpload into a read-only directory succeeded, want an error")
+	}
+}
