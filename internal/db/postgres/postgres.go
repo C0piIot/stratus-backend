@@ -646,3 +646,80 @@ func mapErr(err error) error {
 	}
 	return err
 }
+
+const uploadColumns = `id, owner_id, path, size, received, blob_key, store_id, digest, mime_type, expires_at`
+
+// PutUpload implements db.Uploads.
+func (r *repo) PutUpload(ctx context.Context, u db.Upload) error {
+	if err := db.ValidatePath(u.Path); err != nil {
+		return err
+	}
+
+	// Only what an append changes is updated: everything else about an upload
+	// is decided when it is created and a later request has no business
+	// rewriting where the bytes are going.
+	const query = `INSERT INTO uploads (` + uploadColumns + `)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		ON CONFLICT (id) DO UPDATE SET
+			received = excluded.received, digest = excluded.digest,
+			expires_at = excluded.expires_at`
+
+	_, err := r.q.ExecContext(ctx, query,
+		u.ID, u.OwnerID, u.Path, u.Size, u.Received, u.BlobKey, u.StoreID,
+		u.Digest, u.MIMEType, u.ExpiresAt,
+	)
+	if err != nil {
+		return fmt.Errorf("put upload %q: %w", u.ID, mapErr(err))
+	}
+	return nil
+}
+
+// UploadByID implements db.Uploads.
+func (r *repo) UploadByID(ctx context.Context, owner, id string) (db.Upload, error) {
+	const query = `SELECT ` + uploadColumns + ` FROM uploads WHERE id = $1 AND owner_id = $2`
+
+	u, err := scanUpload(r.q.QueryRowContext(ctx, query, id, owner))
+	if err != nil {
+		return db.Upload{}, fmt.Errorf("get upload %q: %w", id, err)
+	}
+	return u, nil
+}
+
+// DeleteUpload implements db.Uploads.
+func (r *repo) DeleteUpload(ctx context.Context, owner, id string) error {
+	const query = `DELETE FROM uploads WHERE id = $1 AND owner_id = $2`
+
+	if _, err := r.q.ExecContext(ctx, query, id, owner); err != nil {
+		return fmt.Errorf("delete upload %q: %w", id, mapErr(err))
+	}
+	return nil
+}
+
+// ExpiredUploads implements db.Uploads.
+func (r *repo) ExpiredUploads(ctx context.Context, now time.Time) iter.Seq2[db.Upload, error] {
+	const query = `SELECT ` + uploadColumns + ` FROM uploads WHERE expires_at <= $1 ORDER BY expires_at`
+
+	return sqlutil.Label(sqlutil.Seq(ctx, r.q, scanUploadRow, query, now), "list expired uploads")
+}
+
+func scanUpload(row *sql.Row) (db.Upload, error) {
+	var u db.Upload
+	var expires time.Time
+	if err := row.Scan(&u.ID, &u.OwnerID, &u.Path, &u.Size, &u.Received,
+		&u.BlobKey, &u.StoreID, &u.Digest, &u.MIMEType, &expires); err != nil {
+		return db.Upload{}, mapErr(err)
+	}
+	u.ExpiresAt = expires.UTC()
+	return u, nil
+}
+
+func scanUploadRow(rows *sql.Rows) (db.Upload, error) {
+	var u db.Upload
+	var expires time.Time
+	if err := rows.Scan(&u.ID, &u.OwnerID, &u.Path, &u.Size, &u.Received,
+		&u.BlobKey, &u.StoreID, &u.Digest, &u.MIMEType, &expires); err != nil {
+		return db.Upload{}, err
+	}
+	u.ExpiresAt = expires.UTC()
+	return u, nil
+}

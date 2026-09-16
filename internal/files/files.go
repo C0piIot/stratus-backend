@@ -32,6 +32,7 @@ import (
 // db.Store so that the dependency says what it uses.
 type Database interface {
 	db.Files
+	db.Uploads
 	Tx(ctx context.Context, fn func(db.Repo) error) error
 }
 

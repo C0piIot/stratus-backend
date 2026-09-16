@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/C0piIot/stratus-backend/internal/db"
 	"github.com/C0piIot/stratus-backend/internal/db/sqlite"
 )
 
@@ -102,7 +103,9 @@ func blobPaths(t *testing.T, dir string) []string {
 		if err != nil {
 			return err
 		}
-		if d.IsDir() && d.Name() == ".tmp" {
+		// Neither reserved directory is an orphan: one holds writes in flight
+		// and the other uploads waiting to be resumed.
+		if d.IsDir() && (d.Name() == ".tmp" || d.Name() == ".uploads") {
 			return filepath.SkipDir
 		}
 		if !d.IsDir() {
@@ -119,6 +122,57 @@ func blobPaths(t *testing.T, dir string) []string {
 func countBlobs(t *testing.T, dir string) int {
 	t.Helper()
 	return len(blobPaths(t, dir))
+}
+
+// TestCollectorTakesAbandonedUploads is the other half of the same sweep, and
+// it is the only thing that ever collects one: an upload in flight is invisible
+// to a listing, which is what keeps the blob sweep off it and means the blob
+// sweep will never tidy it away either.
+//
+// The expired upload is written by hand for the same reason the orphan above
+// is: there is no protocol to create one over yet, and a row put in place
+// directly is deterministic where a race is not.
+func TestCollectorTakesAbandonedUploads(t *testing.T) {
+	t.Parallel()
+	dataDir := filepath.Join(t.TempDir(), "data")
+	_, stop := liveServer(t, map[string]string{
+		"STRATUS_DATA_DIR":    dataDir,
+		"STRATUS_USERNAME":    "edu",
+		"STRATUS_PASSWORD":    "an example password",
+		"STRATUS_GC_INTERVAL": "50ms",
+		"STRATUS_GC_GRACE":    "1h",
+	})
+	defer stop()
+
+	meta, err := sqlite.New(t.Context(), filepath.Join(dataDir, "stratus.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = meta.Close() }()
+
+	abandoned := db.Upload{
+		ID:        "an-upload-nobody-came-back-to",
+		OwnerID:   "edu",
+		Path:      "holiday/clip.mp4",
+		Size:      -1,
+		BlobKey:   "video/2026/09/16/ABANDONED",
+		StoreID:   "whatever-the-store-called-it",
+		Digest:    []byte{},
+		MIMEType:  "video/mp4",
+		ExpiresAt: time.Now().Add(-time.Hour),
+	}
+	if err := meta.PutUpload(t.Context(), abandoned); err != nil {
+		t.Fatal(err)
+	}
+
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := meta.UploadByID(t.Context(), "edu", abandoned.ID); errors.Is(err, db.ErrNotFound) {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Error("the abandoned upload is still there after 10s: nothing collected it")
 }
 
 // TestCollectorDisabled covers the other half of the switch, because a sweep

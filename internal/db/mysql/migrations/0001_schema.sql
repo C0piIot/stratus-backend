@@ -68,3 +68,20 @@ CREATE TABLE media (
     KEY media_kind_artist_album (kind, album_artist(191), album(191)),
     CONSTRAINT media_file FOREIGN KEY (file_id) REFERENCES files (id) ON DELETE CASCADE
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_bin;
+
+-- An upload id is ours rather than a path, so it fits in an index whole and
+-- needs none of the hashing the files table does.
+CREATE TABLE uploads (
+    id         VARCHAR(64)  NOT NULL PRIMARY KEY,
+    owner_id   VARCHAR(255) NOT NULL,
+    path       TEXT         NOT NULL,
+    size       BIGINT       NOT NULL,
+    received   BIGINT       NOT NULL,
+    blob_key   TEXT         NOT NULL,
+    store_id   TEXT         NOT NULL,
+    digest     VARBINARY(256) NOT NULL,
+    mime_type  TEXT         NOT NULL,
+    expires_at BIGINT       NOT NULL,
+
+    KEY uploads_expires_at (expires_at)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_bin;
