@@ -19,8 +19,16 @@ import (
 	"github.com/C0piIot/stratus-backend/internal/config"
 )
 
-// version is overridden at build time with -ldflags "-X main.version=...".
-var version = "dev"
+// version and buildDate are overridden at build time with
+// -ldflags "-X main.version=... -X main.buildDate=...".
+//
+// The date is the commit's, not the clock's, so two builds of the same source
+// are still the same bytes -- and because what somebody reading it wants to
+// know is how old the code is, not when a runner happened to compile it.
+var (
+	version   = "dev"
+	buildDate = "unknown"
+)
 
 func main() {
 	// Distroless images ship no shell and no curl, so the binary probes itself
@@ -30,7 +38,7 @@ func main() {
 	flag.Parse()
 
 	if *showVersion {
-		fmt.Println("stratus", version)
+		fmt.Printf("stratus %s (built %s)\n", version, buildDate)
 		return
 	}
 
@@ -54,7 +62,7 @@ func main() {
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
 
-		if err := app.New(cfg, version).Run(ctx); err != nil {
+		if err := app.New(cfg, version, buildDate).Run(ctx); err != nil {
 			slog.Error("server stopped", "err", err)
 			os.Exit(1)
 		}

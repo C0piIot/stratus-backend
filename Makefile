@@ -14,6 +14,9 @@ ALPINE_VERSION ?= 3.24
 DEBIAN_SUITE   ?= trixie
 IMAGE          ?= stratus-backend
 VERSION        ?= $(shell git describe --tags --match "v*" --always --dirty 2>/dev/null || echo dev)
+# The commit's date, not today's: a rebuild of the same commit has to produce
+# the same binary, and what a footer is asked is how old the code is.
+BUILD_DATE     ?= $(shell git show -s --format=%cs 2>/dev/null || echo unknown)
 
 # These mirror the interpolation names used by compose.yaml.
 STRATUS_PORT      ?= 8080
@@ -147,11 +150,13 @@ health:
 
 ## image: build the runtime image without starting it
 image:
-	docker build --build-arg VERSION=$(VERSION) -t $(IMAGE):$(VERSION) -t $(IMAGE):latest .
+	docker build --build-arg VERSION=$(VERSION) --build-arg BUILD_DATE=$(BUILD_DATE) \
+		-t $(IMAGE):$(VERSION) -t $(IMAGE):latest .
 
 ## build: compile the binary to ./dist/stratus
 build: | $(CACHE_DIR)
-	$(GO) build -trimpath -ldflags "-s -w -X main.version=$(VERSION)" -o dist/stratus ./cmd/stratus
+	$(GO) build -trimpath -ldflags "-s -w -X main.version=$(VERSION) -X main.buildDate=$(BUILD_DATE)" \
+		-o dist/stratus ./cmd/stratus
 
 # --- quality --------------------------------------------------------------
 

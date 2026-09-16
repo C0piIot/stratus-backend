@@ -146,6 +146,7 @@ jobs:
           docker buildx build \
             --platform linux/amd64,linux/arm64 \
             --build-arg "VERSION=$(git describe --tags --match "v*" --always --dirty)" \
+            --build-arg "BUILD_DATE=$(git show -s --format=%cs)" \
             .
 
   # Publishes only after lint, test and the container assertions have passed:
@@ -196,13 +197,16 @@ jobs:
       # only ever copied out of, never run.
       - name: version
         id: version
-        run: echo "value=$(git describe --tags --match 'v*' --always --dirty)" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "value=$(git describe --tags --match 'v*' --always --dirty)" >> "$GITHUB_OUTPUT"
+          echo "date=$(git show -s --format=%cs)" >> "$GITHUB_OUTPUT"
 
       - name: build and push :main
         run: |
           docker buildx build \
             --platform linux/amd64,linux/arm64 \
             --build-arg "VERSION=${{ steps.version.outputs.value }}" \
+            --build-arg "BUILD_DATE=${{ steps.version.outputs.date }}" \
             --tag "${{ steps.img.outputs.image }}:main" \
             --metadata-file meta.json \
             --push .

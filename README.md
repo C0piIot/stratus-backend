@@ -473,7 +473,8 @@ fork, the job does not run.
 That instance is deliberately disposable, and deliberately open: the smallest
 machine Fly sells, **no volume**, and **the password is the version string in
 the page footer** — the short sha of the commit it is running, which anybody can
-read off this repository. Three things follow, and none of them is an accident:
+read off this repository. It is the version alone: the build date beside it is
+not part of it. Three things follow, and none of them is an accident:
 
 - **Anyone can sign in and upload to it.** It is a demo, it holds nothing but
   the demo, and it is not a place to put anything of yours.
