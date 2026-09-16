@@ -58,6 +58,13 @@ func Run(t *testing.T, newStore func(t *testing.T) storage.Storage) {
 		{"list can be abandoned early", listBreak},
 		{"list pages past a thousand keys", listPastOnePage},
 		{"a cancelled context is honoured", cancelledContext},
+		{"an upload resumes where it left off", resumableUpload},
+		{"an aborted upload leaves nothing", abortedUpload},
+		{"an upload of nothing is an empty object", emptyUpload},
+		{"an unknown upload is ErrNotFound", unknownUpload},
+		{"uploads validate their key", uploadsValidateTheirKey},
+		{"a completed upload replaces the object", uploadReplacesAnObject},
+		{"an append that fails partway reports where the store is", appendThatFailsPartway},
 	}
 
 	for _, tc := range cases {
@@ -506,6 +513,25 @@ func cancelledContext(t *testing.T, s storage.Storage) {
 	if !errors.Is(listErr, context.Canceled) {
 		t.Errorf("List = %v, want context.Canceled", listErr)
 	}
+
+	// The upload half answers the same way. A phone that walks out of range
+	// mid-append is exactly this, and it must not be mistaken for a refusal the
+	// client should stop retrying.
+	if _, err := s.StartUpload(ctx, "key"); !errors.Is(err, context.Canceled) {
+		t.Errorf("StartUpload = %v, want context.Canceled", err)
+	}
+	if _, err := s.AppendUpload(ctx, "key", "id", 0, strings.NewReader("x")); !errors.Is(err, context.Canceled) {
+		t.Errorf("AppendUpload = %v, want context.Canceled", err)
+	}
+	if _, err := s.UploadOffset(ctx, "key", "id"); !errors.Is(err, context.Canceled) {
+		t.Errorf("UploadOffset = %v, want context.Canceled", err)
+	}
+	if _, err := s.CompleteUpload(ctx, "key", "id"); !errors.Is(err, context.Canceled) {
+		t.Errorf("CompleteUpload = %v, want context.Canceled", err)
+	}
+	if err := s.AbortUpload(ctx, "key", "id"); !errors.Is(err, context.Canceled) {
+		t.Errorf("AbortUpload = %v, want context.Canceled", err)
+	}
 }
 
 // put writes body and fails the test if it cannot.
@@ -551,4 +577,240 @@ func keys(t *testing.T, s storage.Storage, prefix string) []string {
 	}
 	slices.Sort(out)
 	return out
+}
+
+// resumableUpload is the case a phone needs: bytes arriving over several calls,
+// with the store able to say where it got to after anything has restarted.
+func resumableUpload(t *testing.T, s storage.Storage) {
+	const key = "video/holiday.mp4"
+	// Over the S3 part floor, so the backend that has one has to do the thing
+	// it does with a part and not only buffer.
+	first := bytes.Repeat([]byte{1}, 6<<20)
+	second := bytes.Repeat([]byte{2}, 3<<20)
+
+	id, err := s.StartUpload(t.Context(), key)
+	if err != nil {
+		t.Fatalf("StartUpload: %v", err)
+	}
+
+	// Nothing is visible until it is complete: an upload in flight that a
+	// listing could see is one the sweep in internal/files would delete.
+	if _, serr := s.Stat(t.Context(), key); !errors.Is(serr, storage.ErrNotFound) {
+		t.Errorf("Stat of an unfinished upload = %v, want ErrNotFound", serr)
+	}
+	if got := keys(t, s, ""); len(got) != 0 {
+		t.Errorf("an unfinished upload is listed: %v", got)
+	}
+
+	at, err := s.AppendUpload(t.Context(), key, id, 0, bytes.NewReader(first))
+	if err != nil {
+		t.Fatalf("AppendUpload: %v", err)
+	}
+	if at != int64(len(first)) {
+		t.Errorf("offset after the first append = %d, want %d", at, len(first))
+	}
+	if got, oerr := s.UploadOffset(t.Context(), key, id); oerr != nil || got != at {
+		t.Errorf("UploadOffset = %d, %v, want %d", got, oerr, at)
+	}
+
+	// The retry a timeout produces: the same bytes again, from an offset the
+	// store has already passed.
+	if _, rerr := s.AppendUpload(t.Context(), key, id, 0, bytes.NewReader(first)); !errors.Is(rerr, storage.ErrUploadOffset) {
+		t.Errorf("a repeated append = %v, want ErrUploadOffset", rerr)
+	}
+
+	end, err := s.AppendUpload(t.Context(), key, id, at, bytes.NewReader(second))
+	if err != nil {
+		t.Fatalf("AppendUpload: %v", err)
+	}
+	if want := int64(len(first) + len(second)); end != want {
+		t.Errorf("offset after the second append = %d, want %d", end, want)
+	}
+
+	info, err := s.CompleteUpload(t.Context(), key, id)
+	if err != nil {
+		t.Fatalf("CompleteUpload: %v", err)
+	}
+	if want := int64(len(first) + len(second)); info.Size != want {
+		t.Errorf("Size = %d, want %d", info.Size, want)
+	}
+	if got := get(t, s, key, storage.All()); !bytes.Equal(got, append(slices.Clone(first), second...)) {
+		t.Errorf("the completed object is %d bytes and not what was appended", len(got))
+	}
+	if got := keys(t, s, ""); !slices.Equal(got, []string{key}) {
+		t.Errorf("keys = %v, want [%q]", got, key)
+	}
+}
+
+// abortedUpload leaves nothing behind, which is what keeps an abandoned backup
+// from being billed forever.
+func abortedUpload(t *testing.T, s storage.Storage) {
+	const key = "video/abandoned.mp4"
+
+	id, err := s.StartUpload(t.Context(), key)
+	if err != nil {
+		t.Fatalf("StartUpload: %v", err)
+	}
+	if _, err := s.AppendUpload(t.Context(), key, id, 0, strings.NewReader("half a video")); err != nil {
+		t.Fatalf("AppendUpload: %v", err)
+	}
+	if err := s.AbortUpload(t.Context(), key, id); err != nil {
+		t.Fatalf("AbortUpload: %v", err)
+	}
+	// Idempotent, like Delete: the caller is cleaning up and may have already.
+	if err := s.AbortUpload(t.Context(), key, id); err != nil {
+		t.Errorf("a second AbortUpload = %v, want nil", err)
+	}
+	if _, err := s.Stat(t.Context(), key); !errors.Is(err, storage.ErrNotFound) {
+		t.Errorf("Stat after an abort = %v, want ErrNotFound", err)
+	}
+	if got := keys(t, s, ""); len(got) != 0 {
+		t.Errorf("an aborted upload left %v behind", got)
+	}
+}
+
+// emptyUpload is the file a backup will meet on any real device, and the case
+// an S3 multipart cannot express without help: a zero-part upload.
+func emptyUpload(t *testing.T, s storage.Storage) {
+	const key = "notes/empty.txt"
+
+	id, err := s.StartUpload(t.Context(), key)
+	if err != nil {
+		t.Fatalf("StartUpload: %v", err)
+	}
+	info, err := s.CompleteUpload(t.Context(), key, id)
+	if err != nil {
+		t.Fatalf("CompleteUpload: %v", err)
+	}
+	if info.Size != 0 {
+		t.Errorf("Size = %d, want 0", info.Size)
+	}
+	if got := get(t, s, key, storage.All()); len(got) != 0 {
+		t.Errorf("Get = %q, want empty", got)
+	}
+}
+
+// unknownUpload covers the id a client offers after the server has already
+// forgotten it -- expired, aborted, or completed by an earlier attempt -- which
+// is the shape of every resumed upload that arrives too late.
+func unknownUpload(t *testing.T, s storage.Storage) {
+	const key = "video/gone.mp4"
+	const id = "an-upload-that-never-was"
+
+	if _, err := s.UploadOffset(t.Context(), key, id); !errors.Is(err, storage.ErrNotFound) {
+		t.Errorf("UploadOffset of an unknown upload = %v, want ErrNotFound", err)
+	}
+	if _, err := s.AppendUpload(t.Context(), key, id, 0, strings.NewReader("x")); !errors.Is(err, storage.ErrNotFound) {
+		t.Errorf("AppendUpload to an unknown upload = %v, want ErrNotFound", err)
+	}
+	if _, err := s.CompleteUpload(t.Context(), key, id); !errors.Is(err, storage.ErrNotFound) {
+		t.Errorf("CompleteUpload of an unknown upload = %v, want ErrNotFound", err)
+	}
+	// Aborting one is still not an error: the caller is tidying up.
+	if err := s.AbortUpload(t.Context(), key, id); err != nil {
+		t.Errorf("AbortUpload of an unknown upload = %v, want nil", err)
+	}
+}
+
+// uploadsValidateTheirKey: the upload half is the same chokepoint the rest of
+// the port is, or it would be the way a traversal walks in.
+func uploadsValidateTheirKey(t *testing.T, s storage.Storage) {
+	const bad = "../escape"
+
+	if _, err := s.StartUpload(t.Context(), bad); !errors.Is(err, storage.ErrInvalidKey) {
+		t.Errorf("StartUpload(%q) = %v, want ErrInvalidKey", bad, err)
+	}
+	if _, err := s.AppendUpload(t.Context(), bad, "id", 0, strings.NewReader("x")); !errors.Is(err, storage.ErrInvalidKey) {
+		t.Errorf("AppendUpload(%q) = %v, want ErrInvalidKey", bad, err)
+	}
+	if _, err := s.UploadOffset(t.Context(), bad, "id"); !errors.Is(err, storage.ErrInvalidKey) {
+		t.Errorf("UploadOffset(%q) = %v, want ErrInvalidKey", bad, err)
+	}
+	if _, err := s.CompleteUpload(t.Context(), bad, "id"); !errors.Is(err, storage.ErrInvalidKey) {
+		t.Errorf("CompleteUpload(%q) = %v, want ErrInvalidKey", bad, err)
+	}
+	if err := s.AbortUpload(t.Context(), bad, "id"); !errors.Is(err, storage.ErrInvalidKey) {
+		t.Errorf("AbortUpload(%q) = %v, want ErrInvalidKey", bad, err)
+	}
+}
+
+// uploadReplacesWhatIsThere: completing an upload over an existing object is a
+// Put, and a reader sees one or the other.
+func uploadReplacesAnObject(t *testing.T, s storage.Storage) {
+	const key = "notes/replaced.txt"
+	put(t, s, key, []byte("before"))
+
+	id, err := s.StartUpload(t.Context(), key)
+	if err != nil {
+		t.Fatalf("StartUpload: %v", err)
+	}
+	if _, err := s.AppendUpload(t.Context(), key, id, 0, strings.NewReader("after")); err != nil {
+		t.Fatalf("AppendUpload: %v", err)
+	}
+	// Still the old bytes until it completes.
+	if got := string(get(t, s, key, storage.All())); got != "before" {
+		t.Errorf("Get during an upload = %q, want the object that is still there", got)
+	}
+	if _, err := s.CompleteUpload(t.Context(), key, id); err != nil {
+		t.Fatalf("CompleteUpload: %v", err)
+	}
+	if got := string(get(t, s, key, storage.All())); got != "after" {
+		t.Errorf("Get after the upload = %q, want %q", got, "after")
+	}
+}
+
+// halfReader delivers body and then fails, which is what a phone losing signal
+// looks like from inside the server.
+type halfReader struct {
+	body io.Reader
+	err  error
+}
+
+func (r *halfReader) Read(p []byte) (int, error) {
+	n, err := r.body.Read(p)
+	if errors.Is(err, io.EOF) {
+		return n, r.err
+	}
+	return n, err
+}
+
+// appendThatFailsPartway is the normal case for a resumable upload, not the
+// exceptional one: the connection goes away mid-chunk. What the port owes the
+// caller afterwards is an offset it can believe, so that the next attempt
+// starts where the store actually is rather than where either side hoped.
+func appendThatFailsPartway(t *testing.T, s storage.Storage) {
+	const key = "video/interrupted.mp4"
+	sent := bytes.Repeat([]byte{7}, 64<<10)
+
+	id, err := s.StartUpload(t.Context(), key)
+	if err != nil {
+		t.Fatalf("StartUpload: %v", err)
+	}
+
+	broken := errors.New("the connection went away")
+	at, err := s.AppendUpload(t.Context(), key, id, 0, &halfReader{body: bytes.NewReader(sent), err: broken})
+	if err == nil {
+		t.Fatal("AppendUpload = nil, want the reader's error")
+	}
+
+	offset, err := s.UploadOffset(t.Context(), key, id)
+	if err != nil {
+		t.Fatalf("UploadOffset after a broken append: %v", err)
+	}
+	if at != offset {
+		t.Errorf("the failed append reported offset %d and the store is at %d", at, offset)
+	}
+
+	// And the upload carries on from there, which is the whole point.
+	rest := bytes.Repeat([]byte{9}, 1<<10)
+	if _, aerr := s.AppendUpload(t.Context(), key, id, offset, bytes.NewReader(rest)); aerr != nil {
+		t.Fatalf("AppendUpload after a broken one: %v", aerr)
+	}
+	info, err := s.CompleteUpload(t.Context(), key, id)
+	if err != nil {
+		t.Fatalf("CompleteUpload: %v", err)
+	}
+	if want := offset + int64(len(rest)); info.Size != want {
+		t.Errorf("Size = %d, want %d", info.Size, want)
+	}
 }

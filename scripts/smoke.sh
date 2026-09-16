@@ -298,6 +298,7 @@ fi
 # write probe beside them, and nothing left inside them.
 leftovers="$(find "$datadir" -mindepth 1 \
   -not -path "$datadir/blobs" -not -path "$datadir/blobs/.tmp" \
+  -not -path "$datadir/blobs/.uploads" \
   -not -path "$datadir/.index" \
   -not -name 'stratus.db*' | tr '\n' ' ')"
 if [ -z "$leftovers" ]; then

@@ -50,9 +50,11 @@ func New(dir string) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open storage root %s: %w", dir, err)
 	}
-	if err := root.Mkdir(tmpDir, dirMode); err != nil && !errors.Is(err, fs.ErrExist) {
-		_ = root.Close()
-		return nil, fmt.Errorf("create %s in %s: %w", tmpDir, dir, err)
+	for _, reserved := range []string{tmpDir, uploadDir} {
+		if err := root.Mkdir(reserved, dirMode); err != nil && !errors.Is(err, fs.ErrExist) {
+			_ = root.Close()
+			return nil, fmt.Errorf("create %s in %s: %w", reserved, dir, err)
+		}
 	}
 
 	store := &Store{root: root}
@@ -254,7 +256,10 @@ func (s *Store) List(ctx context.Context, prefix string) iter.Seq2[storage.Objec
 				return cerr
 			}
 			if d.IsDir() {
-				if p == tmpDir {
+				// Neither reserved directory is a listing: one holds writes in
+				// flight and the other uploads that will be resumed, and an
+				// object exists when it has been renamed out of them.
+				if p == tmpDir || p == uploadDir {
 					return fs.SkipDir
 				}
 				// A directory can only hold matching keys if it is on the
@@ -304,3 +309,136 @@ func mapErr(key string, err error) error {
 func isNotFound(err error) bool {
 	return errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR)
 }
+
+// uploadDir holds resumable uploads, and it is a second reserved directory
+// rather than a corner of tmpDir for one reason: tmpDir is emptied when the
+// store opens, on the argument that anything left in it belongs to a dead
+// process. An upload in flight is the opposite -- a phone will come back to it
+// tomorrow -- so a restart must leave it exactly where it was.
+//
+// Like tmpDir it can never collide with a key, since storage.ValidateKey
+// rejects a first segment starting with a dot, and List skips it, which is what
+// keeps an unfinished upload out of a listing and therefore out of reach of the
+// sweep in internal/files.
+const uploadDir = ".uploads"
+
+// StartUpload implements storage.Storage.
+func (s *Store) StartUpload(ctx context.Context, key string) (string, error) {
+	if err := storage.ValidateKey(key); err != nil {
+		return "", err
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+
+	id := rand.Text()
+	f, err := s.root.OpenFile(uploadPath(id), os.O_WRONLY|os.O_CREATE|os.O_EXCL, fileMode)
+	if err != nil {
+		return "", fmt.Errorf("start the upload of %q: %w", key, err)
+	}
+	if err := f.Close(); err != nil {
+		return "", fmt.Errorf("start the upload of %q: %w", key, err)
+	}
+	return id, nil
+}
+
+// AppendUpload implements storage.Storage.
+func (s *Store) AppendUpload(ctx context.Context, key, id string, offset int64, r io.Reader) (int64, error) {
+	if err := storage.ValidateKey(key); err != nil {
+		return 0, err
+	}
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+
+	at, err := s.UploadOffset(ctx, key, id)
+	if err != nil {
+		return 0, err
+	}
+	if at != offset {
+		return at, fmt.Errorf("%w: the upload of %q is at %d and not %d", storage.ErrUploadOffset, key, at, offset)
+	}
+
+	f, err := s.root.OpenFile(uploadPath(id), os.O_WRONLY|os.O_APPEND, fileMode)
+	if err != nil {
+		return at, fmt.Errorf("append to the upload of %q: %w", key, mapErr(id, err))
+	}
+	n, err := io.Copy(f, r)
+	if err == nil {
+		// Synced per append rather than at the end: what this port promises a
+		// resumed upload is that the offset it reports survives the machine
+		// going away, and an unsynced tail would make that a lie.
+		err = f.Sync()
+	}
+	if cerr := f.Close(); cerr != nil && err == nil {
+		err = cerr
+	}
+	if err != nil {
+		// n bytes may still have landed, so the offset is read back rather than
+		// assumed: what the caller needs is where the store actually is.
+		if got, serr := s.UploadOffset(ctx, key, id); serr == nil {
+			return got, fmt.Errorf("append to the upload of %q: %w", key, err)
+		}
+		return at, fmt.Errorf("append to the upload of %q: %w", key, err)
+	}
+	return at + n, nil
+}
+
+// UploadOffset implements storage.Storage.
+func (s *Store) UploadOffset(ctx context.Context, key, id string) (int64, error) {
+	if err := storage.ValidateKey(key); err != nil {
+		return 0, err
+	}
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+
+	info, err := s.root.Stat(uploadPath(id))
+	if err != nil {
+		return 0, fmt.Errorf("the upload of %q: %w", key, mapErr(id, err))
+	}
+	return info.Size(), nil
+}
+
+// CompleteUpload implements storage.Storage.
+func (s *Store) CompleteUpload(ctx context.Context, key, id string) (storage.ObjectInfo, error) {
+	if err := storage.ValidateKey(key); err != nil {
+		return storage.ObjectInfo{}, err
+	}
+	if err := ctx.Err(); err != nil {
+		return storage.ObjectInfo{}, err
+	}
+
+	if dir := path.Dir(key); dir != "." {
+		if err := s.root.MkdirAll(dir, dirMode); err != nil {
+			return storage.ObjectInfo{}, fmt.Errorf("create parents of %q: %w", key, err)
+		}
+	}
+	// The same rename Put ends with, and atomic for the same reason: a reader
+	// sees the old object or the new one, never the growing file.
+	if err := s.root.Rename(uploadPath(id), key); err != nil {
+		return storage.ObjectInfo{}, fmt.Errorf("publish the upload of %q: %w", key, mapErr(id, err))
+	}
+	return s.Stat(ctx, key)
+}
+
+// AbortUpload implements storage.Storage.
+func (s *Store) AbortUpload(ctx context.Context, key, id string) error {
+	if err := storage.ValidateKey(key); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	if err := s.root.Remove(uploadPath(id)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("abort the upload of %q: %w", key, err)
+	}
+	return nil
+}
+
+// uploadPath keeps every upload in one flat reserved directory. The id is
+// generated here and never comes from a caller, so it needs no validation of
+// its own -- and it is not the key, because two uploads of the same key at once
+// are two uploads.
+func uploadPath(id string) string { return uploadDir + "/" + id }

@@ -56,6 +56,7 @@ func testConfig(t *testing.T) s3.Config {
 		AccessKey: os.Getenv(accessEnv),
 		SecretKey: os.Getenv(secretEnv),
 		Region:    "us-east-1",
+		SpoolDir:  t.TempDir(),
 	}
 }
 
@@ -110,10 +111,14 @@ func TestNewValidatesConfig(t *testing.T) {
 		name string
 		cfg  s3.Config
 	}{
-		{"no endpoint", s3.Config{Bucket: "b", AccessKey: "k", SecretKey: "s"}},
-		{"no bucket", s3.Config{Endpoint: "localhost:9000", AccessKey: "k", SecretKey: "s"}},
-		{"no access key", s3.Config{Endpoint: "localhost:9000", Bucket: "b", SecretKey: "s"}},
-		{"no secret key", s3.Config{Endpoint: "localhost:9000", Bucket: "b", AccessKey: "k"}},
+		{"no endpoint", s3.Config{Bucket: "b", AccessKey: "k", SecretKey: "s", SpoolDir: "/tmp"}},
+		{"no bucket", s3.Config{Endpoint: "localhost:9000", AccessKey: "k", SecretKey: "s", SpoolDir: "/tmp"}},
+		{"no access key", s3.Config{Endpoint: "localhost:9000", Bucket: "b", SecretKey: "s", SpoolDir: "/tmp"}},
+		{"no secret key", s3.Config{Endpoint: "localhost:9000", Bucket: "b", AccessKey: "k", SpoolDir: "/tmp"}},
+		// The spool is not optional here: without somewhere to hold the tail of
+		// a resumable upload this backend cannot honour the port's promise that
+		// a chunk may be any size.
+		{"no spool directory", s3.Config{Endpoint: "localhost:9000", Bucket: "b", AccessKey: "k", SecretKey: "s"}},
 		{"nothing at all", s3.Config{}},
 	}
 	for _, tt := range tests {

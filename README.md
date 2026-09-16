@@ -158,6 +158,14 @@ empties its reserved directory of interrupted uploads, and the S3 one aborts
 multipart uploads abandoned more than a day ago, which are invisible to a
 listing and billed until something ends them.
 
+Both keep a second place for uploads that arrive over several requests and are
+meant to be resumed, which is the opposite case and is deliberately left alone
+by those sweeps: a directory beside the first one for the disk backend, and a
+spool under the data directory for the S3 one, where the tail of an upload waits
+until it is a whole part. Nothing uses them yet — the protocol that will is
+[#122](https://github.com/C0piIot/stratus-backend/issues/122) — and an empty
+directory is all you will find there today.
+
 ## OpenSubsonic
 
 Mounted at `/rest/`, with the same credentials as WebDAV and, like it, only when
