@@ -29,6 +29,9 @@ RUN --mount=type=cache,target=/go/pkg/mod go mod download
 
 COPY . .
 ARG VERSION=dev
+# The commit's date rather than the clock's, so the same source still builds the
+# same bytes. Stamped alongside the version and shown beside it.
+ARG BUILD_DATE=unknown
 ARG TARGETOS
 ARG TARGETARCH
 # COVER is empty for every image this project publishes, and set only by
@@ -42,7 +45,8 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} \
     go build -trimpath ${COVER:+-cover -covermode=atomic} \
-      -ldflags "-s -w -X main.version=${VERSION}" -o /out/stratus ./cmd/stratus
+      -ldflags "-s -w -X main.version=${VERSION} -X main.buildDate=${BUILD_DATE}" \
+      -o /out/stratus ./cmd/stratus
 
 FROM gcr.io/distroless/static:nonroot AS runtime
 COPY --from=build /out/stratus /usr/local/bin/stratus

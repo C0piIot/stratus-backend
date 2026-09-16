@@ -33,10 +33,11 @@ const contentSecurityPolicy = "default-src 'none'; style-src 'self'; script-src 
 	"img-src 'self' data:; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"
 
 type handler struct {
-	version  string
-	verifier auth.Verifier
-	sessions *auth.Sessions
-	files    *files.Service
+	version   string
+	buildDate string
+	verifier  auth.Verifier
+	sessions  *auth.Sessions
+	files     *files.Service
 }
 
 // Handler builds the UI. It is mounted at the root, so it is also what answers
@@ -46,8 +47,8 @@ type handler struct {
 // root, unlike the Basic auth in front of WebDAV: it is meaningless on any
 // other surface -- a WebDAV or Subsonic client is not a browser and sends no
 // cookie -- and a caller that forgot it would lose the defence silently.
-func Handler(version string, v auth.Verifier, s *auth.Sessions, service *files.Service) http.Handler {
-	h := &handler{version: version, verifier: v, sessions: s, files: service}
+func Handler(version, buildDate string, v auth.Verifier, s *auth.Sessions, service *files.Service) http.Handler {
+	h := &handler{version: version, buildDate: buildDate, verifier: v, sessions: s, files: service}
 
 	mux := http.NewServeMux()
 	// One canonical URL per directory, so the root is a redirect rather than a

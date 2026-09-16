@@ -41,8 +41,9 @@ const subsonicPrefix = "/rest/"
 // App holds the wired application. Construction is pure: no I/O happens until
 // Run, so Handler can be exercised from tests without touching the filesystem.
 type App struct {
-	cfg     config.Config
-	version string
+	cfg       config.Config
+	version   string
+	buildDate string
 }
 
 // Deps are the backends the protocol surfaces are built on.
@@ -74,8 +75,8 @@ func (d Deps) Close() error {
 }
 
 // New wires an App. It performs no I/O.
-func New(cfg config.Config, version string) *App {
-	return &App{cfg: cfg, version: version}
+func New(cfg config.Config, version, buildDate string) *App {
+	return &App{cfg: cfg, version: version, buildDate: buildDate}
 }
 
 // Handler builds the HTTP routes. Separate from Run so every protocol surface
@@ -116,7 +117,7 @@ func (a *App) Handler(deps Deps) http.Handler {
 		// not claim is a page rather than a bare 404. Same verifier again, and
 		// a session signed with the configured password: see auth.Sessions for
 		// what that buys and what it costs.
-		mux.Handle("/", web.Handler(a.version, verifier, auth.NewSessions(creds, auth.DefaultSessionTTL), service))
+		mux.Handle("/", web.Handler(a.version, a.buildDate, verifier, auth.NewSessions(creds, auth.DefaultSessionTTL), service))
 	}
 	return logRequests(mux)
 }

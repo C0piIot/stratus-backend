@@ -57,6 +57,9 @@ type view struct {
 	Title   string
 	Assets  string
 	Version string
+	// BuildDate is the date of the commit this binary was built from, beside
+	// the version in the footer.
+	BuildDate string
 	// User is who is signed in, and empty when nobody is.
 	User string
 	// Username is what was typed into the form, so a failed login does not make
@@ -84,7 +87,7 @@ type view struct {
 // that failed halfway would otherwise have already sent a 200 and half the
 // markup, which a browser renders as a broken page rather than an error.
 func (h *handler) render(w http.ResponseWriter, status int, page string, v view) {
-	v.Assets, v.Version = assetPrefix, h.version
+	v.Assets, v.Version, v.BuildDate = assetPrefix, h.version, h.buildDate
 
 	var buf bytes.Buffer
 	if err := pages[page].ExecuteTemplate(&buf, "layout", v); err != nil {

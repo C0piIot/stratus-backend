@@ -24,6 +24,7 @@ const (
 	// fixture from a leaked credential.
 	examplePassword = "example correct horse battery staple"
 	version         = "1.2.3-test"
+	buildDate       = "2026-01-01"
 )
 
 func credentials() auth.Credentials {
@@ -38,7 +39,7 @@ func newHandler(t *testing.T, v auth.Verifier) http.Handler {
 	if v == nil {
 		v = creds
 	}
-	return web.Handler(version, v, auth.NewSessions(creds, auth.DefaultSessionTTL), service(t))
+	return web.Handler(version, buildDate, v, auth.NewSessions(creds, auth.DefaultSessionTTL), service(t))
 }
 
 // browser is newHandler and the service behind it, for the tests that have to
@@ -47,7 +48,7 @@ func browser(t *testing.T) (http.Handler, *files.Service) {
 	t.Helper()
 	s := service(t)
 	creds := credentials()
-	return web.Handler(version, creds, auth.NewSessions(creds, auth.DefaultSessionTTL), s), s
+	return web.Handler(version, buildDate, creds, auth.NewSessions(creds, auth.DefaultSessionTTL), s), s
 }
 
 // service is the real file layer over real backends in a temporary directory,
@@ -87,7 +88,7 @@ func backends(t *testing.T) (storage.Storage, db.Store) {
 func handlerOver(t *testing.T, s *files.Service) http.Handler {
 	t.Helper()
 	creds := credentials()
-	return web.Handler(version, creds, auth.NewSessions(creds, auth.DefaultSessionTTL), s)
+	return web.Handler(version, buildDate, creds, auth.NewSessions(creds, auth.DefaultSessionTTL), s)
 }
 
 // refusing answers every login with one error, for the arms a correct password
@@ -189,8 +190,13 @@ func TestThePageAroundTheListing(t *testing.T) {
 	if !strings.Contains(body, `action="/logout"`) {
 		t.Error("the page has no sign-out form")
 	}
+	// The version is what the demo instance uses as its password, so it has to
+	// stay readable as its own token beside the date rather than run into it.
 	if !strings.Contains(body, version) {
 		t.Error("the page does not carry the version")
+	}
+	if !strings.Contains(body, "built "+buildDate) {
+		t.Errorf("the page does not carry the build date:\n%s", body)
 	}
 	if got := rec.Header().Get("Content-Type"); got != "text/html; charset=utf-8" {
 		t.Errorf("Content-Type = %q", got)
@@ -204,7 +210,7 @@ func TestASessionFromAnotherPasswordIsNotOne(t *testing.T) {
 	t.Parallel()
 	before := signIn(t, newHandler(t, nil))
 
-	after := web.Handler(version, credentials(),
+	after := web.Handler(version, buildDate, credentials(),
 		auth.NewSessions(auth.Credentials{Username: username, Password: "example a different one"}, auth.DefaultSessionTTL),
 		service(t))
 

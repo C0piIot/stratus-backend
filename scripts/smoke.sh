@@ -121,7 +121,9 @@ wait_serving() {
 section "Build"
 # ---------------------------------------------------------------------------
 VERSION="$(git describe --tags --match "v*" --always --dirty 2>/dev/null || echo dev)"
-if docker build --build-arg "VERSION=$VERSION" -t "$REF" . >/dev/null 2>&1; then
+BUILD_DATE="$(git show -s --format=%cs 2>/dev/null || echo unknown)"
+if docker build --build-arg "VERSION=$VERSION" --build-arg "BUILD_DATE=$BUILD_DATE" \
+     -t "$REF" . >/dev/null 2>&1; then
   ok "image builds ($REF)"
 else
   bad "image builds" "docker build failed; rerun without -q to see why"
@@ -131,7 +133,8 @@ fi
 # Not an assertion: this image is a measuring instrument, not something the
 # project ships, so nothing here claims anything about it.
 if [ -n "$COVER" ]; then
-  docker build --build-arg "VERSION=$VERSION" --build-arg COVER=1 -t "$COVER_REF" . >/dev/null 2>&1 ||
+  docker build --build-arg "VERSION=$VERSION" --build-arg "BUILD_DATE=$BUILD_DATE" \
+    --build-arg COVER=1 -t "$COVER_REF" . >/dev/null 2>&1 ||
     { echo; echo "aborting: the instrumented image did not build"; exit 1; }
   RUN_REF="$COVER_REF"
   printf '  runtime assertions run against %s, counters into %s\n' "$COVER_REF" "$COVERDIR"
@@ -247,8 +250,8 @@ fi
 section "Flags"
 # ---------------------------------------------------------------------------
 out="$(docker run --rm ${cover_args[@]+"${cover_args[@]}"} "$RUN_REF" -version 2>&1 || true)"
-if [ "$out" = "stratus $VERSION" ]; then
-  ok "-version reports the injected version"
+if [ "$out" = "stratus $VERSION (built $BUILD_DATE)" ]; then
+  ok "-version reports the injected version and build date"
 else
   bad "-version reports the injected version" "got '$out', want 'stratus $VERSION'"
 fi
