@@ -8,7 +8,7 @@ protocols your existing apps already understand.
 
 > **Work in progress.** Files over WebDAV and music over OpenSubsonic work
 > today, the web UI browses, uploads, downloads and tidies them, and the
-> container is real. CalDAV, photo thumbnails and sharing are not written yet.
+> container is real. CalDAV and sharing are not written yet.
 > The tables below say what answers and what does not, rather than what is
 > intended — if a row says **works**, it works.
 
@@ -285,6 +285,15 @@ later like any other. The files stream from the browser straight into storage
 rather than being spooled to a temporary file first, so the size limit is your
 disk.
 
+**A photograph in a listing shows a picture of itself**, made the first time
+somebody looks at the folder and kept as a derived blob the sweep collects. The
+URL carries the file's ETag, so a browser caches it forever and a new upload
+gets a new one. Only what this build can decode is offered an image — JPEG and
+PNG today; HEIC and video wait for the ffmpeg path — so a listing is never a
+wall of broken pictures. They load as you scroll, and the server decodes a few
+at a time, because opening a folder of five hundred photographs should not ask
+for five hundred at once.
+
 **Deleting asks first and then means it.** There is no trash bin: the row goes,
 and the blob behind it is swept up afterwards, so the page in between is the only
 chance to have not meant it. Deleting a folder takes everything inside it.
@@ -544,11 +553,10 @@ because the whole clone is 6.6 MB and carrying the media would double it for
 everybody, forever. `scripts/demo/SHA256SUMS` pins the bytes and
 `scripts/demo/CREDITS.md` carries the attribution.
 
-Two things that demo does not show, and it is worth knowing which: the
-photographs have **no thumbnails** in the browser yet, and the video
+One thing that demo does not show, and it is worth knowing which: the video
 **downloads rather than plays**, because the UI serves files as attachments on
-purpose. What it does show is the file tree, downloads, and the whole music
-library in a Subsonic client.
+purpose. What it does show is the file tree with thumbnails, downloads, and the
+whole music library in a Subsonic client.
 
 `.golangci.yml` uses `depguard` to enforce the architecture rules from
 [`CLAUDE.md`](CLAUDE.md), so a driver type leaking out of its package is a failed
@@ -631,9 +639,9 @@ Working now:
   rename and delete. A signed-cookie session and a CSP that allows nothing but
   the binary's own assets.
 - A request log, migrations applied at startup, and a container asserted from
-  the outside by 70 smoke checks.
+  the outside by 72 smoke checks.
 
-Not there yet: CalDAV, photo thumbnails and sharing --
+Not there yet: CalDAV and sharing --
 and on the music side, anything that remembers what the user did. Work
 and the decisions behind it are tracked on the
 [Stratus project board](https://github.com/users/C0piIot/projects/2), where

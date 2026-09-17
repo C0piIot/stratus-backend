@@ -441,6 +441,17 @@ Restraint here is principle 3, not laziness:
   Sizes come from a fixed ladder, because the size is part of the key and an
   arbitrary one means an unbounded set of objects nothing asks for twice.
 
+  **Two surfaces ask for them now**, and the second one changed the shape: a
+  listing in the browser offers a picture for every row this build can decode,
+  which is the photo grid `open` warned about when it said generating one twice
+  costs nothing but generating five hundred at once is somebody's problem. It is
+  answered from both ends -- the browser loads them lazily, and a semaphore
+  bounds how many are decoded at a time, because a twelve-megapixel JPEG costs
+  about fifty megabytes while it is being read. Whether a file can have one is
+  `media.CanThumbnail`, computed rather than stored: it is a property of the
+  build, and the day the ffmpeg path lands every HEIC changes its answer without
+  a byte moving.
+
   **A picture inside a track is read in Go rather than by ffmpeg**, and that is
   the same argument as EXIF: the storage port reads ranges, so a parser that
   seeks takes the first few kilobytes of a FLAC and stops, while ffmpeg needs a

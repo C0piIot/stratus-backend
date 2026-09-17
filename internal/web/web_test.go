@@ -13,6 +13,7 @@ import (
 	"github.com/C0piIot/stratus-backend/internal/db"
 	"github.com/C0piIot/stratus-backend/internal/db/sqlite"
 	"github.com/C0piIot/stratus-backend/internal/files"
+	"github.com/C0piIot/stratus-backend/internal/media"
 	"github.com/C0piIot/stratus-backend/internal/storage"
 	"github.com/C0piIot/stratus-backend/internal/storage/disk"
 	"github.com/C0piIot/stratus-backend/internal/web"
@@ -39,25 +40,30 @@ func newHandler(t *testing.T, v auth.Verifier) http.Handler {
 	if v == nil {
 		v = creds
 	}
-	return web.Handler(version, buildDate, v, auth.NewSessions(creds, auth.DefaultSessionTTL), service(t))
+	s, thumbs := pieces(t)
+	return web.Handler(version, buildDate, v, auth.NewSessions(creds, auth.DefaultSessionTTL), s, thumbs)
 }
 
 // browser is newHandler and the service behind it, for the tests that have to
 // put something in the tree before they can browse it.
 func browser(t *testing.T) (http.Handler, *files.Service) {
 	t.Helper()
-	s := service(t)
+	s, thumbs := pieces(t)
 	creds := credentials()
-	return web.Handler(version, buildDate, creds, auth.NewSessions(creds, auth.DefaultSessionTTL), s), s
+	return web.Handler(version, buildDate, creds, auth.NewSessions(creds, auth.DefaultSessionTTL), s, thumbs), s
 }
 
 // service is the real file layer over real backends in a temporary directory,
 // for the reason internal/dav's tests give: an adapter tested only against
 // fakes tests the fakes.
-func service(t *testing.T) *files.Service {
+// pieces is a service and the thumbnail generator over the same blob store,
+// which is the part that matters: a generator built over a second store would
+// never find the file it was asked to make a picture of.
+func pieces(t *testing.T) (*files.Service, *media.Thumbs) {
 	t.Helper()
 	blobs, meta := backends(t)
-	return files.New(blobs, meta)
+	s := files.New(blobs, meta)
+	return s, media.NewThumbs(blobs, s)
 }
 
 // backends are those two seams on their own, for the tests that put a fault
@@ -85,10 +91,11 @@ func backends(t *testing.T) (storage.Storage, db.Store) {
 
 // handlerOver is web.Handler over a service somebody else assembled, which is
 // how a test gets a broken backend behind the pages.
-func handlerOver(t *testing.T, s *files.Service) http.Handler {
+func handlerOver(t *testing.T, s *files.Service, blobs storage.Storage) http.Handler {
 	t.Helper()
 	creds := credentials()
-	return web.Handler(version, buildDate, creds, auth.NewSessions(creds, auth.DefaultSessionTTL), s)
+	return web.Handler(version, buildDate, creds, auth.NewSessions(creds, auth.DefaultSessionTTL),
+		s, media.NewThumbs(blobs, s))
 }
 
 // refusing answers every login with one error, for the arms a correct password
@@ -210,9 +217,10 @@ func TestASessionFromAnotherPasswordIsNotOne(t *testing.T) {
 	t.Parallel()
 	before := signIn(t, newHandler(t, nil))
 
+	service, thumbs := pieces(t)
 	after := web.Handler(version, buildDate, credentials(),
 		auth.NewSessions(auth.Credentials{Username: username, Password: "example a different one"}, auth.DefaultSessionTTL),
-		service(t))
+		service, thumbs)
 
 	rec := get(t, after, "/files/", before)
 	if rec.Code != http.StatusSeeOther {

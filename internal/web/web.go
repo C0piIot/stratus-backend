@@ -18,6 +18,7 @@ import (
 	"github.com/C0piIot/stratus-backend/internal/auth"
 	"github.com/C0piIot/stratus-backend/internal/db"
 	"github.com/C0piIot/stratus-backend/internal/files"
+	"github.com/C0piIot/stratus-backend/internal/media"
 )
 
 // assetPrefix carries the vendored library's version, which is what makes the
@@ -38,6 +39,9 @@ type handler struct {
 	verifier  auth.Verifier
 	sessions  *auth.Sessions
 	files     *files.Service
+	// thumbs takes the blob store directly, which is why it is passed in rather
+	// than built here: a derived object has no database row and never will.
+	thumbs *media.Thumbs
 }
 
 // Handler builds the UI. It is mounted at the root, so it is also what answers
@@ -47,8 +51,8 @@ type handler struct {
 // root, unlike the Basic auth in front of WebDAV: it is meaningless on any
 // other surface -- a WebDAV or Subsonic client is not a browser and sends no
 // cookie -- and a caller that forgot it would lose the defence silently.
-func Handler(version, buildDate string, v auth.Verifier, s *auth.Sessions, service *files.Service) http.Handler {
-	h := &handler{version: version, buildDate: buildDate, verifier: v, sessions: s, files: service}
+func Handler(version, buildDate string, v auth.Verifier, s *auth.Sessions, service *files.Service, thumbs *media.Thumbs) http.Handler {
+	h := &handler{version: version, buildDate: buildDate, verifier: v, sessions: s, files: service, thumbs: thumbs}
 
 	mux := http.NewServeMux()
 	// One canonical URL per directory, so the root is a redirect rather than a
@@ -57,6 +61,7 @@ func Handler(version, buildDate string, v auth.Verifier, s *auth.Sessions, servi
 		redirectLocal(w, r, filesPrefix)
 	})
 	mux.HandleFunc("GET /files/{path...}", h.authenticated(h.browse))
+	mux.HandleFunc("GET /thumb/{path...}", h.authenticated(h.thumbnail))
 	mux.HandleFunc("POST /files/{path...}", h.authenticated(h.upload))
 	mux.HandleFunc("POST /folders/{path...}", h.authenticated(h.newFolder))
 	mux.HandleFunc("GET /rename/{path...}", h.authenticated(h.renameForm))

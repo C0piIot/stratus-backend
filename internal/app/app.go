@@ -126,7 +126,7 @@ func (a *App) Handler(deps Deps) http.Handler {
 		// not claim is a page rather than a bare 404. Same verifier again, and
 		// a session signed with the configured password: see auth.Sessions for
 		// what that buys and what it costs.
-		mux.Handle("/", web.Handler(a.version, a.buildDate, verifier, auth.NewSessions(creds, auth.DefaultSessionTTL), service))
+		mux.Handle("/", web.Handler(a.version, a.buildDate, verifier, auth.NewSessions(creds, auth.DefaultSessionTTL), service, thumbs))
 	}
 	return logRequests(mux)
 }

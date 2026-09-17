@@ -541,3 +541,55 @@ func TestOpenReportsAStoreItCannotRead(t *testing.T) {
 		t.Errorf("open = %v, want the failure passed on", err)
 	}
 }
+
+// TestCanThumbnail is the question a page asks before it renders an image, and
+// it has to be the same question this package answers when asked for one.
+func TestCanThumbnail(t *testing.T) {
+	t.Parallel()
+
+	for _, name := range []string{"holiday.jpg", "HOLIDAY.JPEG", "screenshot.png"} {
+		if !CanThumbnail(name) {
+			t.Errorf("CanThumbnail(%q) = false, want true", name)
+		}
+	}
+	// Not yet, and honestly: HEIC and video wait for the ffmpeg path, and a
+	// page that rendered an image for them would show a broken one.
+	for _, name := range []string{"IMG_0001.HEIC", "clip.mp4", "notes.txt", "noextension"} {
+		if CanThumbnail(name) {
+			t.Errorf("CanThumbnail(%q) = true, want false", name)
+		}
+	}
+}
+
+// TestFile covers the per-file entry point the web UI uses, which Cover does
+// not reach: a folder has cover art and a file has a thumbnail.
+func TestFile(t *testing.T) {
+	t.Parallel()
+	th, service, _ := thumbs(t)
+	if _, err := service.Mkdir(t.Context(), owner, "holiday"); err != nil {
+		t.Fatal(err)
+	}
+	writeImage(t, service, "holiday/IMG_0001.jpg", 400, 300)
+	write(t, service, "holiday/notes.txt", []byte("not a picture"), "text/plain")
+
+	body, size, err := th.File(t.Context(), owner, "holiday/IMG_0001.jpg", 96)
+	if err != nil {
+		t.Fatalf("File: %v", err)
+	}
+	defer func() { _ = body.Close() }()
+	if size == 0 {
+		t.Error("the thumbnail is empty")
+	}
+
+	if _, _, err := th.File(t.Context(), owner, "holiday/notes.txt", 96); !errors.Is(err, ErrNoThumbnail) {
+		t.Errorf("File of a text file = %v, want ErrNoThumbnail", err)
+	}
+	// A directory is Cover's question, and saying so beats making a picture of
+	// nothing.
+	if _, _, err := th.File(t.Context(), owner, "holiday", 96); !errors.Is(err, ErrNoThumbnail) {
+		t.Errorf("File of a directory = %v, want ErrNoThumbnail", err)
+	}
+	if _, _, err := th.File(t.Context(), owner, "missing.jpg", 96); !errors.Is(err, db.ErrNotFound) {
+		t.Errorf("File of a missing file = %v, want ErrNotFound", err)
+	}
+}

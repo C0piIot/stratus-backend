@@ -84,17 +84,44 @@ const maxThumbSource = 50_000_000
 // raw needs the embedded preview, which is a different technique.
 var ErrNoThumbnail = errors.New("media: no thumbnail for this file")
 
+// generating bounds how many thumbnails are decoded at once.
+//
+// A photo grid asks for everything it can see the first time a folder is
+// opened, and decoding a twelve-megapixel JPEG costs about fifty megabytes
+// while it happens. Twenty at once on the smallest machine anybody runs this on
+// is the difference between a slow page and an OOM kill. The browser's lazy
+// loading keeps the number small; this keeps it bounded.
+const generating = 4
+
 // Thumbs makes thumbnails and remembers them.
 type Thumbs struct {
 	blobs storage.Storage
 	files *files.Service
+	// decoding is the semaphore generating describes. Buffered rather than a
+	// sync primitive so that waiting for it can be cancelled with the request.
+	decoding chan struct{}
 }
 
 // NewThumbs wires the generator. It takes the blob store directly because a
 // derived object has no database row -- the blob-plus-row invariant internal
 // files exists to hold does not apply to something regenerable.
 func NewThumbs(blobs storage.Storage, service *files.Service) *Thumbs {
-	return &Thumbs{blobs: blobs, files: service}
+	return &Thumbs{blobs: blobs, files: service, decoding: make(chan struct{}, generating)}
+}
+
+// File returns a thumbnail of the file at path, making it if this is the first
+// ask, and ErrNoThumbnail if this build cannot read that format.
+func (t *Thumbs) File(ctx context.Context, owner, path string, px int) (io.ReadCloser, int64, error) {
+	f, err := t.files.Stat(ctx, owner, path)
+	if err != nil {
+		return nil, 0, err
+	}
+	if f.IsDir {
+		// A folder has cover art rather than a thumbnail, and that is Cover's
+		// question. Saying so beats making a picture of nothing.
+		return nil, 0, fmt.Errorf("%w: %q is a directory", ErrNoThumbnail, path)
+	}
+	return t.open(ctx, f, px)
 }
 
 // Cover returns the artwork for the folder dir, at about px pixels.
@@ -176,6 +203,16 @@ func (t *Thumbs) cached(
 		return body, info.Size, nil
 	case !errors.Is(err, storage.ErrNotFound):
 		return nil, 0, fmt.Errorf("read %q: %w", key, err)
+	}
+
+	// The cached read above is deliberately outside the bound: serving a
+	// thumbnail that exists costs no pixels and must not queue behind one being
+	// made. Only the decode is limited.
+	select {
+	case t.decoding <- struct{}{}:
+		defer func() { <-t.decoding }()
+	case <-ctx.Done():
+		return nil, 0, ctx.Err()
 	}
 
 	made, err := make()
@@ -309,6 +346,15 @@ func thumbKey(blobKey string, size thumbSize) string {
 func coverKey(blobKey string, size thumbSize) string {
 	return files.DerivedKey(blobKey, "cover-"+strconv.Itoa(int(size))+".jpg")
 }
+
+// CanThumbnail reports whether this build can turn the file at p into pixels.
+//
+// Exported so that a page deciding whether to render an image asks the same
+// question the generator will answer, rather than keeping a second list of
+// extensions that drifts from this one. It is a property of the build and not
+// of the file, which is why it is computed here and stored nowhere: the day the
+// ffmpeg path is wired, every HEIC changes its answer without a byte moving.
+func CanThumbnail(p string) bool { return decodableInGo(p) }
 
 // decodableInGo reports whether this build can read the file without ffmpeg.
 //
