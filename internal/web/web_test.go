@@ -25,7 +25,7 @@ const (
 	// fixture from a leaked credential.
 	examplePassword = "example correct horse battery staple"
 	version         = "1.2.3-test"
-	buildDate       = "2026-01-01"
+	buildDate       = "2026-01-01T09:30:00Z"
 )
 
 func credentials() auth.Credentials {

@@ -146,7 +146,7 @@ jobs:
           docker buildx build \
             --platform linux/amd64,linux/arm64 \
             --build-arg "VERSION=$(git describe --tags --match "v*" --always --dirty)" \
-            --build-arg "BUILD_DATE=$(git show -s --format=%cs)" \
+            --build-arg "BUILD_DATE=$(TZ=UTC git show -s --date=format-local:%Y-%m-%dT%H:%M:%SZ --format=%cd)" \
             .
 
   # Publishes only after lint, test and the container assertions have passed:
@@ -199,7 +199,7 @@ jobs:
         id: version
         run: |
           echo "value=$(git describe --tags --match 'v*' --always --dirty)" >> "$GITHUB_OUTPUT"
-          echo "date=$(git show -s --format=%cs)" >> "$GITHUB_OUTPUT"
+          echo "date=$(TZ=UTC git show -s --date=format-local:%Y-%m-%dT%H:%M:%SZ --format=%cd)" >> "$GITHUB_OUTPUT"
 
       - name: build and push :main
         run: |

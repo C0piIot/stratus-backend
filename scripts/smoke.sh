@@ -121,7 +121,7 @@ wait_serving() {
 section "Build"
 # ---------------------------------------------------------------------------
 VERSION="$(git describe --tags --match "v*" --always --dirty 2>/dev/null || echo dev)"
-BUILD_DATE="$(git show -s --format=%cs 2>/dev/null || echo unknown)"
+BUILD_DATE="$(TZ=UTC git show -s --date=format-local:%Y-%m-%dT%H:%M:%SZ --format=%cd 2>/dev/null || echo unknown)"
 if docker build --build-arg "VERSION=$VERSION" --build-arg "BUILD_DATE=$BUILD_DATE" \
      -t "$REF" . >/dev/null 2>&1; then
   ok "image builds ($REF)"

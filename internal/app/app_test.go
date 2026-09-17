@@ -77,7 +77,7 @@ func TestHandlerHealthz(t *testing.T) {
 			t.Parallel()
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequestWithContext(t.Context(), tt.method, tt.path, nil)
-			app.New(testConfig(t), "test", "2026-01-01").Handler(app.Deps{}).ServeHTTP(rec, req)
+			app.New(testConfig(t), "test", "2026-01-01T09:30:00Z").Handler(app.Deps{}).ServeHTTP(rec, req)
 
 			if rec.Code != tt.wantStatus {
 				t.Errorf("status = %d, want %d", rec.Code, tt.wantStatus)
@@ -100,7 +100,7 @@ func TestHandlerHealthz(t *testing.T) {
 // explains why.
 func TestServerTimeouts(t *testing.T) {
 	t.Parallel()
-	srv := app.New(config.Config{Addr: ":8080"}, "test", "2026-01-01").Server(app.Deps{})
+	srv := app.New(config.Config{Addr: ":8080"}, "test", "2026-01-01T09:30:00Z").Server(app.Deps{})
 
 	if srv.WriteTimeout != 0 {
 		t.Errorf("WriteTimeout = %v, must stay 0 so media streams are not truncated", srv.WriteTimeout)
@@ -158,7 +158,7 @@ func runToShutdown(t *testing.T, cfg config.Config) error {
 	t.Helper()
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
-	go func() { done <- app.New(cfg, "test", "2026-01-01").Run(ctx) }()
+	go func() { done <- app.New(cfg, "test", "2026-01-01T09:30:00Z").Run(ctx) }()
 
 	deadline := time.Now().Add(startupWait)
 	for time.Now().Before(deadline) {
@@ -203,7 +203,7 @@ func liveServer(t *testing.T, vars map[string]string) (string, func()) {
 
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
-	go func() { done <- app.New(cfg, "test", "2026-01-01").Run(ctx) }()
+	go func() { done <- app.New(cfg, "test", "2026-01-01T09:30:00Z").Run(ctx) }()
 
 	deadline := time.Now().Add(startupWait)
 	for time.Now().Before(deadline) {

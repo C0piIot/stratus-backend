@@ -29,7 +29,7 @@ func TestRunRejectsUnwritableDataDir(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Port 0 would still bind; the point is that Run must refuse before it does.
-	err := app.New(runConfig(t, map[string]string{"STRATUS_DATA_DIR": dir}), "test", "2026-01-01").Run(t.Context())
+	err := app.New(runConfig(t, map[string]string{"STRATUS_DATA_DIR": dir}), "test", "2026-01-01T09:30:00Z").Run(t.Context())
 	if err == nil {
 		t.Fatal("Run must refuse to start on an unwritable data dir")
 	}
