@@ -72,13 +72,15 @@ type Files interface {
 	// scan is not, and will be an iterator when it arrives.
 	ListFiles(ctx context.Context, owner, dir string) ([]File, error)
 
-	// MoveFile renames from to to. It returns ErrNotFound if there is nothing
-	// at from, and ErrConflict if something already sits at to or if from is a
-	// directory that still has something in it.
+	// MoveFile renames from to to, and everything under it when from is a
+	// directory. It returns ErrNotFound if there is nothing at from, and
+	// ErrConflict if something already sits at to or if to is inside from.
 	//
-	// Moving a whole subtree is a rewrite of every descendant and arrives with
-	// the protocol that needs it; refusing is what keeps this from silently
-	// orphaning them in the meantime.
+	// The whole subtree moves in one statement and therefore in one
+	// transaction: a rename that rewrote half of a tree would leave the other
+	// half pointing at a parent that no longer exists, which no surface could
+	// recover from. Nothing is copied and no blob is touched -- a path is a
+	// column, and what it names does not know what it is called.
 	MoveFile(ctx context.Context, owner, from, to string) error
 
 	// BlobKeys yields the blob key of every file row, which is what the

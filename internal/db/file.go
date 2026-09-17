@@ -65,6 +65,29 @@ func ParentOf(path string) string {
 	return path[:i]
 }
 
+// ValidateMove reports whether from can be renamed to to, for the two ways that
+// question has an answer before any row is read.
+//
+// Moving a directory into itself is the one that matters: `a` to `a/b` would
+// rewrite the subtree into a place inside the subtree, and the statement doing
+// the rewriting would be reading rows it had already written. Refused here,
+// where every driver shares it, rather than in each of them.
+func ValidateMove(from, to string) error {
+	if err := ValidatePath(from); err != nil {
+		return err
+	}
+	if err := ValidatePath(to); err != nil {
+		return err
+	}
+	if from == to {
+		return fmt.Errorf("%w: %q is already where it is", ErrConflict, from)
+	}
+	if strings.HasPrefix(to, from+"/") {
+		return fmt.Errorf("%w: %q is inside %q", ErrConflict, to, from)
+	}
+	return nil
+}
+
 // ValidatePath reports whether path can be stored.
 //
 // It rejects rather than cleans, for the same reason storage.ValidateKey does:

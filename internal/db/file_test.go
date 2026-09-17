@@ -106,3 +106,39 @@ func TestNormalize(t *testing.T) {
 		t.Errorf("nanoseconds = %d, want it truncated to milliseconds", got)
 	}
 }
+
+// TestValidateMove covers the two answers that exist before any row is read.
+// The interesting one is a directory into itself: the statement that rewrites a
+// subtree would be reading rows it had already written, so it is refused here
+// where all three drivers share it rather than discovered by each of them.
+func TestValidateMove(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		from, to string
+		wantErr  error
+	}{
+		{name: "an ordinary rename", from: "inbox", to: "archive"},
+		{name: "into a sibling", from: "inbox/photo.jpg", to: "archive/photo.jpg"},
+		// "inbox-2024" is not inside "inbox": a descendant is under the
+		// directory, not spelled like it.
+		{name: "onto a name that starts the same way", from: "inbox", to: "inbox-2024"},
+		{name: "a directory into itself", from: "inbox", to: "inbox/deeper", wantErr: db.ErrConflict},
+		{name: "onto itself", from: "inbox", to: "inbox", wantErr: db.ErrConflict},
+		{name: "from an invalid path", from: "../escape", to: "inbox", wantErr: db.ErrInvalidPath},
+		{name: "to an invalid path", from: "inbox", to: "../escape", wantErr: db.ErrInvalidPath},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := db.ValidateMove(tt.from, tt.to)
+			switch {
+			case tt.wantErr == nil && err != nil:
+				t.Errorf("ValidateMove(%q, %q) = %v, want nil", tt.from, tt.to, err)
+			case tt.wantErr != nil && !errors.Is(err, tt.wantErr):
+				t.Errorf("ValidateMove(%q, %q) = %v, want %v", tt.from, tt.to, err, tt.wantErr)
+			}
+		})
+	}
+}

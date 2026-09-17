@@ -179,8 +179,12 @@ func (s *Service) Mkdir(ctx context.Context, owner, path string) (db.File, error
 	return dir, err
 }
 
-// Move renames a file or an empty directory. Only the row moves: a blob has no
-// idea what it is called.
+// Move renames a file, or a directory with everything under it.
+//
+// Only rows move: a blob has no idea what it is called, so renaming a folder of
+// ten thousand photos is one statement and no bytes. The transaction is what
+// makes it safe -- a rewrite that stopped halfway would leave the rest of the
+// tree pointing at a parent that no longer exists.
 func (s *Service) Move(ctx context.Context, owner, from, to string) error {
 	return s.meta.Tx(ctx, func(r db.Repo) error {
 		if err := s.requireParent(ctx, r, owner, to); err != nil {

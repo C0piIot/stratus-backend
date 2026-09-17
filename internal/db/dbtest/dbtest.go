@@ -52,6 +52,7 @@ func Run(t *testing.T, newStore func(t *testing.T) db.Store) {
 		{"a transaction rolls back on error", txRollsBack},
 		{"a transaction rolls back on panic", txRollsBackOnPanic},
 		{"migrating twice changes nothing", migrateIsIdempotent},
+		{"a move rolled back leaves the tree as it was", moveRollsBack},
 	}
 
 	for _, tc := range cases {
@@ -124,4 +125,44 @@ func migrateIsIdempotent(t *testing.T, s db.Store) {
 		t.Fatalf("second Migrate: %v", err)
 	}
 	put(t, s, file("still-works.txt"))
+}
+
+// moveRollsBack is the half of a subtree rename that cannot be checked from
+// inside one: the whole tree moves or none of it does. The rewrite is one
+// statement per driver, but the caller wraps it with other work -- files.Move
+// checks the destination's parent in the same transaction -- so what this pins
+// is that a failure after the move undoes all of it, not just the row the
+// caller happened to name.
+func moveRollsBack(t *testing.T, s db.Store) {
+	ctx := t.Context()
+	if err := s.Tx(ctx, func(r db.Repo) error {
+		if _, err := r.CreateDir(ctx, owner, "inbox"); err != nil {
+			return err
+		}
+		_, err := r.PutFile(ctx, file("inbox/photo.jpg"))
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	sentinel := errors.New("something after the move")
+	if err := s.Tx(ctx, func(r db.Repo) error {
+		if merr := r.MoveFile(ctx, owner, "inbox", "archive"); merr != nil {
+			return merr
+		}
+		return sentinel
+	}); !errors.Is(err, sentinel) {
+		t.Fatalf("Tx = %v, want the sentinel", err)
+	}
+
+	for _, path := range []string{"inbox", "inbox/photo.jpg"} {
+		if _, err := s.FileByPath(ctx, owner, path); err != nil {
+			t.Errorf("%q did not survive the rollback: %v", path, err)
+		}
+	}
+	for _, path := range []string{"archive", "archive/photo.jpg"} {
+		if _, err := s.FileByPath(ctx, owner, path); !errors.Is(err, db.ErrNotFound) {
+			t.Errorf("%q survived the rollback: %v", path, err)
+		}
+	}
 }

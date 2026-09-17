@@ -610,24 +610,35 @@ func (r *repo) BlobKeys(ctx context.Context) iter.Seq2[string, error] {
 
 // MoveFile implements db.Repo.
 func (r *repo) MoveFile(ctx context.Context, owner, from, to string) error {
-	if err := db.ValidatePath(from); err != nil {
+	if err := db.ValidateMove(from, to); err != nil {
 		return err
 	}
-	if err := db.ValidatePath(to); err != nil {
-		return err
-	}
-	// The NOT EXISTS is what refuses to move a directory out from under its
-	// contents: rewriting a whole subtree is a different operation, and this
-	// one must not half-do it.
-	const query = `UPDATE files SET path = ?, parent_path = ?
-		WHERE owner_id = ? AND path = ?
-		  AND NOT EXISTS (SELECT 1 FROM files child WHERE child.owner_id = ? AND child.parent_path = ?)`
 
-	result, err := r.q.ExecContext(ctx, query, to, db.ParentOf(to), owner, from, owner, from)
+	const moveOne = `UPDATE files SET path = ?, parent_path = ?
+		WHERE owner_id = ? AND path = ?`
+
+	// Everything under it, in one statement: a rewrite that took a row at a
+	// time would leave the tree in a state nothing could read if it stopped
+	// halfway. substr is 1-based, so the +1 is the character after the old
+	// prefix, and parent_path is rewritten from parent_path rather than from
+	// path so the two assignments cannot depend on each other's order.
+	const moveTree = `UPDATE files
+		SET path = ? || substr(path, ?), parent_path = ? || substr(parent_path, ?)
+		WHERE owner_id = ? AND path LIKE ? ESCAPE '` + sqlutil.LikeEscape + `'`
+
+	result, err := r.q.ExecContext(ctx, moveOne, to, db.ParentOf(to), owner, from)
 	if err != nil {
 		return fmt.Errorf("move %q to %q: %w", from, to, mapErr(err))
 	}
-	return sqlutil.CheckAffected(ctx, r.q, result, from, isDirProbe, owner, from)
+	if err := sqlutil.CheckAffected(ctx, r.q, result, from, isDirProbe, owner, from); err != nil {
+		return err
+	}
+
+	tail := len(from) + 1
+	if _, err := r.q.ExecContext(ctx, moveTree, to, tail, to, tail, owner, sqlutil.Under(from)); err != nil {
+		return fmt.Errorf("move the contents of %q to %q: %w", from, to, mapErr(err))
+	}
+	return nil
 }
 
 // DeleteFile implements db.Repo.

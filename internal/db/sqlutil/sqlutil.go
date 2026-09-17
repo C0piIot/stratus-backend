@@ -193,6 +193,25 @@ func CheckAffected(ctx context.Context, q Querier, result sql.Result,
 // one and PostgreSQL's is a backslash only until somebody changes it.
 const LikeEscape = `\`
 
+// Under turns a directory path into a LIKE pattern matching everything beneath
+// it, escaped the same way Contains escapes a search term.
+//
+// The trailing slash is what keeps "photos" from matching "photos-2024": a
+// descendant is under the directory and not merely spelled like it.
+func Under(dir string) string {
+	var b strings.Builder
+	b.Grow(len(dir) + 3)
+	for _, r := range dir + "/" {
+		switch r {
+		case '%', '_', '\\':
+			b.WriteString(LikeEscape)
+		}
+		b.WriteRune(r)
+	}
+	b.WriteByte('%')
+	return b.String()
+}
+
 // Contains turns a search term into a LIKE pattern that matches it anywhere.
 //
 // The escaping is the point. A term is text a user typed, and % and _ are

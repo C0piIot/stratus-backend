@@ -48,7 +48,8 @@ func RunFiles(t *testing.T, newFiles func(t *testing.T) db.Files) {
 		{"nothing may be created twice", createDirConflicts},
 		{"a file may not replace a directory", fileOverDirectory},
 		{"a directory in use is not deleted", deleteBusyDirectory},
-		{"a directory in use is not moved", moveBusyDirectory},
+		{"a directory moves with everything under it", moveTree},
+		{"a directory cannot move inside itself", moveIntoItself},
 		{"every blob key is reachable", blobKeys},
 	}
 
@@ -553,27 +554,81 @@ func deleteBusyDirectory(t *testing.T, s db.Files) {
 	}
 }
 
-func moveBusyDirectory(t *testing.T, s db.Files) {
+// moveTree is renaming a folder that has things in it, which is an ordinary
+// thing to do from Finder or a browser and was refused until #101.
+//
+// Every descendant's path and parent_path is rewritten, and nothing else about
+// the rows changes: a move is not a copy, and a path is a column rather than
+// something a blob knows about itself.
+func moveTree(t *testing.T, s db.Files) {
+	for _, dir := range []string{"inbox", "inbox/raw"} {
+		if _, err := s.CreateDir(t.Context(), owner, dir); err != nil {
+			t.Fatal(err)
+		}
+	}
+	put(t, s, file("inbox/photo.jpg"))
+	deep := put(t, s, file("inbox/raw/IMG_0001.dng"))
+
+	// A sibling whose name merely starts the same way. It must not move: a
+	// descendant is under the directory, not spelled like it.
+	if _, err := s.CreateDir(t.Context(), owner, "inbox-2024"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.MoveFile(t.Context(), owner, "inbox", "archive"); err != nil {
+		t.Fatalf("moving a directory with a file in it = %v, want it to work", err)
+	}
+
+	for _, path := range []string{"archive", "archive/raw", "archive/photo.jpg", "archive/raw/IMG_0001.dng"} {
+		if _, err := s.FileByPath(t.Context(), owner, path); err != nil {
+			t.Errorf("%q is not there after the move: %v", path, err)
+		}
+	}
+	for _, path := range []string{"inbox", "inbox/raw", "inbox/photo.jpg", "inbox/raw/IMG_0001.dng"} {
+		if _, err := s.FileByPath(t.Context(), owner, path); !errors.Is(err, db.ErrNotFound) {
+			t.Errorf("%q is still there after the move: %v", path, err)
+		}
+	}
+	if _, err := s.FileByPath(t.Context(), owner, "inbox-2024"); err != nil {
+		t.Errorf("a sibling that starts with the same characters was moved: %v", err)
+	}
+
+	// parent_path travelled with it, which is what a listing reads.
+	if got := paths(t, s, "archive/raw"); !slices.Equal(got, []string{"archive/raw/IMG_0001.dng"}) {
+		t.Errorf("listing the moved subdirectory = %v", got)
+	}
+	if got := paths(t, s, "archive"); !slices.Equal(got, []string{"archive/photo.jpg", "archive/raw"}) {
+		t.Errorf("listing the moved directory = %v", got)
+	}
+
+	after, err := s.FileByPath(t.Context(), owner, "archive/raw/IMG_0001.dng")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.ID != deep.ID {
+		t.Errorf("ID = %d, want the same row %d: a move is not a copy", after.ID, deep.ID)
+	}
+	if after.BlobKey != deep.BlobKey {
+		t.Errorf("BlobKey = %q, want it untouched: moving a row must not move a blob", after.BlobKey)
+	}
+}
+
+// moveIntoItself is the rename that cannot be expressed: the destination is
+// inside the thing being moved, so the statement doing the rewriting would be
+// reading rows it had already written.
+func moveIntoItself(t *testing.T, s db.Files) {
 	if _, err := s.CreateDir(t.Context(), owner, "inbox"); err != nil {
 		t.Fatal(err)
 	}
 	put(t, s, file("inbox/photo.jpg"))
 
-	// Renaming it would leave the file pointing at a parent that no longer
-	// exists. Rewriting the subtree is the protocol adapter's job, later.
-	if err := s.MoveFile(t.Context(), owner, "inbox", "archive"); !errors.Is(err, db.ErrConflict) {
-		t.Fatalf("moving a directory with a file in it = %v, want ErrConflict", err)
+	for _, to := range []string{"inbox", "inbox/deeper"} {
+		if err := s.MoveFile(t.Context(), owner, "inbox", to); !errors.Is(err, db.ErrConflict) {
+			t.Errorf("moving %q into %q = %v, want ErrConflict", "inbox", to, err)
+		}
 	}
 	if _, err := s.FileByPath(t.Context(), owner, "inbox/photo.jpg"); err != nil {
-		t.Errorf("the file was disturbed by the refused move: %v", err)
-	}
-
-	// An empty one moves like anything else.
-	if _, err := s.CreateDir(t.Context(), owner, "empty"); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.MoveFile(t.Context(), owner, "empty", "renamed"); err != nil {
-		t.Errorf("moving an empty directory = %v, want nil", err)
+		t.Errorf("the tree was disturbed by a refused move: %v", err)
 	}
 }
 

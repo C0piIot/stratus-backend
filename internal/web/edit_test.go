@@ -96,27 +96,32 @@ func TestRenameAnEmptyFolder(t *testing.T) {
 	}
 }
 
-// TestRenameAFolderWithSomethingInIt is the limitation worth being honest
-// about: the metadata port refuses to move a directory that still has anything
-// in it, because that is a rewrite of every descendant. The page has to say
-// what actually happened rather than "something is in the way".
+// TestRenameAFolderWithSomethingInIt is what #101 was: renaming a folder is an
+// ordinary thing to do from a browser, and it was refused here because the
+// metadata port could not rewrite a subtree. It can, so this is now a rename
+// like any other -- and what the case checks is that everything underneath came
+// with it, which is the half a redirect cannot show.
 func TestRenameAFolderWithSomethingInIt(t *testing.T) {
 	t.Parallel()
 	h, s := browser(t)
 	mkdir(t, s, "photos")
+	mkdir(t, s, "photos/raw")
 	write(t, s, "photos/img.jpg", "pixels")
+	write(t, s, "photos/raw/IMG_0001.dng", "more pixels")
 	cookie := signIn(t, h)
 
 	rec := rename(t, h, "photos", cookie, "holiday")
-	if rec.Code != http.StatusConflict {
-		t.Fatalf("renaming a folder with a file in it = %d, want 409", rec.Code)
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("renaming a folder with a file in it = %d, want 303: %s", rec.Code, excerpt(rec.Body.String(), "<p"))
 	}
-	if !strings.Contains(rec.Body.String(), "cannot be renamed yet") {
-		t.Errorf("the page does not say why: %s", excerpt(rec.Body.String(), "<p"))
+
+	for _, path := range []string{"holiday", "holiday/raw", "holiday/img.jpg", "holiday/raw/IMG_0001.dng"} {
+		if _, err := s.Stat(t.Context(), username, path); err != nil {
+			t.Errorf("%q is not there after the rename: %v", path, err)
+		}
 	}
-	// And nothing moved.
-	if _, err := s.Stat(t.Context(), username, "photos/img.jpg"); err != nil {
-		t.Errorf("the folder did not survive the refusal: %v", err)
+	if _, err := s.Stat(t.Context(), username, "photos/img.jpg"); err == nil {
+		t.Error("the file is still under the old folder name")
 	}
 }
 
@@ -182,15 +187,22 @@ func TestWhenTheTreeWillNotAnswer(t *testing.T) {
 		}
 	})
 
-	t.Run("a rename that cannot look inside", func(t *testing.T) {
+	t.Run("a rename the database refuses", func(t *testing.T) {
 		t.Parallel()
 		blobs, meta := backends(t)
 		working := files.New(blobs, meta)
 		mkdir(t, working, "photos")
+		write(t, working, "photos/one.jpg", "bytes")
 
-		h := handlerOver(t, files.New(blobs, dbtest.FailOn(t, meta, "ListFiles")))
+		// The folder has something in it, which used to be refused here before
+		// the port could rewrite a subtree (#101). Now it is an ordinary move,
+		// and what this covers is the ordinary failure of one.
+		h := handlerOver(t, files.New(blobs, dbtest.FailOn(t, meta, "MoveFile")))
 		if got := rename(t, h, "photos", signIn(t, h), "holiday").Code; got != http.StatusInternalServerError {
-			t.Errorf("renaming a folder it cannot read = %d, want 500", got)
+			t.Errorf("renaming through a database that refuses = %d, want 500", got)
+		}
+		if _, err := working.Stat(t.Context(), username, "photos/one.jpg"); err != nil {
+			t.Errorf("the tree moved anyway: %v", err)
 		}
 	})
 }
