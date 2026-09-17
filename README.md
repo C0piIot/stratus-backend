@@ -532,6 +532,11 @@ is not part of it. Three things follow, and none of them is an accident:
 - **Every deploy changes the password**, so every client and every browser
   session is logged out by the next merge to `main`. Reconfiguring a Subsonic
   client after a merge is the cost of not having a secret to manage.
+- **It sleeps when nobody is looking**, and is suspended rather than stopped so
+  that it comes back holding what it held. A Fly machine keeps nothing across a
+  stop — the root filesystem is ephemeral and there is no volume here on purpose
+  — so this is the setting that decides whether somebody arriving at a quiet
+  moment finds the demo or finds nothing.
 - **It wipes itself every hour**, on top of wiping on every deploy. That is what
   makes an open instance not worth abusing: whatever anybody leaves there —
   including you — is gone within the hour, and the demo media is put back.

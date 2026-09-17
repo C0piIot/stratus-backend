@@ -44,9 +44,19 @@ primary_region = "cdg"
   # cookie Secure -- see overTLS in internal/web.
   force_https = true
   # Nobody is watching it most of the time, so it sleeps and the first request
-  # wakes it. Data survives a sleep -- it is the same machine and the same disk
-  # -- and does not survive a deploy.
-  auto_stop_machines = "stop"
+  # wakes it.
+  #
+  # suspend and not stop, which is the difference between the demo having
+  # something in it and not: a Fly machine's root filesystem is ephemeral and
+  # comes back from the image when a stopped machine starts, so "stop" threw the
+  # seeded media away every time nobody looked for a few minutes -- and the next
+  # visitor got an empty tree. Suspending snapshots the machine instead and
+  # restores it as it was.
+  #
+  # Not a guarantee. A snapshot Fly cannot keep falls back to a cold start,
+  # which is empty again until the hourly reset seeds it; and a deploy replaces
+  # the filesystem outright, which is deliberate and is what the reset uses.
+  auto_stop_machines = "suspend"
   auto_start_machines = true
   min_machines_running = 0
 
