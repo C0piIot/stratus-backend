@@ -17,12 +17,17 @@ protocols your existing apps already understand.
 | Protocol | Use | Works with | Status |
 |---|---|---|---|
 | WebDAV | files, photo backup, sync | rclone, Finder, Nautilus, FolderSync | **works** |
+| tus | resumable upload of large files | tus-js-client, TUSKit, tus-android-client | **works** ‡ |
 | HTTP range | audio/video streaming | browsers, VLC, mpv | **works** |
 | CalDAV | calendar | DAVx5, Thunderbird, iOS/macOS | next |
 | OpenSubsonic | music | Symfonium, Substreamer, DSub, Feishin | **works** † |
 | Web UI | sign in, browse, upload, download, rename, delete | any browser | **partly** |
 | CardDAV | contacts | DAVx5, Thunderbird | planned |
 | DLNA / UPnP-AV | TVs, set-top players | | planned |
+
+‡ Same caveat as below, one row down: the protocol works and the container
+suite cuts an upload in half and resumes it, but no tus client library has been
+pointed at this server yet.
 
 † The protocol works and is asserted end to end, up to and including streaming
 a track out of the shipped container. **No real client has been pointed at it
@@ -117,6 +122,33 @@ that: nothing reads a key back, and a file whose name lied about its type stays
 filed under the wrong kind. It is best effort, for one situation — you have lost
 the database and are looking at the data directory. Without it you would be
 looking at a hundred thousand files called nothing.
+
+## Resumable uploads
+
+A `PUT` is all or nothing. A four-gigabyte video uploaded from a phone on a
+mobile connection restarts from zero on every drop, forever, and no amount of
+retry logic in the client changes that — HTTP has no answer, since RFC 9110 says
+a server should *reject* `Content-Range` on a `PUT`.
+
+[tus](https://tus.io) is the answer this server implements, at `/tus/`, behind
+the same credentials and the same failed-login limit as WebDAV and mounted only
+when they are set. `POST` creates an upload, `HEAD` says how much of it arrived,
+`PATCH` appends from there, `DELETE` abandons it. The file appears in the tree
+when the last chunk lands, and it is the same file a `PUT` would have made,
+ETag included.
+
+Two things are worth knowing before pointing something at it:
+
+- **The destination is the `filename` in `Upload-Metadata`**, and it is a path
+  rather than a name: `holiday/clip.mp4` lands in `holiday`, which has to exist.
+- **An upload you abandon is collected after twelve hours**, and the deadline is
+  in `Upload-Expires` on every response so a client never has to guess. That is
+  shorter than the day after which S3 abandons a multipart upload of its own
+  accord, so the two cannot disagree about what is still there.
+
+Deferred length is not supported: `Upload-Length` is required when the upload is
+created. Every client this is for knows how big the file is, and a server that
+accepts an upload of unknown length has to invent a rule for when it ended.
 
 ### Orphaned blobs
 
@@ -597,7 +629,7 @@ Working now:
   rename and delete. A signed-cookie session and a CSP that allows nothing but
   the binary's own assets.
 - A request log, migrations applied at startup, and a container asserted from
-  the outside by 66 smoke checks.
+  the outside by 69 smoke checks.
 
 Not there yet: CalDAV, renaming a folder that has anything in it, photo
 thumbnails and sharing --

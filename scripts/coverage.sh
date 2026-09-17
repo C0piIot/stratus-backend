@@ -43,6 +43,7 @@ internal/storage:98
 internal/storage/disk:90
 internal/storage/s3:88
 internal/subsonic:100
+internal/tus:94
 internal/web:98
 "
 
@@ -88,6 +89,12 @@ internal/web:98
 # is left that can fail. The other is opening a directory as a file, which the
 # page that serves bytes checks for and the page that routes to it already
 # decided. Deleting either to reach 100 would delete the reason it is there.
+#
+# internal/tus starts at 94, which is what a package of header handling over
+# another package's methods comes out at: everything is reachable from an
+# ordinary request, and what is left is the branch where completing an upload
+# fails after its last chunk landed -- two seams disagreeing at the one moment
+# this handler cannot retry for the client.
 #
 # internal/subsonic starts at 100, which is high but is what the package is: it
 # does no I/O of its own beyond writing a response, so every branch is reachable

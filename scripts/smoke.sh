@@ -511,6 +511,49 @@ if wait_serving "$davname"; then
     *)           bad "a PROPFIND listing includes the collection itself" "no self entry in the multistatus" ;;
   esac
 
+  # A resumable upload, cut in half, against the shipped image. The point is not
+  # that two PATCHes work -- the unit tests cover that -- but that an upload
+  # survives being interrupted in the one place it has to: between requests,
+  # with nothing held in memory and the offset read back from the server.
+  tus_meta="filename $(printf '%s' 'resumed.txt' | base64 -w0),filetype $(printf '%s' 'text/plain' | base64 -w0)"
+  tus_location="$(curl -fsS -D - -o /dev/null -u "$davuser:$davpass" -X POST \
+    -H 'Tus-Resumable: 1.0.0' -H 'Upload-Length: 10' -H "Upload-Metadata: $tus_meta" \
+    "http://$davhost/tus/" 2>/dev/null | tr -d '\r' | sed -n 's/^[Ll]ocation: //p')"
+  if [ -n "$tus_location" ]; then
+    ok "a tus upload can be created"
+  else
+    bad "a tus upload can be created" "no Location header came back"
+  fi
+
+  curl -fsS -o /dev/null -u "$davuser:$davpass" -X PATCH \
+    -H 'Tus-Resumable: 1.0.0' -H 'Content-Type: application/offset+octet-stream' \
+    -H 'Upload-Offset: 0' --data-binary 'half ' \
+    "http://$davhost$tus_location" >/dev/null 2>&1 || true
+
+  # What a client asks after anything at all went wrong, and the answer that
+  # makes the whole protocol worth having.
+  tus_offset="$(curl -fsS -D - -o /dev/null -u "$davuser:$davpass" -X HEAD \
+    -H 'Tus-Resumable: 1.0.0' "http://$davhost$tus_location" 2>/dev/null |
+    tr -d '\r' | sed -n 's/^[Uu]pload-[Oo]ffset: //p')"
+  if [ "$tus_offset" = "5" ]; then
+    ok "a tus upload reports where it got to"
+  else
+    bad "a tus upload reports where it got to" "Upload-Offset is '$tus_offset', want 5"
+  fi
+
+  curl -fsS -o /dev/null -u "$davuser:$davpass" -X PATCH \
+    -H 'Tus-Resumable: 1.0.0' -H 'Content-Type: application/offset+octet-stream' \
+    -H "Upload-Offset: $tus_offset" --data-binary 'again' \
+    "http://$davhost$tus_location" >/dev/null 2>&1 || true
+
+  # And the file is a file, over the protocol that did not upload it.
+  resumed="$(curl -fsS -u "$davuser:$davpass" "http://$davhost/dav/resumed.txt" 2>/dev/null || true)"
+  if [ "$resumed" = "half again" ]; then
+    ok "a resumed upload lands as a file WebDAV can read"
+  else
+    bad "a resumed upload lands as a file WebDAV can read" "got '$resumed'"
+  fi
+
   # The other protocol surface, in the image that has to serve it. Token auth
   # rather than the password, because it is the scheme every current client
   # uses and md5(password + salt) is the whole reason the password is held as

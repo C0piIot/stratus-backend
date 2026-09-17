@@ -199,6 +199,13 @@ is unrepresentable rather than rejected. Both properties are the same rule:
 **the constructors own the shape of a key, the validator only owns what a single
 key may contain.**
 
+`internal/tus` is the protocol over that: created with `POST`, resumed from what
+`HEAD` reports, appended to with `PATCH`. Hand-written rather than taken from
+tusd, which arrives with a storage abstraction of its own that would sit
+absurdly beside this one. Deferred length is not implemented and not advertised
+-- every client this is for knows how big the file is, and accepting an upload
+of unknown length means inventing a rule for when it ended.
+
 An **upload in progress is a row**, in `internal/db`, not something held in
 memory: the point of a resumable upload is that a phone can come back to it
 after a tunnel or a restart, and a server that forgot where it was would make
@@ -332,7 +339,7 @@ internal/web/             inbound adapter: server-rendered UI
   and cannot be, with two independent seams -- so ordering is the mitigation:
   **blob first, row second**, which leaves a collectable orphan blob instead of a
   row pointing at nothing.
-- **Inbound adapters** (`dav`, `subsonic`, `web`) translate protocol bytes into
+- **Inbound adapters** (`dav`, `tus`, `subsonic`, `web`) translate protocol bytes into
   feature calls and back. They are the only packages that know about HTTP status
   codes, XML namespaces or template rendering.
 

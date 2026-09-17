@@ -20,6 +20,7 @@ import (
 	"github.com/C0piIot/stratus-backend/internal/media"
 	"github.com/C0piIot/stratus-backend/internal/storage"
 	"github.com/C0piIot/stratus-backend/internal/subsonic"
+	"github.com/C0piIot/stratus-backend/internal/tus"
 	"github.com/C0piIot/stratus-backend/internal/web"
 )
 
@@ -32,6 +33,11 @@ const davPrefix = "/dav/"
 
 // davRealm is what a client shows when it asks for a password.
 const davRealm = "Stratus"
+
+// tusPrefix is where resumable uploads live. A prefix of its own rather than a
+// corner of davPrefix: every upload in progress has a URL there, and those are
+// ids rather than paths in the tree.
+const tusPrefix = "/tus/"
 
 // subsonicPrefix is where the music surface lives. Unlike davPrefix this is not
 // ours to choose: every Subsonic client appends /rest/<method> to whatever base
@@ -102,6 +108,9 @@ func (a *App) Handler(deps Deps) http.Handler {
 		// are shared rather than reset per request.
 		verifier := auth.NewThrottle(creds, auth.DefaultThrottle)
 		mux.Handle(davPrefix, auth.Basic(davRealm, verifier, dav.Handler(davPrefix, service)))
+		// The same realm and the same throttle: it is the same credentials, and
+		// a second budget of guesses would be a second way in.
+		mux.Handle(tusPrefix, auth.Basic(davRealm, verifier, tus.Handler(tusPrefix, service)))
 		// The same verifier, deliberately. Subsonic authenticates per request
 		// from the query string rather than through auth.Basic, and a second
 		// NewThrottle here would give an attacker a second budget of guesses at
