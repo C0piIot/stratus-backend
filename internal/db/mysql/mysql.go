@@ -257,6 +257,46 @@ func (r *repo) ListFiles(ctx context.Context, owner, dir string) ([]db.File, err
 	return out, nil
 }
 
+// ListFilesPage implements db.Repo.
+//
+// The page is honest about what it bounds here and no more. files_owner_parent
+// indexes parent_path by a prefix -- it has to, a path is TEXT -- and a prefix
+// index cannot satisfy an ORDER BY at all, so this driver sorts the directory's
+// children and then takes the first rows of the result. A page therefore bounds
+// what crosses the wire and what the browser renders, while the other two
+// drivers also make it a seek. That is the cost of the column type, not of the
+// query, and no index this schema can declare removes it.
+func (r *repo) ListFilesPage(ctx context.Context, owner, dir string, after db.Cursor, limit int) ([]db.File, error) {
+	if err := db.ValidateDir(dir); err != nil {
+		return nil, err
+	}
+	if err := db.ValidateLimit(limit); err != nil {
+		return nil, err
+	}
+
+	const (
+		fromStart = `SELECT ` + fileColumns + ` FROM files
+			WHERE owner_id = ? AND parent_path = ?
+			ORDER BY is_dir DESC, path LIMIT ?`
+		fromCursor = `SELECT ` + fileColumns + ` FROM files
+			WHERE owner_id = ? AND parent_path = ?
+				AND (is_dir < ? OR (is_dir = ? AND path > ?))
+			ORDER BY is_dir DESC, path LIMIT ?`
+	)
+
+	query, args := fromStart, []any{owner, dir, limit}
+	if !after.AtStart() {
+		query = fromCursor
+		args = []any{owner, dir, after.IsDir, after.IsDir, after.Path, limit}
+	}
+
+	out, err := sqlutil.Collect(ctx, r.q, scanFileRow, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list %q after %q: %w", dir, after.Path, mapErr(err))
+	}
+	return out, nil
+}
+
 const mediaColumns = `file_id, kind, indexed_at, version, error, taken_at, width, height, orientation, latitude, longitude, camera, duration_ms, codec, artist, album, title, track_no, disc_no, year, genre, album_artist`
 
 // mediaWriteColumns is the read list plus the three folded columns a search

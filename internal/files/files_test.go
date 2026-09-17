@@ -190,6 +190,47 @@ func TestMkdirThenWriteInside(t *testing.T) {
 	}
 }
 
+// TestListPage is the one thing this layer adds to the port's paging: whether
+// there is another page. It is answered by asking for a row more than was
+// wanted and dropping it, which is why the extra row must never reach the
+// caller.
+func TestListPage(t *testing.T) {
+	t.Parallel()
+	s, _ := service(t)
+	if _, err := s.Mkdir(t.Context(), owner, "album"); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"a.jpg", "b.jpg", "c.jpg"} {
+		write(t, s, "album/"+name, "bytes")
+	}
+
+	first, more, err := s.ListPage(t.Context(), owner, "album", db.Cursor{}, 2)
+	if err != nil {
+		t.Fatalf("ListPage: %v", err)
+	}
+	if len(first) != 2 || first[0].Path != "album/a.jpg" || first[1].Path != "album/b.jpg" {
+		t.Fatalf("first page = %+v, want two rows", first)
+	}
+	if !more {
+		t.Error("the first page of three rows says it is the last")
+	}
+
+	last, more, err := s.ListPage(t.Context(), owner, "album", db.After(first[1]), 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(last) != 1 || last[0].Path != "album/c.jpg" {
+		t.Errorf("second page = %+v, want the remaining row", last)
+	}
+	if more {
+		t.Error("the last page offers another one")
+	}
+
+	if _, _, err := s.ListPage(t.Context(), owner, "album", db.Cursor{}, 0); err == nil {
+		t.Error("a page of no rows was allowed")
+	}
+}
+
 func TestOpenADirectory(t *testing.T) {
 	t.Parallel()
 	s, _ := service(t)

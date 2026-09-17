@@ -183,6 +183,45 @@ func (r *repo) ListFiles(ctx context.Context, owner, dir string) ([]db.File, err
 	return out, nil
 }
 
+// ListFilesPage implements db.Repo.
+func (r *repo) ListFilesPage(ctx context.Context, owner, dir string, after db.Cursor, limit int) ([]db.File, error) {
+	if err := db.ValidateDir(dir); err != nil {
+		return nil, err
+	}
+	if err := db.ValidateLimit(limit); err != nil {
+		return nil, err
+	}
+
+	// Two statements rather than one with a predicate pasted into it: the
+	// queries in this package are consts a reader can grep for, and the first
+	// page differs by one clause.
+	//
+	// files_owner_parent is (owner_id, parent_path, is_dir DESC, path), which
+	// is this ORDER BY exactly, so both of these are a seek to where the last
+	// page stopped rather than a sort of the directory.
+	const (
+		fromStart = `SELECT ` + fileColumns + ` FROM files
+			WHERE owner_id = ? AND parent_path = ?
+			ORDER BY is_dir DESC, path LIMIT ?`
+		fromCursor = `SELECT ` + fileColumns + ` FROM files
+			WHERE owner_id = ? AND parent_path = ?
+				AND (is_dir < ? OR (is_dir = ? AND path > ?))
+			ORDER BY is_dir DESC, path LIMIT ?`
+	)
+
+	query, args := fromStart, []any{owner, dir, limit}
+	if !after.AtStart() {
+		query = fromCursor
+		args = []any{owner, dir, after.IsDir, after.IsDir, after.Path, limit}
+	}
+
+	out, err := sqlutil.Collect(ctx, r.q, scanFileRow, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list %q after %q: %w", dir, after.Path, mapErr(err))
+	}
+	return out, nil
+}
+
 const mediaColumns = `file_id, kind, indexed_at, version, error, taken_at, width, height, orientation, latitude, longitude, camera, duration_ms, codec, artist, album, title, track_no, disc_no, year, genre, album_artist`
 
 // mediaWriteColumns is the read list plus the three folded columns a search

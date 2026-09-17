@@ -34,6 +34,11 @@ CREATE TABLE files (
     -- A prefix is enough here, unlike above: this index narrows a lookup and
     -- the engine still compares the whole value, so a shared prefix costs a
     -- comparison rather than correctness.
+    --
+    -- What it cannot do is order. The other two drivers carry is_dir and path
+    -- at the end of this index so that a page of a listing is a seek; nothing
+    -- after a prefix column is usable for an ORDER BY, so adding them here
+    -- would be dead weight and the driver says outright that it sorts instead.
     KEY files_owner_parent (owner_id, parent_path(500))
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_bin;
 

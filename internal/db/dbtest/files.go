@@ -35,6 +35,11 @@ func RunFiles(t *testing.T, newFiles func(t *testing.T) db.Files) {
 		{"list returns direct children only", listDirectChildren},
 		{"list is ordered by path", listOrdered},
 		{"list of an empty directory is empty", listEmpty},
+		{"a page resumes exactly where the last one stopped", listPaged},
+		{"a page keeps directories ahead of files across its boundary", listPagedGroups},
+		{"a cursor still resumes after its row is deleted", listPagedDeletedCursor},
+		{"a page of no rows is refused", listPagedLimit},
+		{"a page sees one owner and one directory", listPagedIsolated},
 		{"move renames", moveRenames},
 		{"move onto an occupied path conflicts", moveConflict},
 		{"move of a missing file is ErrNotFound", moveMissing},
@@ -162,6 +167,154 @@ func listEmpty(t *testing.T, s db.Files) {
 
 	if got := paths(t, s, "dir/empty"); len(got) != 0 {
 		t.Errorf("listing a directory with nothing in it = %v, want nothing", got)
+	}
+}
+
+// page is one call to ListFilesPage, returning the paths and the cursor that
+// resumes after them.
+func page(t *testing.T, s db.Files, dir string, after db.Cursor, limit int) ([]string, db.Cursor) {
+	t.Helper()
+	rows, err := s.ListFilesPage(t.Context(), owner, dir, after, limit)
+	if err != nil {
+		t.Fatalf("ListFilesPage(%q, %+v, %d): %v", dir, after, limit, err)
+	}
+	if len(rows) > limit {
+		t.Fatalf("a page of %d rows was asked for and %d came back", limit, len(rows))
+	}
+	out := make([]string, 0, len(rows))
+	for _, f := range rows {
+		out = append(out, f.Path)
+	}
+	if len(rows) == 0 {
+		return out, after
+	}
+	return out, db.After(rows[len(rows)-1])
+}
+
+// listPaged walks a directory a page at a time and reassembles it. Every row
+// once, in one order, however the pages happen to fall -- which is the whole
+// property a browser scrolling through a folder depends on.
+func listPaged(t *testing.T, s db.Files) {
+	for i := range 7 {
+		put(t, s, file("dir/f"+strconv.Itoa(i)+".txt"))
+	}
+	want := paths(t, s, "dir")
+
+	var got []string
+	var after db.Cursor
+	// A bound rather than a bare loop: a driver whose cursor does not advance
+	// would otherwise hang the suite instead of failing it.
+	for range len(want) + 2 {
+		rows, next := page(t, s, "dir", after, 3)
+		if len(rows) == 0 {
+			break
+		}
+		got, after = append(got, rows...), next
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("paged listing = %v, want %v", got, want)
+	}
+
+	// A cursor past the end is a position like any other, not an error.
+	if rows, _ := page(t, s, "dir", after, 3); len(rows) != 0 {
+		t.Errorf("after the last row = %v, want nothing", rows)
+	}
+	// And a page larger than the directory is the directory.
+	if rows, _ := page(t, s, "dir", db.Cursor{}, 100); !slices.Equal(rows, want) {
+		t.Errorf("a page of 100 = %v, want the whole directory", rows)
+	}
+	if rows, _ := page(t, s, "dir/nothing-here", db.Cursor{}, 10); len(rows) != 0 {
+		t.Errorf("a page of an empty directory = %v, want nothing", rows)
+	}
+}
+
+// listPagedGroups is why the cursor carries IsDir. The order is collections
+// first and then by path, and the boundary here falls exactly on the seam
+// between the two groups: a cursor that only knew the path could not say
+// whether it had finished the directories.
+func listPagedGroups(t *testing.T, s db.Files) {
+	for _, dir := range []string{"tree", "tree/b-dir", "tree/d-dir"} {
+		if _, err := s.CreateDir(t.Context(), owner, dir); err != nil {
+			t.Fatal(err)
+		}
+	}
+	put(t, s, file("tree/a-file.txt"))
+	put(t, s, file("tree/c-file.txt"))
+
+	first, after := page(t, s, "tree", db.Cursor{}, 2)
+	if !slices.Equal(first, []string{"tree/b-dir", "tree/d-dir"}) {
+		t.Fatalf("first page = %v, want both directories, which sort before the files", first)
+	}
+	if !after.IsDir || after.Path != "tree/d-dir" {
+		t.Fatalf("cursor = %+v, want the last directory", after)
+	}
+	second, _ := page(t, s, "tree", after, 2)
+	if !slices.Equal(second, []string{"tree/a-file.txt", "tree/c-file.txt"}) {
+		t.Errorf("second page = %v, want the files, in path order", second)
+	}
+}
+
+// listPagedDeletedCursor: a cursor is a position in an ordering, not a row. A
+// listing somebody is scrolling through changes underneath them, and the page
+// after a file that has since been deleted is still the rest of the folder.
+func listPagedDeletedCursor(t *testing.T, s db.Files) {
+	for _, p := range []string{"dir/a.txt", "dir/b.txt", "dir/c.txt"} {
+		put(t, s, file(p))
+	}
+
+	first, after := page(t, s, "dir", db.Cursor{}, 1)
+	if !slices.Equal(first, []string{"dir/a.txt"}) {
+		t.Fatalf("first page = %v", first)
+	}
+	if err := s.DeleteFile(t.Context(), owner, "dir/a.txt"); err != nil {
+		t.Fatal(err)
+	}
+	if rows, _ := page(t, s, "dir", after, 10); !slices.Equal(rows, []string{"dir/b.txt", "dir/c.txt"}) {
+		t.Errorf("after a deleted cursor = %v, want the rest of the directory", rows)
+	}
+}
+
+// listPagedLimit pins what no dialect agrees on: SQLite reads a negative LIMIT
+// as no limit at all and PostgreSQL refuses one, so the port refuses both
+// before either sees it.
+func listPagedLimit(t *testing.T, s db.Files) {
+	put(t, s, file("dir/a.txt"))
+
+	for _, limit := range []int{0, -1} {
+		rows, err := s.ListFilesPage(t.Context(), owner, "dir", db.Cursor{}, limit)
+		if err == nil {
+			t.Errorf("a page of %d rows returned %v, want an error", limit, rows)
+		}
+	}
+	if _, err := s.ListFilesPage(t.Context(), owner, "../etc", db.Cursor{}, 10); err == nil {
+		t.Error("a page of an invalid directory was allowed")
+	}
+}
+
+// listPagedIsolated: the cursor narrows a listing, it does not widen one. A
+// path is unique per owner and nothing else, so a page has to stay inside the
+// directory it was asked about even when the next row by path is elsewhere.
+func listPagedIsolated(t *testing.T, s db.Files) {
+	const other = "someone-else"
+	for _, p := range []string{"dir/a.txt", "dir/b.txt", "dir/deeper/c.txt", "other/d.txt"} {
+		put(t, s, file(p))
+	}
+	theirs := file("dir/a.txt")
+	theirs.OwnerID = other
+	theirs.BlobKey = "their-blob"
+	if _, err := s.PutFile(t.Context(), theirs); err != nil {
+		t.Fatal(err)
+	}
+
+	if rows, _ := page(t, s, "dir", db.Cursor{}, 10); !slices.Equal(rows, []string{"dir/a.txt", "dir/b.txt"}) {
+		t.Errorf("page = %v, want this owner's direct children only", rows)
+	}
+	rows, err := s.ListFilesPage(t.Context(), other, "dir", db.Cursor{}, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].BlobKey != "their-blob" {
+		t.Errorf("the other owner's page = %+v, want their row alone", rows)
 	}
 }
 

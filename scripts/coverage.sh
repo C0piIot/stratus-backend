@@ -32,7 +32,7 @@ internal/app:94
 internal/auth:100
 internal/config:100
 internal/dav:89
-internal/files:91
+internal/files:92
 internal/media:88
 internal/db:63
 internal/db/postgres:94
@@ -134,6 +134,11 @@ internal/web:98
 # that fails on demand. internal/media also gained its own tests for a path
 # that a protocol adapter exercises -- coverage of it counts against the
 # package the test lives in, not the one the code does.
+#
+# internal/files went 91 -> 92 with the paged listing (#138): the one thing that
+# layer adds to the port's paging is whether there is another page behind this
+# one, which is answered by asking for a row more than was wanted, and both
+# arms of that are an ordinary call.
 #
 # internal/media is lower than the rest because running ffprobe cannot be tested
 # where there is no ffprobe. Interpreting its output is tested against captured
