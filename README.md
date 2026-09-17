@@ -294,6 +294,13 @@ wall of broken pictures. They load as you scroll, and the server decodes a few
 at a time, because opening a folder of five hundred photographs should not ask
 for five hundred at once.
 
+**A folder arrives a hundred rows at a time.** The listing is paged by a cursor
+rather than by a page number, so opening a folder costs the same whether it
+holds ten files or a hundred thousand, and nothing is repeated or skipped when
+somebody uploads into it while you are reading. The rest of the folder loads as
+you reach the bottom of it; with JavaScript turned off the same thing is a link
+at the end of the page that goes to the next one.
+
 **Deleting asks first and then means it.** There is no trash bin: the row goes,
 and the blob behind it is swept up afterwards, so the page in between is the only
 chance to have not meant it. Deleting a folder takes everything inside it.
@@ -328,10 +335,11 @@ it back.
 
 CSRF is that `SameSite=Lax` plus the standard library's
 `http.CrossOriginProtection`, which refuses a state-changing request the browser
-itself reports as cross-site. Bootstrap is embedded in the binary rather than
-pulled from a CDN, so every page is served under `default-src 'none'` and makes
-no outbound request at all — which is also what lets the UI work on a network
-with no route to the internet.
+itself reports as cross-site. Bootstrap and htmx are embedded in the binary
+rather than pulled from a CDN, so every page is served under `default-src
+'none'` — `'self'` for styles, scripts and the one request the listing makes for
+its next page — and nothing is fetched from anywhere else at all, which is also
+what lets the UI work on a network with no route to the internet.
 
 ## Pluggable backends
 
@@ -572,8 +580,9 @@ build rather than a note in a document.
 Multi-stage build, `distroless/static:nonroot` runtime, about 27 MB. The Go
 binary is most of it at 21 MB, beside 1.7 MB of `ffprobe`, 3.9 MB of `ffmpeg`
 and a base under one megabyte. It grew 4 MB with the web UI: `html/template`
-costs about three of those and the embedded Bootstrap a third of one, which is
-what a page rendered by the standard library and served from the binary costs.
+costs about three of those and the embedded Bootstrap a third of one, with htmx
+a further 50 KB, which is what a page rendered by the standard library and
+served from the binary costs.
 
 **Both FFmpeg tools are built here rather than taken off the shelf**, in
 `build/ffprobe/Dockerfile` and `build/ffmpeg/Dockerfile`. A general-purpose

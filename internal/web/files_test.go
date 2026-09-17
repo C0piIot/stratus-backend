@@ -298,7 +298,7 @@ func TestClimbingOutOfTheTree(t *testing.T) {
 func TestABackendThatWillNotAnswer(t *testing.T) {
 	t.Parallel()
 	blobs, meta := backends(t)
-	h := handlerOver(t, files.New(blobs, dbtest.FailOn(t, meta, "ListFiles")), blobs)
+	h := handlerOver(t, files.New(blobs, dbtest.FailOn(t, meta, "ListFilesPage")), blobs)
 
 	rec := get(t, h, "/files/", signIn(t, h))
 	if rec.Code != http.StatusInternalServerError {

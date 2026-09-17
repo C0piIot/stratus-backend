@@ -57,6 +57,27 @@ func (s *Service) List(ctx context.Context, owner, dir string) ([]db.File, error
 	return s.meta.ListFiles(ctx, owner, dir)
 }
 
+// ListPage returns at most limit children of dir, resuming after the cursor,
+// and reports whether there is another page behind it.
+//
+// The "is there more" is why this is here rather than in each caller: the way
+// to answer it is to ask for one row more than is wanted and throw it away, and
+// a driver that had to do that would be three drivers doing it. The cursor for
+// the next page is db.After of the last row returned.
+func (s *Service) ListPage(ctx context.Context, owner, dir string, after db.Cursor, limit int) ([]db.File, bool, error) {
+	if err := db.ValidateLimit(limit); err != nil {
+		return nil, false, err
+	}
+	rows, err := s.meta.ListFilesPage(ctx, owner, dir, after, limit+1)
+	if err != nil {
+		return nil, false, err
+	}
+	if len(rows) > limit {
+		return rows[:limit], true, nil
+	}
+	return rows, false, nil
+}
+
 // Open returns the bytes of a file.
 //
 // The reader seeks, which is not decoration: http.ServeContent switches on

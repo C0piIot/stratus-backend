@@ -21,17 +21,27 @@ import (
 	"github.com/C0piIot/stratus-backend/internal/media"
 )
 
-// assetPrefix carries the vendored library's version, which is what makes the
-// far-future cache header below safe: an upgrade is a new path, never a stale
-// copy somebody has to shift-reload.
-const assetPrefix = "/static/bootstrap-5.3.8"
+// Each vendored library carries its own version in its path, which is what
+// makes the far-future cache header below safe: an upgrade is a new path, never
+// a stale copy somebody has to shift-reload.
+const (
+	assetPrefix = "/static/bootstrap-5.3.8"
+	htmxPrefix  = "/static/htmx-2.0.10"
+)
 
 // contentSecurityPolicy is as narrow as it is because nothing is loaded from
-// anywhere else. Bootstrap is embedded in the binary rather than fetched from a
-// CDN, so 'self' is the whole story and no inline script or style is needed to
-// tell it.
+// anywhere else. Bootstrap and htmx are embedded in the binary rather than
+// fetched from a CDN, so 'self' is the whole story and no inline script or
+// style is needed to tell it.
+//
+// connect-src is there for exactly one feature: the listing's next page is an
+// hx-get, which is an XMLHttpRequest, and under default-src 'none' the browser
+// refuses it before htmx sees anything. No 'unsafe-eval' beside it, which is
+// the other half of the price this could have cost: every place htmx evaluates
+// a string goes through its maybeEval, and the htmx-config meta in the layout
+// turns that off.
 const contentSecurityPolicy = "default-src 'none'; style-src 'self'; script-src 'self'; " +
-	"img-src 'self' data:; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"
+	"connect-src 'self'; img-src 'self' data:; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"
 
 type handler struct {
 	version   string

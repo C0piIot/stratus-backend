@@ -6,6 +6,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{.Title}} · Stratus</title>
 <link rel="stylesheet" href="{{.Assets}}/bootstrap.min.css">
+{{/* Every place htmx evaluates a string checks this first, so turning it off
+     is what keeps 'unsafe-eval' out of the content security policy. A meta
+     element rather than a line of script, which that policy also forbids. */}}
+<meta name="htmx-config" content='{"allowEval":false}'>
 </head>
 <body class="bg-body-tertiary d-flex flex-column min-vh-100">
 <nav class="navbar bg-body border-bottom">
@@ -28,6 +32,7 @@
   Stratus {{.Version}} &middot; built {{.BuildDate}}
 </footer>
 <script src="{{.Assets}}/bootstrap.bundle.min.js"></script>
+<script src="{{.HTMX}}/htmx.min.js"></script>
 </body>
 </html>
 {{- end}}

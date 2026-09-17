@@ -25,7 +25,14 @@ Hard constraints, in the same spirit as the rest of the project:
   need. If something genuinely cannot be expressed with them, that is a
   conversation, not a new `.css` file that grows forever.
 - **htmx only where it is genuinely required**, vendored and embedded like
-  Bootstrap. Default to a plain form and a full page render.
+  Bootstrap. Default to a plain form and a full page render. One page needs it
+  so far: the file listing, which is paged by a cursor and extends itself as
+  somebody scrolls (#138). What makes that acceptable rather than the thin end
+  of a wedge is that the page works without it -- the row at the end of a page
+  is a link to the next one, and htmx only turns that link into a swap -- and
+  that the fragment it asks for is the same URL answering with a piece of the
+  same HTML. A second endpoint, or one answering in JSON, would be the private
+  API principle 2 forbids.
 - The UI authenticates with its own session cookie, since the protocol surfaces
   use Basic and token auth. **The session is signed, not stored**: the value
   carries who it is for and when it expires, under an HMAC keyed by a derivation
@@ -47,12 +54,31 @@ Hard constraints, in the same spirit as the rest of the project:
   forgot it would lose the defence with nothing to show for it. No synchroniser
   token, so no new form can forget to carry one.
 - Every page is served under `default-src 'none'`, which is what embedding the
-  assets rather than linking a CDN is worth: `style-src 'self'` and
-  `script-src 'self'` are the whole policy, and the UI works on a network with
-  no route out.
+  assets rather than linking a CDN is worth: `style-src 'self'`,
+  `script-src 'self'` and `connect-src 'self'` are the whole policy, and the UI
+  works on a network with no route out.
+
+  That third directive is the entire price of htmx, and it is not the one that
+  was expected: the listing's next page is an `hx-get`, which is an
+  `XMLHttpRequest`, and under `default-src 'none'` the browser refuses it before
+  htmx sees anything -- a failure with no server-side symptom at all, which is
+  why `scripts/smoke.sh` asserts the directive rather than trusting it. What was
+  expected, `'unsafe-eval'`, is not needed: every place htmx evaluates a string
+  goes through its `maybeEval`, and the `htmx-config` meta element in the layout
+  turns that off. A meta element and not a line of script, since the policy
+  forbids that too.
 - **One URL per directory and the same one per file**, under `/files/`. A
   directory renders a page and a file hands over its bytes, because to somebody
   typing a URL they are the same thing.
+
+  **A directory renders a hundred rows of itself and a cursor to the rest.**
+  Not `LIMIT` with an `OFFSET`, which makes the database count past everything
+  it skips and repeats or drops a row when somebody uploads into the folder
+  mid-scroll: the cursor is the last row of the page before, and the query seeks
+  straight to it. It is in the URL in the clear, because it is a path the
+  browser already has -- with a letter in front of it saying which of the two
+  groups the ordering had reached, since directories sort before files and a
+  page boundary can fall between them.
 
   A file is served as an **attachment, never inline**. This origin serves the
   UI, and a file somebody uploaded is not the UI's to render inside it -- the
@@ -478,12 +504,13 @@ Restraint here is principle 3, not laziness:
 - Config over convention: sane defaults, everything overridable by env var.
 - Web UI: `html/template`, Bootstrap and htmx vendored and `//go:embed`ed. No
   JavaScript toolchain, no custom CSS. Bootstrap 5.3.8 is in, CSS and its
-  prebuilt bundle both, byte for byte as published and with the checksums
-  recorded beside the `//go:embed`; htmx is not, and waits for a page that needs
-  it. The version is in the asset path, which is what lets the cache header say
+  prebuilt bundle both, and htmx 2.0.10 beside it, byte for byte as published
+  and with the checksums recorded beside the `//go:embed`. Each carries its own
+  version in its asset path, which is what lets the cache header say
   `immutable`.
 
   It costs 4 MB of binary -- three of them `html/template`, a third of one the
-  vendored assets -- which is the whole reason `scripts/smoke.sh` carries a size
-  budget: the number moved because a decision moved it.
+  vendored assets and 50 KB of that htmx -- which is the whole reason
+  `scripts/smoke.sh` carries a size budget: the number moved because a decision
+  moved it.
 

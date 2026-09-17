@@ -745,6 +745,32 @@ TRACK
     *)                     ok "a text file is offered no thumbnail" ;;
   esac
 
+  # The listing is one page of a folder and a cursor to the next, which is what
+  # keeps a hundred thousand photographs out of one document. The tree here is
+  # far smaller than a page, so what is asserted is the cursor itself: the row
+  # it names is behind us and the rest of the folder is still ahead.
+  paged="$(curl -fsS -b "$jar" "http://$davhost/files/?after=f/cover.jpg" 2>/dev/null || true)"
+  case "$paged" in
+    *'>cover.jpg<'*) bad "a listing resumes after the cursor" "the row the cursor names came back again" ;;
+    *'>notes.txt<'*) ok "a listing resumes after the cursor" ;;
+    *)               bad "a listing resumes after the cursor" "$(head -c 120 <<<"$paged")" ;;
+  esac
+  code="$(curl -s -o /dev/null -w '%{http_code}' -b "$jar" "http://$davhost/files/?after=nonsense")"
+  if [ "$code" = "400" ]; then
+    ok "a cursor that is not one is refused"
+  else
+    bad "a cursor that is not one is refused" "got $code"
+  fi
+
+  # htmx extending that listing gets the rows and nothing else: the same URL,
+  # one request header apart, and no second endpoint answering in JSON.
+  fragment="$(curl -fsS -b "$jar" -H 'HX-Request: true' "http://$davhost/files/" 2>/dev/null || true)"
+  case "$fragment" in
+    *'<html'*|*navbar*) bad "htmx is answered with rows rather than the page" "the whole document came back" ;;
+    *'>notes.txt<'*)    ok "htmx is answered with rows rather than the page" ;;
+    *)                  bad "htmx is answered with rows rather than the page" "$(head -c 120 <<<"$fragment")" ;;
+  esac
+
   # Uploaded through the browser form, read back through WebDAV: two doors into
   # one tree, which is most of the architecture in a single assertion.
   updir="$(mktmp)"
@@ -836,10 +862,26 @@ TRACK
     *) bad "Bootstrap is served out of the binary" "got '$code'" ;;
   esac
 
+  # Vendored the same way and for the same reason. The size is the assertion
+  # that it is the published file and not something a build step produced.
+  code="$(curl -s -o /dev/null -w '%{http_code} %{content_type} %{size_download}' \
+    "http://$davhost/static/htmx-2.0.10/htmx.min.js")"
+  case "$code" in
+    "200 text/javascript"*" 51238") ok "htmx is served out of the binary" ;;
+    *) bad "htmx is served out of the binary" "got '$code'" ;;
+  esac
+
   csp="$(curl -s -D - -o /dev/null "http://$davhost/login" | grep -i '^content-security-policy:' | tr -d '\r')"
   case "$csp" in
     *"default-src 'none'"*) ok "the pages carry a content security policy" ;;
     *)                      bad "the pages carry a content security policy" "got '$csp'" ;;
+  esac
+  # Under default-src 'none' a browser refuses the listing's next page before
+  # htmx sees it, and nothing in the server would notice: one directive, and
+  # the only place its absence shows is a browser.
+  case "$csp" in
+    *"connect-src 'self'"*) ok "the policy lets the listing ask for its next page" ;;
+    *)                      bad "the policy lets the listing ask for its next page" "got '$csp'" ;;
   esac
 
   # One line per request, which is the only way to see a 401 or a 409 after the

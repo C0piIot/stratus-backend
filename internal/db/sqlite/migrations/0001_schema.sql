@@ -13,7 +13,17 @@ CREATE TABLE files (
 
 CREATE UNIQUE INDEX files_owner_path ON files (owner_id, path);
 
-CREATE INDEX files_owner_parent ON files (owner_id, parent_path, path);
+-- The trailing columns are the paged listing's ORDER BY, in its order and in
+-- its direction: a page of a directory is a seek into this index rather than a
+-- sort of everything under parent_path, and a collection sorts before a file
+-- because that is what a file manager shows.
+--
+-- It is one index for two orderings, and the whole-directory listing is the one
+-- that pays: ordered by path alone, it now sorts what it read instead of
+-- reading it in order. That is cheap next to what it was already doing --
+-- materialising every child into a slice -- and a second index would be paid
+-- on every write instead.
+CREATE INDEX files_owner_parent ON files (owner_id, parent_path, is_dir DESC, path);
 
 CREATE TABLE media (
     file_id             INTEGER PRIMARY KEY REFERENCES files (id) ON DELETE CASCADE,

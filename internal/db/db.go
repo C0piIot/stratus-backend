@@ -70,7 +70,29 @@ type Files interface {
 	// states from the other side: one directory is bounded by what the caller
 	// asked for, so it comes back whole. A recursive walk or a library-wide
 	// scan is not, and will be an iterator when it arrives.
+	//
+	// "Bounded by what the caller asked for" is exactly as true as it was and
+	// no longer the whole story: PROPFIND, the two Subsonic browse calls and
+	// the folder-cover lookup each need a directory entire and take it here,
+	// while a browser rendering one takes ListFilesPage instead. Which of the
+	// two a caller wants is a property of the caller, which is why this is two
+	// methods rather than one with a limit nobody would pass.
 	ListFiles(ctx context.Context, owner, dir string) ([]File, error)
+
+	// ListFilesPage returns at most limit children of dir, resuming after the
+	// row named by the cursor -- a keyset page rather than LIMIT with an
+	// OFFSET, which would make the database count past everything it skips and
+	// would repeat or drop a row when the tree changes underneath a reader.
+	//
+	// The order is directories first and then by path, which is what a file
+	// manager shows and what the whole-listing caller above gets by sorting
+	// what it was given. Over a page it cannot be done afterwards: the grouping
+	// would hold inside each page and break at every boundary, so it is the
+	// query's job and the cursor carries both halves of the key.
+	//
+	// A cursor whose row has since been deleted still resumes in the right
+	// place: it is a position in an ordering, not a row that has to exist.
+	ListFilesPage(ctx context.Context, owner, dir string, after Cursor, limit int) ([]File, error)
 
 	// MoveFile renames from to to, and everything under it when from is a
 	// directory. It returns ErrNotFound if there is nothing at from, and

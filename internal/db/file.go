@@ -42,6 +42,38 @@ type File struct {
 	IsDir bool
 }
 
+// Cursor is where a page of a listing resumes: the last row of the page before
+// it, in the ordering ListFilesPage promises. The zero value is the start of
+// the listing, which no row can name -- a path is never empty.
+//
+// Deliberately not opaque. It is a path the caller already has and is allowed
+// to see, so a surface can put it in a URL without encoding a secret, and IsDir
+// is there because the ordering groups collections first: the pair is the sort
+// key, and a cursor that carried half of it could not resume across the seam
+// between the two groups.
+type Cursor struct {
+	IsDir bool
+	Path  string
+}
+
+// After returns the cursor that resumes a listing after f.
+func After(f File) Cursor { return Cursor{IsDir: f.IsDir, Path: f.Path} }
+
+// AtStart reports whether c is the beginning of a listing rather than a
+// position in one.
+func (c Cursor) AtStart() bool { return c.Path == "" }
+
+// ValidateLimit refuses a page size the dialects would not agree on. SQLite
+// reads a negative LIMIT as no limit at all and PostgreSQL refuses one, so a
+// caller's bug would be a full listing on one driver and an error on another.
+// Here rather than in each of them, for the reason ValidateMove is.
+func ValidateLimit(limit int) error {
+	if limit <= 0 {
+		return fmt.Errorf("db: a page has to ask for at least one row, not %d", limit)
+	}
+	return nil
+}
+
 // TimePrecision is what every driver rounds MTime to. Postgres keeps
 // microseconds and SQLite keeps whatever it is handed, so without a common
 // resolution a value would not survive a round trip identically on both.

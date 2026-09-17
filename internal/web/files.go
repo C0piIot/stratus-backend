@@ -2,6 +2,7 @@ package web
 
 import (
 	"errors"
+	"fmt"
 	"log/slog"
 	"mime"
 	"net/http"
@@ -18,6 +19,21 @@ import (
 // filesPrefix is where the tree lives. Every directory has one URL and every
 // file has the same one, because to somebody typing it they are the same thing.
 const filesPrefix = "/files/"
+
+// listPageSize is how much of a directory one page holds. A folder with a
+// hundred thousand photographs in it is an ordinary size for this project, and
+// rendering all of it would be one query, one enormous document and, since
+// #135, an offer of a thumbnail per row.
+//
+// Not configurable: it is a property of what a browser can lay out and of how
+// many pictures it is fair to ask this server for at once, neither of which an
+// operator is better placed to judge than the page is.
+const listPageSize = 100
+
+// listFragment is the part of the page htmx asks for when it extends a
+// listing: the rows and the link to the next page, without the document around
+// them.
+const listFragment = "rows"
 
 // browse answers both halves of "open this": a directory is a page, a file is
 // its bytes.
@@ -42,12 +58,18 @@ func (h *handler) browse(w http.ResponseWriter, r *http.Request, user string) {
 		}
 	}
 
-	children, err := h.files.List(r.Context(), user, p)
+	after, err := parseCursor(r.URL.Query().Get("after"))
+	if err != nil {
+		h.badRequest(w, user, "That is not a place in this folder to carry on from.")
+		return
+	}
+	children, more, err := h.files.ListPage(r.Context(), user, p, after, listPageSize)
 	if err != nil {
 		h.fail(w, r, user, err)
 		return
 	}
-	h.render(w, http.StatusOK, pageFiles, view{
+
+	v := view{
 		Title:   pageTitle(p),
 		User:    user,
 		Notice:  uploaded(r.URL.Query().Get("added")),
@@ -56,7 +78,54 @@ func (h *handler) browse(w http.ResponseWriter, r *http.Request, user string) {
 		// Where this page's two forms post: into the directory being listed.
 		Here:    href(p),
 		Folders: link(folderPrefix, p),
-	})
+	}
+	if more {
+		v.NextPage = href(p) + "?after=" + url.QueryEscape(encodeCursor(db.After(children[len(children)-1])))
+	}
+
+	// htmx asked for the rows to append; anything else asked for the page. The
+	// answer is not cached either way -- render sets no-store on both -- so
+	// there is no Vary header to get wrong.
+	if r.Header.Get("HX-Request") == "true" {
+		h.renderTemplate(w, http.StatusOK, pageFiles, listFragment, v)
+		return
+	}
+	h.render(w, http.StatusOK, pageFiles, v)
+}
+
+// encodeCursor and parseCursor carry a position in a listing through a URL.
+//
+// Not opaque and not signed: it is a path the browser already has and is
+// allowed to see. The letter in front of it is the half a path cannot say --
+// which of the two groups the ordering had reached -- and without it a page
+// boundary that falls between the directories and the files could not be
+// resumed.
+func encodeCursor(c db.Cursor) string {
+	if c.IsDir {
+		return "d/" + c.Path
+	}
+	return "f/" + c.Path
+}
+
+func parseCursor(v string) (db.Cursor, error) {
+	if v == "" {
+		return db.Cursor{}, nil
+	}
+	kind, p, ok := strings.Cut(v, "/")
+	if !ok {
+		return db.Cursor{}, fmt.Errorf("cursor %q: no kind", v)
+	}
+	if err := db.ValidatePath(p); err != nil {
+		return db.Cursor{}, err
+	}
+	switch kind {
+	case "d":
+		return db.Cursor{IsDir: true, Path: p}, nil
+	case "f":
+		return db.Cursor{Path: p}, nil
+	default:
+		return db.Cursor{}, fmt.Errorf("cursor %q: unknown kind %q", v, kind)
+	}
 }
 
 // download streams a file.
@@ -249,13 +318,13 @@ type entry struct {
 	Delete string
 }
 
+// entries renders what the port returned, in the order it returned it.
+// Directories first and then by path is the ordering ListFilesPage promises,
+// and it is the query's job rather than this function's: regrouping a page
+// afterwards would only group that page, so a listing scrolled through would
+// show folders, then files, then folders again.
 func entries(children []db.File) []entry {
-	// Directories first, which is what every file manager does and what makes a
-	// deep tree navigable; within each group, the order the port returned,
-	// which is by path. Two slices rather than a sort: the port has already
-	// done the ordering, and all that is left is which group a row is in.
-	dirs := make([]entry, 0, len(children))
-	rest := make([]entry, 0, len(children))
+	out := make([]entry, 0, len(children))
 	for _, c := range children {
 		e := entry{
 			Name:     path.Base(c.Path),
@@ -265,17 +334,15 @@ func entries(children []db.File) []entry {
 			Rename:   link(renamePrefix, c.Path),
 			Delete:   link(deletePrefix, c.Path),
 		}
-		if c.IsDir {
-			dirs = append(dirs, e)
-			continue
+		if !c.IsDir {
+			e.Size = humanSize(c.Size)
+			if media.CanThumbnail(c.Path) {
+				e.Thumb = link(thumbPrefix, c.Path) + "?size=" + strconv.Itoa(listThumb) + "&v=" + url.QueryEscape(c.ETag)
+			}
 		}
-		e.Size = humanSize(c.Size)
-		if media.CanThumbnail(c.Path) {
-			e.Thumb = link(thumbPrefix, c.Path) + "?size=" + strconv.Itoa(listThumb) + "&v=" + url.QueryEscape(c.ETag)
-		}
-		rest = append(rest, e)
+		out = append(out, e)
 	}
-	return append(dirs, rest...)
+	return out
 }
 
 // humanSize is the size a person reads rather than the one a machine counts.

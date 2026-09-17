@@ -33,7 +33,7 @@ var ErrInjected = errors.New("dbtest: injected failure")
 // fails on purpose -- and FailOn refuses a name that is not here, because a
 // test asking for one would silently never fail.
 var repoMethods = []string{
-	"PutFile", "CreateDir", "FileByPath", "ListFiles", "MoveFile", "DeleteFile",
+	"PutFile", "CreateDir", "FileByPath", "ListFiles", "ListFilesPage", "MoveFile", "DeleteFile",
 	"BlobKeys", "PutMedia",
 	"PutUpload", "UploadByID", "DeleteUpload", "ExpiredUploads",
 }
@@ -115,6 +115,14 @@ func (f *failingRepo) ListFiles(ctx context.Context, owner, dir string) ([]db.Fi
 		return nil, err
 	}
 	return f.Repo.ListFiles(ctx, owner, dir)
+}
+
+// ListFilesPage implements db.Repo.
+func (f *failingRepo) ListFilesPage(ctx context.Context, owner, dir string, after db.Cursor, limit int) ([]db.File, error) {
+	if err := f.fails("ListFilesPage"); err != nil {
+		return nil, err
+	}
+	return f.Repo.ListFilesPage(ctx, owner, dir, after, limit)
 }
 
 // MoveFile implements db.Repo.

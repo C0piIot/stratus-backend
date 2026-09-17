@@ -56,27 +56,7 @@
         </tr>
       </thead>
       <tbody>
-        {{range .Entries}}
-        <tr>
-          <td class="align-middle">
-            {{/* A fixed box whether or not there is a picture in it, so the
-                 rows line up and the page does not jump as thumbnails arrive.
-                 loading="lazy" is what keeps opening a folder of five hundred
-                 photos from asking for five hundred pictures at once. */}}
-            <span class="d-inline-block align-middle me-2" style="width:32px;height:32px">
-              {{if .Thumb}}<img src="{{.Thumb}}" alt="" width="32" height="32" loading="lazy"
-                class="rounded object-fit-cover" style="width:32px;height:32px">{{end}}
-            </span>
-            <a href="{{.Href}}" class="text-decoration-none align-middle">{{.Name}}{{if .IsDir}}/{{end}}</a>
-          </td>
-          <td class="text-end text-body-secondary">{{.Size}}</td>
-          <td class="text-end text-body-secondary d-none d-sm-table-cell">{{.Modified}}</td>
-          <td class="text-end text-nowrap">
-            <a class="link-secondary small text-decoration-none me-3" href="{{.Rename}}">Rename</a>
-            <a class="link-danger small text-decoration-none" href="{{.Delete}}">Delete</a>
-          </td>
-        </tr>
-        {{end}}
+        {{template "rows" .}}
       </tbody>
     </table>
   </div>
@@ -94,4 +74,41 @@
   Opening a file downloads it, and uploading one with a name that is already
   here replaces it — the same as a PUT over WebDAV.
 </p>
+{{- end}}
+
+{{/* One page of rows, and the way to the next. This is also what htmx asks for
+     on its own when it extends the listing, which is why it is a template
+     rather than markup inline above. */}}
+{{define "rows" -}}
+{{range .Entries}}
+<tr>
+  <td class="align-middle">
+    {{/* A fixed box whether or not there is a picture in it, so the rows line
+         up and the page does not jump as thumbnails arrive. loading="lazy" is
+         what keeps opening a folder of a hundred photos from asking for a
+         hundred pictures at once. */}}
+    <span class="d-inline-block align-middle me-2" style="width:32px;height:32px">
+      {{if .Thumb}}<img src="{{.Thumb}}" alt="" width="32" height="32" loading="lazy"
+        class="rounded object-fit-cover" style="width:32px;height:32px">{{end}}
+    </span>
+    <a href="{{.Href}}" class="text-decoration-none align-middle">{{.Name}}{{if .IsDir}}/{{end}}</a>
+  </td>
+  <td class="text-end text-body-secondary">{{.Size}}</td>
+  <td class="text-end text-body-secondary d-none d-sm-table-cell">{{.Modified}}</td>
+  <td class="text-end text-nowrap">
+    <a class="link-secondary small text-decoration-none me-3" href="{{.Rename}}">Rename</a>
+    <a class="link-danger small text-decoration-none" href="{{.Delete}}">Delete</a>
+  </td>
+</tr>
+{{end}}
+{{if .NextPage}}
+{{/* One row doing both jobs: a link a browser with no JavaScript follows to the
+     next page, and the trigger htmx swaps this row out for when it scrolls into
+     view. Whichever happens, the URL is the same one. */}}
+<tr hx-get="{{.NextPage}}" hx-trigger="revealed" hx-swap="outerHTML">
+  <td colspan="4" class="text-center py-3">
+    <a href="{{.NextPage}}" class="link-secondary small text-decoration-none">More in this folder</a>
+  </td>
+</tr>
+{{end}}
 {{- end}}
