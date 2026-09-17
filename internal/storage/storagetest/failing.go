@@ -32,7 +32,10 @@ var ErrInjected = errors.New("storagetest: injected failure")
 
 // storageMethods is every call Failing can be asked to break. Naming one that
 // is not here is a test that would silently never fail, so FailOn refuses it.
-var storageMethods = []string{"Put", "Get", "Delete", "Stat", "List"}
+var storageMethods = []string{
+	"Put", "Get", "Delete", "Stat", "List",
+	"StartUpload", "AppendUpload", "UploadOffset", "CompleteUpload", "AbortUpload",
+}
 
 // Failing is a storage.Storage that fails one named method and passes the rest
 // through.
@@ -101,4 +104,59 @@ func (f *Failing) List(ctx context.Context, prefix string) iter.Seq2[storage.Obj
 		}
 	}
 	return f.Storage.List(ctx, prefix)
+}
+
+// StartUpload implements storage.Storage.
+func (f *Failing) StartUpload(ctx context.Context, key string) (string, error) {
+	if err := f.fails("StartUpload"); err != nil {
+		return "", err
+	}
+	return f.Storage.StartUpload(ctx, key)
+}
+
+// AppendUpload implements storage.Storage.
+//
+// The injected failure reads the chunk and keeps none of it, which is the only
+// shape worth injecting: a store that refuses before reading leaves the caller
+// exactly where it was, while one that reads and then cannot write -- a full
+// disk, a connection lost to the bucket -- leaves the caller having hashed
+// bytes the store does not have. What it does about that is the point.
+func (f *Failing) AppendUpload(ctx context.Context, key, id string, offset int64, r io.Reader) (int64, error) {
+	if err := f.fails("AppendUpload"); err != nil {
+		if _, cerr := io.Copy(io.Discard, r); cerr != nil {
+			return 0, cerr
+		}
+		// The offset it reports is still the true one, which is what the port
+		// promises even when an append fails.
+		at, oerr := f.Storage.UploadOffset(ctx, key, id)
+		if oerr != nil {
+			return 0, err
+		}
+		return at, err
+	}
+	return f.Storage.AppendUpload(ctx, key, id, offset, r)
+}
+
+// UploadOffset implements storage.Storage.
+func (f *Failing) UploadOffset(ctx context.Context, key, id string) (int64, error) {
+	if err := f.fails("UploadOffset"); err != nil {
+		return 0, err
+	}
+	return f.Storage.UploadOffset(ctx, key, id)
+}
+
+// CompleteUpload implements storage.Storage.
+func (f *Failing) CompleteUpload(ctx context.Context, key, id string) (storage.ObjectInfo, error) {
+	if err := f.fails("CompleteUpload"); err != nil {
+		return storage.ObjectInfo{}, err
+	}
+	return f.Storage.CompleteUpload(ctx, key, id)
+}
+
+// AbortUpload implements storage.Storage.
+func (f *Failing) AbortUpload(ctx context.Context, key, id string) error {
+	if err := f.fails("AbortUpload"); err != nil {
+		return err
+	}
+	return f.Storage.AbortUpload(ctx, key, id)
 }

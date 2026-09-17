@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/C0piIot/stratus-backend/internal/db"
 	"github.com/C0piIot/stratus-backend/internal/db/dbtest"
@@ -166,5 +167,37 @@ func TestMusicOnAClosedStore(t *testing.T) {
 		if err := call(); err == nil {
 			t.Errorf("%s against a closed store reported no error", name)
 		}
+	}
+}
+
+// TestUploadsOnAClosedStore covers the error paths of the upload repository the
+// same way TestBlobKeysOnAClosedStore covers the collector's: a shutdown under
+// a request has to report rather than panic, and an upload is the longest-lived
+// thing a client can be holding when one happens.
+func TestUploadsOnAClosedStore(t *testing.T) {
+	t.Parallel()
+	store := newStore(t)
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	u := db.Upload{ID: "one", OwnerID: "edu", Path: "clip.mp4", Digest: []byte{}}
+	if err := store.PutUpload(t.Context(), u); err == nil {
+		t.Error("PutUpload on a closed store reported no error")
+	}
+	if _, err := store.UploadByID(t.Context(), "edu", "one"); err == nil {
+		t.Error("UploadByID on a closed store reported no error")
+	}
+	if err := store.DeleteUpload(t.Context(), "edu", "one"); err == nil {
+		t.Error("DeleteUpload on a closed store reported no error")
+	}
+
+	var got error
+	for _, err := range store.ExpiredUploads(t.Context(), time.Now()) {
+		got = err
+		break
+	}
+	if got == nil {
+		t.Error("iterating the expired uploads of a closed store reported no error")
 	}
 }

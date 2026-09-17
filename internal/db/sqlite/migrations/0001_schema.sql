@@ -46,3 +46,18 @@ CREATE TABLE media (
 CREATE INDEX media_taken_at ON media (taken_at);
 
 CREATE INDEX media_kind_artist_album ON media (kind, album_artist, album);
+
+CREATE TABLE uploads (
+    id         TEXT    NOT NULL PRIMARY KEY,
+    owner_id   TEXT    NOT NULL,
+    path       TEXT    NOT NULL,
+    size       INTEGER NOT NULL,
+    received   INTEGER NOT NULL,
+    blob_key   TEXT    NOT NULL,
+    store_id   TEXT    NOT NULL,
+    digest     BLOB    NOT NULL,
+    mime_type  TEXT    NOT NULL,
+    expires_at INTEGER NOT NULL
+);
+
+CREATE INDEX uploads_expires_at ON uploads (expires_at);

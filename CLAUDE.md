@@ -199,6 +199,20 @@ is unrepresentable rather than rejected. Both properties are the same rule:
 **the constructors own the shape of a key, the validator only owns what a single
 key may contain.**
 
+An **upload in progress is a row**, in `internal/db`, not something held in
+memory: the point of a resumable upload is that a phone can come back to it
+after a tunnel or a restart, and a server that forgot where it was would make
+the client start again. The row carries the offset the store has accepted and
+the running SHA-256, marshalled between requests -- `crypto/sha256` can, which
+is the only reason completing a four-gigabyte upload does not mean reading it
+back to hash it. When a store keeps less than it read, the hash is ahead of the
+object and cannot be wound back, so it is dropped and that read-back happens
+after all: the expensive path, taken rarely and on purpose.
+
+Nothing else will ever collect an abandoned upload -- the sweep cannot see one
+-- so `files.CollectUploads` runs beside it on the same tick, and the deadline
+it enforces is the one the client was told.
+
 ### Metadata database — `internal/db`
 
 Repository-style interface, hand-written SQL per driver, **no ORM**.

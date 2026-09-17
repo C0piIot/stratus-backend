@@ -57,12 +57,25 @@ func (a *App) collectPeriodically(ctx context.Context, deps Deps) {
 	ticker := time.NewTicker(a.cfg.GCInterval)
 	defer ticker.Stop()
 
-	slog.Info("collecting orphan blobs", "every", a.cfg.GCInterval, "grace", a.cfg.GCGrace)
+	slog.Info("collecting orphan blobs and abandoned uploads",
+		"every", a.cfg.GCInterval, "grace", a.cfg.GCGrace, "upload_ttl", files.DefaultUploadTTL)
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+		}
+
+		// Uploads first: an abandoned one holds bytes that are invisible to a
+		// listing, so the blob sweep below can neither see them nor free them.
+		// Nothing else collects them at all.
+		switch done, err := service.CollectUploads(ctx, time.Now()); {
+		case errors.Is(err, context.Canceled):
+			return
+		case err != nil:
+			slog.Error("collecting abandoned uploads", "err", err)
+		case done > 0:
+			slog.Info("collected abandoned uploads", "count", done)
 		}
 
 		switch done, err := service.Collect(ctx, a.cfg.GCGrace); {

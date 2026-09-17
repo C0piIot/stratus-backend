@@ -6,6 +6,7 @@ import (
 	"iter"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/C0piIot/stratus-backend/internal/db"
 )
@@ -34,6 +35,7 @@ var ErrInjected = errors.New("dbtest: injected failure")
 var repoMethods = []string{
 	"PutFile", "CreateDir", "FileByPath", "ListFiles", "MoveFile", "DeleteFile",
 	"BlobKeys", "PutMedia",
+	"PutUpload", "UploadByID", "DeleteUpload", "ExpiredUploads",
 }
 
 // Failing is a db.Store that fails one named method and passes the rest
@@ -147,4 +149,36 @@ func (f *failingRepo) PutMedia(ctx context.Context, m db.Media) error {
 		return err
 	}
 	return f.Repo.PutMedia(ctx, m)
+}
+
+// PutUpload implements db.Repo.
+func (f *failingRepo) PutUpload(ctx context.Context, u db.Upload) error {
+	if err := f.fails("PutUpload"); err != nil {
+		return err
+	}
+	return f.Repo.PutUpload(ctx, u)
+}
+
+// UploadByID implements db.Repo.
+func (f *failingRepo) UploadByID(ctx context.Context, owner, id string) (db.Upload, error) {
+	if err := f.fails("UploadByID"); err != nil {
+		return db.Upload{}, err
+	}
+	return f.Repo.UploadByID(ctx, owner, id)
+}
+
+// DeleteUpload implements db.Repo.
+func (f *failingRepo) DeleteUpload(ctx context.Context, owner, id string) error {
+	if err := f.fails("DeleteUpload"); err != nil {
+		return err
+	}
+	return f.Repo.DeleteUpload(ctx, owner, id)
+}
+
+// ExpiredUploads implements db.Repo.
+func (f *failingRepo) ExpiredUploads(ctx context.Context, now time.Time) iter.Seq2[db.Upload, error] {
+	if err := f.fails("ExpiredUploads"); err != nil {
+		return func(yield func(db.Upload, error) bool) { yield(db.Upload{}, err) }
+	}
+	return f.Repo.ExpiredUploads(ctx, now)
 }
