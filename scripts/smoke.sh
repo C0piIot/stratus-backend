@@ -719,6 +719,32 @@ TRACK
     *) bad "opening a file downloads it as an attachment" "$(grep -i '^content-' <<<"$headers" | tr -d '\r' | tr '\n' ' ')" ;;
   esac
 
+  # The picture the Subsonic case put in the tree, this time through the
+  # browser's own door: the listing offers an image for it, and asking for that
+  # image makes one. Same generator, a second consumer.
+  listing="$(curl -fsS -b "$jar" "http://$davhost/files/" 2>/dev/null || true)"
+  thumbfile="$(mktmp)/thumb.jpg"
+  thumbcode="$(curl -s -o "$thumbfile" -w '%{http_code} %{content_type}' -b "$jar" \
+    "http://$davhost/thumb/cover.jpg?size=96")"
+  thumbsize="$(stat -c '%s' "$thumbfile" 2>/dev/null || echo 0)"
+  case "$listing:$thumbcode" in
+    *'/thumb/cover.jpg'*':200 image/jpeg'*)
+      if [ "$thumbsize" -gt 100 ] && [ "$thumbsize" -lt 2102 ]; then
+        ok "the browser listing offers a thumbnail and the server makes it ($thumbsize bytes)"
+      else
+        bad "the browser listing offers a thumbnail and the server makes it" "$thumbsize bytes"
+      fi ;;
+    *) bad "the browser listing offers a thumbnail and the server makes it" \
+         "the page did not link one, or the request answered '$thumbcode'" ;;
+  esac
+
+  # And a file that cannot have one is not offered one, which is what keeps a
+  # listing from being a wall of broken images.
+  case "$listing" in
+    *'/thumb/upload.txt'*) bad "a text file is offered no thumbnail" "the listing links one" ;;
+    *)                     ok "a text file is offered no thumbnail" ;;
+  esac
+
   # Uploaded through the browser form, read back through WebDAV: two doors into
   # one tree, which is most of the architecture in a single assertion.
   updir="$(mktmp)"

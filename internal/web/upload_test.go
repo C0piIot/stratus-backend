@@ -303,7 +303,7 @@ func TestUploadWhenTheStoreRefuses(t *testing.T) {
 	t.Parallel()
 	blobs, meta := backends(t)
 	broken := files.New(storagetest.FailOn(t, blobs, "Put"), meta)
-	h := handlerOver(t, broken)
+	h := handlerOver(t, broken, blobs)
 	cookie := signIn(t, h)
 
 	rec := upload(t, h, "/files/", cookie, "notes.txt", "hello")

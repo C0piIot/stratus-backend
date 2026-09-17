@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/C0piIot/stratus-backend/internal/db"
+	"github.com/C0piIot/stratus-backend/internal/media"
 	"github.com/C0piIot/stratus-backend/internal/storage"
 )
 
@@ -238,6 +239,10 @@ type entry struct {
 	IsDir    bool
 	Size     string
 	Modified string
+	// Thumb is where a picture of this file lives, and empty when this build
+	// cannot make one. The ETag is in the URL so the answer can be cached for a
+	// year: a new write takes a new blob key and therefore a new ETag.
+	Thumb string
 	// Where the two things that can be done to it are asked for. Both are
 	// pages: a rename needs a name, and a delete cannot be undone.
 	Rename string
@@ -265,6 +270,9 @@ func entries(children []db.File) []entry {
 			continue
 		}
 		e.Size = humanSize(c.Size)
+		if media.CanThumbnail(c.Path) {
+			e.Thumb = link(thumbPrefix, c.Path) + "?size=" + strconv.Itoa(listThumb) + "&v=" + url.QueryEscape(c.ETag)
+		}
 		rest = append(rest, e)
 	}
 	return append(dirs, rest...)

@@ -58,7 +58,17 @@
       <tbody>
         {{range .Entries}}
         <tr>
-          <td><a href="{{.Href}}" class="text-decoration-none">{{.Name}}{{if .IsDir}}/{{end}}</a></td>
+          <td class="align-middle">
+            {{/* A fixed box whether or not there is a picture in it, so the
+                 rows line up and the page does not jump as thumbnails arrive.
+                 loading="lazy" is what keeps opening a folder of five hundred
+                 photos from asking for five hundred pictures at once. */}}
+            <span class="d-inline-block align-middle me-2" style="width:32px;height:32px">
+              {{if .Thumb}}<img src="{{.Thumb}}" alt="" width="32" height="32" loading="lazy"
+                class="rounded object-fit-cover" style="width:32px;height:32px">{{end}}
+            </span>
+            <a href="{{.Href}}" class="text-decoration-none align-middle">{{.Name}}{{if .IsDir}}/{{end}}</a>
+          </td>
           <td class="text-end text-body-secondary">{{.Size}}</td>
           <td class="text-end text-body-secondary d-none d-sm-table-cell">{{.Modified}}</td>
           <td class="text-end text-nowrap">

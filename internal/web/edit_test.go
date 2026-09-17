@@ -177,7 +177,7 @@ func TestWhenTheTreeWillNotAnswer(t *testing.T) {
 		working := files.New(blobs, meta)
 		write(t, working, "notes.txt", "hello")
 
-		h := handlerOver(t, files.New(blobs, dbtest.FailOn(t, meta, "DeleteFile")))
+		h := handlerOver(t, files.New(blobs, dbtest.FailOn(t, meta, "DeleteFile")), blobs)
 		if got := remove(t, h, "notes.txt", signIn(t, h)).Code; got != http.StatusInternalServerError {
 			t.Errorf("deleting through a database that refuses = %d, want 500", got)
 		}
@@ -197,7 +197,7 @@ func TestWhenTheTreeWillNotAnswer(t *testing.T) {
 		// The folder has something in it, which used to be refused here before
 		// the port could rewrite a subtree (#101). Now it is an ordinary move,
 		// and what this covers is the ordinary failure of one.
-		h := handlerOver(t, files.New(blobs, dbtest.FailOn(t, meta, "MoveFile")))
+		h := handlerOver(t, files.New(blobs, dbtest.FailOn(t, meta, "MoveFile")), blobs)
 		if got := rename(t, h, "photos", signIn(t, h), "holiday").Code; got != http.StatusInternalServerError {
 			t.Errorf("renaming through a database that refuses = %d, want 500", got)
 		}
