@@ -691,34 +691,38 @@ func (r *repo) BlobKeys(ctx context.Context) iter.Seq2[string, error] {
 
 // MoveFile implements db.Repo.
 func (r *repo) MoveFile(ctx context.Context, owner, from, to string) error {
-	if err := db.ValidatePath(from); err != nil {
+	if err := db.ValidateMove(from, to); err != nil {
 		return err
 	}
-	if err := db.ValidatePath(to); err != nil {
-		return err
-	}
-	// The NOT EXISTS is what refuses to move a directory out from under its
-	// contents: rewriting a whole subtree is a different operation, and this
-	// one must not half-do it.
-	//
-	// It goes through a derived table because MySQL refuses a subquery that
-	// names the table being written. The LIMIT is load-bearing rather than an
-	// optimisation: without it the optimiser merges the derived table back into
-	// the statement and the refusal returns.
-	const query = `UPDATE files SET path = ?, path_hash = ?, parent_path = ?
-		WHERE owner_id = ? AND path_hash = ?
-		  AND NOT EXISTS (
-			SELECT 1 FROM (
-				SELECT 1 FROM files child
-				WHERE child.owner_id = ? AND child.parent_path = ? LIMIT 1
-			) AS occupied)`
+	const moveOne = `UPDATE files SET path = ?, path_hash = ?, parent_path = ?
+		WHERE owner_id = ? AND path_hash = ?`
 
-	result, err := r.q.ExecContext(ctx, query,
-		to, hash(to), db.ParentOf(to), owner, hash(from), owner, from)
+	// Everything under it, in one statement. Two things here are MySQL's and
+	// not the other drivers': SUBSTRING rather than substr, and the hash being
+	// recomputed from the column that was just assigned -- MySQL evaluates a
+	// SET left to right and a later assignment sees the earlier one, which is
+	// the documented behaviour this relies on rather than a coincidence. The
+	// digest has to match what hash() computes in Go, and SHA2 over the same
+	// utf8mb4 bytes does.
+	const moveTree = `UPDATE files
+		SET path = CONCAT(?, SUBSTRING(path, ?)),
+		    path_hash = UNHEX(SHA2(path, 256)),
+		    parent_path = CONCAT(?, SUBSTRING(parent_path, ?))
+		WHERE owner_id = ? AND path LIKE ? ESCAPE '` + likeEscape + `'`
+
+	result, err := r.q.ExecContext(ctx, moveOne, to, hash(to), db.ParentOf(to), owner, hash(from))
 	if err != nil {
 		return fmt.Errorf("move %q to %q: %w", from, to, mapErr(err))
 	}
-	return sqlutil.CheckAffected(ctx, r.q, result, from, isDirProbe, owner, hash(from))
+	if err := sqlutil.CheckAffected(ctx, r.q, result, from, isDirProbe, owner, hash(from)); err != nil {
+		return err
+	}
+
+	tail := len(from) + 1
+	if _, err := r.q.ExecContext(ctx, moveTree, to, tail, to, tail, owner, sqlutil.Under(from)); err != nil {
+		return fmt.Errorf("move the contents of %q to %q: %w", from, to, mapErr(err))
+	}
+	return nil
 }
 
 // DeleteFile implements db.Repo.

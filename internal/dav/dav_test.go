@@ -252,6 +252,41 @@ func TestPropfindEscapesTheSelfHref(t *testing.T) {
 		"/dav/rock & roll", "/dav/rock & roll/song.mp3")
 }
 
+// TestMoveACollectionWithThingsInIt is #101 over WebDAV: renaming a folder is
+// what a Finder drag or an rclone moveto does, and it answered 409 until the
+// metadata port could rewrite a subtree.
+func TestMoveACollectionWithThingsInIt(t *testing.T) {
+	t.Parallel()
+	h := server(t)
+	do(t, h, "MKCOL", "/dav/album", "")
+	do(t, h, "MKCOL", "/dav/album/raw", "")
+	do(t, h, http.MethodPut, "/dav/album/one.txt", "one")
+	do(t, h, http.MethodPut, "/dav/album/raw/deep.txt", "deep")
+
+	// 201 and not 204: RFC 4918 9.9.4 keeps them apart by whether the
+	// destination existed, and nothing was at /dav/archive.
+	if got := do(t, h, "MOVE", "/dav/album", "", "Destination", "/dav/archive").Code; got != http.StatusCreated {
+		t.Fatalf("MOVE of a collection = %d, want 201", got)
+	}
+
+	// Everything came with it, which is what a listing of the new name shows.
+	wantHrefs(t, hrefs(t, do(t, h, "PROPFIND", "/dav/archive", "", "Depth", "1")),
+		"/dav/archive", "/dav/archive/one.txt", "/dav/archive/raw")
+	if body := do(t, h, http.MethodGet, "/dav/archive/raw/deep.txt", "").Body.String(); body != "deep" {
+		t.Errorf("the deepest file reads %q after the move", body)
+	}
+	if got := do(t, h, http.MethodGet, "/dav/album/one.txt", "").Code; got != http.StatusNotFound {
+		t.Errorf("the old path still answers: %d", got)
+	}
+
+	// And the one rename that cannot be done, because the destination is inside
+	// what is being moved.
+	do(t, h, "MKCOL", "/dav/photos", "")
+	if got := do(t, h, "MOVE", "/dav/photos", "", "Destination", "/dav/photos/inner").Code; got != http.StatusConflict {
+		t.Errorf("MOVE of a collection into itself = %d, want 409", got)
+	}
+}
+
 func TestPropfindInfiniteDepth(t *testing.T) {
 	t.Parallel()
 	h := server(t)

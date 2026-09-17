@@ -507,3 +507,23 @@ func TestContains(t *testing.T) {
 		}
 	}
 }
+
+// TestUnder is the pattern a subtree rename matches on, and the trailing slash
+// is the whole of it: without one, renaming "photos" would take "photos-2024"
+// with it.
+func TestUnder(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]string{
+		"photos":       `photos/%`,
+		"photos/2024":  `photos/2024/%`,
+		"100% of them": `100` + LikeEscape + `% of them/%`,
+		"a_b":          `a` + LikeEscape + `_b/%`,
+		`back\slash`:   `back` + LikeEscape + `\slash/%`,
+	}
+	for dir, want := range tests {
+		if got := Under(dir); got != want {
+			t.Errorf("Under(%q) = %q, want %q", dir, got, want)
+		}
+	}
+}

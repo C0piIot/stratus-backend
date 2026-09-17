@@ -203,14 +203,6 @@ func (h *handler) badRequest(w http.ResponseWriter, user, message string) {
 	})
 }
 
-// conflict is fail's 409 with something specific to say. The generic one is
-// right for "something is already there" and useless for the rest.
-func (h *handler) conflict(w http.ResponseWriter, user, message string) {
-	h.render(w, http.StatusConflict, pageError, view{
-		Title: "Not possible here", User: user, Message: message,
-	})
-}
-
 func pageTitle(dir string) string {
 	if dir == "" {
 		return "Files"

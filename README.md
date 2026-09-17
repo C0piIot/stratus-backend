@@ -289,10 +289,12 @@ disk.
 and the blob behind it is swept up afterwards, so the page in between is the only
 chance to have not meant it. Deleting a folder takes everything inside it.
 
-**A folder with anything in it cannot be renamed yet**, and neither WebDAV nor
-the UI can do it: moving a directory is a rewrite of every path underneath it,
-which the metadata seam refuses rather than half-doing. Files and empty folders
-rename fine.
+**Renaming a folder takes everything inside it**, from the UI and from a WebDAV
+`MOVE` alike. It is a rewrite of every path underneath, done in one statement
+inside one transaction, so it either all moves or none of it does — and no bytes
+move at all, because a path is a column and a blob has no idea what it is
+called. Renaming a folder of ten thousand photos costs the same as renaming one
+file.
 
 **The session is a signed cookie rather than a row in a table.** The value says
 who it is for and when it expires, signed with a key derived from the configured
@@ -629,10 +631,9 @@ Working now:
   rename and delete. A signed-cookie session and a CSP that allows nothing but
   the binary's own assets.
 - A request log, migrations applied at startup, and a container asserted from
-  the outside by 69 smoke checks.
+  the outside by 70 smoke checks.
 
-Not there yet: CalDAV, renaming a folder that has anything in it, photo
-thumbnails and sharing --
+Not there yet: CalDAV, photo thumbnails and sharing --
 and on the music side, anything that remembers what the user did. Work
 and the decisions behind it are tracked on the
 [Stratus project board](https://github.com/users/C0piIot/projects/2), where

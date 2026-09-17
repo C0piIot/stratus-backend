@@ -758,6 +758,22 @@ TRACK
       "the form answered $code, the old name $old, the new one '$new'"
   fi
 
+  # And a folder with something in it, which was refused on every surface until
+  # #101: the rename is one form post and every path underneath moves with it.
+  curl -s -o /dev/null -b "$jar" --data-urlencode "name=holiday" "http://$davhost/folders/"
+  curl -s -o /dev/null -u "$davuser:$davpass" -X PUT --data-binary 'inside' \
+    "http://$davhost/dav/holiday/inside.txt"
+  code="$(curl -s -o /dev/null -w '%{http_code}' -b "$jar" \
+    --data-urlencode "name=archive" "http://$davhost/rename/holiday")"
+  moved="$(curl -s -o /dev/null -w '%{http_code}' -u "$davuser:$davpass" "http://$davhost/dav/archive/inside.txt")"
+  left="$(curl -s -o /dev/null -w '%{http_code}' -u "$davuser:$davpass" "http://$davhost/dav/holiday/inside.txt")"
+  if [ "$code" = "303" ] && [ "$moved" = "200" ] && [ "$left" = "404" ]; then
+    ok "a folder renamed in the browser takes its contents with it"
+  else
+    bad "a folder renamed in the browser takes its contents with it" \
+      "the form answered $code, the moved file $moved, the old path $left"
+  fi
+
   code="$(curl -s -o /dev/null -w '%{http_code}' -b "$jar" -X POST "http://$davhost/delete/renamed.txt")"
   gone="$(curl -s -o /dev/null -w '%{http_code}' -u "$davuser:$davpass" "http://$davhost/dav/renamed.txt")"
   if [ "$code" = "303" ] && [ "$gone" = "404" ]; then

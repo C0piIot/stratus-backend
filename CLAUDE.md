@@ -206,6 +206,13 @@ absurdly beside this one. Deferred length is not implemented and not advertised
 -- every client this is for knows how big the file is, and accepting an upload
 of unknown length means inventing a rule for when it ended.
 
+**A directory moves with everything under it**, in one statement per driver
+rather than a row at a time: a rewrite that stopped halfway would leave the rest
+of the tree pointing at a parent that no longer exists. `db.ValidateMove` is
+where the one rename that cannot be expressed is refused -- a directory into
+itself, where the statement doing the rewriting would read rows it had already
+written -- and it lives in the port so all three drivers share it.
+
 An **upload in progress is a row**, in `internal/db`, not something held in
 memory: the point of a resumable upload is that a phone can come back to it
 after a tunnel or a restart, and a server that forgot where it was would make
