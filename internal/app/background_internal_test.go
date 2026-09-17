@@ -39,7 +39,7 @@ func TestCollectorSurvivesAFailedPass(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	a := New(config.Config{GCInterval: time.Millisecond, GCGrace: time.Hour}, "test", "2026-01-01")
+	a := New(config.Config{GCInterval: time.Millisecond, GCGrace: time.Hour}, "test", "2026-01-01T09:30:00Z")
 	deps := Deps{Storage: blobs, Database: dbtest.FailOn(t, meta, "ExpiredUploads")}
 
 	// Long enough for several passes to fail, short enough that the test is not

@@ -22,9 +22,11 @@ import (
 // version and buildDate are overridden at build time with
 // -ldflags "-X main.version=... -X main.buildDate=...".
 //
-// The date is the commit's, not the clock's, so two builds of the same source
-// are still the same bytes -- and because what somebody reading it wants to
-// know is how old the code is, not when a runner happened to compile it.
+// The timestamp is the commit's, not the clock's, so two builds of the same
+// source are still the same bytes -- and because what somebody reading it wants
+// to know is how old the code is, not when a runner happened to compile it. UTC
+// and to the second: a footer that says only the day cannot tell two builds of
+// the same afternoon apart, which is exactly when somebody is asking.
 var (
 	version   = "dev"
 	buildDate = "unknown"

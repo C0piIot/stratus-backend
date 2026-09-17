@@ -68,7 +68,7 @@ func TestReadyzReportsBothDependencies(t *testing.T) {
 	t.Parallel()
 	d, _ := deps(t)
 
-	rec := get(t, app.New(testConfig(t), "test", "2026-01-01").Handler(d), "/readyz")
+	rec := get(t, app.New(testConfig(t), "test", "2026-01-01T09:30:00Z").Handler(d), "/readyz")
 	if rec.Code != http.StatusOK {
 		t.Errorf("GET /readyz = %d, want 200", rec.Code)
 	}
@@ -83,7 +83,7 @@ func TestReadyzReportsBothDependencies(t *testing.T) {
 func TestReadyzWithNothingConfigured(t *testing.T) {
 	t.Parallel()
 
-	rec := get(t, app.New(testConfig(t), "test", "2026-01-01").Handler(app.Deps{}), "/readyz")
+	rec := get(t, app.New(testConfig(t), "test", "2026-01-01T09:30:00Z").Handler(app.Deps{}), "/readyz")
 	if rec.Code != http.StatusOK {
 		t.Errorf("GET /readyz = %d, want 200", rec.Code)
 	}
@@ -107,7 +107,7 @@ func TestReadyzWhenADependencyIsGone(t *testing.T) {
 			d, shutdown := deps(t)
 			shutdown(tt.which)
 
-			rec := get(t, app.New(testConfig(t), "test", "2026-01-01").Handler(d), "/readyz")
+			rec := get(t, app.New(testConfig(t), "test", "2026-01-01T09:30:00Z").Handler(d), "/readyz")
 			if rec.Code != http.StatusServiceUnavailable {
 				t.Errorf("GET /readyz with no %s = %d, want 503", tt.which, rec.Code)
 			}
@@ -128,7 +128,7 @@ func TestHealthzIgnoresDependencies(t *testing.T) {
 	shutdown("database")
 	shutdown("storage")
 
-	rec := get(t, app.New(testConfig(t), "test", "2026-01-01").Handler(d), "/healthz")
+	rec := get(t, app.New(testConfig(t), "test", "2026-01-01T09:30:00Z").Handler(d), "/healthz")
 	if rec.Code != http.StatusOK {
 		t.Errorf("GET /healthz with both dependencies gone = %d, want 200", rec.Code)
 	}
@@ -176,7 +176,7 @@ func TestProbe(t *testing.T) {
 
 	t.Run("healthy server", func(t *testing.T) {
 		t.Parallel()
-		srv := httptest.NewServer(app.New(testConfig(t), "test", "2026-01-01").Handler(app.Deps{}))
+		srv := httptest.NewServer(app.New(testConfig(t), "test", "2026-01-01T09:30:00Z").Handler(app.Deps{}))
 		defer srv.Close()
 		if err := app.Probe(strings.TrimPrefix(srv.URL, "http://")); err != nil {
 			t.Errorf("Probe: %v", err)
@@ -201,7 +201,7 @@ func TestProbe(t *testing.T) {
 	t.Run("nothing listening is an error", func(t *testing.T) {
 		t.Parallel()
 		// Bind then immediately close to get a port nothing is listening on.
-		srv := httptest.NewServer(app.New(testConfig(t), "test", "2026-01-01").Handler(app.Deps{}))
+		srv := httptest.NewServer(app.New(testConfig(t), "test", "2026-01-01T09:30:00Z").Handler(app.Deps{}))
 		hostPort := strings.TrimPrefix(srv.URL, "http://")
 		srv.Close()
 		if err := app.Probe(hostPort); err == nil {

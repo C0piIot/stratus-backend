@@ -14,9 +14,11 @@ ALPINE_VERSION ?= 3.24
 DEBIAN_SUITE   ?= trixie
 IMAGE          ?= stratus-backend
 VERSION        ?= $(shell git describe --tags --match "v*" --always --dirty 2>/dev/null || echo dev)
-# The commit's date, not today's: a rebuild of the same commit has to produce
-# the same binary, and what a footer is asked is how old the code is.
-BUILD_DATE     ?= $(shell git show -s --format=%cs 2>/dev/null || echo unknown)
+# The commit's timestamp, not today's: a rebuild of the same commit has to
+# produce the same binary, and what a footer is asked is how old the code is.
+# UTC and to the second, so two builds an hour apart are still distinguishable
+# and nobody has to know where the machine was.
+BUILD_DATE     ?= $(shell TZ=UTC git show -s --date=format-local:%Y-%m-%dT%H:%M:%SZ --format=%cd 2>/dev/null || echo unknown)
 
 # These mirror the interpolation names used by compose.yaml.
 STRATUS_PORT      ?= 8080
