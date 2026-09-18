@@ -4,10 +4,19 @@ name: demo reset
 # footer, which anybody can read off this repository -- so what keeps it from
 # being worth abusing is that it forgets everything, every hour.
 #
-# A deploy replaces the machine's filesystem along with the image, so
-# redeploying what is *already* running is exactly a wipe: same commit, same
-# binary, same password, empty tree. Nothing here upgrades anything; the
-# pipeline in ci.yml is what deploys new code.
+# **Destroying the machine is the wipe.** Redeploying the same image is not, and
+# neither is stopping the machine and starting it again: both were believed to
+# replace the filesystem, both were tried against the real instance, and the
+# database survived all three. What a deploy replaces is the image; the disk
+# under it stays. So this destroys the machine and lets a deploy make a new one
+# -- same commit, same binary, same password, empty tree.
+#
+# It leaves the demo down for the length of a deploy, which is the honest price
+# of a wipe that actually wipes, and it is a demo.
+#
+# Nothing here upgrades anything; the pipeline in ci.yml is what deploys new
+# code -- and it destroys the machine for the same reason, or a schema change
+# lands on a database written by the build before it.
 #
 # GitHub's schedule is best effort and runs late under load, and it stops
 # altogether after sixty days with no push to the repository. Neither matters
@@ -41,46 +50,57 @@ jobs:
 
       - uses: superfly/flyctl-actions/setup-flyctl@v1.4
 
-      - name: what it runs, and what it answers to
+      - name: what it is running
         id: running
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
         run: |
-          # Asked of the server rather than worked out from git: this job resets
-          # whatever is deployed, which is not necessarily this commit, and the
-          # version it reports is its password. Every OpenSubsonic answer carries
-          # it -- including the refusal you get for asking with no credentials,
-          # which is why this needs none.
-          version="$(curl -fsS "https://$FLY_APP.fly.dev/rest/ping.view" |
-            sed -n 's/.*serverVersion="\([^"]*\)".*/\1/p')"
-          [ -n "$version" ] || { echo "the instance did not say what it is running"; exit 1; }
-
-          image="$(flyctl image show --app "$FLY_APP" --json |
-            jq -r '.[0] | "\(.Registry)/\(.Repository)@\(.Digest)"')"
+          # Read off the machine rather than worked out from git: this job
+          # resets whatever is deployed, which is not necessarily this commit,
+          # and putting a different build back would make it a deploy.
+          image="$(flyctl image show --app "$FLY_APP" --json 2>/dev/null |
+            jq -r '.[0] | "\(.Registry)/\(.Repository)@\(.Digest)"' || true)"
           case "$image" in
           */*@sha256:*) ;;
           *)
-            echo "not an image reference: $image"
-            exit 1
+            # No machine to read it off, which is what a reset that failed
+            # halfway leaves behind. fly.toml names what CI publishes, so this
+            # recovers the instance rather than needing somebody to notice.
+            image=""
+            echo "no image on the app; falling back to the one in fly.toml"
             ;;
           esac
-
-          echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "image=$image" >> "$GITHUB_OUTPUT"
-          echo "resetting $FLY_APP: $version"
 
       - name: put it back on an empty disk
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
         run: |
+          # Every machine, though there is one: --ha=false keeps it that way and
+          # a loop costs nothing if that ever changes.
+          for id in $(flyctl machine list --app "$FLY_APP" --json | jq -r '.[].id'); do
+            flyctl machine destroy "$id" --app "$FLY_APP" --force
+          done
+
+          # Between here and the deploy the demo is gone, which is the honest
+          # price of a wipe that wipes.
           flyctl deploy \
             --app "$FLY_APP" \
-            --image "${{ steps.running.outputs.image }}" \
+            ${{ steps.running.outputs.image && format('--image "{0}"', steps.running.outputs.image) || '' }} \
             --ha=false --yes \
             --wait-timeout 5m
 
       - name: seed the demo media again
         run: |
+          # The version is asked of the machine that now exists, not of the one
+          # that was destroyed, and it is the password: every OpenSubsonic
+          # answer carries it, including the refusal you get for asking with no
+          # credentials, which is why this needs none.
+          version="$(curl -fsS "https://$FLY_APP.fly.dev/rest/ping.view" |
+            sed -n 's/.*serverVersion="\([^"]*\)".*/\1/p')"
+          [ -n "$version" ] || { echo "the instance did not say what it is running"; exit 1; }
+          echo "reseeding $FLY_APP: $version"
+
           STRATUS_USERNAME="$(sed -n 's/^ *STRATUS_USERNAME *= *"\(.*\)"/\1/p' fly.toml)" \
-          STRATUS_PASSWORD="${{ steps.running.outputs.version }}" \
+          STRATUS_PASSWORD="$version" \
             ./scripts/seed-demo.sh "https://$FLY_APP.fly.dev"

@@ -571,16 +571,19 @@ is not part of it. Three things follow, and none of them is an accident:
   session is logged out by the next merge to `main`. Reconfiguring a Subsonic
   client after a merge is the cost of not having a secret to manage.
 - **It sleeps when nobody is looking**, and is suspended rather than stopped so
-  that it comes back holding what it held. A Fly machine keeps nothing across a
-  stop — the root filesystem is ephemeral and there is no volume here on purpose
-  — so this is the setting that decides whether somebody arriving at a quiet
-  moment finds the demo or finds nothing.
-- **It wipes itself every hour**, on top of wiping on every deploy. That is what
-  makes an open instance not worth abusing: whatever anybody leaves there —
-  including you — is gone within the hour, and the demo media is put back.
-  `.github/workflows/demo-reset.yml` redeploys the image that is already
-  running, which replaces the machine's filesystem without changing a line of
-  what it runs.
+  that it comes back holding what it held. This is the setting that decides
+  whether somebody arriving at a quiet moment finds the demo or finds nothing.
+- **It wipes itself every hour**, and on every deploy. That is what makes an open
+  instance not worth abusing: whatever anybody leaves there — including you — is
+  gone within the hour, and the demo media is put back.
+  `.github/workflows/demo-reset.yml` destroys the machine and lets a deploy make
+  a new one, without changing a line of what it runs.
+
+  Destroying it is the point rather than an implementation detail. A deploy
+  replaces the image and leaves the disk under it, and so does stopping the
+  machine and starting it again: both were believed to wipe and neither does,
+  which the demo demonstrated by spending two days serving a database from
+  before the schema the binary expected.
 
 Which is why the deploy ends by seeding it: `scripts/seed-demo.sh` fetches a
 4.4 MB bundle of freely licensed media — five photographs with their EXIF, two
