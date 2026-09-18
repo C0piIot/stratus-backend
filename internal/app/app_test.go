@@ -37,9 +37,8 @@ func runConfig(t *testing.T, vars map[string]string) config.Config {
 		vars["STRATUS_DATA_DIR"] = filepath.Join(t.TempDir(), "data")
 	}
 	vars["STRATUS_ADDR"] = freeAddr(t)
-	// Off unless a test asks for it: the toolchain container has no ffprobe, and
-	// requiring it is the point rather than an accident. The end-to-end path is
-	// asserted by the smoke tests, inside the image that does have it.
+	// Indexing is off unless a test asks for it: a pass in the background is
+	// noise in a test about something else.
 	if _, ok := vars["STRATUS_INDEX_INTERVAL"]; !ok {
 		vars["STRATUS_INDEX_INTERVAL"] = "0"
 	}
@@ -51,10 +50,27 @@ func runConfig(t *testing.T, vars map[string]string) config.Config {
 	return cfg
 }
 
-// TestMain silences the startup log line so test output stays readable.
+// TestMain silences the startup log line so test output stays readable, and
+// puts the media tools on the PATH.
+//
+// Once for the whole binary rather than per test: the server refuses to start
+// without ffprobe and ffmpeg, half these tests run in parallel, and t.Setenv
+// and t.Parallel cannot be used together. Nothing here is about what the tools
+// do -- see stubTools -- and the real ones are driven by scripts/smoke.sh
+// inside the image that carries them.
 func TestMain(m *testing.M) {
 	slog.SetDefault(slog.New(slog.NewTextHandler(io.Discard, nil)))
-	os.Exit(m.Run())
+
+	dir, err := stubTools()
+	if err != nil {
+		panic(err)
+	}
+	if err := os.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH")); err != nil {
+		panic(err)
+	}
+	code := m.Run()
+	_ = os.RemoveAll(dir)
+	os.Exit(code)
 }
 
 func TestHandlerHealthz(t *testing.T) {

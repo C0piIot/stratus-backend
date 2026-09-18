@@ -97,6 +97,11 @@ const generating = 4
 type Thumbs struct {
 	blobs storage.Storage
 	files *files.Service
+	// ffmpeg is the path to the binary that reads what Go cannot, and tmpDir is
+	// where a blob is put down for it: it opens files and seeks in them, which
+	// the storage port does not offer.
+	ffmpeg string
+	tmpDir string
 	// decoding is the semaphore generating describes. Buffered rather than a
 	// sync primitive so that waiting for it can be cancelled with the request.
 	decoding chan struct{}
@@ -105,8 +110,11 @@ type Thumbs struct {
 // NewThumbs wires the generator. It takes the blob store directly because a
 // derived object has no database row -- the blob-plus-row invariant internal
 // files exists to hold does not apply to something regenerable.
-func NewThumbs(blobs storage.Storage, service *files.Service) *Thumbs {
-	return &Thumbs{blobs: blobs, files: service, decoding: make(chan struct{}, generating)}
+func NewThumbs(blobs storage.Storage, service *files.Service, ffmpeg, tmpDir string) *Thumbs {
+	return &Thumbs{
+		blobs: blobs, files: service, ffmpeg: ffmpeg, tmpDir: tmpDir,
+		decoding: make(chan struct{}, generating),
+	}
 }
 
 // File returns a thumbnail of the file at path, making it if this is the first
@@ -155,16 +163,47 @@ func (t *Thumbs) Cover(ctx context.Context, owner, dir string, px int) (io.ReadC
 func (t *Thumbs) open(ctx context.Context, f db.File, px int) (io.ReadCloser, int64, error) {
 	size := snapSize(px)
 	return t.cached(ctx, thumbKey(f.BlobKey, size), func() ([]byte, error) {
-		if !decodableInGo(f.Path) {
+		switch {
+		case decodableInGo(f.Path):
+			body, err := t.files.OpenFile(ctx, f)
+			if err != nil {
+				return nil, fmt.Errorf("open %q: %w", f.Path, err)
+			}
+			defer func() { _ = body.Close() }()
+			return reduceTo(body, f.Path, size)
+		case decodableByFFmpeg(f.Path):
+			return t.fromFFmpeg(ctx, f, size)
+		default:
 			return nil, fmt.Errorf("%w: %s", ErrNoThumbnail, path.Ext(f.Path))
 		}
-		body, err := t.files.OpenFile(ctx, f)
-		if err != nil {
-			return nil, fmt.Errorf("open %q: %w", f.Path, err)
-		}
-		defer func() { _ = body.Close() }()
-		return reduceTo(body, f.Path, size)
 	})
+}
+
+// fromFFmpeg is the other half: a HEIC, or a frame out of a video.
+//
+// It costs a copy of the file, which is the one thing #48 was about removing --
+// and it is unavoidable here for the reason it was unavoidable there, that a
+// binary opens files and seeks in them. What makes it acceptable is that it
+// happens once per file and size: the result is a derived blob, and the next
+// ask reads it.
+func (t *Thumbs) fromFFmpeg(ctx context.Context, f db.File, size thumbSize) ([]byte, error) {
+	body, err := t.files.OpenFile(ctx, f)
+	if err != nil {
+		return nil, fmt.Errorf("open %q: %w", f.Path, err)
+	}
+	defer func() { _ = body.Close() }()
+
+	local, cleanup, err := spool(body, t.tmpDir, f.Path)
+	if err != nil {
+		return nil, err
+	}
+	defer cleanup()
+
+	frame, err := decodeScaled(ctx, t.ffmpeg, local, int(size), isVideo(f.Path))
+	if err != nil {
+		return nil, fmt.Errorf("%w: %q: %w", ErrNoThumbnail, f.Path, err)
+	}
+	return encodeThumb(frame, f.Path, size)
 }
 
 // fromTrack returns a thumbnail of the picture inside a track.
@@ -238,7 +277,14 @@ func reduceTo(r io.Reader, name string, size thumbSize) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w: decoding %q: %w", ErrNoThumbnail, name, err)
 	}
+	return encodeThumb(src, name, size)
+}
 
+// encodeThumb is the last step whatever produced the pixels: fit them in the
+// box and write the JPEG. ffmpeg has already scaled to the width asked for, so
+// for a landscape frame reduce has nothing to do; a portrait one comes back
+// taller than the box and this is where it stops being so.
+func encodeThumb(src image.Image, name string, size thumbSize) ([]byte, error) {
 	var out bytes.Buffer
 	if err := jpeg.Encode(&out, reduce(src, int(size)), &jpeg.Options{Quality: thumbQuality}); err != nil {
 		return nil, fmt.Errorf("encode a thumbnail of %q: %w", name, err)
@@ -354,18 +400,43 @@ func coverKey(blobKey string, size thumbSize) string {
 // extensions that drifts from this one. It is a property of the build and not
 // of the file, which is why it is computed here and stored nowhere: the day the
 // ffmpeg path is wired, every HEIC changes its answer without a byte moving.
-func CanThumbnail(p string) bool { return decodableInGo(p) }
+func CanThumbnail(p string) bool { return decodableInGo(p) || decodableByFFmpeg(p) }
 
 // decodableInGo reports whether this build can read the file without ffmpeg.
 //
 // Only what the standard library decodes today. WebP and TIFF wait for the
-// x/image decoders, and HEIC and video for the ffmpeg path -- the point of the
-// list is that a format is either read here or refused honestly, never read
-// badly.
+// x/image decoders -- the point of the list is that a format is either read
+// here or refused honestly, never read badly.
 func decodableInGo(p string) bool {
 	switch strings.ToLower(path.Ext(p)) {
 	case ".jpg", ".jpeg", ".png":
 		return true
 	}
 	return false
+}
+
+// decodableByFFmpeg is the rest: what the binary in this image was built to
+// decode, which is HEIC and the video containers.
+//
+// **This list mirrors the decoders in build/ffmpeg/Dockerfile**, the same way
+// byExtension mirrors the demuxers for ffprobe, and it drifts the same way: an
+// extension added here without its decoder there is not a build failure, it is
+// a broken thumbnail in production for that format only.
+//
+// .avif is missing on purpose -- AV1 is out of that build -- and so is camera
+// raw, which needs the preview embedded in the file rather than a decode.
+func decodableByFFmpeg(p string) bool {
+	switch strings.ToLower(path.Ext(p)) {
+	case ".heic", ".heif":
+		return true
+	case ".mp4", ".mov", ".m4v", ".mkv", ".webm", ".avi", ".mpg", ".mpeg", ".wmv":
+		return true
+	}
+	return false
+}
+
+// isVideo says whether a frame has to be chosen, which is the one thing the
+// two ffmpeg cases do differently: a photograph is the only frame there is.
+func isVideo(p string) bool {
+	return byExtension[strings.ToLower(path.Ext(p))] == db.KindVideo
 }

@@ -42,7 +42,7 @@ func thumbs(t *testing.T) (*Thumbs, *files.Service, storage.Storage) {
 	}
 
 	service := files.New(blobs, meta)
-	return NewThumbs(blobs, service), service, blobs
+	return NewThumbs(blobs, service, stubFFmpeg(t), t.TempDir()), service, blobs
 }
 
 func TestSnapSize(t *testing.T) {
@@ -503,7 +503,7 @@ func TestAThumbnailThatCannotBeStoredIsStillServed(t *testing.T) {
 	_, service, blobs := thumbs(t)
 	f := writeImage(t, service, "photos/one.jpg", 400, 400)
 
-	th := NewThumbs(storagetest.FailOn(t, blobs, "Put"), service)
+	th := NewThumbs(storagetest.FailOn(t, blobs, "Put"), service, stubFFmpeg(t), t.TempDir())
 	body, size, err := th.open(t.Context(), f, 96)
 	if err != nil {
 		t.Fatalf("open with a store that will not keep it = %v", err)
@@ -536,28 +536,9 @@ func TestOpenReportsAStoreItCannotRead(t *testing.T) {
 	_, service, blobs := thumbs(t)
 	f := writeImage(t, service, "photos/one.jpg", 400, 400)
 
-	th := NewThumbs(storagetest.FailOn(t, blobs, "Get"), service)
+	th := NewThumbs(storagetest.FailOn(t, blobs, "Get"), service, stubFFmpeg(t), t.TempDir())
 	if _, _, err := th.open(t.Context(), f, 96); !errors.Is(err, storagetest.ErrInjected) {
 		t.Errorf("open = %v, want the failure passed on", err)
-	}
-}
-
-// TestCanThumbnail is the question a page asks before it renders an image, and
-// it has to be the same question this package answers when asked for one.
-func TestCanThumbnail(t *testing.T) {
-	t.Parallel()
-
-	for _, name := range []string{"holiday.jpg", "HOLIDAY.JPEG", "screenshot.png"} {
-		if !CanThumbnail(name) {
-			t.Errorf("CanThumbnail(%q) = false, want true", name)
-		}
-	}
-	// Not yet, and honestly: HEIC and video wait for the ffmpeg path, and a
-	// page that rendered an image for them would show a broken one.
-	for _, name := range []string{"IMG_0001.HEIC", "clip.mp4", "notes.txt", "noextension"} {
-		if CanThumbnail(name) {
-			t.Errorf("CanThumbnail(%q) = true, want false", name)
-		}
 	}
 }
 

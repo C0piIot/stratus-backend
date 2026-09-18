@@ -72,7 +72,7 @@ func handlerIndexing(t *testing.T, s *files.Service, blobs storage.Storage, ix w
 	t.Helper()
 	creds := credentials()
 	return web.Handler(version, buildDate, creds, auth.NewSessions(creds, auth.DefaultSessionTTL),
-		s, media.NewThumbs(blobs, s), ix)
+		s, media.NewThumbs(blobs, s, "ffmpeg", t.TempDir()), ix)
 }
 
 // service is the real file layer over real backends in a temporary directory,
@@ -85,7 +85,7 @@ func pieces(t *testing.T) (*files.Service, *media.Thumbs, db.Store) {
 	t.Helper()
 	blobs, meta := backends(t)
 	s := files.New(blobs, meta)
-	return s, media.NewThumbs(blobs, s), meta
+	return s, media.NewThumbs(blobs, s, "ffmpeg", t.TempDir()), meta
 }
 
 // indexing is what the status page and the listing's marks read, with the
@@ -124,7 +124,7 @@ func handlerOver(t *testing.T, s *files.Service, blobs storage.Storage, index db
 	t.Helper()
 	creds := credentials()
 	return web.Handler(version, buildDate, creds, auth.NewSessions(creds, auth.DefaultSessionTTL),
-		s, media.NewThumbs(blobs, s), indexing(index))
+		s, media.NewThumbs(blobs, s, "ffmpeg", t.TempDir()), indexing(index))
 }
 
 // refusing answers every login with one error, for the arms a correct password

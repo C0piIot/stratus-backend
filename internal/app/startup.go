@@ -95,17 +95,28 @@ func (a *App) open(ctx context.Context) (deps Deps, err error) {
 		}
 	}))
 
+	// Both tools are hard requirements rather than optional extras, and for the
+	// same reason: without ffprobe a track has no duration and a video no
+	// dimensions, and without ffmpeg a photograph from a phone has no picture of
+	// itself. Half a media library is worse than an honest refusal to start --
+	// and the thumbnail half of that is also what keeps media.CanThumbnail a
+	// function of the name, rather than something a page has to ask about.
+	ffmpeg, ferr := media.LookupFFmpeg()
+	if ferr != nil {
+		return deps, ferr
+	}
+	// The spool is the generator's as much as the indexer's, so it exists
+	// whether or not anything is being indexed.
+	tmp, terr := media.TempDir(a.cfg.DataDir)
+	if terr != nil {
+		return deps, terr
+	}
+	deps.Thumbs = media.NewThumbs(deps.Storage, deps.Files, ffmpeg, tmp)
+
 	if a.cfg.IndexInterval > 0 {
-		// ffprobe is a hard requirement rather than an optional extra: without
-		// it a track has no duration and a video no dimensions, and half a
-		// media library is worse than an honest refusal to start.
-		ffprobe, ferr := media.LookupFFprobe()
-		if ferr != nil {
-			return deps, ferr
-		}
-		tmp, terr := media.TempDir(a.cfg.DataDir)
-		if terr != nil {
-			return deps, terr
+		ffprobe, perr := media.LookupFFprobe()
+		if perr != nil {
+			return deps, perr
 		}
 		indexer = media.NewIndexer(deps.Files, deps.Database, tmp, ffprobe)
 		deps.Indexer = indexer

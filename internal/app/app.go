@@ -66,6 +66,10 @@ type Deps struct {
 	// the watcher that tells the indexer a file has just landed: a second
 	// instance would be a second half of the system whose writes nobody hears.
 	Files *files.Service
+	// Thumbs makes the pictures every surface offers, and is built here rather
+	// than per surface because it holds the path to ffmpeg and the directory a
+	// blob is put down in for it.
+	Thumbs *media.Thumbs
 	// Indexer is nil when there is nothing to index into, which today means no
 	// credentials and therefore no files.
 	Indexer *media.Indexer
@@ -123,7 +127,7 @@ func (a *App) Handler(deps Deps) http.Handler {
 		// Thumbnails are made from the blob store and kept in it, so the
 		// generator takes the store directly: a derived object has no database
 		// row and never will.
-		thumbs := media.NewThumbs(deps.Storage, service)
+		thumbs := deps.Thumbs
 		mux.Handle(subsonicPrefix,
 			subsonic.Handler(subsonicPrefix, a.version, verifier, deps.Database, service, thumbs))
 

@@ -745,6 +745,45 @@ TRACK
     *)                     ok "a text file is offered no thumbnail" ;;
   esac
 
+  # The two formats Go cannot decode, through the shipped image and the ffmpeg
+  # in it: a photograph from a phone, and a frame out of a video. This is the
+  # only place either binary is real -- the unit tests skip where there is none.
+  #
+  # The video is also what the indexer reads out of its own container over
+  # ranges (#48), which the status assertions further down are about.
+  curl -fsS -u "$davuser:$davpass" -X PUT --data-binary "@scripts/testdata/photo.heic" \
+    "http://$davhost/dav/photo.heic" >/dev/null 2>&1
+  curl -fsS -u "$davuser:$davpass" -X PUT --data-binary "@scripts/testdata/clip.mp4" \
+    "http://$davhost/dav/clip.mp4" >/dev/null 2>&1
+
+  for subject in photo.heic clip.mp4; do
+    file="$(mktmp)/thumb.jpg"
+    code="$(curl -s -o "$file" -w '%{http_code} %{content_type}' -b "$jar" \
+      "http://$davhost/thumb/$subject?size=96")"
+    bytes="$(stat -c '%s' "$file" 2>/dev/null || echo 0)"
+    # A JPEG, and one with a picture in it: a header alone is under a hundred
+    # bytes and a 96-pixel thumbnail is a few thousand.
+    case "$code" in
+      "200 image/jpeg"*)
+        if [ "$bytes" -gt 200 ] && [ "$bytes" -lt 100000 ]; then
+          ok "ffmpeg makes a thumbnail of $subject ($bytes bytes)"
+        else
+          bad "ffmpeg makes a thumbnail of $subject" "$bytes bytes"
+        fi ;;
+      *) bad "ffmpeg makes a thumbnail of $subject" "the request answered '$code'" ;;
+    esac
+  done
+
+  # And the listing offers them, which is the half of this a browser sees: the
+  # answer is a property of the build, so wiring the path changed every row of
+  # every folder at once.
+  listing="$(curl -fsS -b "$jar" "http://$davhost/files/" 2>/dev/null || true)"
+  case "$listing" in
+    *'/thumb/photo.heic'*'/thumb/clip.mp4'*|*'/thumb/clip.mp4'*'/thumb/photo.heic'*)
+      ok "the listing offers a picture for both" ;;
+    *) bad "the listing offers a picture for both" "$(grep -o '/thumb/[a-z.]*' <<<"$listing" | tr '\n' ' ')" ;;
+  esac
+
   # The listing is one page of a folder and a cursor to the next, which is what
   # keeps a hundred thousand photographs out of one document. The tree here is
   # far smaller than a page, so what is asserted is the cursor itself: the row
@@ -834,13 +873,6 @@ TRACK
     bad "a file deleted in the browser is gone over WebDAV" \
       "the form answered $code, WebDAV answered $gone"
   fi
-
-  # A real video, through the shipped image. Its metadata is read out of the
-  # container over ranges rather than by copying the file to disk and running
-  # ffprobe on it, which is what #48 was about -- and the assertion that it
-  # worked is that it is indexed and nothing failed.
-  curl -fsS -u "$davuser:$davpass" -X PUT --data-binary "@scripts/testdata/clip.mp4" \
-    "http://$davhost/dav/clip.mp4" >/dev/null 2>&1
 
   # The library reports on itself, which is the only way to see a first pass
   # over an adopted bucket getting anywhere. Everything this script uploaded has
