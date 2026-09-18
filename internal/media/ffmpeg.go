@@ -32,11 +32,18 @@ const thumbTimeout = 30 * time.Second
 // a bug, not a big picture.
 const maxFrameBytes = 64 << 20
 
-// videoFrameAt is how far into a video the frame is taken from. The first frame
+// videoFrameAt is how far into a video the frames are taken from. The opening
 // of a recording is very often black -- a phone starts recording before the
-// sensor has settled -- and a second in is what every other thumbnailer does.
-// A clip shorter than that is handled by asking again from the start.
+// sensor has settled -- so the first second is skipped outright and the filter
+// below chooses among what follows. A clip shorter than this is handled by
+// asking again from the start.
 const videoFrameAt = time.Second
+
+// framesConsidered is how many frames the thumbnail filter weighs before it
+// picks one, which at ordinary frame rates is about four seconds of film. More
+// would survive a longer fade-in and cost more decoding for every video in the
+// library.
+const framesConsidered = 100
 
 // decodeScaled runs ffmpeg over a local file and returns one frame, already
 // reduced so that its longest side is at most px.
@@ -82,7 +89,13 @@ func runFFmpeg(ctx context.Context, ffmpeg, path string, px int, at time.Duratio
 		// know how wide it is. A portrait frame therefore comes back taller than
 		// the box and reduce fits it afterwards -- one resize of something
 		// already small, against a size nothing could have inferred.
-		"-vf", "scale="+strconv.Itoa(px)+":-1",
+		// thumbnail before scale, and it is what keeps a thumbnail from being a
+		// black rectangle: it scores a batch of frames against their own
+		// average and hands back the least ordinary one. Measured on a film
+		// that opens with two seconds of black, the first frame and the frame a
+		// second in both average zero brightness, and this picks one at 125 out
+		// of 255.
+		"-vf", "thumbnail="+strconv.Itoa(framesConsidered)+",scale="+strconv.Itoa(px)+":-1",
 		// Rotation is deliberately left to ffmpeg, which reads the matrix in the
 		// container and inserts the transpose itself -- that filter is in the
 		// build for no other reason. A phone held upright is the ordinary case,

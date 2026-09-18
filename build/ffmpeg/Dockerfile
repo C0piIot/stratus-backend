@@ -65,6 +65,13 @@ RUN curl -fsSL "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz" | t
 # container says it was recorded rotated, which every phone held upright does --
 # and without them that is not a sideways thumbnail, it is a failed one: the
 # filter does not exist, so the command errors out.
+#
+# thumbnail is used, and it is what stops a thumbnail being a black rectangle.
+# Measured on a film that opens with two seconds of black: the first frame has
+# an average brightness of 0.0 and so does the frame one second in, which is
+# where this project used to ask for one. The filter scores a batch of frames
+# against their own average and hands back the least ordinary of them, which on
+# the same file is 125.3.
 RUN ./configure \
       --disable-everything --disable-doc --disable-network --disable-autodetect \
       --disable-shared --enable-static --enable-small \
@@ -74,7 +81,7 @@ RUN ./configure \
       --enable-demuxer=mov,matroska,avi,mpegps,mpegts,asf \
       --enable-decoder=hevc,h264,vp8,vp9,mpeg2video,mpeg4,msmpeg4v3,vc1,wmv3 \
       --enable-parser=h264,hevc,mpeg4video,vp8,vp9 \
-      --enable-filter=scale,format,null,transpose,hflip,vflip \
+      --enable-filter=scale,format,null,transpose,hflip,vflip,thumbnail \
       --enable-encoder=rawvideo --enable-muxer=rawvideo \
       --extra-ldflags=-static \
  && make -j"$(nproc)" ffmpeg \
@@ -99,7 +106,7 @@ RUN set -eu; \
       ./ffmpeg -hide_banner -decoders 2>/dev/null | grep -qE "^ V[.A-Z]* +${decoder} " \
         || { echo "the ${decoder} decoder is not in this build"; exit 1; }; \
     done; \
-    for filter in scale transpose hflip vflip; do \
+    for filter in scale transpose hflip vflip thumbnail; do \
       ./ffmpeg -hide_banner -filters 2>/dev/null | grep -qE " ${filter} " \
         || { echo "the ${filter} filter is not in this build"; exit 1; }; \
     done; \

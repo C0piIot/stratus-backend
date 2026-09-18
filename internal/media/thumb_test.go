@@ -23,6 +23,13 @@ import (
 // decode, a resize and an object in a blob store, and a fake store would only
 // prove the fake keeps what it is given.
 func thumbs(t *testing.T) (*Thumbs, *files.Service, storage.Storage) {
+	th, service, blobs, _ := thumbsOver(t)
+	return th, service, blobs
+}
+
+// thumbsOver is thumbs plus the metadata store, for the cases that have to say
+// something about a row rather than about a file.
+func thumbsOver(t *testing.T) (*Thumbs, *files.Service, storage.Storage, db.Store) {
 	t.Helper()
 	dir := t.TempDir()
 
@@ -42,7 +49,7 @@ func thumbs(t *testing.T) (*Thumbs, *files.Service, storage.Storage) {
 	}
 
 	service := files.New(blobs, meta)
-	return NewThumbs(blobs, service, stubFFmpeg(t), t.TempDir()), service, blobs
+	return NewThumbs(blobs, service, stubFFmpeg(t), t.TempDir()), service, blobs, meta
 }
 
 func TestSnapSize(t *testing.T) {
