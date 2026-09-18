@@ -78,6 +78,37 @@ func TestAFolderBiggerThanAPage(t *testing.T) {
 	}
 }
 
+// TestAPageThatEndsOnAFolder is the seam the cursor carries two halves for:
+// folders sort before files, so a page can stop in the middle of the folders
+// and the next one has to know it was still among them.
+func TestAPageThatEndsOnAFolder(t *testing.T) {
+	t.Parallel()
+	h, s := browser(t)
+	mkdir(t, s, "tree")
+	for i := range pageSize + 1 {
+		mkdir(t, s, fmt.Sprintf("tree/d%03d", i))
+	}
+	write(t, s, "tree/a-file.txt", "x")
+	cookie := signIn(t, h)
+
+	body := get(t, h, "/files/tree", cookie).Body.String()
+	if strings.Contains(body, "a-file.txt") {
+		t.Error("a file came back on a page that should be all folders")
+	}
+	match := nextLink.FindStringSubmatch(body)
+	if match == nil {
+		t.Fatal("no way to the rest of the folder")
+	}
+	if !strings.Contains(match[1], "after=d%2F") {
+		t.Errorf("the cursor is %q, want it to say it stopped among the folders", match[1])
+	}
+
+	rest := get(t, h, strings.ReplaceAll(match[1], "&amp;", "&"), cookie).Body.String()
+	if !strings.Contains(rest, "d100") || !strings.Contains(rest, "a-file.txt") {
+		t.Error("the second page lost the last folder or the file behind it")
+	}
+}
+
 // TestHtmxGetsTheRowsAndNothingElse: the same URL answers with the page or with
 // the piece of it htmx swaps in, and the difference is one request header. No
 // second endpoint, and nothing in JSON.

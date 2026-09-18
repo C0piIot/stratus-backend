@@ -34,7 +34,7 @@ var ErrInjected = errors.New("dbtest: injected failure")
 // test asking for one would silently never fail.
 var repoMethods = []string{
 	"PutFile", "CreateDir", "FileByPath", "ListFiles", "ListFilesPage", "MoveFile", "DeleteFile",
-	"BlobKeys", "PutMedia",
+	"BlobKeys", "PutMedia", "MediaCounts", "MediaStates",
 	"PutUpload", "UploadByID", "DeleteUpload", "ExpiredUploads",
 }
 
@@ -123,6 +123,22 @@ func (f *failingRepo) ListFilesPage(ctx context.Context, owner, dir string, afte
 		return nil, err
 	}
 	return f.Repo.ListFilesPage(ctx, owner, dir, after, limit)
+}
+
+// MediaCounts implements db.Repo.
+func (f *failingRepo) MediaCounts(ctx context.Context, version int) (db.MediaCounts, error) {
+	if err := f.fails("MediaCounts"); err != nil {
+		return db.MediaCounts{}, err
+	}
+	return f.Repo.MediaCounts(ctx, version)
+}
+
+// MediaStates implements db.Repo.
+func (f *failingRepo) MediaStates(ctx context.Context, fileIDs []int64) (map[int64]db.MediaState, error) {
+	if err := f.fails("MediaStates"); err != nil {
+		return nil, err
+	}
+	return f.Repo.MediaStates(ctx, fileIDs)
 }
 
 // MoveFile implements db.Repo.

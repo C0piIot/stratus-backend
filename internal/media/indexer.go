@@ -25,6 +25,9 @@ type Indexer struct {
 	meta    db.MediaIndex
 	tmpDir  string
 	ffprobe string
+	// wake carries no value and holds at most one: it says "do not wait for the
+	// timer", which is all a caller can usefully tell this.
+	wake chan struct{}
 }
 
 // LookupFFprobe finds ffprobe, which is a hard requirement rather than an
@@ -42,8 +45,31 @@ func LookupFFprobe() (string, error) {
 // NewIndexer wires an indexer. tmpDir is where blobs are spooled for ffprobe,
 // and ffprobe is its path, from LookupFFprobe.
 func NewIndexer(f *files.Service, meta db.MediaIndex, tmpDir, ffprobe string) *Indexer {
-	return &Indexer{files: f, meta: meta, tmpDir: tmpDir, ffprobe: ffprobe}
+	return &Indexer{files: f, meta: meta, tmpDir: tmpDir, ffprobe: ffprobe, wake: make(chan struct{}, 1)}
 }
+
+// Notice says a file has just been written. It is what internal/files calls
+// through its watcher, and what turns "indexed within a minute" into "indexed
+// now".
+//
+// The file it names is deliberately ignored: what runs next is the ordinary
+// batch over the ordinary query, so there is one path that indexes anything and
+// no second one that could disagree with it. That also makes five hundred
+// uploads one wake-up rather than five hundred, since the channel holds one.
+//
+// Never blocks, and never fails. A notice that is dropped -- because a pass is
+// already about to run, or because this process dies before it does -- costs
+// the file a wait for the next tick, which is exactly where it was before.
+func (i *Indexer) Notice(db.File) {
+	select {
+	case i.wake <- struct{}{}:
+	default:
+	}
+}
+
+// Woken is closed-over by the composition root's loop: it waits on this as well
+// as on its timer.
+func (i *Indexer) Woken() <-chan struct{} { return i.wake }
 
 // IndexBatch extracts metadata for up to BatchSize files and returns how many
 // it wrote. A full batch means there is probably more to do.
@@ -71,6 +97,9 @@ func (i *Indexer) index(ctx context.Context, f db.File) db.Media {
 	m.FileID = f.ID
 	m.IndexedAt = time.Now()
 	m.Version = Version
+	// Which bytes this describes. A file replaced later keeps this row and its
+	// id, and the queue compares the two validators to notice.
+	m.ETag = f.ETag
 	if err != nil {
 		m.Kind = kindOf(f)
 		m.Error = err.Error()

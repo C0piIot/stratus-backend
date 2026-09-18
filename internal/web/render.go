@@ -6,6 +6,8 @@ import (
 	"html/template"
 	"log/slog"
 	"net/http"
+
+	"github.com/C0piIot/stratus-backend/internal/db"
 )
 
 //go:embed templates
@@ -33,6 +35,7 @@ const (
 	pageFiles  = "files.html"
 	pageRename = "rename.html"
 	pageDelete = "delete.html"
+	pageStatus = "status.html"
 	pageError  = "error.html"
 )
 
@@ -44,6 +47,7 @@ var pages = map[string]*template.Template{
 	pageFiles:  parse(pageFiles),
 	pageRename: parse(pageRename),
 	pageDelete: parse(pageDelete),
+	pageStatus: parse(pageStatus),
 	pageError:  parse(pageError),
 }
 
@@ -82,6 +86,14 @@ type view struct {
 	Here     string
 	Folders  string
 	NextPage string
+	// Counts and the four fields under it are the status page: how much of the
+	// library has been looked at, by which extractor, and how often it checks
+	// when there is nothing to do.
+	Counts        db.MediaCounts
+	Percent       int
+	IndexVersion  int
+	IndexInterval string
+	IndexingOff   bool
 	// Name, IsDir, Action and Back are the two pages that act on one thing:
 	// what it is called, what it is, where the form posts and where Cancel goes.
 	Name   string

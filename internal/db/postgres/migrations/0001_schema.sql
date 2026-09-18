@@ -30,6 +30,10 @@ CREATE TABLE media (
     kind                TEXT             NOT NULL,
     indexed_at          TIMESTAMPTZ      NOT NULL,
     version             INTEGER          NOT NULL,
+    -- The file's validator when this was extracted. A replaced file keeps its
+    -- row and its id, so this is what tells the queue that the metadata
+    -- describes bytes that are no longer there.
+    etag                TEXT             NOT NULL DEFAULT '',
     error               TEXT             NOT NULL DEFAULT '',
     taken_at            TIMESTAMPTZ,
     width               INTEGER          NOT NULL DEFAULT 0,

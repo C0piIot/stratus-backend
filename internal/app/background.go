@@ -20,8 +20,9 @@ import (
 //
 // When a pass finds a full batch it comes straight back for more, so a first
 // run over an existing library goes as fast as the extractors allow; when it
-// finds nothing it waits. One worker: ffprobe on four cores that are also
-// serving requests does not want company.
+// finds nothing it waits -- for the interval, or for a write to say there is
+// something to do, whichever comes first. One worker: ffprobe on four cores
+// that are also serving requests does not want company.
 func (a *App) indexPeriodically(ctx context.Context, deps Deps) {
 	slog.Info("indexing media", "idle", a.cfg.IndexInterval, "version", media.Version)
 
@@ -42,6 +43,11 @@ func (a *App) indexPeriodically(ctx context.Context, deps Deps) {
 		select {
 		case <-ctx.Done():
 			return
+		case <-deps.Indexer.Woken():
+			// Something was just written. The interval is the idle poll and
+			// the safety net -- for a version bump, for rows an import
+			// inserted, for anything that landed while this process was not
+			// running -- and this is the ordinary case arriving on time.
 		case <-time.After(a.cfg.IndexInterval):
 		}
 	}
@@ -53,7 +59,7 @@ func (a *App) indexPeriodically(ctx context.Context, deps Deps) {
 // what it was replacing, which means every overwrite leaves one behind. This is
 // what reclaims them.
 func (a *App) collectPeriodically(ctx context.Context, deps Deps) {
-	service := files.New(deps.Storage, deps.Database)
+	service := deps.Files
 	ticker := time.NewTicker(a.cfg.GCInterval)
 	defer ticker.Stop()
 

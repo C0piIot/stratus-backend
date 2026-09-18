@@ -17,6 +17,7 @@
     <a class="navbar-brand" href="/">Stratus</a>
     {{if .User}}
     <form method="post" action="/logout" class="d-flex align-items-center gap-3 m-0">
+      <a class="navbar-text link-secondary text-decoration-none" href="/status">Status</a>
       <span class="navbar-text">{{.User}}</span>
       <button class="btn btn-sm btn-outline-secondary" type="submit">Sign out</button>
     </form>

@@ -83,6 +83,18 @@ func (a *App) open(ctx context.Context) (deps Deps, err error) {
 	}
 	slog.Info("database ready", "scheme", a.cfg.Database.Scheme, "dsn", a.cfg.Database)
 
+	// One file layer for the whole process, and the watcher that tells the
+	// indexer about a write as it happens. The variable is read by the watcher
+	// and written just below, both in this goroutine and both before Run serves
+	// anything or starts a background pass, which is what makes reading it from
+	// the closure safe.
+	var indexer *media.Indexer
+	deps.Files = files.New(deps.Storage, deps.Database, files.WithWatcher(func(f db.File) {
+		if indexer != nil {
+			indexer.Notice(f)
+		}
+	}))
+
 	if a.cfg.IndexInterval > 0 {
 		// ffprobe is a hard requirement rather than an optional extra: without
 		// it a track has no duration and a video no dimensions, and half a
@@ -95,7 +107,8 @@ func (a *App) open(ctx context.Context) (deps Deps, err error) {
 		if terr != nil {
 			return deps, terr
 		}
-		deps.Indexer = media.NewIndexer(files.New(deps.Storage, deps.Database), deps.Database, tmp, ffprobe)
+		indexer = media.NewIndexer(deps.Files, deps.Database, tmp, ffprobe)
+		deps.Indexer = indexer
 	}
 
 	if credentials(a.cfg).Configured() {

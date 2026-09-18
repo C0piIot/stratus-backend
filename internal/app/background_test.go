@@ -230,6 +230,11 @@ func TestRunRefusesWithoutFFprobe(t *testing.T) {
 // standing in for ffprobe: the toolchain container has no media tools, and what
 // is under test here is the loop rather than the extractors.
 //
+// The idle interval is ten minutes on purpose. Nothing here waits for it, so
+// what this asserts is the other half of the wiring: the write tells the
+// indexer and the indexer stops waiting. A file indexed seconds after a PUT,
+// with the timer that far away, cannot have got there any other way.
+//
 // Not parallel, because it changes the process environment.
 func TestIndexerRuns(t *testing.T) {
 	const password = "an example password"
@@ -240,7 +245,7 @@ func TestIndexerRuns(t *testing.T) {
 		"STRATUS_DATA_DIR":       dataDir,
 		"STRATUS_USERNAME":       "edu",
 		"STRATUS_PASSWORD":       password,
-		"STRATUS_INDEX_INTERVAL": "50ms",
+		"STRATUS_INDEX_INTERVAL": "10m",
 	})
 	defer stop()
 

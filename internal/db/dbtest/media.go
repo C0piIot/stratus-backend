@@ -27,6 +27,9 @@ func RunMedia(t *testing.T, newRepo func(t *testing.T) db.Repo) {
 		{"pending skips what is indexed", mediaPending},
 		{"a failed extraction is not retried", mediaFailureIsFinal},
 		{"a newer extractor puts everything back in the queue", mediaVersionBump},
+		{"overwriting a file puts it back in the queue", mediaOverwrite},
+		{"the counts say how much of the library is done", mediaCounts},
+		{"states come back for the files asked about", mediaStates},
 		{"deleting the file deletes its metadata", mediaCascade},
 	}
 
@@ -89,7 +92,7 @@ func mediaEveryColumn(t *testing.T, s db.Repo) {
 	f := put(t, s, file("videos/every-column.mkv"))
 
 	// Normalize because PutMedia does: the times come back at TimePrecision.
-	want := media(f.ID).Normalize()
+	want := media(f).Normalize()
 	assertEveryFieldSet(t, want)
 
 	if err := s.PutMedia(t.Context(), want); err != nil {
@@ -109,12 +112,13 @@ func mediaEveryColumn(t *testing.T, s db.Repo) {
 // It is deliberately implausible -- a camera and an album on the same row, and
 // an Error beside a successful probe -- because it exercises columns and not
 // meaning. The cases that care about meaning are mediaRoundTrip and mediaSparse.
-func media(fileID int64) db.Media {
+func media(f db.File) db.Media {
 	return db.Media{
-		FileID:      fileID,
+		FileID:      f.ID,
 		Kind:        db.KindVideo,
 		IndexedAt:   time.Date(2024, 7, 2, 9, 15, 0, 0, time.UTC),
 		Version:     7,
+		ETag:        f.ETag,
 		Error:       "truncated at the last frame",
 		TakenAt:     time.Date(2023, 5, 4, 18, 45, 30, 0, time.UTC),
 		Width:       3840,
@@ -228,7 +232,7 @@ func mediaPending(t *testing.T, s db.Repo) {
 		t.Fatalf("PendingMedia returned %d files, want the two that are not directories", len(pending))
 	}
 
-	if perr := s.PutMedia(t.Context(), db.Media{FileID: one.ID, Kind: db.KindImage, IndexedAt: time.Now(), Version: 1}); perr != nil {
+	if perr := s.PutMedia(t.Context(), indexed(one, 1)); perr != nil {
 		t.Fatal(perr)
 	}
 	pending, err = s.PendingMedia(t.Context(), 1, 10)
@@ -251,13 +255,8 @@ func mediaPending(t *testing.T, s db.Repo) {
 func mediaFailureIsFinal(t *testing.T, s db.Repo) {
 	f := put(t, s, file("broken.jpg"))
 
-	failed := db.Media{
-		FileID:    f.ID,
-		Kind:      db.KindImage,
-		IndexedAt: time.Now(),
-		Version:   1,
-		Error:     "no exif segment",
-	}
+	failed := indexed(f, 1)
+	failed.Error = "no exif segment"
 	if err := s.PutMedia(t.Context(), failed); err != nil {
 		t.Fatal(err)
 	}
@@ -281,7 +280,7 @@ func mediaFailureIsFinal(t *testing.T, s db.Repo) {
 
 func mediaVersionBump(t *testing.T, s db.Repo) {
 	f := put(t, s, file("photo.jpg"))
-	if err := s.PutMedia(t.Context(), db.Media{FileID: f.ID, Kind: db.KindImage, IndexedAt: time.Now(), Version: 1}); err != nil {
+	if err := s.PutMedia(t.Context(), indexed(f, 1)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -301,6 +300,126 @@ func mediaVersionBump(t *testing.T, s db.Repo) {
 
 // mediaCascade is what the foreign key is for: deleting a file takes its
 // metadata with it, in the same statement, without files knowing media exists.
+// indexed is a row saying "this file, these bytes, this extractor", which is
+// what every queue case needs and none of them care about the detail of.
+func indexed(f db.File, version int) db.Media {
+	return db.Media{
+		FileID:    f.ID,
+		Kind:      db.KindImage,
+		IndexedAt: time.Now(),
+		Version:   version,
+		ETag:      f.ETag,
+	}
+}
+
+// mediaOverwrite is the bug the etag column exists for. Replacing a file keeps
+// its row and therefore its id, so metadata written from the bytes that are
+// gone would otherwise describe the bytes that are there until somebody raised
+// the extractor version.
+func mediaOverwrite(t *testing.T, s db.Repo) {
+	first := put(t, s, file("holiday.mp4"))
+	if err := s.PutMedia(t.Context(), indexed(first, 1)); err != nil {
+		t.Fatal(err)
+	}
+	if pending, err := s.PendingMedia(t.Context(), 1, 10); err != nil || len(pending) != 0 {
+		t.Fatalf("PendingMedia after indexing = %+v, %v", pending, err)
+	}
+
+	replacement := file("holiday.mp4")
+	replacement.ETag = `"a different film"`
+	replacement.BlobKey = "blobs/holiday-2"
+	second := put(t, s, replacement)
+	if second.ID != first.ID {
+		t.Fatalf("the overwrite made a new row (%d, was %d); this case is about the one that does not",
+			second.ID, first.ID)
+	}
+
+	pending, err := s.PendingMedia(t.Context(), 1, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending) != 1 || pending[0].ID != first.ID {
+		t.Errorf("PendingMedia = %+v, want the overwritten file back", pending)
+	}
+}
+
+func mediaCounts(t *testing.T, s db.Repo) {
+	if _, err := s.CreateDir(t.Context(), owner, "album"); err != nil {
+		t.Fatal(err)
+	}
+	done := put(t, s, file("album/done.jpg"))
+	broken := put(t, s, file("album/broken.jpg"))
+	put(t, s, file("album/waiting.jpg"))
+
+	if err := s.PutMedia(t.Context(), indexed(done, 3)); err != nil {
+		t.Fatal(err)
+	}
+	failed := indexed(broken, 3)
+	failed.Error = "no exif segment"
+	if err := s.PutMedia(t.Context(), failed); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.MediaCounts(t.Context(), 3)
+	if err != nil {
+		t.Fatalf("MediaCounts: %v", err)
+	}
+	// The directory is not a file with metadata, and must not be counted as one
+	// waiting for some.
+	if got.Files != 3 || got.Indexed != 1 || got.Failed != 1 || got.Pending() != 1 {
+		t.Errorf("counts = %+v (pending %d), want 3 files, 1 indexed, 1 failed, 1 pending",
+			got, got.Pending())
+	}
+
+	// And what is pending by these numbers is what the queue would hand out.
+	pending, err := s.PendingMedia(t.Context(), 3, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if int64(len(pending)) != got.Pending() {
+		t.Errorf("the queue holds %d and the counts say %d", len(pending), got.Pending())
+	}
+}
+
+func mediaStates(t *testing.T, s db.Repo) {
+	done := put(t, s, file("done.jpg"))
+	waiting := put(t, s, file("waiting.jpg"))
+	broken := put(t, s, file("broken.jpg"))
+
+	if err := s.PutMedia(t.Context(), indexed(done, 3)); err != nil {
+		t.Fatal(err)
+	}
+	failed := indexed(broken, 3)
+	failed.Error = "no exif segment"
+	if err := s.PutMedia(t.Context(), failed); err != nil {
+		t.Fatal(err)
+	}
+
+	// An id that has no row and an id that is not a file at all: a listing asks
+	// about the page it is rendering, not about what it knows has metadata.
+	states, err := s.MediaStates(t.Context(), []int64{done.ID, waiting.ID, broken.ID, 99999})
+	if err != nil {
+		t.Fatalf("MediaStates: %v", err)
+	}
+	if len(states) != 2 {
+		t.Fatalf("states = %+v, want only the two files that have a row", states)
+	}
+	if got := states[done.ID]; got.Version != 3 || got.ETag != done.ETag || got.Failed {
+		t.Errorf("the indexed file = %+v", got)
+	}
+	if got := states[broken.ID]; !got.Failed {
+		t.Errorf("the failed file = %+v, want it marked", got)
+	}
+	if _, ok := states[waiting.ID]; ok {
+		t.Error("a file with no row came back with a state")
+	}
+
+	empty, err := s.MediaStates(t.Context(), nil)
+	if err != nil || len(empty) != 0 {
+		t.Errorf("MediaStates(nil) = %+v, %v", empty, err)
+	}
+}
+
 func mediaCascade(t *testing.T, s db.Repo) {
 	f := put(t, s, file("doomed.jpg"))
 	if err := s.PutMedia(t.Context(), db.Media{FileID: f.ID, Kind: db.KindImage, IndexedAt: time.Now(), Version: 1}); err != nil {

@@ -427,7 +427,7 @@ davuser="edu"
 davpass="an example password for the smoke tests"
 run_detached "$davname" -u "$(id -u):$(id -g)" -v "$davdir:/data" \
   -e STRATUS_USERNAME="$davuser" -e STRATUS_PASSWORD="$davpass" \
-  -e STRATUS_INDEX_INTERVAL=200ms
+  -e STRATUS_INDEX_INTERVAL=10m
 
 if wait_serving "$davname"; then
   davhost="$(docker port "$davname" 8080/tcp | head -1)"
@@ -835,6 +835,21 @@ TRACK
       "the form answered $code, WebDAV answered $gone"
   fi
 
+  # The library reports on itself, which is the only way to see a first pass
+  # over an adopted bucket getting anywhere. Everything this script uploaded has
+  # been through the indexer by now -- and, with the idle interval ten minutes
+  # away, only because each write said so.
+  finished=""
+  for _ in $(seq 1 50); do
+    status="$(curl -fsS -b "$jar" "http://$davhost/status" 2>/dev/null || true)"
+    case "$status" in *'>100%<'*) finished=yes; break ;; esac
+    sleep 0.2
+  done
+  if [ -n "$finished" ]; then
+    ok "the status page reports the library indexed"
+  else
+    bad "the status page reports the library indexed" "$(grep -o '[0-9]*%' <<<"$status" | head -3 | tr '\n' ' ')"
+  fi
   # The CSRF defence, from outside: a form on somebody else's page carries the
   # cookie and must still be refused.
   code="$(curl -s -o /dev/null -w '%{http_code}' -b "$jar" \
@@ -911,6 +926,9 @@ TRACK
 
   # The indexer picks up what was just uploaded, which is the whole loop: the
   # pending query, an extractor, and a row written back.
+  #
+  # The idle interval of this container is ten minutes, so nothing here is
+  # waiting for a timer: what is asserted is that the write told the indexer.
   indexed=""
   for _ in $(seq 1 50); do
     if docker logs "$davname" 2>&1 | grep -q '"msg":"indexed media"'; then
