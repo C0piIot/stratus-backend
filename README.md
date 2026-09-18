@@ -25,9 +25,10 @@ protocols your existing apps already understand.
 | CardDAV | contacts | DAVx5, Thunderbird | planned |
 | DLNA / UPnP-AV | TVs, set-top players | | planned |
 
-‡ Same caveat as below, one row down: the protocol works and the container
-suite cuts an upload in half and resumes it, but no tus client library has been
-pointed at this server yet.
+‡ The protocol works, the container suite cuts an upload in half and resumes it,
+and a real client does the same from the other side: the Stratus app negotiates
+tus, uploads and resumes against this image in its own CI. The three libraries in
+that row are still untried, so read the row as the server holding up its end.
 
 † The protocol works and is asserted end to end, up to and including streaming
 a track out of the shipped container. **No real client has been pointed at it
@@ -35,7 +36,11 @@ yet**, so read that row as the server holding up its end rather than as a
 promise about any particular app.
 
 Nothing here is a private API: every feature is reachable from a client that
-already exists, which is why there is no Stratus app to install.
+already exists, and no Stratus app is required to use any of it. There is one —
+[stratus-app](https://github.com/C0piIot/stratus-app), for automatic camera-roll
+backup, which is the one thing no existing client does for free on iOS — and it
+is held to the same rule: it speaks WebDAV and tus and works against any server
+that does.
 
 ## WebDAV
 
@@ -244,9 +249,10 @@ Both keep a second place for uploads that arrive over several requests and are
 meant to be resumed, which is the opposite case and is deliberately left alone
 by those sweeps: a directory beside the first one for the disk backend, and a
 spool under the data directory for the S3 one, where the tail of an upload waits
-until it is a whole part. Nothing uses them yet — the protocol that will is
-[#122](https://github.com/C0piIot/stratus-backend/issues/122) — and an empty
-directory is all you will find there today.
+until it is a whole part. This is where tus keeps an upload between `PATCH`es,
+so what is in there is whatever is in flight, and the twelve-hour expiry above is
+what empties it: abandoning an upload aborts it in the blob store, spool
+included.
 
 ## OpenSubsonic
 
