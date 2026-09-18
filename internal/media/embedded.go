@@ -274,7 +274,7 @@ func mp4Cover(r io.ReadSeeker) ([]byte, error) {
 	for _, step := range []string{"moov", "udta", "meta", "ilst", "covr", "data"} {
 		size, err := findAtom(r, end, step)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("%w: %w", ErrNoEmbeddedCover, err)
 		}
 		end = size
 		if step == "meta" {
@@ -299,13 +299,18 @@ func mp4Cover(r io.ReadSeeker) ([]byte, error) {
 	return picture, nil
 }
 
+// errNoAtom is what findAtom returns, wrapped by each caller in its own
+// sentinel: the walk is shared by the cover reader and the video prober, and
+// neither one's failure means what the other's does.
+var errNoAtom = errors.New("media: no such atom")
+
 // findAtom reads boxes from the current position until it finds want, leaving
 // the reader at its first byte and returning how many bytes it holds.
 func findAtom(r io.ReadSeeker, within int64, want string) (int64, error) {
 	for read := int64(0); read+8 <= within; {
 		var header [8]byte
 		if _, err := io.ReadFull(r, header[:]); err != nil {
-			return 0, fmt.Errorf("%w: %s", ErrNoEmbeddedCover, want)
+			return 0, fmt.Errorf("%w: %s", errNoAtom, want)
 		}
 		size := int64(binary.BigEndian.Uint32(header[0:4]))
 		name := string(header[4:8])
@@ -316,7 +321,7 @@ func findAtom(r io.ReadSeeker, within int64, want string) (int64, error) {
 			// mdat of a long recording.
 			var extended [8]byte
 			if _, err := io.ReadFull(r, extended[:]); err != nil {
-				return 0, fmt.Errorf("%w: %s", ErrNoEmbeddedCover, want)
+				return 0, fmt.Errorf("%w: %s", errNoAtom, want)
 			}
 			size = int64(binary.BigEndian.Uint64(extended[:])) //nolint:gosec // bounded below
 			size -= 8
@@ -325,7 +330,7 @@ func findAtom(r io.ReadSeeker, within int64, want string) (int64, error) {
 			size = within - read
 		}
 		if size < 8 || read+size > within {
-			return 0, fmt.Errorf("%w: a malformed %s atom", ErrNoEmbeddedCover, name)
+			return 0, fmt.Errorf("%w: a malformed %s atom", errNoAtom, name)
 		}
 		read += size
 
@@ -333,10 +338,10 @@ func findAtom(r io.ReadSeeker, within int64, want string) (int64, error) {
 			return size - 8, nil
 		}
 		if _, err := r.Seek(size-8, io.SeekCurrent); err != nil {
-			return 0, fmt.Errorf("%w: %s", ErrNoEmbeddedCover, want)
+			return 0, fmt.Errorf("%w: %s", errNoAtom, want)
 		}
 	}
-	return 0, fmt.Errorf("%w: no %s", ErrNoEmbeddedCover, want)
+	return 0, fmt.Errorf("%w: no %s", errNoAtom, want)
 }
 
 // synchsafe decodes the seven-bits-per-byte integer ID3v2 uses so that a size

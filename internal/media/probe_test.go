@@ -56,6 +56,30 @@ func TestProbeReportVideo(t *testing.T) {
 	}
 }
 
+// TestProbeReportRotationAsSideData is the same phone video as above, printed
+// by a modern ffprobe: no rotate tag at all, and a display matrix in the side
+// data whose angle runs counter-clockwise. Captured from ffprobe 8, which is
+// how the shipped 7 prints it too -- the tag went away in 7, so without this
+// every portrait video had an orientation of none.
+func TestProbeReportRotationAsSideData(t *testing.T) {
+	t.Parallel()
+
+	const report = `{
+  "streams": [
+    {"codec_type": "video", "codec_name": "h264", "width": 1920, "height": 1080,
+     "duration": "12.345000", "tags": {"language": "und"},
+     "side_data_list": [{"side_data_type": "DisplayMatrix", "rotation": -90}]}
+  ],
+  "format": {"duration": "12.345000"}
+}`
+
+	m := parse(t, report).mediaFrom(db.KindVideo)
+	if m.Orientation != 6 {
+		t.Errorf("Orientation = %d, want 6: a rotation of -90 counter-clockwise is a quarter turn clockwise",
+			m.Orientation)
+	}
+}
+
 func TestProbeReportAudio(t *testing.T) {
 	t.Parallel()
 	m := parse(t, audioReport).mediaFrom(db.KindAudio)

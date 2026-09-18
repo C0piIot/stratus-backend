@@ -35,16 +35,16 @@
 
   <dl class="row mb-0">
     <dt class="col-sm-4 fw-normal text-body-secondary">Files</dt>
-    <dd class="col-sm-8">{{.Counts.Files}}</dd>
+    <dd class="col-sm-8" data-count="files">{{.Counts.Files}}</dd>
 
     <dt class="col-sm-4 fw-normal text-body-secondary">Indexed</dt>
-    <dd class="col-sm-8">{{.Counts.Indexed}}</dd>
+    <dd class="col-sm-8" data-count="indexed">{{.Counts.Indexed}}</dd>
 
     <dt class="col-sm-4 fw-normal text-body-secondary">Waiting</dt>
-    <dd class="col-sm-8">{{.Counts.Pending}}</dd>
+    <dd class="col-sm-8" data-count="waiting">{{.Counts.Pending}}</dd>
 
     <dt class="col-sm-4 fw-normal text-body-secondary">Could not be read</dt>
-    <dd class="col-sm-8">{{.Counts.Failed}}</dd>
+    <dd class="col-sm-8" data-count="failed">{{.Counts.Failed}}</dd>
 
     <dt class="col-sm-4 fw-normal text-body-secondary">Extractor</dt>
     <dd class="col-sm-8">
