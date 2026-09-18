@@ -312,9 +312,9 @@ func TestTheReaderGivesUpQuietly(t *testing.T) {
 // around in, which is a broken backend rather than a broken file.
 type stuckReader struct{}
 
-func (stuckReader) Read([]byte) (int, error) { return 0, errNotISOBMFF }
+func (stuckReader) Read([]byte) (int, error) { return 0, errNotRead }
 
-func (stuckReader) Seek(int64, int) (int64, error) { return 0, errNotISOBMFF }
+func (stuckReader) Seek(int64, int) (int64, error) { return 0, errNotRead }
 
 // TestAtomsStopAtNonsense: a size that runs past the end of the buffer, and one
 // that says "to the end". Neither may read outside what it was given.

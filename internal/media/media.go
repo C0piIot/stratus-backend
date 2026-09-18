@@ -7,6 +7,7 @@
 package media
 
 import (
+	"errors"
 	"path"
 	"strings"
 
@@ -29,6 +30,14 @@ import (
 // with no extension at all were filed as "other" and never looked at again, and
 // they are looked at again now without a migration or a script.
 const Version = 4
+
+// errTooLargeToRead is what a file gets instead of a local copy when it is
+// larger than maxSpool. It is a refusal rather than a failure, and it is
+// recorded as the reason on the row so that /status can say it: silence would
+// be indistinguishable from "there was nothing in it to extract", and somebody
+// would ask why their films have no durations.
+var errTooLargeToRead = errors.New(
+	"not read: it states nothing in its head and reading it would mean downloading the whole file")
 
 // kindOf decides which extractor a file gets.
 //

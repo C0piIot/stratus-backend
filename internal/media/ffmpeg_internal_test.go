@@ -227,8 +227,10 @@ func TestThumbnailOfSomethingFFmpegRefuses(t *testing.T) {
 func TestCanThumbnail(t *testing.T) {
 	t.Parallel()
 
+	const ordinary = 4 << 20 // a photograph, or a short clip
+
 	for _, name := range []string{"a.jpg", "b.JPEG", "c.png", "d.heic", "e.HEIF", "f.mp4", "g.mov", "h.mkv", "i.webm", "j.avi"} {
-		if !CanThumbnail(name) {
+		if !CanThumbnail(name, ordinary) {
 			t.Errorf("%s is offered no picture", name)
 		}
 	}
@@ -236,9 +238,23 @@ func TestCanThumbnail(t *testing.T) {
 	// needs the preview inside the file, which is a different technique; and the
 	// rest is not a picture at all.
 	for _, name := range []string{"k.avif", "l.dng", "m.cr2", "n.txt", "o.mp3", "p"} {
-		if CanThumbnail(name) {
+		if CanThumbnail(name, ordinary) {
 			t.Errorf("%s is offered a picture this build cannot make", name)
 		}
+	}
+
+	// And the rule from #145 read from the other end: a film is not copied to
+	// be looked at, so the listing must not offer a picture of one. A grid of
+	// broken images is what #135 promised would never happen, and the offer is
+	// where that promise is kept.
+	if CanThumbnail("film.mkv", maxSpool+1) {
+		t.Error("a film larger than anything this will copy is offered a picture")
+	}
+	if CanThumbnail("enormous.jpg", maxThumbSource+1) {
+		t.Error("an image larger than anything this will decode is offered a picture")
+	}
+	if !CanThumbnail("film.mkv", maxSpool) {
+		t.Error("a file exactly at the bound is refused; the bound is inclusive")
 	}
 }
 
