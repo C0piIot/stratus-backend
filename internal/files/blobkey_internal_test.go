@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/C0piIot/stratus-backend/internal/db"
 )
 
 // The layout is for a person with a lost database, so what these cases pin is
@@ -33,7 +35,7 @@ func TestBlobKeyLayout(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			key := newBlobKey(tt.name)
+			key := newBlobKey(tt.name, db.KindOther)
 
 			segs := strings.Split(key, "/")
 			if len(segs) != 5 {
@@ -64,6 +66,46 @@ func TestBlobKeyLayout(t *testing.T) {
 	}
 }
 
+// TestBlobKeyPrefersWhatTheBytesSaid is #146 reaching the one thing a key is
+// for: somebody looking at a data directory with no database. A video copied
+// off a phone with no extension at all used to be filed under other/, where
+// nothing about it says what it is.
+//
+// The extension at the end still comes from the name, because that is the part
+// a person reads, and kindDocument still comes from the name too -- no
+// signature here recognises one.
+func TestBlobKeyPrefersWhatTheBytesSaid(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		sniffed  db.Kind
+		wantKind string
+	}{
+		{name: "IMG_0001", sniffed: db.KindVideo, wantKind: "video"},
+		{name: "IMG_0001", sniffed: db.KindImage, wantKind: "image"},
+		{name: "recording", sniffed: db.KindAudio, wantKind: "audio"},
+		// The name said one thing and the file is another: the file wins.
+		{name: "sources.ts", sniffed: db.KindOther, wantKind: "video"},
+		{name: "holiday.mp4", sniffed: db.KindImage, wantKind: "image"},
+		// Nothing from the bytes, so the name answers -- including the one kind
+		// it alone can name.
+		{name: "notes.pdf", sniffed: db.KindOther, wantKind: "document"},
+		{name: "backup", sniffed: db.KindOther, wantKind: "other"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name+"/"+string(tt.sniffed), func(t *testing.T) {
+			t.Parallel()
+			key := newBlobKey(tt.name, tt.sniffed)
+			if kind, _, _ := strings.Cut(key, "/"); kind != tt.wantKind {
+				t.Errorf("newBlobKey(%q, %q) = %q, want it filed under %q",
+					tt.name, tt.sniffed, key, tt.wantKind)
+			}
+		})
+	}
+}
+
 // Two keys differing only in case are one file on APFS, exFAT and a Windows
 // share -- all of them plausible homes for STRATUS_DATA_PATH -- so the disk
 // backend would let the second Put overwrite the first while S3 held two
@@ -75,8 +117,8 @@ func TestBlobKeysCannotDifferOnlyInCase(t *testing.T) {
 	t.Parallel()
 
 	// The same file twice, named as two operating systems would name it.
-	upper := newBlobKey("Photo.JPG")
-	lower := newBlobKey("photo.jpg")
+	upper := newBlobKey("Photo.JPG", db.KindOther)
+	lower := newBlobKey("photo.jpg", db.KindOther)
 	for _, key := range []string{upper, lower} {
 		if !strings.HasSuffix(key, ".jpg") {
 			t.Errorf("newBlobKey = %q, want a lowercased extension", key)
@@ -84,7 +126,7 @@ func TestBlobKeysCannotDifferOnlyInCase(t *testing.T) {
 	}
 
 	for range 100 {
-		key := newBlobKey("photo.jpg")
+		key := newBlobKey("photo.jpg", db.KindOther)
 		segs := strings.Split(key, "/")
 		for _, seg := range segs[:4] {
 			if strings.ToLower(seg) != seg {

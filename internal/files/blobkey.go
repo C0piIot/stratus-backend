@@ -6,6 +6,8 @@ import (
 	"path"
 	"strings"
 	"time"
+
+	"github.com/C0piIot/stratus-backend/internal/db"
 )
 
 // The kinds a blob key can start with. They deliberately repeat three of
@@ -63,11 +65,14 @@ var byExtension = map[string]string{
 // shape sit in one store. The day something reads a kind out of a key, this
 // layout stops being a convenience and becomes a schema.
 //
-// Best effort is the whole specification (#123). The kind is inherited from the
-// name the file arrived with and stays wrong when that name lied: a video
-// uploaded without an extension is filed under other/ and is still there after
-// the indexer has decided otherwise. Correcting it later would mean moving
-// objects, which is a copy of every byte.
+// Best effort is the whole specification (#123), and since #146 the effort is
+// better: the first bytes of the file are read before the key is chosen, so a
+// video uploaded with no extension is filed under video/ rather than under
+// other/. What the bytes cannot say the name still answers -- including the
+// document kind, which no signature here recognises.
+//
+// What has not changed is that a key already written stays as it is, however
+// wrong. Correcting one means moving the object, which is a copy of every byte.
 //
 // The date is the upload date because it is the only one known here, and it is
 // also what fans the tree out now that the key carries no random prefix. The
@@ -77,19 +82,33 @@ var byExtension = map[string]string{
 // The id stays random rather than a digest of the content. A digest is not
 // known until the body has been read, the storage port has no rename, and
 // nobody recovering files can tell the two apart.
-func newBlobKey(name string) string {
+func newBlobKey(name string, sniffed db.Kind) string {
 	now := time.Now().UTC()
 	ext := extensionOf(name)
 
 	key := fmt.Sprintf("%s/%04d/%02d/%02d/%s",
-		kindOf(ext), now.Year(), int(now.Month()), now.Day(), rand.Text())
+		kindOf(ext, sniffed), now.Year(), int(now.Month()), now.Day(), rand.Text())
 	if ext != "" {
+		// The name's extension and not the sniffed type's: this end of the key
+		// is for a person recognising a file, and ".jpeg" arriving as ".jpe"
+		// would be the opposite of inheriting it.
 		key += "." + ext
 	}
 	return key
 }
 
-func kindOf(ext string) string {
+// kindOf is the bytes first and the name second, with one thing only the name
+// can say: kindDocument has no signature here, so a PDF is a document because
+// it is called one.
+func kindOf(ext string, sniffed db.Kind) string {
+	switch sniffed {
+	case db.KindImage:
+		return kindImage
+	case db.KindVideo:
+		return kindVideo
+	case db.KindAudio:
+		return kindAudio
+	}
 	if kind, ok := byExtension[ext]; ok {
 		return kind
 	}

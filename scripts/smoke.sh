@@ -874,6 +874,13 @@ TRACK
       "the form answered $code, WebDAV answered $gone"
   fi
 
+  # A source file with the extension of a transport stream, which is what makes
+  # the failure count below mean something: what decides that this is not a
+  # video is reading it (#146).
+  printf 'import { Stratus } from "./stratus"\nexport const backup = 1\n' |
+    curl -fsS -u "$davuser:$davpass" -X PUT --data-binary @- \
+      "http://$davhost/dav/backup.ts" >/dev/null 2>&1
+
   # The library reports on itself, which is the only way to see a first pass
   # over an adopted bucket getting anywhere. Everything this script uploaded has
   # been through the indexer by now -- and, with the idle interval ten minutes
@@ -895,6 +902,11 @@ TRACK
   # one thing did, and on purpose -- the track this script uploaded is a text
   # file with an .mp3 name, which is how the Subsonic case proves that browsing
   # reads the row rather than the bytes.
+  #
+  # The TypeScript file above is the other half of that number: by its name it
+  # is a transport stream, and before #146 it would have been copied to disk and
+  # handed to ffprobe, which fails. Two failures here rather than one means the
+  # name won an argument it should not have been in.
   case "$status" in
     *'data-count="failed">1<'*) ok "the only file that could not be read is the one planted here" ;;
     *) bad "the only file that could not be read is the one planted here" \

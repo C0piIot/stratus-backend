@@ -39,6 +39,7 @@ internal/db/postgres:94
 internal/db/sqlite:94
 internal/db/mysql:91
 internal/db/sqlutil:95
+internal/sniff:97
 internal/storage:98
 internal/storage/disk:90
 internal/storage/s3:88
@@ -139,6 +140,11 @@ internal/web:98
 # layer adds to the port's paging is whether there is another page behind this
 # one, which is answered by asking for a row more than was wanted, and both
 # arms of that are an ordinary call.
+#
+# internal/sniff starts at 97, which is what a package of pure functions over a
+# byte slice should be: every signature it knows is a case, every answer it
+# refuses to give is a case, and what is left uncovered is a branch of the text
+# check that needs a rune cut in three places at once.
 #
 # internal/media went 88 -> 89 with the wake-up (#48): what a notice is -- never
 # blocking, and holding one so that five hundred uploads are one pass -- is two

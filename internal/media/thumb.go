@@ -431,6 +431,11 @@ func decodableByFFmpeg(p string) bool {
 		return true
 	case ".mp4", ".mov", ".m4v", ".mkv", ".webm", ".avi", ".mpg", ".mpeg", ".wmv":
 		return true
+	case ".mts", ".m2ts", ".m2t":
+		// AVCHD and its relatives, which the recipe learned to demux for this
+		// (#146). Not ".ts": the same bytes go by a name TypeScript also uses,
+		// and this answer is a function of the name alone.
+		return true
 	}
 	return false
 }
