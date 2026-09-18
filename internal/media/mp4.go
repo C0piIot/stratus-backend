@@ -31,10 +31,14 @@ import (
 // before, and so is an MP4 whose codec this does not recognise. A wrong duration
 // is worse than a slow one.
 
-// errNotISOBMFF means this file is not one this reader answers for, which is
-// not a failure: the caller falls back to ffprobe and the file is indexed
-// either way.
-var errNotISOBMFF = errors.New("media: not a container this reads")
+// errNotRead means the readers here cannot answer for this file, which is not a
+// failure: the caller decides what to do instead, which is ffprobe over a local
+// copy when the file is small enough to be worth copying and nothing at all
+// when it is not.
+//
+// Shared by both readers -- this one and the Matroska one next door -- because
+// it is the same sentence in both cases: ask somebody else.
+var errNotRead = errors.New("media: not a container this reads")
 
 // maxMoov bounds what will be pulled into memory. A moov atom carries the
 // sample tables, so it grows with the length of the recording: a couple of
@@ -73,7 +77,7 @@ func isobmff(name string) bool {
 }
 
 // probeVideo reads duration, dimensions, codec, rotation and creation time out
-// of an ISOBMFF file, or returns errNotISOBMFF for the caller to fall back on
+// of an ISOBMFF file, or returns errNotRead for the caller to fall back on
 // ffprobe.
 //
 // size is the file's, which is what says where the top-level boxes end.
@@ -85,11 +89,11 @@ func probeVideo(r io.ReadSeeker, size int64) (db.Media, error) {
 
 	header, ok := box(moov, "mvhd")
 	if !ok {
-		return db.Media{}, errNotISOBMFF
+		return db.Media{}, errNotRead
 	}
 	duration, taken, ok := movieHeader(header)
 	if !ok {
-		return db.Media{}, errNotISOBMFF
+		return db.Media{}, errNotRead
 	}
 
 	m := db.Media{Kind: db.KindVideo, DurationMS: duration, TakenAt: taken}
@@ -101,13 +105,13 @@ func probeVideo(r io.ReadSeeker, size int64) (db.Media, error) {
 			continue
 		}
 		if !videoTrack(body, &m) {
-			return db.Media{}, errNotISOBMFF
+			return db.Media{}, errNotRead
 		}
 		return m, nil
 	}
 	// Sound with an .mp4 name, or a file with no track at all. Neither is this
 	// reader's to answer for.
-	return db.Media{}, errNotISOBMFF
+	return db.Media{}, errNotRead
 }
 
 // readMoov returns the movie box, whole.
@@ -119,19 +123,19 @@ func probeVideo(r io.ReadSeeker, size int64) (db.Media, error) {
 // small enough to hold.
 func readMoov(r io.ReadSeeker, size int64) ([]byte, error) {
 	if _, err := r.Seek(0, io.SeekStart); err != nil {
-		return nil, errNotISOBMFF
+		return nil, errNotRead
 	}
 	length, err := findAtom(r, size, "moov")
 	if err != nil {
-		return nil, errNotISOBMFF
+		return nil, errNotRead
 	}
 	if length <= 0 || length > maxMoov {
-		return nil, errNotISOBMFF
+		return nil, errNotRead
 	}
 
 	moov := make([]byte, length)
 	if _, err := io.ReadFull(r, moov); err != nil {
-		return nil, errNotISOBMFF
+		return nil, errNotRead
 	}
 	return moov, nil
 }

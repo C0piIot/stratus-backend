@@ -431,6 +431,19 @@ Restraint here is principle 3, not laziness:
   linked tools copied into the same distroless base rather than switching to one
   with a package manager.
 
+  **Nothing large is downloaded to be read** (#145). A file that states what it
+  is near its head is read there, over ranges; anything else is copied only
+  while it is under 64 MB, and above that it keeps its kind and nothing else,
+  with the reason on the row so `/status` can say it. The same bound is what
+  `media.CanThumbnail` checks before a listing offers a picture, because a grid
+  of broken images is what #135 promised would not happen.
+
+  What that costs is a duration AVI, WMV and MPEG-TS will not have. It is the
+  right trade and it was measured: those three state no duration at all, so
+  ffprobe derives one from what it can reach and a partial file answers 7.5
+  seconds for a thirty-second film. A wrong number is worse than none, and this
+  is why the readers below exist for the two formats where a header is enough.
+
   **What it is not required for is an MP4.** ffprobe has to seek inside a file,
   so probing one meant copying the blob to disk first -- on S3, downloading a
   four-gigabyte recording to learn that it is four minutes long (#48). Duration,
@@ -440,10 +453,15 @@ Restraint here is principle 3, not laziness:
   embedded-cover and EXIF readers already make, applied where the file is
   measured in gigabytes.
 
-  Two rules keep that from becoming a second, worse ffprobe. **It answers only
-  for `.mp4`, `.m4v` and `.mov`** -- Matroska, AVI, WMV and MPEG-TS are copied
-  and probed as before, and `.m4a` is the same box structure but has nothing to
-  win. And **it never guesses**: a codec whose fourcc is not in its table, a
+  Nor for a Matroska: `internal/media/mkv.go` is its twin over EBML, where Info
+  and Tracks sit in the first few hundred bytes and the clusters that hold the
+  film are stepped over by arithmetic.
+
+  Two rules keep those from becoming a second, worse ffprobe. **They answer only
+  for the containers they can read whole-heartedly** -- `.mp4`, `.m4v`, `.mov`,
+  `.mkv` and `.webm`; AVI, WMV and MPEG-TS are copied and probed while they are
+  small enough, and `.m4a` is the same box structure as an MP4 but has nothing
+  to win. And **it never guesses**: a codec whose fourcc is not in its table, a
   duration the header does not state, a box that does not parse, and the file
   goes to ffprobe. The two paths write the same column, so a test compares their
   answers against real files whenever there is an ffprobe to compare with.

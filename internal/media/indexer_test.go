@@ -261,3 +261,53 @@ func TestIndexClassifiesByContent(t *testing.T) {
 		t.Errorf("the TypeScript file was recorded as unreadable: %q", got.Error)
 	}
 }
+
+// TestIndexRefusesToDownloadAFilm is the rule that arrived with #145: nothing
+// large is copied to be looked at, and what a file does not say in its head
+// stays unsaid.
+//
+// The container here is one no reader of ours claims -- AVI, where a truncated
+// file gives ffprobe a plausible and wrong duration, which is why it is not
+// read in place either. So the only way to probe it is to download it, and the
+// answer is that we do not.
+func TestIndexRefusesToDownloadAFilm(t *testing.T) {
+	t.Parallel()
+	idx, service, meta := indexer(t)
+
+	// A small blob with a row that says it is a film. Small, so that a spool
+	// would have worked: what is being tested is the refusal, not a failure.
+	f := write(t, service, "films/holiday.avi", readFixture(t, "moov-last.mp4"), "video/x-msvideo")
+	f.Size = maxSpool + 1
+	stored, err := meta.PutFile(t.Context(), f)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, ierr := idx.IndexBatch(t.Context()); ierr != nil {
+		t.Fatal(ierr)
+	}
+
+	got, err := meta.MediaByFile(t.Context(), stored.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The kind survives, because reading the head is not downloading the file:
+	// what is refused is the copy, not the classification.
+	if got.Kind != db.KindVideo {
+		t.Errorf("kind = %q, want it classified anyway", got.Kind)
+	}
+	if !strings.Contains(got.Error, "downloading the whole file") {
+		t.Errorf("error = %q, want the refusal and its reason", got.Error)
+	}
+	// And it is out of the queue: a refusal that came back every pass would be
+	// the same download, once a minute.
+	pending, err := meta.PendingMedia(t.Context(), Version, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range pending {
+		if p.ID == stored.ID {
+			t.Error("the file is still queued, so the refusal will be made again on every pass")
+		}
+	}
+}

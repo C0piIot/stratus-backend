@@ -115,9 +115,13 @@ func (i *Indexer) index(ctx context.Context, f db.File) db.Media {
 	// id, and the queue compares the two validators to notice.
 	m.ETag = f.ETag
 	if err != nil {
-		// The name, because a file that could not be read could not be
-		// classified from its bytes either -- that is often the same failure.
-		m.Kind = kindOf(f, db.KindOther)
+		if m.Kind == "" {
+			// The name, because a file that could not be read could not be
+			// classified from its bytes either -- that is often the same
+			// failure. An extractor that got as far as knowing what it was
+			// looking at says so itself.
+			m.Kind = kindOf(f, db.KindOther)
+		}
 		m.Error = err.Error()
 	}
 	return m
@@ -140,15 +144,20 @@ func (i *Indexer) extract(ctx context.Context, f db.File) (db.Media, error) {
 		return extractImage(body)
 
 	case db.KindAudio, db.KindVideo:
-		// An MP4 or a QuickTime file says what it is in a box near one end, and
-		// the store reads ranges, so the copy below is skipped entirely for the
-		// format phones record in. Anything this cannot answer for -- another
-		// container, an unknown codec, a duration only a scan could find --
-		// falls through to ffprobe, which is what the copy is for.
-		if kind == db.KindVideo && isobmff(f.Path) {
+		// A container that states what it is near one end is read where it
+		// lies, because the store reads ranges: an MP4 or a QuickTime file
+		// through its boxes, a Matroska or a WebM through its elements.
+		if kind == db.KindVideo && readableInPlace(f.Path) {
 			if m, perr := i.probeInPlace(ctx, f); perr == nil {
 				return m, nil
 			}
+		}
+
+		// Everything else needs a local copy, and that is where the line is:
+		// nothing large is downloaded to be looked at. What a file does not say
+		// in its head stays unsaid.
+		if f.Size > maxSpool {
+			return db.Media{Kind: kind}, errTooLargeToRead
 		}
 
 		path, cleanup, err := i.spoolFile(ctx, f)
@@ -201,8 +210,14 @@ func (i *Indexer) probeInPlace(ctx context.Context, f db.File) (db.Media, error)
 	}
 	defer func() { _ = body.Close() }()
 
+	if matroska(f.Path) {
+		return probeMatroska(body, f.Size)
+	}
 	return probeVideo(body, f.Size)
 }
+
+// readableInPlace reports whether one of the readers here claims the file.
+func readableInPlace(name string) bool { return isobmff(name) || matroska(name) }
 
 // spool copies a blob to a local file, because the tools seek and the storage
 // port streams.

@@ -116,14 +116,22 @@ different one does not leave the old duration behind. `/status` in the web UI
 reports how much of the library has been read, how much is waiting and what
 could not be read at all.
 
-**An MP4 or QuickTime video is never downloaded to be read.** Its duration,
-dimensions, codec, rotation and date live in a box at one end of the file, and
-the blob store reads ranges, so a four-gigabyte recording costs a few hundred
-kilobytes to index — on a bucket as much as on a disk. Every other container
-still gets a local copy first, because ffprobe has to seek in a file and only
-this one format is read here: Matroska, AVI, WMV and MPEG-TS are copied, probed
-and the copy deleted, and so is any MP4 whose codec this build does not
-recognise. A slow answer is better than a wrong one.
+**No large file is ever downloaded to be read.** That is the rule, and two
+things follow from it.
+
+The first is that the formats which say what they are near the beginning are
+read where they lie: an MP4 or QuickTime video through its boxes, a Matroska or
+WebM through its elements. Duration, dimensions, codec, rotation and date all
+live in a header, and the blob store reads ranges, so a four-gigabyte recording
+costs a few hundred kilobytes to index — on a bucket as much as on a disk.
+
+The second is that everything else is only copied while it is small. AVI, WMV
+and MPEG-TS state no duration at all: ffprobe works one out from what it can
+reach, which means a partial file gives a plausible and wrong answer — measured,
+on a thirty-second file, as 7.5 and 6.9 seconds. So they are copied and probed
+if they are under 64 MB, and above that they keep their kind and nothing else,
+with `/status` saying why. A film with no duration is better than a film with
+the wrong one, and much better than four gigabytes of egress to find out.
 
 The queue is a query rather than a table: a file with no metadata row is a file
 to look at, so nothing is lost in a restart and a newly uploaded file is picked
@@ -696,7 +704,7 @@ Working now:
   rename and delete. A signed-cookie session and a CSP that allows nothing but
   the binary's own assets.
 - A request log, migrations applied at startup, and a container asserted from
-  the outside by 83 smoke checks.
+  the outside by 84 smoke checks.
 
 Not there yet: CalDAV and sharing --
 and on the music side, anything that remembers what the user did. Work

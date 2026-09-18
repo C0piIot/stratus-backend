@@ -342,7 +342,7 @@ func entries(children []db.File, indexing map[int64]string) []entry {
 		if !c.IsDir {
 			e.Size = humanSize(c.Size)
 			e.Indexing = indexing[c.ID]
-			if media.CanThumbnail(c.Path) {
+			if media.CanThumbnail(c.Path, c.Size) {
 				e.Thumb = link(thumbPrefix, c.Path) + "?size=" + strconv.Itoa(listThumb) + "&v=" + url.QueryEscape(c.ETag)
 			}
 		}

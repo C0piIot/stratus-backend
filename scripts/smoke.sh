@@ -756,7 +756,12 @@ TRACK
   curl -fsS -u "$davuser:$davpass" -X PUT --data-binary "@scripts/testdata/clip.mp4" \
     "http://$davhost/dav/clip.mp4" >/dev/null 2>&1
 
-  for subject in photo.heic clip.mp4; do
+  # And a Matroska, which is read out of its own elements the way the MP4 is
+  # read out of its boxes (#145). Its thumbnail is ffmpeg's either way.
+  curl -fsS -u "$davuser:$davpass" -X PUT --data-binary "@scripts/testdata/film.mkv" \
+    "http://$davhost/dav/film.mkv" >/dev/null 2>&1
+
+  for subject in photo.heic clip.mp4 film.mkv; do
     file="$(mktmp)/thumb.jpg"
     code="$(curl -s -o "$file" -w '%{http_code} %{content_type}' -b "$jar" \
       "http://$davhost/thumb/$subject?size=96")"

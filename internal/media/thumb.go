@@ -80,6 +80,20 @@ const thumbQuality = 82
 // server. Nothing a camera produces comes close to this.
 const maxThumbSource = 50_000_000
 
+// maxSpool is the line nothing crosses: a file larger than this is never copied
+// to be looked at.
+//
+// It is the whole of the rule that arrived with #145 -- **a large file is not
+// downloaded to be read, and what its head does not say stays unsaid**. Before
+// it, one film on a bucket was four gigabytes of egress to learn that it lasts
+// two hours, and a thumbnail of it was four more.
+//
+// Sixty-four megabytes: larger than any photograph and any ordinary music
+// track, smaller than any film. A constant and not a setting, because it is not
+// a preference -- it is where reading a whole file to look at its head stops
+// being a reasonable thing to do.
+const maxSpool = 64 << 20
+
 // ErrNoThumbnail means the file is not something this build can turn into
 // pixels. HEIC and video need the ffmpeg path, which is not wired yet; camera
 // raw needs the embedded preview, which is a different technique.
@@ -164,6 +178,12 @@ func (t *Thumbs) Cover(ctx context.Context, owner, dir string, px int) (io.ReadC
 func (t *Thumbs) open(ctx context.Context, f db.File, px int) (io.ReadCloser, int64, error) {
 	size := snapSize(px)
 	return t.cached(ctx, thumbKey(f.BlobKey, size), func() ([]byte, error) {
+		if !CanThumbnail(f.Path, f.Size) {
+			// Including the file that is simply too big, which is refused here
+			// rather than attempted: the listing does not offer one either, so
+			// this is the answer to somebody who asked for the URL directly.
+			return nil, fmt.Errorf("%w: %s", ErrNoThumbnail, path.Ext(f.Path))
+		}
 		switch {
 		case decodableInGo(f.Path):
 			body, err := t.files.OpenFile(ctx, f)
@@ -172,10 +192,8 @@ func (t *Thumbs) open(ctx context.Context, f db.File, px int) (io.ReadCloser, in
 			}
 			defer func() { _ = body.Close() }()
 			return reduceTo(body, f.Path, size)
-		case decodableByFFmpeg(f.Path):
-			return t.fromFFmpeg(ctx, f, size)
 		default:
-			return nil, fmt.Errorf("%w: %s", ErrNoThumbnail, path.Ext(f.Path))
+			return t.fromFFmpeg(ctx, f, size)
 		}
 	})
 }
@@ -497,7 +515,19 @@ func coverKey(blobKey string, size thumbSize) string {
 // extensions that drifts from this one. It is a property of the build and not
 // of the file, which is why it is computed here and stored nowhere: the day the
 // ffmpeg path is wired, every HEIC changes its answer without a byte moving.
-func CanThumbnail(p string) bool { return decodableInGo(p) || decodableByFFmpeg(p) }
+func CanThumbnail(p string, size int64) bool {
+	switch {
+	case decodableInGo(p):
+		// Decoded from the stream, so the bound is what will be held in memory
+		// rather than what will be copied.
+		return size <= maxThumbSource
+	case decodableByFFmpeg(p):
+		// ffmpeg opens a file, so this is the copy the rule refuses to make.
+		return size <= maxSpool
+	default:
+		return false
+	}
+}
 
 // decodableInGo reports whether this build can read the file without ffmpeg.
 //
