@@ -18,37 +18,70 @@ import (
 
 // indexPeriodically extracts metadata from files that have none.
 //
-// When a pass finds a full batch it comes straight back for more, so a first
-// run over an existing library goes as fast as the extractors allow; when it
-// finds nothing it waits -- for the interval, or for a write to say there is
-// something to do, whichever comes first. One worker: ffprobe on four cores
-// that are also serving requests does not want company.
+// A write hands over the file it just wrote, so the ordinary case is one
+// extraction and no query at all. The query is the safety net behind it, and it
+// runs on the interval -- or sooner, when the indexer says it dropped a notice
+// and therefore does not know what landed.
+//
+// One worker: ffprobe on four cores that are also serving requests does not
+// want company.
 func (a *App) indexPeriodically(ctx context.Context, deps Deps) {
-	slog.Info("indexing media", "idle", a.cfg.IndexInterval, "version", media.Version)
+	slog.Info("indexing media", "safety_net", a.cfg.IndexInterval, "version", media.Version)
 
+	// A ticker and not a timer armed after each pass: with a steady trickle of
+	// uploads an interval that restarted every time would never arrive, and
+	// what waits behind it -- a version bump, rows an import inserted, a file
+	// deferred until its retry time -- would never be looked at.
+	ticker := time.NewTicker(a.cfg.IndexInterval)
+	defer ticker.Stop()
+
+	// Whatever landed while this process was not running is nobody's notice.
+	a.indexUntilDry(ctx, deps)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+
+		case f := <-deps.Indexer.Noticed():
+			switch err := deps.Indexer.IndexFile(ctx, time.Now(), f); {
+			case errors.Is(err, context.Canceled):
+				return
+			case err != nil:
+				slog.Error("indexing media", "path", f.Path, "err", err)
+			}
+			continue
+
+		case <-deps.Indexer.LostTrack():
+			// More arrived at once than could be held, so what was dropped is
+			// only a row now -- and a row is what the query finds.
+		case <-ticker.C:
+		}
+
+		if !a.indexUntilDry(ctx, deps) {
+			return
+		}
+	}
+}
+
+// indexUntilDry runs the query until it stops filling a batch, and reports
+// whether the process is still meant to be running.
+func (a *App) indexUntilDry(ctx context.Context, deps Deps) bool {
 	for {
 		indexed, err := deps.Indexer.IndexBatch(ctx, time.Now())
 		switch {
 		case errors.Is(err, context.Canceled):
-			return
+			return false
 		case err != nil:
 			slog.Error("indexing media", "err", err)
 		case indexed > 0:
 			slog.Info("indexed media", "files", indexed)
 		}
 
-		if indexed == media.BatchSize && err == nil {
-			continue // a full batch means there is probably more
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-deps.Indexer.Woken():
-			// Something was just written. The interval is the idle poll and
-			// the safety net -- for a version bump, for rows an import
-			// inserted, for anything that landed while this process was not
-			// running -- and this is the ordinary case arriving on time.
-		case <-time.After(a.cfg.IndexInterval):
+		// A full batch means there is probably more, which is what makes a
+		// first run over an existing library go as fast as the extractors do.
+		if indexed != media.BatchSize || err != nil {
+			return ctx.Err() == nil
 		}
 	}
 }

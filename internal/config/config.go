@@ -36,10 +36,15 @@ const (
 	// it. Writes go blob first and row second, so a blob with no row may be a
 	// write still in flight rather than one that failed.
 	DefaultGCGrace = time.Hour
-	// DefaultIndexInterval is how long the indexer waits when it finds nothing
-	// to do. When it does find work it comes straight back, so this is the idle
-	// poll and not the pace of the indexing itself.
-	DefaultIndexInterval = time.Minute
+	// DefaultIndexInterval is how often the indexer asks the database what is
+	// missing. Hourly, because it is the safety net and not the way anything
+	// ordinarily gets indexed: a write hands the file over and it is read then
+	// and there. Asking is a scan of every file row, which costs the same
+	// whether the answer is a file or nothing (#158).
+	//
+	// It is also the resolution of the retry clock: a file deferred for an
+	// hour because the store would not answer waits between one and two.
+	DefaultIndexInterval = time.Hour
 )
 
 // Config is the fully resolved configuration for one process.
@@ -58,8 +63,8 @@ type Config struct {
 	GCInterval time.Duration
 	// GCGrace is how long a blob is left alone before it can be collected.
 	GCGrace time.Duration
-	// IndexInterval is how long the media indexer waits when it is idle. Zero
-	// disables it.
+	// IndexInterval is how often the media indexer looks for work nobody told
+	// it about. Zero disables indexing altogether, notices included.
 	IndexInterval time.Duration
 	// Username and Password are the single user's credentials, and the
 	// password is held as configured rather than hashed: OpenSubsonic's token

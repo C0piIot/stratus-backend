@@ -888,8 +888,8 @@ TRACK
 
   # The library reports on itself, which is the only way to see a first pass
   # over an adopted bucket getting anywhere. Everything this script uploaded has
-  # been through the indexer by now -- and, with the idle interval ten minutes
-  # away, only because each write said so.
+  # been through the indexer by now -- and, with the safety net ten minutes
+  # away, only because each write handed its file over.
   finished=""
   for _ in $(seq 1 50); do
     status="$(curl -fsS -b "$jar" "http://$davhost/status" 2>/dev/null || true)"
@@ -1001,23 +1001,20 @@ TRACK
     ok "the healthcheck stays out of the log"
   fi
 
-  # The indexer picks up what was just uploaded, which is the whole loop: the
-  # pending query, an extractor, and a row written back.
+  # Nothing here was found by a query, which is the claim of #158. The status
+  # page above already says the library is indexed; this says how it got that
+  # way. "indexed media" is logged by a pass over the pending query and by
+  # nothing else, so its absence means every file was read because its own
+  # write handed it over.
   #
-  # The idle interval of this container is ten minutes, so nothing here is
-  # waiting for a timer: what is asserted is that the write told the indexer.
-  indexed=""
-  for _ in $(seq 1 50); do
-    if docker logs "$davname" 2>&1 | grep -q '"msg":"indexed media"'; then
-      indexed=yes
-      break
-    fi
-    sleep 0.2
-  done
-  if [ -n "$indexed" ]; then
-    ok "the indexer picks up an uploaded file"
+  # The interval of this container is ten minutes and the run is far shorter, so
+  # a line here would mean the query ran anyway -- either on a timer that should
+  # not have fired, or because a notice was dropped with a handful of uploads.
+  if docker logs "$davname" 2>&1 | grep -q '"msg":"indexed media"'; then
+    bad "every file was indexed by its own write, with no query" \
+      "$(docker logs "$davname" 2>&1 | grep '"msg":"indexed media"' | head -2)"
   else
-    bad "the indexer picks up an uploaded file" "$(docker logs "$davname" 2>&1 | tail -3)"
+    ok "every file was indexed by its own write, with no query"
   fi
 else
   bad "the container with credentials starts" "$(docker logs "$davname" 2>&1 | tail -3)"

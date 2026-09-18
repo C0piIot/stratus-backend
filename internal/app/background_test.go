@@ -19,6 +19,7 @@ import (
 
 	"github.com/C0piIot/stratus-backend/internal/db"
 	"github.com/C0piIot/stratus-backend/internal/db/sqlite"
+	"github.com/C0piIot/stratus-backend/internal/media"
 )
 
 // TestCollectorRuns is the wiring, not the collecting: the goroutine starts on
@@ -230,10 +231,11 @@ func TestRunRefusesWithoutFFprobe(t *testing.T) {
 // standing in for ffprobe: the toolchain container has no media tools, and what
 // is under test here is the loop rather than the extractors.
 //
-// The idle interval is ten minutes on purpose. Nothing here waits for it, so
-// what this asserts is the other half of the wiring: the write tells the
-// indexer and the indexer stops waiting. A file indexed seconds after a PUT,
-// with the timer that far away, cannot have got there any other way.
+// The interval is ten minutes on purpose. Nothing here waits for it, so what
+// this asserts is the ordinary path: the write hands the file over and it is
+// read then and there, without the query the interval exists for. A file
+// indexed seconds after a PUT, with the timer that far away, cannot have got
+// there any other way.
 //
 // Not parallel, because it changes the process environment.
 func TestIndexerRuns(t *testing.T) {
@@ -306,4 +308,83 @@ func stubTools() (string, error) {
 		}
 	}
 	return dir, nil
+}
+
+// TestIndexerFindsWhatNobodyAnnounced is the other half, and the reason the
+// query survives at all: a row nothing sent a notice about -- an import that
+// inserted it, a version bump, a file deferred until its retry time -- is found
+// by the interval.
+//
+// It is provoked by putting the metadata back to an older extractor, which is
+// what a version bump looks like from the queue's side, with no write anywhere
+// to announce it.
+//
+// Not parallel, because it changes the process environment.
+func TestIndexerFindsWhatNobodyAnnounced(t *testing.T) {
+	const password = "an example password"
+
+	dataDir := filepath.Join(t.TempDir(), "data")
+	base, stop := liveServer(t, map[string]string{
+		"STRATUS_DATA_DIR":       dataDir,
+		"STRATUS_USERNAME":       "edu",
+		"STRATUS_PASSWORD":       password,
+		"STRATUS_INDEX_INTERVAL": "200ms",
+	})
+	defer stop()
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPut, base+"/dav/notes.txt", strings.NewReader("indexed"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.SetBasicAuth("edu", password)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+
+	store, err := sqlite.New(t.Context(), filepath.Join(dataDir, "stratus.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = store.Close() }()
+
+	f := waitForIndexed(t, store, "notes.txt")
+
+	// Back to an extractor older than this build's, which is what the queue
+	// looks for and what no notice will ever mention.
+	stale := db.Media{FileID: f.ID, Kind: db.KindOther, IndexedAt: time.Now(), Version: 0, ETag: f.ETag}
+	if perr := store.PutMedia(t.Context(), stale); perr != nil {
+		t.Fatal(perr)
+	}
+
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if m, merr := store.MediaByFile(t.Context(), f.ID); merr == nil && m.Version == media.Version {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Error("a row nobody announced was never picked up by the interval")
+}
+
+// waitForIndexed returns the file row once its metadata is there.
+func waitForIndexed(t *testing.T, store db.Store, path string) db.File {
+	t.Helper()
+
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		f, ferr := store.FileByPath(t.Context(), "edu", path)
+		if ferr == nil {
+			if m, merr := store.MediaByFile(t.Context(), f.ID); merr == nil {
+				if !m.Indexed() {
+					t.Fatalf("the file was indexed with an error: %s", m.Error)
+				}
+				return f
+			}
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("%s was never indexed", path)
+	return db.File{}
 }

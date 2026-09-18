@@ -507,19 +507,42 @@ Restraint here is principle 3, not laziness:
   is the assertion that matters: a codec list can be complete while the binary
   still cannot read the format somebody uploads, because HEIF is read through
   the mov demuxer and no flag name says so.
-- **The queue is a query, and a write is a tap on the shoulder.** What is
+- **A write says which file; the query is what finds the rest.** What is
   pending is a `LEFT JOIN` over the file rows -- nothing is enqueued, nothing is
   dequeued, a restart loses nothing and an import that inserts rows is picked up
-  without knowing this exists. What that cost was a minute of waiting after
-  every upload, so `internal/files` now takes a watcher and the composition root
-  points it at the indexer.
+  without knowing this exists. What it costs is a scan of every file row, and
+  measured on a hundred thousand of them it is 82 ms whether the answer is a
+  file or nothing, because the ordering puts the newest last and the `LIMIT`
+  cannot stop early (#158). Running that every minute to learn something we
+  already knew is the thing this stopped doing.
 
-  The notice carries no work and no promise. It wakes the loop, which runs the
-  same batch over the same query, so there is one path that indexes anything;
-  it holds one, so five hundred photographs arriving together are one pass; and
-  it may be dropped -- by a full channel, by a process that dies -- because the
-  row is already committed and the query is still the truth. The watcher takes
-  no context for the same reason: the work outlives the request that caused it.
+  So `internal/files` takes a watcher, the composition root points it at the
+  indexer, and **the notice carries the file**. That is not a second extractor:
+  `IndexFile` and `IndexBatch` reach the same one, and what differs is how the
+  file was found. The watcher takes no context, because the work outlives the
+  request that caused it.
+
+  **What makes the query rare is that a dropped notice says so.** The channel
+  holds a few hundred files and a write must never block on it, so a burst
+  larger than that would silently cost the overflow a wait -- for an hour now,
+  not a minute. Instead the drop raises a second signal, and what is on the
+  other side of it is the query brought forward: one signal covers any number
+  of dropped files, since the query looks at all of them. That is what lets the
+  buffer be a small number rather than one to tune.
+
+  The interval is then the safety net and nothing else -- rows an import
+  inserted, a `media.Version` bump, anything that landed while the process was
+  not running, a file deferred until its retry time -- which is why it is an
+  hour and why it is a `Ticker` rather than a timer armed after each pass: a
+  steady trickle of uploads would restart a timer forever and the four things
+  above would never be looked at. **It is also the resolution of the retry
+  clock**: an hour of `retryAfter` under an hour of interval means a deferred
+  file waits between one and two.
+
+  One failure the direct path introduced and the query could not have: a notice
+  naming a row that has since been deleted. All three drivers now map a foreign
+  key violation to `ErrNotFound`, and the indexer shrugs -- there is nothing to
+  record about a file that does not exist.
 
   **A media row records the validator it was extracted from.** Replacing a file
   keeps its row and its id, so without that the metadata of the bytes that are

@@ -22,15 +22,23 @@ import (
 // that the query is not the cost.
 const BatchSize = 64
 
+// noticeBuffer is how many written files are held for the indexer to get to.
+// Small on purpose: what makes a small buffer safe is that overflowing it is
+// reported rather than swallowed, and then the query finds what was dropped.
+const noticeBuffer = 256
+
 // Indexer fills in the metadata of files that have none.
 type Indexer struct {
 	files   *files.Service
 	meta    db.MediaIndex
 	tmpDir  string
 	ffprobe string
-	// wake carries no value and holds at most one: it says "do not wait for the
-	// timer", which is all a caller can usefully tell this.
-	wake chan struct{}
+	// notices are the files writes have handed over, which is the ordinary way
+	// work arrives and costs no query at all.
+	notices chan db.File
+	// lost holds at most one and says "there was a write I could not hold on
+	// to": the signal that the query has to run sooner than the interval.
+	lost chan struct{}
 }
 
 // LookupFFprobe finds ffprobe, which is a hard requirement rather than an
@@ -61,31 +69,45 @@ func LookupFFmpeg() (string, error) {
 // NewIndexer wires an indexer. tmpDir is where blobs are spooled for ffprobe,
 // and ffprobe is its path, from LookupFFprobe.
 func NewIndexer(f *files.Service, meta db.MediaIndex, tmpDir, ffprobe string) *Indexer {
-	return &Indexer{files: f, meta: meta, tmpDir: tmpDir, ffprobe: ffprobe, wake: make(chan struct{}, 1)}
+	return &Indexer{
+		files: f, meta: meta, tmpDir: tmpDir, ffprobe: ffprobe,
+		notices: make(chan db.File, noticeBuffer),
+		lost:    make(chan struct{}, 1),
+	}
 }
 
 // Notice says a file has just been written. It is what internal/files calls
-// through its watcher, and what turns "indexed within a minute" into "indexed
-// now".
+// through its watcher, and it carries the file because we already know which
+// one it is: asking the database that question is a scan of every row, and it
+// costs the same whether the answer is a file or nothing (#158).
 //
-// The file it names is deliberately ignored: what runs next is the ordinary
-// batch over the ordinary query, so there is one path that indexes anything and
-// no second one that could disagree with it. That also makes five hundred
-// uploads one wake-up rather than five hundred, since the channel holds one.
+// This is not a second extractor. IndexFile and IndexBatch reach the same one;
+// what differs is how the file was found.
 //
-// Never blocks, and never fails. A notice that is dropped -- because a pass is
-// already about to run, or because this process dies before it does -- costs
-// the file a wait for the next tick, which is exactly where it was before.
-func (i *Indexer) Notice(db.File) {
+// Never blocks, and never fails, which is its only promise -- it is called from
+// inside a write. A notice this cannot hold raises lost instead, so the query
+// runs sooner rather than the file waiting for the interval; that is what makes
+// a buffer of a few hundred safe rather than a number to tune.
+func (i *Indexer) Notice(f db.File) {
 	select {
-	case i.wake <- struct{}{}:
+	case i.notices <- f:
+		return
+	default:
+	}
+	select {
+	case i.lost <- struct{}{}:
 	default:
 	}
 }
 
-// Woken is closed-over by the composition root's loop: it waits on this as well
-// as on its timer.
-func (i *Indexer) Woken() <-chan struct{} { return i.wake }
+// Noticed hands out the files writes have named. The composition root's loop
+// waits on this, which is the ordinary way anything gets indexed.
+func (i *Indexer) Noticed() <-chan db.File { return i.notices }
+
+// LostTrack fires when a notice was dropped. What is on the other side of it is
+// the query, brought forward: something was written and this does not know
+// what.
+func (i *Indexer) LostTrack() <-chan struct{} { return i.lost }
 
 // IndexBatch extracts metadata for up to BatchSize files and returns how many
 // it reached a verdict about. A full batch means there is probably more to do.
@@ -119,25 +141,65 @@ func (i *Indexer) IndexBatch(ctx context.Context, now time.Time) (int, error) {
 			return indexed, err
 		}
 
-		m := a.media
-		if a.deferred(attempts) {
+		switch put, err := i.record(ctx, now, a, attempts); {
+		case err != nil:
+			return indexed, err
+		case put:
+			indexed++
+		default:
 			deferred++
 			if why == nil {
 				why = a.err
 			}
-			m.RetryAt = now.Add(retryAfter)
-		} else {
-			indexed++
-		}
-
-		if err := i.meta.PutMedia(ctx, m); err != nil {
-			return indexed, fmt.Errorf("store the metadata of %q: %w", a.path, err)
 		}
 	}
 	if deferred > 0 {
 		slog.Warn("deferred indexing", "files", deferred, "retrying_in", retryAfter, "err", why)
 	}
 	return indexed, nil
+}
+
+// IndexFile extracts the metadata of one file a write has just named, without
+// asking which files need it: that question is a scan of every row, and the
+// answer was already in hand (#158).
+//
+// The same extractor and the same row as a batch, judged the same way. What it
+// cannot do is the batch's reading of a whole failed batch at once, which is
+// why a lone file whose blob is missing gets a verdict -- exactly what a batch
+// of one already decides.
+func (i *Indexer) IndexFile(ctx context.Context, now time.Time, f db.File) error {
+	a := i.index(ctx, f)
+	put, err := i.record(ctx, now, a, []attempt{a})
+	switch {
+	case err != nil:
+		return err
+	case !put:
+		slog.Warn("deferred indexing", "file", a.path, "retrying_in", retryAfter, "err", a.err)
+	}
+	return nil
+}
+
+// record writes one attempt down and reports whether it is the last word on the
+// file. A deferred one carries a time instead, and is still written: a file
+// with no row at all would hold the head of the queue (#157).
+//
+// A row that is gone between the write and this is not a failure. It is
+// somebody who uploaded a file and deleted it, and there is nothing to record
+// about a file that does not exist.
+func (i *Indexer) record(ctx context.Context, now time.Time, a attempt, batch []attempt) (bool, error) {
+	m := a.media
+	put := !a.deferred(batch)
+	if !put {
+		m.RetryAt = now.Add(retryAfter)
+	}
+
+	switch err := i.meta.PutMedia(ctx, m); {
+	case errors.Is(err, db.ErrNotFound):
+		return true, nil
+	case err != nil:
+		return false, fmt.Errorf("store the metadata of %q: %w", a.path, err)
+	}
+	return put, nil
 }
 
 // attempt is what one file's turn produced: the row to write, and the failure
