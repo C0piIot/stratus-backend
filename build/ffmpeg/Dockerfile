@@ -42,6 +42,9 @@ RUN curl -fsSL "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz" | t
 #   mpg mpeg         -> mpeg2video
 #   avi              -> mpeg4 msmpeg4v3
 #   wmv              -> vc1 wmv3
+#   mts m2ts m2t     -> mpegts, which is AVCHD out of a camcorder and what a
+#                       set-top box records; the video inside is h264, or vc1
+#                       and mpeg2video off a disc, and all three are above
 #
 # Only the image and video containers. The audio ones ffprobe enables are not
 # here because nothing decodes audio yet -- that arrives with transcoding -- and
@@ -68,7 +71,7 @@ RUN ./configure \
       --disable-programs --enable-ffmpeg \
       --disable-avdevice --disable-swresample --disable-postproc \
       --enable-protocol=file,pipe \
-      --enable-demuxer=mov,matroska,avi,mpegps,asf \
+      --enable-demuxer=mov,matroska,avi,mpegps,mpegts,asf \
       --enable-decoder=hevc,h264,vp8,vp9,mpeg2video,mpeg4,msmpeg4v3,vc1,wmv3 \
       --enable-parser=h264,hevc,mpeg4video,vp8,vp9 \
       --enable-filter=scale,format,null,transpose,hflip,vflip \
@@ -102,8 +105,10 @@ RUN set -eu; \
     done; \
     ./ffmpeg -hide_banner -muxers 2>/dev/null | grep -qE " rawvideo " \
       || { echo "the rawvideo muxer is not in this build"; exit 1; }; \
-    ./ffmpeg -hide_banner -demuxers 2>/dev/null | grep -qE " mov,mp4" \
-      || { echo "the mov demuxer is not in this build"; exit 1; }
+    for demuxer in "mov,mp4" "matroska,webm" "avi" "mpegts"; do \
+      ./ffmpeg -hide_banner -demuxers 2>/dev/null | grep -qE " ${demuxer}" \
+        || { echo "the ${demuxer} demuxer is not in this build"; exit 1; }; \
+    done
 
 # And then it does the job it was built for, on a real file: decode a HEIC and
 # emit the scaled RGBA a thumbnail is made from. 32 x 21 x 4 bytes, because the

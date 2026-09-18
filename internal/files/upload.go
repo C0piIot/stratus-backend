@@ -38,7 +38,12 @@ func (s *Service) BeginUpload(ctx context.Context, owner, path string, size int6
 		return db.Upload{}, err
 	}
 
-	key := newBlobKey(path)
+	// The name alone, unlike a PUT: a resumable upload chooses where the bytes
+	// go before it has any, and waiting for the first chunk to sniff would mean
+	// a key that does not exist until somebody sends one. The key is best
+	// effort for a person reading a data directory (#123), and the kind on the
+	// row comes from the indexer either way.
+	key := newBlobKey(path, db.KindOther)
 	storeID, err := s.blobs.StartUpload(ctx, key)
 	if err != nil {
 		return db.Upload{}, fmt.Errorf("start the upload of %q: %w", path, err)

@@ -91,6 +91,14 @@ the duration, artist, album and track of a recording; the codec and dimensions
 of a video. Without it a library is a pile of files — there is no gallery by
 date and no music browsing.
 
+**What a file is comes from its first bytes**, not from its name. A name is
+something somebody typed, and two cases matter: a recording copied off a phone
+with no extension at all, and `.ts`, which is a transport stream from a set-top
+box and a TypeScript source file in equal measure. Both are answered by reading
+a few hundred bytes — the same reading that fills in a content type the client
+did not give, and files a blob under `video/` rather than under `other/`. What
+the bytes cannot say, the name still answers.
+
 It runs in the background, in this process, and `STRATUS_INDEX_INTERVAL=0` turns
 it off. **A file is read as it arrives**: an upload tells the indexer rather
 than waiting to be found, so the interval above is the idle poll and the safety

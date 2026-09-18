@@ -209,3 +209,55 @@ func TestTempDirSweepsWhatWasLeftBehind(t *testing.T) {
 		t.Errorf("a spooled file survived a restart: %v", err)
 	}
 }
+
+// TestIndexClassifiesByContent is #146: the name goes last, because the two
+// files it gets wrong are the ones a phone and a camcorder produce.
+//
+// ffprobe is absent here, so what the video cases prove is the classification
+// and the honest failure behind it -- the row says what the file is and why it
+// could not be read, which is what puts it out of the queue for good.
+func TestIndexClassifiesByContent(t *testing.T) {
+	t.Parallel()
+	idx, service, meta := indexer(t)
+
+	// A TypeScript source file with the extension of a transport stream. By the
+	// name alone this is a video, and every pass would hand it to ffprobe.
+	source := []byte("import { Stratus } from './stratus'\nexport const backup = 1\n")
+	typescript := write(t, service, "src/backup.ts", source, "")
+
+	// An MP4 with no extension at all, which is what a camera roll copied off a
+	// phone by some tools looks like.
+	video := write(t, service, "clips/IMG_0001", readFixture(t, "moov-last.mp4"), "")
+
+	// And a photograph that says it is a text file, which is a client that got
+	// it wrong rather than a file that lies.
+	photo := write(t, service, "photos/holiday", readFixture(t, "tiny.heic"), "text/plain")
+
+	if _, err := idx.IndexBatch(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tc := range []struct {
+		name string
+		file db.File
+		want db.Kind
+	}{
+		{"typescript named .ts", typescript, db.KindOther},
+		{"an mp4 with no extension", video, db.KindVideo},
+		{"a heic declared as text", photo, db.KindImage},
+	} {
+		got, err := meta.MediaByFile(t.Context(), tc.file.ID)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		if got.Kind != tc.want {
+			t.Errorf("%s = %q, want %q", tc.name, got.Kind, tc.want)
+		}
+	}
+
+	// The source file is not a failure either: nothing was extracted from it
+	// because there is nothing in it to extract, which is a row with no error.
+	if got, _ := meta.MediaByFile(t.Context(), typescript.ID); !got.Indexed() {
+		t.Errorf("the TypeScript file was recorded as unreadable: %q", got.Error)
+	}
+}

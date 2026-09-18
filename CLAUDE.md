@@ -492,6 +492,30 @@ Restraint here is principle 3, not laziness:
   extractor version -- which is what it did until #48. What this still cannot
   see is a rename that changes an extension, where the bytes, and therefore the
   validator, are the same while the kind is not.
+- **What a file is, is read rather than inferred** (#146). `internal/sniff` is a
+  leaf package over a 512-byte window: it answers a MIME type and a `db.Kind`,
+  or it answers nothing, and nothing is the answer that sends the question back
+  to the name. Three callers had been guessing separately -- the type stored on
+  a row, the kind an extractor works from, and the prefix a blob key is filed
+  under -- so the table lives below all three rather than in any of them.
+
+  Two things it has to know that the standard library does not. **ISOBMFF is one
+  container for a photograph, a film and a track**, and only the brand after
+  `ftyp` says which, so HEIC, AVIF, MP4, QuickTime and M4A are told apart by
+  four bytes at offset 8. And **MPEG-TS has no header at all** -- a sync byte at
+  the start of every 188-byte packet is the whole signature, which is why the
+  window is 512 bytes and why `.ts` can be a TypeScript file without being
+  mistaken for a recording.
+
+  It refuses rather than guesses: an unknown ISOBMFF brand, an ASF file that
+  could be audio or video, a buffer of noise the standard library would call
+  text. A wrong answer from the bytes is worse than no answer, because the name
+  at least says what somebody meant.
+
+  What this does **not** change is the listing's offer of a thumbnail, which is
+  still `media.CanThumbnail` over the name alone -- a page cannot read five
+  hundred files to decide what to draw. So `.mts` and `.m2ts` are in that list
+  by name and `.ts` is not.
 - **Thumbnails are lazy, and they are blobs.** Generated on first request rather
   than on upload, because a phone backing up five hundred photos would otherwise
   pay a decode and a resize per PUT with the client waiting -- and because lazily

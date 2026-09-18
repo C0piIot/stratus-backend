@@ -23,13 +23,27 @@ import (
 // engine's own lower(), which is exactly the divergence between the two drivers
 // that folding in Go removes -- and it would have applied to the rows nothing
 // would ever re-check.
-const Version = 3
+//
+// It went to 4 when the kind started coming from the file's first bytes (#146),
+// which is the bump this mechanism is for: a camcorder's .mts and a recording
+// with no extension at all were filed as "other" and never looked at again, and
+// they are looked at again now without a migration or a script.
+const Version = 4
 
 // kindOf decides which extractor a file gets.
 //
-// The declared MIME type is a hint and not much more: WebDAV clients send
-// application/octet-stream for everything, so the extension gets the last word.
-func kindOf(f db.File) db.Kind {
+// The bytes have the first word and the name only answers for what they could
+// not say. That order is the whole of #146: an extension is something somebody
+// typed, and the two cases it gets wrong are the ones that matter -- a video
+// from a camcorder, whose extension is not in any table, and a file that has no
+// extension at all, which is what a camera roll copied off a phone looks like.
+//
+// The declared MIME type is last and is a hint at that: WebDAV clients send
+// application/octet-stream for everything.
+func kindOf(f db.File, sniffed db.Kind) db.Kind {
+	if sniffed != db.KindOther {
+		return sniffed
+	}
 	if kind := kindFromExtension(path.Ext(f.Path)); kind != "" {
 		return kind
 	}
@@ -69,6 +83,11 @@ var byExtension = map[string]db.Kind{
 	".mp4": db.KindVideo, ".mov": db.KindVideo, ".mkv": db.KindVideo,
 	".webm": db.KindVideo, ".avi": db.KindVideo, ".m4v": db.KindVideo,
 	".mpg": db.KindVideo, ".mpeg": db.KindVideo, ".wmv": db.KindVideo,
+	// AVCHD, which is what a camcorder records, and the transport stream a
+	// set-top box writes. Not ".ts", which is a transport stream and a
+	// TypeScript file in equal measure -- that one is answered by its first
+	// bytes or not at all (#146).
+	".mts": db.KindVideo, ".m2ts": db.KindVideo, ".m2t": db.KindVideo,
 }
 
 func kindFromExtension(ext string) db.Kind {

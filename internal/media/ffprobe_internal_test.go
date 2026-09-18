@@ -29,6 +29,11 @@ var demuxerFor = map[string]string{
 	".mpeg": "mpegps",
 	".wma":  "asf",
 	".wmv":  "asf",
+	// AVCHD and what a set-top box records: MPEG-TS, which ffprobe has had
+	// enabled since the beginning and nothing was using (#146).
+	".mts":  "mpegts",
+	".m2ts": "mpegts",
+	".m2t":  "mpegts",
 }
 
 // TestFFprobeReadsEveryExtension is the guard on a coupling nothing else

@@ -119,6 +119,7 @@ linters:
             - "**/internal/files/**"
             - "**/internal/calendar/**"
             - "**/internal/media/**"
+            - "**/internal/sniff/**"
             - "**/internal/auth/**"
             - "**/internal/config/**"
           deny:

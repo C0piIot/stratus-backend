@@ -12,6 +12,7 @@ import (
 
 	"github.com/C0piIot/stratus-backend/internal/db"
 	"github.com/C0piIot/stratus-backend/internal/files"
+	"github.com/C0piIot/stratus-backend/internal/sniff"
 )
 
 // BatchSize is how many files one pass looks at. Small enough that a first run
@@ -114,21 +115,28 @@ func (i *Indexer) index(ctx context.Context, f db.File) db.Media {
 	// id, and the queue compares the two validators to notice.
 	m.ETag = f.ETag
 	if err != nil {
-		m.Kind = kindOf(f)
+		// The name, because a file that could not be read could not be
+		// classified from its bytes either -- that is often the same failure.
+		m.Kind = kindOf(f, db.KindOther)
 		m.Error = err.Error()
 	}
 	return m
 }
 
 func (i *Indexer) extract(ctx context.Context, f db.File) (db.Media, error) {
-	kind := kindOf(f)
+	body, err := i.files.OpenFile(ctx, f)
+	if err != nil {
+		return db.Media{}, err
+	}
+	defer func() { _ = body.Close() }()
+
+	kind, err := i.classify(body, f)
+	if err != nil {
+		return db.Media{}, err
+	}
+
 	switch kind {
 	case db.KindImage:
-		body, err := i.files.OpenFile(ctx, f)
-		if err != nil {
-			return db.Media{}, err
-		}
-		defer func() { _ = body.Close() }()
 		return extractImage(body)
 
 	case db.KindAudio, db.KindVideo:
@@ -158,6 +166,30 @@ func (i *Indexer) extract(ctx context.Context, f db.File) (db.Media, error) {
 	default:
 		return db.Media{Kind: db.KindOther}, nil
 	}
+}
+
+// classify reads the head of the file and asks what it is, leaving the reader
+// back at the beginning for whichever extractor gets it.
+//
+// One ranged read per file, where the kinds that extract nothing used to cost
+// none at all -- and a second range for an image, since rewinding reopens the
+// body on a bucket. It is paid once per file while its bytes do not change,
+// which the queue now knows (#143), and it buys the two answers a name cannot
+// give: what a camcorder recording is, and what a file with no extension is.
+func (i *Indexer) classify(body io.ReadSeeker, f db.File) (db.Kind, error) {
+	head := make([]byte, sniff.HeadSize)
+	n, err := io.ReadFull(body, head)
+	// A file shorter than the window is ordinary, and an empty one is a file
+	// too: neither is a failure, and both are classified from what there is.
+	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
+		return db.KindOther, fmt.Errorf("read the head of %q: %w", f.Path, err)
+	}
+	if _, err := body.Seek(0, io.SeekStart); err != nil {
+		return db.KindOther, fmt.Errorf("rewind %q: %w", f.Path, err)
+	}
+
+	_, sniffed := sniff.Sniff(head[:n])
+	return kindOf(f, sniffed), nil
 }
 
 // probeInPlace reads the metadata out of the blob itself, over ranges, without

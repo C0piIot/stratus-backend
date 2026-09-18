@@ -1,11 +1,13 @@
 package files_test
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -427,4 +429,78 @@ func TestOpenMissing(t *testing.T) {
 	if _, _, err := s.Open(t.Context(), owner, "nothing.txt"); !errors.Is(err, db.ErrNotFound) {
 		t.Errorf("Open = %v, want ErrNotFound", err)
 	}
+}
+
+// TestWriteReadsWhatItIsStoring is the other half of #146: the row a write
+// leaves behind says what the bytes are, not what the name claimed.
+//
+// Two rules, and the second is the one that keeps this honest: what a client
+// declared is kept, because being told beats guessing, and only silence or the
+// application/octet-stream every WebDAV client sends is replaced.
+func TestWriteReadsWhatItIsStoring(t *testing.T) {
+	t.Parallel()
+
+	jpeg := readTestdata(t, "cover.jpg")
+	tests := []struct {
+		name     string
+		path     string
+		body     []byte
+		declared string
+		wantMIME string
+		wantKind string
+	}{
+		{
+			name: "a client that said nothing", path: "one", body: jpeg,
+			declared: "", wantMIME: "image/jpeg", wantKind: "image",
+		},
+		{
+			name: "a client that shrugged", path: "two.bin", body: jpeg,
+			declared: "application/octet-stream", wantMIME: "image/jpeg", wantKind: "image",
+		},
+		{
+			name: "a client that was specific", path: "three.txt", body: jpeg,
+			declared: "text/plain; charset=utf-8", wantMIME: "text/plain; charset=utf-8", wantKind: "image",
+		},
+		{
+			name: "bytes that say nothing", path: "four.bin", body: []byte{0x00, 0xA5, 0x00, 0x5A},
+			declared: "application/octet-stream", wantMIME: "application/octet-stream", wantKind: "other",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			s, _ := service(t)
+
+			f, err := s.Write(t.Context(), owner, tt.path, bytes.NewReader(tt.body), int64(len(tt.body)), tt.declared)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if f.MIMEType != tt.wantMIME {
+				t.Errorf("MIMEType = %q, want %q", f.MIMEType, tt.wantMIME)
+			}
+			// And the blob is filed where somebody with no database would look
+			// for it, which for a photograph with no extension is not other/.
+			if kind, _, _ := strings.Cut(f.BlobKey, "/"); kind != tt.wantKind {
+				t.Errorf("blob key = %q, want it filed under %q", f.BlobKey, tt.wantKind)
+			}
+
+			// The bytes are still all there: the head is read before the store
+			// sees them and handed back in front of the rest.
+			if got := read(t, s, tt.path); got != string(tt.body) {
+				t.Errorf("%d bytes came back, want %d", len(got), len(tt.body))
+			}
+		})
+	}
+}
+
+// readTestdata reads one of the fixtures the smoke suite uses, which are real
+// files rather than bytes invented here.
+func readTestdata(t *testing.T, name string) []byte {
+	t.Helper()
+	body, err := os.ReadFile(filepath.Join("..", "..", "scripts", "testdata", name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return body
 }

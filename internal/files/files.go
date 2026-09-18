@@ -15,6 +15,7 @@
 package files
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -24,6 +25,7 @@ import (
 	"io"
 
 	"github.com/C0piIot/stratus-backend/internal/db"
+	"github.com/C0piIot/stratus-backend/internal/sniff"
 	"github.com/C0piIot/stratus-backend/internal/storage"
 )
 
@@ -176,14 +178,28 @@ func (s *Service) Write(ctx context.Context, owner, path string, body io.Reader,
 		return db.File{}, err
 	}
 
+	// The first bytes are read before anything else happens to them, because
+	// two of the things about to be decided are decided better by the file than
+	// by its name: what it is filed under, and what it is served as (#146).
+	// They are handed to the store in front of the rest, so nothing is read
+	// twice and no request is made twice.
+	head := make([]byte, sniff.HeadSize)
+	read, err := io.ReadFull(body, head)
+	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
+		return db.File{}, fmt.Errorf("read %q: %w", path, err)
+	}
+	head = head[:read]
+	sniffedType, sniffedKind := sniff.Sniff(head)
+
 	// A fresh key every time, never derived from the path: it is what lets an
 	// import adopt somebody else's bucket (#24), and it means an overwrite that
 	// fails halfway has not destroyed the previous content. The cost is an
 	// orphaned blob per overwrite, which is #17's job.
-	key := newBlobKey(path)
+	key := newBlobKey(path, sniffedKind)
 	digest := sha256.New()
 
-	info, err := s.blobs.Put(ctx, key, io.TeeReader(body, digest), size)
+	whole := io.MultiReader(bytes.NewReader(head), body)
+	info, err := s.blobs.Put(ctx, key, io.TeeReader(whole, digest), size)
 	if err != nil {
 		return db.File{}, fmt.Errorf("store %q: %w", path, err)
 	}
@@ -195,7 +211,7 @@ func (s *Service) Write(ctx context.Context, owner, path string, body io.Reader,
 		Size:     info.Size,
 		MTime:    info.ModTime,
 		ETag:     etag(digest),
-		MIMEType: mimeType,
+		MIMEType: contentType(mimeType, sniffedType),
 	}
 
 	err = s.meta.Tx(ctx, func(r db.Repo) error {
@@ -217,6 +233,25 @@ func (s *Service) Write(ctx context.Context, owner, path string, body io.Reader,
 	}
 	s.written(f)
 	return f, nil
+}
+
+// contentType keeps what the client declared unless it declared nothing worth
+// keeping.
+//
+// A client that named a type gets to keep it, even when the bytes disagree:
+// being told is better information than being guessed at, and a server that
+// overrode it would be arguing with the only party that saw the file whole.
+// What this replaces is silence -- and application/octet-stream, which is what
+// every WebDAV client sends for everything and what dav.mimeType falls back to
+// for an extension nothing knows.
+func contentType(declared, sniffed string) string {
+	if sniffed == "" {
+		return declared
+	}
+	if declared == "" || declared == "application/octet-stream" {
+		return sniffed
+	}
+	return declared
 }
 
 // Mkdir records an empty directory.
