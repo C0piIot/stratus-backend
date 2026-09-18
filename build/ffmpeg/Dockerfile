@@ -56,6 +56,12 @@ RUN curl -fsSL "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz" | t
 # swscale stays (the scale filter is the whole point) and swresample goes: no
 # audio is decoded yet. It arrives with transcoding, along with an encoder and
 # libmp3lame, and the list here grows with it.
+#
+# transpose, hflip and vflip are not used by any command this project writes.
+# They are what ffmpeg itself inserts when it straightens a frame whose
+# container says it was recorded rotated, which every phone held upright does --
+# and without them that is not a sideways thumbnail, it is a failed one: the
+# filter does not exist, so the command errors out.
 RUN ./configure \
       --disable-everything --disable-doc --disable-network --disable-autodetect \
       --disable-shared --enable-static --enable-small \
@@ -65,7 +71,7 @@ RUN ./configure \
       --enable-demuxer=mov,matroska,avi,mpegps,asf \
       --enable-decoder=hevc,h264,vp8,vp9,mpeg2video,mpeg4,msmpeg4v3,vc1,wmv3 \
       --enable-parser=h264,hevc,mpeg4video,vp8,vp9 \
-      --enable-filter=scale,format,null \
+      --enable-filter=scale,format,null,transpose,hflip,vflip \
       --enable-encoder=rawvideo --enable-muxer=rawvideo \
       --extra-ldflags=-static \
  && make -j"$(nproc)" ffmpeg \
@@ -90,8 +96,10 @@ RUN set -eu; \
       ./ffmpeg -hide_banner -decoders 2>/dev/null | grep -qE "^ V[.A-Z]* +${decoder} " \
         || { echo "the ${decoder} decoder is not in this build"; exit 1; }; \
     done; \
-    ./ffmpeg -hide_banner -filters 2>/dev/null | grep -qE " scale " \
-      || { echo "the scale filter is not in this build"; exit 1; }; \
+    for filter in scale transpose hflip vflip; do \
+      ./ffmpeg -hide_banner -filters 2>/dev/null | grep -qE " ${filter} " \
+        || { echo "the ${filter} filter is not in this build"; exit 1; }; \
+    done; \
     ./ffmpeg -hide_banner -muxers 2>/dev/null | grep -qE " rawvideo " \
       || { echo "the rawvideo muxer is not in this build"; exit 1; }; \
     ./ffmpeg -hide_banner -demuxers 2>/dev/null | grep -qE " mov,mp4" \

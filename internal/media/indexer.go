@@ -42,6 +42,19 @@ func LookupFFprobe() (string, error) {
 	return path, nil
 }
 
+// LookupFFmpeg finds the other one, and it is required for the same reason and
+// one more: whether a file can have a thumbnail is answered by CanThumbnail, a
+// function of the name alone. If the binary's absence changed that answer, the
+// listing would have to ask the generator instead of knowing, and a build would
+// offer pictures it cannot make.
+func LookupFFmpeg() (string, error) {
+	path, err := exec.LookPath("ffmpeg")
+	if err != nil {
+		return "", fmt.Errorf("ffmpeg is required for thumbnails of what Go cannot decode: %w", err)
+	}
+	return path, nil
+}
+
 // NewIndexer wires an indexer. tmpDir is where blobs are spooled for ffprobe,
 // and ffprobe is its path, from LookupFFprobe.
 func NewIndexer(f *files.Service, meta db.MediaIndex, tmpDir, ffprobe string) *Indexer {
@@ -130,7 +143,7 @@ func (i *Indexer) extract(ctx context.Context, f db.File) (db.Media, error) {
 			}
 		}
 
-		path, cleanup, err := i.spool(ctx, f)
+		path, cleanup, err := i.spoolFile(ctx, f)
 		if err != nil {
 			return db.Media{}, err
 		}
@@ -159,23 +172,21 @@ func (i *Indexer) probeInPlace(ctx context.Context, f db.File) (db.Media, error)
 	return probeVideo(body, f.Size)
 }
 
-// spool copies a blob to a local file, because ffprobe seeks and the storage
+// spool copies a blob to a local file, because the tools seek and the storage
 // port streams.
 //
 // For a large video on S3 this downloads the whole thing once. That is the
-// honest cost of the abstraction, and the obvious fix -- handing ffprobe a path
-// when the backend already has one -- is a change to the port rather than a
-// change here.
-func (i *Indexer) spool(ctx context.Context, f db.File) (string, func(), error) {
-	body, err := i.files.OpenFile(ctx, f)
+// honest cost of the abstraction: #48 removed it for probing an MP4, which is
+// read out of its own container over ranges, and it stays for everything a
+// binary has to open -- every other container, and every frame turned into a
+// thumbnail.
+//
+// No context here: what makes it cancellable is the reader, which is a ranged
+// read off the store carrying the caller's.
+func spool(body io.Reader, dir, name string) (string, func(), error) {
+	tmp, err := os.CreateTemp(dir, "spool-*")
 	if err != nil {
-		return "", nil, err
-	}
-	defer func() { _ = body.Close() }()
-
-	tmp, err := os.CreateTemp(i.tmpDir, "probe-*")
-	if err != nil {
-		return "", nil, fmt.Errorf("spool %q: %w", f.Path, err)
+		return "", nil, fmt.Errorf("spool %q: %w", name, err)
 	}
 	cleanup := func() {
 		_ = tmp.Close()
@@ -184,17 +195,30 @@ func (i *Indexer) spool(ctx context.Context, f db.File) (string, func(), error) 
 
 	if _, err := io.Copy(tmp, body); err != nil {
 		cleanup()
-		return "", nil, fmt.Errorf("spool %q: %w", f.Path, err)
+		return "", nil, fmt.Errorf("spool %q: %w", name, err)
 	}
 	if err := tmp.Close(); err != nil {
 		cleanup()
-		return "", nil, fmt.Errorf("spool %q: %w", f.Path, err)
+		return "", nil, fmt.Errorf("spool %q: %w", name, err)
 	}
 	return tmp.Name(), func() { _ = os.Remove(tmp.Name()) }, nil
 }
 
-// TempDir is where spooled blobs go, under the data directory so that a
-// multi-gigabyte video does not land on whatever /tmp happens to be.
+// spoolFile is spool over a file in the tree, which is how both callers reach
+// it: read the blob, write it down, hand the path to a binary.
+func (i *Indexer) spoolFile(ctx context.Context, f db.File) (string, func(), error) {
+	body, err := i.files.OpenFile(ctx, f)
+	if err != nil {
+		return "", nil, err
+	}
+	defer func() { _ = body.Close() }()
+
+	return spool(body, i.tmpDir, f.Path)
+}
+
+// TempDir is where spooled blobs go -- for the indexer and for the thumbnail
+// generator alike -- under the data directory so that a multi-gigabyte video
+// does not land on whatever /tmp happens to be.
 func TempDir(dataDir string) (string, error) {
 	dir := filepath.Join(dataDir, ".index")
 	if err := os.MkdirAll(dir, 0o750); err != nil {

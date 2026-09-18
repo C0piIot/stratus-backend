@@ -238,7 +238,6 @@ func TestRunRefusesWithoutFFprobe(t *testing.T) {
 // Not parallel, because it changes the process environment.
 func TestIndexerRuns(t *testing.T) {
 	const password = "an example password"
-	stubFFprobe(t)
 
 	dataDir := filepath.Join(t.TempDir(), "data")
 	base, stop := liveServer(t, map[string]string{
@@ -282,14 +281,29 @@ func TestIndexerRuns(t *testing.T) {
 	t.Error("the uploaded file was never indexed")
 }
 
-// stubFFprobe puts something called ffprobe on the PATH. The indexer refuses to
-// start without one, which is the point of the requirement.
-func stubFFprobe(t *testing.T) {
-	t.Helper()
-	dir := t.TempDir()
-	stub := filepath.Join(dir, "ffprobe")
-	if err := os.WriteFile(stub, []byte("#!/bin/sh\necho '{\"streams\":[],\"format\":{}}'\n"), 0o700); err != nil {
-		t.Fatal(err)
+// stubTools writes something called ffprobe and something called ffmpeg into a
+// directory of their own, and returns it for TestMain to put on the PATH.
+//
+// The server refuses to start without either, which is the point of the
+// requirement. What these tests are about is the wiring around them and not the
+// tools themselves: the toolchain container has none, and the real ones are
+// driven by scripts/smoke.sh inside the image that carries them.
+func stubTools() (string, error) {
+	dir, err := os.MkdirTemp("", "stratus-tools-")
+	if err != nil {
+		return "", err
 	}
-	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	stubs := map[string]string{
+		"ffprobe": "#!/bin/sh\necho '{\"streams\":[],\"format\":{}}'\n",
+		// It fails, because nothing in this package asks for a picture and a
+		// stub that pretended to make one would be a fixture nobody reads.
+		"ffmpeg": "#!/bin/sh\nexit 1\n",
+	}
+	for name, script := range stubs {
+		if werr := os.WriteFile(filepath.Join(dir, name), []byte(script), 0o700); werr != nil {
+			return "", werr
+		}
+	}
+	return dir, nil
 }

@@ -81,7 +81,10 @@ func newLibrary(t *testing.T) *library {
 	}
 
 	service := files.New(blobs, meta)
-	thumbs := media.NewThumbs(blobs, service)
+	// Cover art is a JPEG or a PNG out of a tag, so nothing here reaches ffmpeg.
+	// The name is what it would be on a real system: a test that did reach it
+	// would fail saying so rather than quietly not looking.
+	thumbs := media.NewThumbs(blobs, service, "ffmpeg", t.TempDir())
 	verifier := auth.NewThrottle(auth.Credentials{Username: username, Password: password}, auth.DefaultThrottle)
 	return &library{
 		Handler:  subsonic.Handler(prefix, serverVersion, verifier, meta, service, thumbs),

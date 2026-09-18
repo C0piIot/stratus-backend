@@ -306,11 +306,15 @@ disk.
 **A photograph in a listing shows a picture of itself**, made the first time
 somebody looks at the folder and kept as a derived blob the sweep collects. The
 URL carries the file's ETag, so a browser caches it forever and a new upload
-gets a new one. Only what this build can decode is offered an image — JPEG and
-PNG today; HEIC and video wait for the ffmpeg path — so a listing is never a
-wall of broken pictures. They load as you scroll, and the server decodes a few
-at a time, because opening a folder of five hundred photographs should not ask
-for five hundred at once.
+gets a new one. **HEIC and video included**: JPEG and PNG are decoded in Go, and
+what Go cannot read goes to the ffmpeg in the image, which is also what turns
+the first second of a video into a frame. A photograph taken on a phone held
+upright comes out upright, because the rotation is in the file and ffmpeg
+applies it. Only what this build can decode is offered an image — camera raw and
+AVIF are not, and neither is a JPEG's own EXIF rotation, which is read by Go and
+still ignored — so a listing is never a wall of broken pictures. They load as
+you scroll, and the server decodes a few at a time, because opening a folder of
+five hundred photographs should not ask for five hundred at once.
 
 **A folder arrives a hundred rows at a time.** The listing is paged by a cursor
 rather than by a page number, so opening a folder costs the same whether it
@@ -680,7 +684,7 @@ Working now:
   rename and delete. A signed-cookie session and a CSP that allows nothing but
   the binary's own assets.
 - A request log, migrations applied at startup, and a container asserted from
-  the outside by 80 smoke checks.
+  the outside by 83 smoke checks.
 
 Not there yet: CalDAV and sharing --
 and on the music side, anything that remembers what the user did. Work

@@ -166,6 +166,25 @@ func TestRunRejectsHalfSetCredentials(t *testing.T) {
 	}
 }
 
+// TestRunNeedsTheMediaTools: both are a requirement rather than an optional
+// extra, and the refusal has to name the one that is missing -- an operator who
+// gets "exec: not found" from a server that starts anyway is an operator
+// debugging a photo library with no pictures in it.
+//
+// Not parallel: it takes the tools off the PATH this binary put them on.
+func TestRunNeedsTheMediaTools(t *testing.T) {
+	cfg := runConfig(t, map[string]string{})
+	t.Setenv("PATH", "")
+
+	err := app.New(cfg, "test", "2026-01-01T09:30:00Z").Run(t.Context())
+	if err == nil {
+		t.Fatal("the server started with no media tools at all")
+	}
+	if !strings.Contains(err.Error(), "ffmpeg") {
+		t.Errorf("err = %v, want it to name the tool that is missing", err)
+	}
+}
+
 func TestRunAcceptsWholeCredentials(t *testing.T) {
 	t.Parallel()
 	if err := runToShutdown(t, runConfig(t, map[string]string{

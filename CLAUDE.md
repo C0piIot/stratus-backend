@@ -422,8 +422,12 @@ Restraint here is principle 3, not laziness:
   suite runs against Silo, a maintained fork of it (#116). minio-go is a
   separate project, Apache-2.0 and still released.
 - Media processing: **FFmpeg is a requirement, not an optional extra.** Without
-  it a track has no duration and a video no dimensions, and half a media library
-  is worse than an honest refusal to start. The image carries two statically
+  ffprobe a track has no duration and a video no dimensions; without ffmpeg a
+  photograph from a phone has no picture of itself. Half a media library is
+  worse than an honest refusal to start, and both binaries are looked up at
+  startup for that reason -- which is also what keeps `media.CanThumbnail` a
+  function of the name, rather than something a page has to ask a generator
+  about. The image carries two statically
   linked tools copied into the same distroless base rather than switching to one
   with a package manager.
 
@@ -458,7 +462,10 @@ Restraint here is principle 3, not laziness:
     libheif and therefore cgo, and a frame out of a video. It decodes and
     scales; the JPEG is written in Go, so it emits a rawvideo frame already
     reduced rather than a full-size one. AV1 and camera raw are deliberately
-    out, and the audio encoders arrive with transcoding.
+    out, and the audio encoders arrive with transcoding. The transpose, hflip
+    and vflip filters are in it for nothing this project writes: they are what
+    ffmpeg itself reaches for when it straightens a frame the container says was
+    recorded rotated.
 
   Each recipe asserts what it was asked for while it builds, and ffmpeg's also
   decodes a committed HEIC and checks the byte count of the scaled pixels. That
@@ -510,6 +517,30 @@ Restraint here is principle 3, not laziness:
 
   Sizes come from a fixed ladder, because the size is part of the key and an
   arbitrary one means an unbounded set of objects nothing asks for twice.
+
+  **What Go cannot decode goes to ffmpeg, and that binary decodes and scales and
+  nothing else** (#141). It hands back a rawvideo frame already reduced to the
+  size asked for -- about 360 KB against the 48 MB a full 12 MP frame would push
+  through a pipe -- and the JPEG is written by the same encoder every other
+  thumbnail goes through. rawvideo carries no header, so the width is the one
+  the scale filter was given and the height is arithmetic that has to divide
+  exactly; a frame that does not is refused rather than guessed at.
+
+  Three things follow that are easy to get wrong later. **Rotation is ffmpeg's
+  job**: it reads the matrix in the container and inserts a transpose, which is
+  the only reason that filter is in the build -- without it a portrait
+  recording is not a sideways thumbnail, it is a failed one. **A video costs a
+  copy of the whole file**, which is what #48 removed for probing an MP4 and
+  cannot remove here, because a binary opens files and seeks in them; it is paid
+  once per file and size, and then the derived blob answers. And **the list of
+  extensions in `decodableByFFmpeg` mirrors the decoders in the recipe**, the
+  same way `byExtension` mirrors the demuxers and with the same failure mode: an
+  extension added on one side only is a broken thumbnail in production, not a
+  broken build.
+
+  A JPEG's own EXIF rotation is still ignored, because that file is decoded in
+  Go and never reaches ffmpeg. That is a gap of its own rather than part of
+  this one.
 
   **Two surfaces ask for them now**, and the second one changed the shape: a
   listing in the browser offers a picture for every row this build can decode,
