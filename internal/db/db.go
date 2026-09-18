@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"iter"
+	"time"
 )
 
 // Sentinel errors crossing the port. Drivers return these, wrapped with
@@ -138,15 +139,19 @@ type MediaIndex interface {
 	MediaByFile(ctx context.Context, fileID int64) (Media, error)
 
 	// PendingMedia returns files that have never been indexed, were indexed by
-	// an extractor older than version, or were indexed from different bytes
-	// than the ones the row now points at.
+	// an extractor older than version, were indexed from different bytes than
+	// the ones the row now points at, or failed in a way worth trying again by
+	// now.
 	//
 	// The queue is this query rather than a table: nothing is enqueued, nothing
 	// is dequeued, a restart loses nothing, and a row that appears -- written by
 	// an upload or inserted by an import -- turns up on its own. What the query
 	// cannot see is a rename that changes an extension, since the bytes and
 	// therefore the validator are the same while the kind is not.
-	PendingMedia(ctx context.Context, version, limit int) ([]File, error)
+	//
+	// now is the caller's, not the database's: the two clocks are not the same
+	// one, and a test that has to wait an hour is a test nobody runs.
+	PendingMedia(ctx context.Context, version int, now time.Time, limit int) ([]File, error)
 
 	// MediaCounts says how much of the library is indexed, for the page that
 	// reports it. One query, and it walks every file row: there is no way to
@@ -164,6 +169,10 @@ type MediaIndex interface {
 // MediaCounts is the state of the library in four numbers. Pending is every
 // file that is not Indexed and did not Fail, which is what the queue would
 // hand out next.
+//
+// A file whose last attempt failed on the way to the bytes counts as pending
+// and not as failed: it is going to be tried again, and reporting it as
+// unreadable would send somebody looking at a file that is fine.
 type MediaCounts struct {
 	Files   int64
 	Indexed int64

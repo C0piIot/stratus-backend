@@ -195,7 +195,7 @@ func (r *repo) ListFilesPage(ctx context.Context, owner, dir string, after db.Cu
 	return out, nil
 }
 
-const mediaColumns = `file_id, kind, indexed_at, version, etag, error, taken_at, width, height, orientation, latitude, longitude, camera, duration_ms, codec, artist, album, title, track_no, disc_no, year, genre, album_artist`
+const mediaColumns = `file_id, kind, indexed_at, version, etag, error, retry_at, taken_at, width, height, orientation, latitude, longitude, camera, duration_ms, codec, artist, album, title, track_no, disc_no, year, genre, album_artist`
 
 // mediaWriteColumns is the read list plus the three folded columns a search
 // matches on. They are written and filtered but never read back: they are how
@@ -213,6 +213,11 @@ func (r *repo) PutMedia(ctx context.Context, m db.Media) error {
 		takenAt = m.TakenAt
 	}
 
+	var retryAt any
+	if !m.RetryAt.IsZero() {
+		retryAt = m.RetryAt
+	}
+
 	var lat, lon any
 	if m.GPS != nil {
 		lat, lon = m.GPS.Latitude, m.GPS.Longitude
@@ -220,10 +225,11 @@ func (r *repo) PutMedia(ctx context.Context, m db.Media) error {
 
 	const query = `INSERT INTO media (` + mediaWriteColumns + `)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19,
-			$20, $21, $22, $23, $24, $25, $26)
+			$20, $21, $22, $23, $24, $25, $26, $27)
 		ON CONFLICT (file_id) DO UPDATE SET
 			kind = excluded.kind, indexed_at = excluded.indexed_at, version = excluded.version,
-			etag = excluded.etag, error = excluded.error, taken_at = excluded.taken_at, width = excluded.width,
+			etag = excluded.etag, error = excluded.error, retry_at = excluded.retry_at,
+			taken_at = excluded.taken_at, width = excluded.width,
 			height = excluded.height, orientation = excluded.orientation,
 			latitude = excluded.latitude, longitude = excluded.longitude, camera = excluded.camera,
 			duration_ms = excluded.duration_ms, codec = excluded.codec, artist = excluded.artist,
@@ -234,7 +240,7 @@ func (r *repo) PutMedia(ctx context.Context, m db.Media) error {
 			search_album_artist = excluded.search_album_artist`
 
 	_, err := r.q.ExecContext(ctx, query,
-		m.FileID, string(m.Kind), m.IndexedAt, m.Version, m.ETag, m.Error, takenAt,
+		m.FileID, string(m.Kind), m.IndexedAt, m.Version, m.ETag, m.Error, retryAt, takenAt,
 		m.Width, m.Height, m.Orientation, lat, lon, m.Camera,
 		m.DurationMS, m.Codec, m.Artist, m.Album, m.Title,
 		m.TrackNo, m.DiscNo, m.Year, m.Genre,
@@ -258,15 +264,19 @@ func (r *repo) MediaByFile(ctx context.Context, fileID int64) (db.Media, error) 
 }
 
 // PendingMedia implements db.MediaIndex.
-func (r *repo) PendingMedia(ctx context.Context, version, limit int) ([]db.File, error) {
+func (r *repo) PendingMedia(ctx context.Context, version int, now time.Time, limit int) ([]db.File, error) {
 	// The queue is this LEFT JOIN. A row with an error counts as done, or a
-	// file nothing can parse would come back on every pass forever.
+	// file nothing can parse would come back on every pass forever -- and only
+	// while the error was a verdict: a failure on the way to the bytes leaves a
+	// time on the row instead, and the last clause brings the file back when it
+	// arrives (#157).
 	const query = `SELECT f.` + `id, f.owner_id, f.path, f.blob_key, f.size, f.mtime, f.etag, f.mime_type, f.is_dir
 		FROM files f LEFT JOIN media m ON m.file_id = f.id
-		WHERE f.is_dir = FALSE AND (m.file_id IS NULL OR m.version < $1 OR m.etag <> f.etag)
-		ORDER BY f.id LIMIT $2`
+		WHERE f.is_dir = FALSE AND (m.file_id IS NULL OR m.version < $1 OR m.etag <> f.etag
+			OR (m.retry_at IS NOT NULL AND m.retry_at <= $2))
+		ORDER BY f.id LIMIT $3`
 
-	out, err := sqlutil.Collect(ctx, r.q, scanFileRow, query, version, limit)
+	out, err := sqlutil.Collect(ctx, r.q, scanFileRow, query, version, now, limit)
 	if err != nil {
 		return nil, fmt.Errorf("list pending media: %w", mapErr(err))
 	}
@@ -282,7 +292,7 @@ func (r *repo) PendingMedia(ctx context.Context, version, limit int) ([]db.File,
 func (r *repo) MediaCounts(ctx context.Context, version int) (db.MediaCounts, error) {
 	const query = `SELECT COUNT(*),
 			COUNT(CASE WHEN m.version >= $1 AND m.etag = f.etag AND m.error = '' THEN 1 END),
-			COUNT(CASE WHEN m.version >= $1 AND m.etag = f.etag AND m.error <> '' THEN 1 END)
+			COUNT(CASE WHEN m.version >= $1 AND m.etag = f.etag AND m.error <> '' AND m.retry_at IS NULL THEN 1 END)
 		FROM files f LEFT JOIN media m ON m.file_id = f.id
 		WHERE f.is_dir = FALSE`
 
@@ -314,7 +324,9 @@ func (r *repo) MediaStates(ctx context.Context, fileIDs []int64) (map[int64]db.M
 		places.WriteString("$" + strconv.Itoa(i+1))
 		args[i] = id
 	}
-	query := `SELECT file_id, version, etag, error <> '' FROM media WHERE file_id IN (` +
+	// A row waiting to be tried again reports as not failed: the listing marks
+	// it as nothing has looked at it yet, which is what is true.
+	query := `SELECT file_id, version, etag, error <> '' AND retry_at IS NULL FROM media WHERE file_id IN (` +
 		places.String() + `)`
 
 	rows, err := sqlutil.Collect(ctx, r.q, scanMediaState, query, args...)
@@ -345,9 +357,9 @@ func scanMedia(row *sql.Row) (db.Media, error) {
 	var kind string
 	var lat, lon sql.NullFloat64
 	var indexedAt time.Time
-	var takenAt sql.NullTime
+	var takenAt, retryAt sql.NullTime
 
-	err := row.Scan(&m.FileID, &kind, &indexedAt, &m.Version, &m.ETag, &m.Error, &takenAt,
+	err := row.Scan(&m.FileID, &kind, &indexedAt, &m.Version, &m.ETag, &m.Error, &retryAt, &takenAt,
 		&m.Width, &m.Height, &m.Orientation, &lat, &lon, &m.Camera,
 		&m.DurationMS, &m.Codec, &m.Artist, &m.Album, &m.Title,
 		&m.TrackNo, &m.DiscNo, &m.Year, &m.Genre, &m.AlbumArtist)
@@ -359,6 +371,9 @@ func scanMedia(row *sql.Row) (db.Media, error) {
 	m.IndexedAt = indexedAt.UTC()
 	if takenAt.Valid {
 		m.TakenAt = takenAt.Time.UTC()
+	}
+	if retryAt.Valid {
+		m.RetryAt = retryAt.Time.UTC()
 	}
 	if lat.Valid && lon.Valid {
 		m.GPS = &db.GPS{Latitude: lat.Float64, Longitude: lon.Float64}
@@ -653,12 +668,12 @@ func scanTrack(rows *sql.Rows) (db.Track, error) {
 	var t db.Track
 	var kind string
 	var lat, lon sql.NullFloat64
-	var takenAt sql.NullTime
+	var takenAt, retryAt sql.NullTime
 
 	err := rows.Scan(
 		&t.File.ID, &t.File.OwnerID, &t.File.Path, &t.File.BlobKey, &t.File.Size,
 		&t.File.MTime, &t.File.ETag, &t.File.MIMEType, &t.File.IsDir,
-		&t.Media.FileID, &kind, &t.Media.IndexedAt, &t.Media.Version, &t.Media.ETag, &t.Media.Error, &takenAt,
+		&t.Media.FileID, &kind, &t.Media.IndexedAt, &t.Media.Version, &t.Media.ETag, &t.Media.Error, &retryAt, &takenAt,
 		&t.Media.Width, &t.Media.Height, &t.Media.Orientation, &lat, &lon, &t.Media.Camera,
 		&t.Media.DurationMS, &t.Media.Codec, &t.Media.Artist, &t.Media.Album, &t.Media.Title,
 		&t.Media.TrackNo, &t.Media.DiscNo, &t.Media.Year, &t.Media.Genre, &t.Media.AlbumArtist)
@@ -671,6 +686,9 @@ func scanTrack(rows *sql.Rows) (db.Track, error) {
 	t.Media.IndexedAt = t.Media.IndexedAt.UTC()
 	if takenAt.Valid {
 		t.Media.TakenAt = takenAt.Time.UTC()
+	}
+	if retryAt.Valid {
+		t.Media.RetryAt = retryAt.Time.UTC()
 	}
 	if lat.Valid && lon.Valid {
 		t.Media.GPS = &db.GPS{Latitude: lat.Float64, Longitude: lon.Float64}

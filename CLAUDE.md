@@ -527,6 +527,37 @@ Restraint here is principle 3, not laziness:
   extractor version -- which is what it did until #48. What this still cannot
   see is a rename that changes an extension, where the bytes, and therefore the
   validator, are the same while the kind is not.
+
+  **A failure to understand some bytes is a verdict; a failure to reach them is
+  not** (#157). Both used to be written down the same way -- the reason on the
+  row, and the row counts as done -- so thirty seconds of a bucket not answering
+  marked a whole batch as unreadable for good, and only a version bump would
+  have looked at it again. Now a failure on the way to the bytes leaves a
+  `retry_at` on the row and the queue's last clause brings the file back when it
+  arrives. An hour, flat: an outage lasting a day costs a file twenty-four
+  attempts, and a counter with an escalating delay would be arithmetic nobody
+  has needed.
+
+  The row is written either way, and that is the part worth keeping: a deferred
+  file with no row at all would sit at the head of a queue ordered by id and
+  limited to a batch, and nothing behind it would ever be read. `/status` counts
+  it as pending rather than failed, because it is.
+
+  Two things make the distinction possible. The extractors turn a failed read
+  into their own "not my format" -- `mkv.go` does it in one line -- so the error
+  that comes back cannot be trusted to say where the failure was; a `storeReader`
+  wrapped around the one body every extractor reads from remembers what the
+  store actually did. And what is local rather than about the file is marked
+  where it happens: a spool with nowhere to write, and an ffprobe that ended on
+  a signal rather than an exit code, which is how the out-of-memory killer and
+  the timeout both arrive.
+
+  **The one answer from the store that is about the file is that the object is
+  not there.** A row pointing at a blob nobody has is corruption, and saying so
+  is worth more than an hourly retry forever -- unless it is the answer for
+  every file in the batch, which is a database pointed at an empty bucket rather
+  than a library that rotted. That batch is deferred whole, which is the
+  judgement `files.Collect` already makes before it deletes anything.
 - **What a file is, is read rather than inferred** (#146). `internal/sniff` is a
   leaf package over a 512-byte window: it answers a MIME type and a `db.Kind`,
   or it answers nothing, and nothing is the answer that sends the question back

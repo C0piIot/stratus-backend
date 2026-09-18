@@ -22,10 +22,11 @@ func RunMedia(t *testing.T, newRepo func(t *testing.T) db.Repo) {
 	}{
 		{"metadata survives a round trip", mediaRoundTrip},
 		{"every column of a media row survives a round trip", mediaEveryColumn},
-		{"both media times survive a round trip", mediaTimeRoundTrip},
+		{"all three media times survive a round trip", mediaTimeRoundTrip},
 		{"the fields another kind does not use stay empty", mediaSparse},
 		{"pending skips what is indexed", mediaPending},
 		{"a failed extraction is not retried", mediaFailureIsFinal},
+		{"a failure with a time on it is retried when it arrives", mediaRetry},
 		{"a newer extractor puts everything back in the queue", mediaVersionBump},
 		{"overwriting a file puts it back in the queue", mediaOverwrite},
 		{"the counts say how much of the library is done", mediaCounts},
@@ -82,7 +83,7 @@ func mediaRoundTrip(t *testing.T, s db.Repo) {
 }
 
 // mediaEveryColumn is fileEveryColumn for the wide table, where it matters
-// more: media has 21 columns, four of them were written by no case or asserted
+// more: media has 22 columns, four of them were written by no case or asserted
 // by no case, and disc_no was in neither camp because nothing wrote it at all.
 //
 // Nothing is exempt here. Unlike a file row, a media row can legally carry
@@ -120,6 +121,7 @@ func media(f db.File) db.Media {
 		Version:     7,
 		ETag:        f.ETag,
 		Error:       "truncated at the last frame",
+		RetryAt:     time.Date(2024, 7, 2, 10, 15, 0, 0, time.UTC),
 		TakenAt:     time.Date(2023, 5, 4, 18, 45, 30, 0, time.UTC),
 		Width:       3840,
 		Height:      2160,
@@ -151,6 +153,7 @@ func mediaTimeRoundTrip(t *testing.T, s db.Repo) {
 	zone := time.FixedZone("CEST", 2*60*60)
 	indexed := time.Date(2024, 6, 1, 12, 30, 15, 123_456_789, zone)
 	taken := time.Date(2023, 9, 14, 8, 5, 1, 987_654_321, zone)
+	retry := time.Date(2024, 6, 1, 13, 30, 15, 123_456_789, zone)
 
 	err := s.PutMedia(t.Context(), db.Media{
 		FileID:    f.ID,
@@ -158,6 +161,7 @@ func mediaTimeRoundTrip(t *testing.T, s db.Repo) {
 		IndexedAt: indexed,
 		Version:   1,
 		TakenAt:   taken,
+		RetryAt:   retry,
 	})
 	if err != nil {
 		t.Fatalf("PutMedia: %v", err)
@@ -172,6 +176,9 @@ func mediaTimeRoundTrip(t *testing.T, s db.Repo) {
 	}
 	if want := taken.UTC().Truncate(db.TimePrecision); !got.TakenAt.Equal(want) {
 		t.Errorf("TakenAt = %v, want %v", got.TakenAt, want)
+	}
+	if want := retry.UTC().Truncate(db.TimePrecision); !got.RetryAt.Equal(want) {
+		t.Errorf("RetryAt = %v, want %v", got.RetryAt, want)
 	}
 }
 
@@ -223,7 +230,7 @@ func mediaPending(t *testing.T, s db.Repo) {
 	one := put(t, s, file("album/one.jpg"))
 	two := put(t, s, file("two.mp3"))
 
-	pending, err := s.PendingMedia(t.Context(), 1, 10)
+	pending, err := s.PendingMedia(t.Context(), 1, time.Now(), 10)
 	if err != nil {
 		t.Fatalf("PendingMedia: %v", err)
 	}
@@ -235,7 +242,7 @@ func mediaPending(t *testing.T, s db.Repo) {
 	if perr := s.PutMedia(t.Context(), indexed(one, 1)); perr != nil {
 		t.Fatal(perr)
 	}
-	pending, err = s.PendingMedia(t.Context(), 1, 10)
+	pending, err = s.PendingMedia(t.Context(), 1, time.Now(), 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -245,7 +252,7 @@ func mediaPending(t *testing.T, s db.Repo) {
 
 	// The limit is what keeps a first run over a large library from loading it
 	// all into memory at once.
-	if limited, err := s.PendingMedia(t.Context(), 1, 0); err != nil || len(limited) != 0 {
+	if limited, err := s.PendingMedia(t.Context(), 1, time.Now(), 0); err != nil || len(limited) != 0 {
 		t.Errorf("PendingMedia with a limit of zero = %+v, %v", limited, err)
 	}
 }
@@ -261,7 +268,7 @@ func mediaFailureIsFinal(t *testing.T, s db.Repo) {
 		t.Fatal(err)
 	}
 
-	pending, err := s.PendingMedia(t.Context(), 1, 10)
+	pending, err := s.PendingMedia(t.Context(), 1, time.Now(), 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -278,18 +285,64 @@ func mediaFailureIsFinal(t *testing.T, s db.Repo) {
 	}
 }
 
+// mediaRetry is the other half of the rule above: a failure that was about
+// reaching the bytes rather than about the bytes carries a time, and the queue
+// hands the file back when that time arrives and not before (#157).
+//
+// The row is written either way. A deferred file with no row would sit at the
+// head of the queue -- ordered by id and limited -- and nothing behind it would
+// ever be read.
+func mediaRetry(t *testing.T, s db.Repo) {
+	f := put(t, s, file("unreachable.jpg"))
+
+	deferred := indexed(f, 1)
+	deferred.Error = "the store timed out"
+	deferred.RetryAt = time.Now().Add(time.Hour)
+	if err := s.PutMedia(t.Context(), deferred); err != nil {
+		t.Fatal(err)
+	}
+
+	if pending, err := s.PendingMedia(t.Context(), 1, time.Now(), 10); err != nil || len(pending) != 0 {
+		t.Fatalf("PendingMedia before the time = %+v, %v", pending, err)
+	}
+	pending, err := s.PendingMedia(t.Context(), 1, time.Now().Add(2*time.Hour), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending) != 1 || pending[0].ID != f.ID {
+		t.Errorf("PendingMedia after the time = %+v, want the file back", pending)
+	}
+
+	// And while it waits it is pending rather than unreadable, on both surfaces
+	// that report: nobody is going to go looking at a file that is fine.
+	counts, err := s.MediaCounts(t.Context(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if counts.Failed != 0 || counts.Pending() != 1 {
+		t.Errorf("counts = %+v (pending %d), want it waiting rather than failed", counts, counts.Pending())
+	}
+	states, err := s.MediaStates(t.Context(), []int64{f.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if states[f.ID].Failed {
+		t.Error("a file waiting to be tried again is marked as failed in a listing")
+	}
+}
+
 func mediaVersionBump(t *testing.T, s db.Repo) {
 	f := put(t, s, file("photo.jpg"))
 	if err := s.PutMedia(t.Context(), indexed(f, 1)); err != nil {
 		t.Fatal(err)
 	}
 
-	if pending, err := s.PendingMedia(t.Context(), 1, 10); err != nil || len(pending) != 0 {
+	if pending, err := s.PendingMedia(t.Context(), 1, time.Now(), 10); err != nil || len(pending) != 0 {
 		t.Fatalf("PendingMedia at the same version = %+v, %v", pending, err)
 	}
 	// A better extractor ships, the version goes up, and everything it already
 	// looked at comes back without a migration or a script.
-	pending, perr := s.PendingMedia(t.Context(), 2, 10)
+	pending, perr := s.PendingMedia(t.Context(), 2, time.Now(), 10)
 	if perr != nil {
 		t.Fatal(perr)
 	}
@@ -321,7 +374,7 @@ func mediaOverwrite(t *testing.T, s db.Repo) {
 	if err := s.PutMedia(t.Context(), indexed(first, 1)); err != nil {
 		t.Fatal(err)
 	}
-	if pending, err := s.PendingMedia(t.Context(), 1, 10); err != nil || len(pending) != 0 {
+	if pending, err := s.PendingMedia(t.Context(), 1, time.Now(), 10); err != nil || len(pending) != 0 {
 		t.Fatalf("PendingMedia after indexing = %+v, %v", pending, err)
 	}
 
@@ -334,7 +387,7 @@ func mediaOverwrite(t *testing.T, s db.Repo) {
 			second.ID, first.ID)
 	}
 
-	pending, err := s.PendingMedia(t.Context(), 1, 10)
+	pending, err := s.PendingMedia(t.Context(), 1, time.Now(), 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -372,7 +425,7 @@ func mediaCounts(t *testing.T, s db.Repo) {
 	}
 
 	// And what is pending by these numbers is what the queue would hand out.
-	pending, err := s.PendingMedia(t.Context(), 3, 10)
+	pending, err := s.PendingMedia(t.Context(), 3, time.Now(), 10)
 	if err != nil {
 		t.Fatal(err)
 	}

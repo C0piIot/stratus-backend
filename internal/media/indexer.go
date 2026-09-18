@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 	"github.com/C0piIot/stratus-backend/internal/db"
 	"github.com/C0piIot/stratus-backend/internal/files"
 	"github.com/C0piIot/stratus-backend/internal/sniff"
+	"github.com/C0piIot/stratus-backend/internal/storage"
 )
 
 // BatchSize is how many files one pass looks at. Small enough that a first run
@@ -86,27 +88,106 @@ func (i *Indexer) Notice(db.File) {
 func (i *Indexer) Woken() <-chan struct{} { return i.wake }
 
 // IndexBatch extracts metadata for up to BatchSize files and returns how many
-// it wrote. A full batch means there is probably more to do.
-func (i *Indexer) IndexBatch(ctx context.Context) (int, error) {
-	pending, err := i.meta.PendingMedia(ctx, Version, BatchSize)
+// it reached a verdict about. A full batch means there is probably more to do.
+//
+// A file deferred because the store would not answer does not count, which is
+// the brake: the loop in internal/app only comes straight back for more when a
+// pass filled its batch, so an unreachable store makes it wait for the interval
+// rather than walk the whole library against something that is not there.
+//
+// now is the caller's, the way files.CollectUploads takes it: what a deferred
+// file waits for is a time, and a clock this package read for itself would make
+// that untestable without an hour to spare.
+func (i *Indexer) IndexBatch(ctx context.Context, now time.Time) (int, error) {
+	pending, err := i.meta.PendingMedia(ctx, Version, now, BatchSize)
 	if err != nil {
 		return 0, fmt.Errorf("find files to index: %w", err)
 	}
 
-	for n, f := range pending {
+	attempts := make([]attempt, 0, len(pending))
+	for _, f := range pending {
 		if err := ctx.Err(); err != nil {
-			return n, err
+			return 0, err
 		}
-		if err := i.meta.PutMedia(ctx, i.index(ctx, f)); err != nil {
-			return n, fmt.Errorf("store the metadata of %q: %w", f.Path, err)
+		attempts = append(attempts, i.index(ctx, f))
+	}
+
+	var indexed, deferred int
+	var why error
+	for _, a := range attempts {
+		if err := ctx.Err(); err != nil {
+			return indexed, err
+		}
+
+		m := a.media
+		if a.deferred(attempts) {
+			deferred++
+			if why == nil {
+				why = a.err
+			}
+			m.RetryAt = now.Add(retryAfter)
+		} else {
+			indexed++
+		}
+
+		if err := i.meta.PutMedia(ctx, m); err != nil {
+			return indexed, fmt.Errorf("store the metadata of %q: %w", a.path, err)
 		}
 	}
-	return len(pending), nil
+	if deferred > 0 {
+		slog.Warn("deferred indexing", "files", deferred, "retrying_in", retryAfter, "err", why)
+	}
+	return indexed, nil
+}
+
+// attempt is what one file's turn produced: the row to write, and the failure
+// behind it so that the batch as a whole can be judged before anything is
+// written down.
+type attempt struct {
+	media db.Media
+	// path is kept beside the row for the error message, since db.Media carries
+	// an id and not a name.
+	path string
+	err  error
+}
+
+// deferred reports whether this failure should carry a time rather than stand
+// as the last word on the file.
+//
+// The store answering that the object is not there is the one failure from that
+// side which is about the file: a row pointing at a blob nobody has is
+// corruption, and saying so is more use than trying again every hour forever.
+// Unless it is the answer for every file in the batch -- then it is a store
+// pointed somewhere new rather than a library that rotted, which is the same
+// judgement files.Collect makes before it deletes anything, and nothing is
+// written down about any of them.
+func (a attempt) deferred(batch []attempt) bool {
+	if unreachable(a.err) {
+		return true
+	}
+	if !errors.Is(a.err, storage.ErrNotFound) {
+		return false
+	}
+	// One file on its own cannot tell a broken row from a store pointed
+	// somewhere new, and the verdict is the more useful guess: a library with a
+	// single orphan row in it would otherwise be retried every hour and never
+	// say anything.
+	if len(batch) < 2 {
+		return false
+	}
+	for _, other := range batch {
+		if !errors.Is(other.err, storage.ErrNotFound) {
+			return false
+		}
+	}
+	return true
 }
 
 // index never fails: a file it cannot read gets a row saying why, because the
-// alternative is reading it again on every pass for the rest of time.
-func (i *Indexer) index(ctx context.Context, f db.File) db.Media {
+// alternative is reading it again on every pass for the rest of time. Whether
+// that row is the last word is the caller's to decide, and a.err is what it
+// decides with.
+func (i *Indexer) index(ctx context.Context, f db.File) attempt {
 	m, err := i.extract(ctx, f)
 	m.FileID = f.ID
 	m.IndexedAt = time.Now()
@@ -124,9 +205,15 @@ func (i *Indexer) index(ctx context.Context, f db.File) db.Media {
 		}
 		m.Error = err.Error()
 	}
-	return m
+	return attempt{media: m, path: f.Path, err: err}
 }
 
+// extract reads the file once, through one reader.
+//
+// One open and not three: every extractor below seeks to where it wants to
+// start, so the same body serves the sniff, the ranged probe and the spool --
+// and a single reader is also what makes the failure classifiable, since it is
+// the only thing that sees a store's error before a parser rephrases it.
 func (i *Indexer) extract(ctx context.Context, f db.File) (db.Media, error) {
 	body, err := i.files.OpenFile(ctx, f)
 	if err != nil {
@@ -134,6 +221,21 @@ func (i *Indexer) extract(ctx context.Context, f db.File) (db.Media, error) {
 	}
 	defer func() { _ = body.Close() }()
 
+	r := &storeReader{ReadSeekCloser: body}
+	m, err := i.extractFrom(ctx, r, f)
+	if err == nil || r.err == nil {
+		return m, err
+	}
+	// The store failed on the way, whatever the error says now. That is not a
+	// verdict on the file -- except the one answer from that side which is
+	// about the file, and which the caller recognises for itself.
+	if errors.Is(r.err, storage.ErrNotFound) {
+		return m, r.err
+	}
+	return m, fmt.Errorf("%w: %w", errUnreachable, r.err)
+}
+
+func (i *Indexer) extractFrom(ctx context.Context, body io.ReadSeeker, f db.File) (db.Media, error) {
 	kind, err := i.classify(body, f)
 	if err != nil {
 		return db.Media{}, err
@@ -148,7 +250,7 @@ func (i *Indexer) extract(ctx context.Context, f db.File) (db.Media, error) {
 		// lies, because the store reads ranges: an MP4 or a QuickTime file
 		// through its boxes, a Matroska or a WebM through its elements.
 		if kind == db.KindVideo && readableInPlace(f.Path) {
-			if m, perr := i.probeInPlace(ctx, f); perr == nil {
+			if m, perr := probeInPlace(body, f); perr == nil {
 				return m, nil
 			}
 		}
@@ -160,7 +262,10 @@ func (i *Indexer) extract(ctx context.Context, f db.File) (db.Media, error) {
 			return db.Media{Kind: kind}, errTooLargeToRead
 		}
 
-		path, cleanup, err := i.spoolFile(ctx, f)
+		if _, err := body.Seek(0, io.SeekStart); err != nil {
+			return db.Media{}, fmt.Errorf("rewind %q: %w", f.Path, err)
+		}
+		path, cleanup, err := spool(body, i.tmpDir, f.Path)
 		if err != nil {
 			return db.Media{}, err
 		}
@@ -202,14 +307,9 @@ func (i *Indexer) classify(body io.ReadSeeker, f db.File) (db.Kind, error) {
 }
 
 // probeInPlace reads the metadata out of the blob itself, over ranges, without
-// a local copy of any kind.
-func (i *Indexer) probeInPlace(ctx context.Context, f db.File) (db.Media, error) {
-	body, err := i.files.OpenFile(ctx, f)
-	if err != nil {
-		return db.Media{}, err
-	}
-	defer func() { _ = body.Close() }()
-
+// a local copy of any kind. Both readers seek to the beginning themselves, so
+// it takes the reader wherever the sniff left it.
+func probeInPlace(body io.ReadSeeker, f db.File) (db.Media, error) {
 	if matroska(f.Path) {
 		return probeMatroska(body, f.Size)
 	}
@@ -230,10 +330,12 @@ func readableInPlace(name string) bool { return isobmff(name) || matroska(name) 
 //
 // No context here: what makes it cancellable is the reader, which is a ranged
 // read off the store carrying the caller's.
+// Its failures are marked unreachable: a full disk and a directory that is not
+// there are facts about this machine, not about the recording.
 func spool(body io.Reader, dir, name string) (string, func(), error) {
 	tmp, err := os.CreateTemp(dir, "spool-*")
 	if err != nil {
-		return "", nil, fmt.Errorf("spool %q: %w", name, err)
+		return "", nil, fmt.Errorf("%w: spool %q: %w", errUnreachable, name, err)
 	}
 	cleanup := func() {
 		_ = tmp.Close()
@@ -242,25 +344,13 @@ func spool(body io.Reader, dir, name string) (string, func(), error) {
 
 	if _, err := io.Copy(tmp, body); err != nil {
 		cleanup()
-		return "", nil, fmt.Errorf("spool %q: %w", name, err)
+		return "", nil, fmt.Errorf("%w: spool %q: %w", errUnreachable, name, err)
 	}
 	if err := tmp.Close(); err != nil {
 		cleanup()
-		return "", nil, fmt.Errorf("spool %q: %w", name, err)
+		return "", nil, fmt.Errorf("%w: spool %q: %w", errUnreachable, name, err)
 	}
 	return tmp.Name(), func() { _ = os.Remove(tmp.Name()) }, nil
-}
-
-// spoolFile is spool over a file in the tree, which is how both callers reach
-// it: read the blob, write it down, hand the path to a binary.
-func (i *Indexer) spoolFile(ctx context.Context, f db.File) (string, func(), error) {
-	body, err := i.files.OpenFile(ctx, f)
-	if err != nil {
-		return "", nil, err
-	}
-	defer func() { _ = body.Close() }()
-
-	return spool(body, i.tmpDir, f.Path)
 }
 
 // TempDir is where spooled blobs go -- for the indexer and for the thumbnail

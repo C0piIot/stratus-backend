@@ -116,6 +116,14 @@ different one does not leave the old duration behind. `/status` in the web UI
 reports how much of the library has been read, how much is waiting and what
 could not be read at all.
 
+**A file that could not be reached is tried again in an hour.** A file nothing
+can parse is read once and never again — that is what "could not be read" on
+`/status` counts. A store that timed out, a full disk, a probe the kernel
+killed: none of those said anything about the file, so it goes back into the
+queue an hour later and counts as waiting in the meantime. The one exception is
+a blob the store says it does not have, which is a broken row rather than a bad
+moment and is reported as such.
+
 **No large file is ever downloaded to be read.** That is the rule, and two
 things follow from it.
 
