@@ -133,6 +133,14 @@ if they are under 64 MB, and above that they keep their kind and nothing else,
 with `/status` saying why. A film with no duration is better than a film with
 the wrong one, and much better than four gigabytes of egress to find out.
 
+**A film still gets a picture**, though, and by the same route: a thumbnail
+needs the headers and the first frames, so those are fetched and nothing else —
+for an MP4 whose headers sit at the end, both pieces land in a local file that
+is mostly hole, measured at 2.1 MB on disk for a file claiming 6.2. And the
+frame is chosen rather than taken: a recording that opens on black gives a black
+first frame and a black frame one second in, so ffmpeg weighs a batch of them
+and hands back the least ordinary one.
+
 The queue is a query rather than a table: a file with no metadata row is a file
 to look at, so nothing is lost in a restart and a newly uploaded file is picked
 up on its own. A file that cannot be parsed gets a row saying why, or it would

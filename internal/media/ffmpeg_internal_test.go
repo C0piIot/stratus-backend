@@ -1,6 +1,7 @@
 package media
 
 import (
+	"context"
 	"errors"
 	"image"
 	"image/jpeg"
@@ -243,18 +244,30 @@ func TestCanThumbnail(t *testing.T) {
 		}
 	}
 
-	// And the rule from #145 read from the other end: a film is not copied to
-	// be looked at, so the listing must not offer a picture of one. A grid of
-	// broken images is what #135 promised would never happen, and the offer is
-	// where that promise is kept.
-	if CanThumbnail("film.mkv", maxSpool+1) {
-		t.Error("a film larger than anything this will copy is offered a picture")
+	// Size is the other half of the answer, and it is three rules rather than
+	// one. A grid of broken images is what #135 promised would not happen, so
+	// what the listing offers has to be exactly what can be made.
+	const enormous = 8 << 30 // a film
+
+	// Nothing is copied at this size, but a window is enough to take a frame
+	// out of these two (#149).
+	for _, name := range []string{"film.mkv", "holiday.mp4"} {
+		if !CanThumbnail(name, enormous) {
+			t.Errorf("%s of %d bytes is offered no picture, though a window would do", name, enormous)
+		}
+	}
+	// And there is no window to take of these, so above the bound they keep the
+	// refusal #145 gave them.
+	for _, name := range []string{"film.avi", "recording.wmv"} {
+		if CanThumbnail(name, enormous) {
+			t.Errorf("%s of %d bytes is offered a picture that would cost the whole file", name, enormous)
+		}
+		if !CanThumbnail(name, maxSpool) {
+			t.Errorf("%s at the bound is refused; the bound is inclusive", name)
+		}
 	}
 	if CanThumbnail("enormous.jpg", maxThumbSource+1) {
 		t.Error("an image larger than anything this will decode is offered a picture")
-	}
-	if !CanThumbnail("film.mkv", maxSpool) {
-		t.Error("a file exactly at the bound is refused; the bound is inclusive")
 	}
 }
 
@@ -270,4 +283,75 @@ func opaqueBlack(img image.Image) bool {
 		}
 	}
 	return true
+}
+
+// TestTheFrameIsNotBlack is the case a real library is full of: a recording
+// that opens on nothing, because a phone starts before the sensor settles or an
+// edit begins with a fade.
+//
+// The fixture is two seconds of black and then a test pattern. Measured with
+// ffmpeg itself, the first frame and the frame one second in -- which is where
+// this project asked for one until #149 -- both average zero brightness. The
+// thumbnail filter picks something out of the batch instead.
+func TestTheFrameIsNotBlack(t *testing.T) {
+	t.Parallel()
+	ffmpeg := realFFmpeg(t)
+
+	frame, err := decodeScaled(t.Context(), ffmpeg, filepath.Join("testdata", "black-start.mp4"), 96, true)
+	if err != nil {
+		t.Fatalf("decodeScaled: %v", err)
+	}
+	if opaqueBlack(frame) {
+		t.Fatal("the frame is entirely black, which is the first two seconds of this film")
+	}
+
+	// Not merely "a pixel is lit": a frame that is nearly black would pass that
+	// and still look like nothing in a grid.
+	if mean := meanBrightness(frame); mean < 16 {
+		t.Errorf("average brightness is %.1f out of 255, which is not a picture of anything", mean)
+	}
+}
+
+// meanBrightness is the average of the three channels over every pixel, on the
+// scale a person would read: nought is black and 255 is white.
+func meanBrightness(img image.Image) float64 {
+	b := img.Bounds()
+	var total float64
+	for y := b.Min.Y; y < b.Max.Y; y++ {
+		for x := b.Min.X; x < b.Max.X; x++ {
+			r, g, bl, _ := img.At(x, y).RGBA()
+			total += float64(r>>8+g>>8+bl>>8) / 3
+		}
+	}
+	return total / float64(b.Dx()*b.Dy())
+}
+
+// TestDecodeScaledStopsWhenTheCallerLeaves: a video is asked for twice -- once
+// a second in, once from the start -- and a cancelled context must not buy the
+// second attempt. Somebody closed the page; there is nobody to hand a picture
+// to.
+func TestDecodeScaledStopsWhenTheCallerLeaves(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	if _, err := decodeScaled(ctx, stubFFmpeg(t), "clip.mp4", 96, true); err == nil {
+		t.Error("a cancelled request produced a thumbnail")
+	}
+}
+
+// TestRunFFmpegWithNoBinary is the startup requirement read from the other end:
+// if the binary is not where it was found, the failure says so rather than
+// reporting an empty frame.
+func TestRunFFmpegWithNoBinary(t *testing.T) {
+	t.Parallel()
+
+	_, err := runFFmpeg(t.Context(), filepath.Join(t.TempDir(), "ffmpeg"), "clip.mp4", 96, 0)
+	if err == nil {
+		t.Fatal("a binary that is not there produced a frame")
+	}
+	if !strings.Contains(err.Error(), "ffmpeg") {
+		t.Errorf("err = %v, want it to name what is missing", err)
+	}
 }

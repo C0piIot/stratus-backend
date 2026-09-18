@@ -438,6 +438,23 @@ Restraint here is principle 3, not laziness:
   `media.CanThumbnail` checks before a listing offers a picture, because a grid
   of broken images is what #135 promised would not happen.
 
+  **A thumbnail is the exception, and it is one because it can be** (#149).
+  What a decoder needs is the headers and the first frames, so `window` fetches
+  exactly those into a local file that claims the original's length and is
+  almost entirely a hole -- measured at 2.1 MB on disk for a file claiming 6.2,
+  with the frame coming out of it. It works for the containers whose headers can
+  be found without reading the film: Matroska and WebM from their beginning, an
+  MP4 or QuickTime from its beginning plus the `moov` atom wherever it lives.
+  There is no third option: a film with no window is a film with no picture,
+  never a download.
+
+  **And the frame is chosen, not taken.** A recording that opens on black -- a
+  fade, a phone starting before the sensor settles -- gives a black first frame
+  and a black frame a second in, both measured at zero average brightness. The
+  `thumbnail` filter weighs a hundred of them against their own average and
+  returns the least ordinary, which on the same file is 125 out of 255. That
+  filter is in the build for this and nothing else.
+
   What that costs is a duration AVI, WMV and MPEG-TS will not have. It is the
   right trade and it was measured: those three state no duration at all, so
   ffprobe derives one from what it can reach and a partial file answers 7.5

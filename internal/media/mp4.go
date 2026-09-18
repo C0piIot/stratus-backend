@@ -122,15 +122,9 @@ func probeVideo(r io.ReadSeeker, size int64) (db.Media, error) {
 // walked in place, because every seek backwards is another request and it is
 // small enough to hold.
 func readMoov(r io.ReadSeeker, size int64) ([]byte, error) {
-	if _, err := r.Seek(0, io.SeekStart); err != nil {
-		return nil, errNotRead
-	}
-	length, err := findAtom(r, size, "moov")
+	_, length, err := findMoov(r, size)
 	if err != nil {
-		return nil, errNotRead
-	}
-	if length <= 0 || length > maxMoov {
-		return nil, errNotRead
+		return nil, err
 	}
 
 	moov := make([]byte, length)
@@ -138,6 +132,30 @@ func readMoov(r io.ReadSeeker, size int64) ([]byte, error) {
 		return nil, errNotRead
 	}
 	return moov, nil
+}
+
+// findMoov leaves the reader at the first byte of the movie box and says where
+// that is and how long it runs.
+//
+// The offset is what the window in window.go needs and the body is what the
+// prober needs, so the walk is here and the reading is one caller up.
+func findMoov(r io.ReadSeeker, size int64) (offset, length int64, err error) {
+	if _, serr := r.Seek(0, io.SeekStart); serr != nil {
+		return 0, 0, errNotRead
+	}
+	length, err = findAtom(r, size, "moov")
+	if err != nil {
+		return 0, 0, errNotRead
+	}
+	if length <= 0 || length > maxMoov {
+		return 0, 0, errNotRead
+	}
+
+	at, err := r.Seek(0, io.SeekCurrent)
+	if err != nil {
+		return 0, 0, errNotRead
+	}
+	return at, length, nil
 }
 
 // movieHeader reads the duration and the creation time out of mvhd.

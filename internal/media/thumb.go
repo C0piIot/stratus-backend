@@ -212,7 +212,10 @@ func (t *Thumbs) fromFFmpeg(ctx context.Context, f db.File, size thumbSize) ([]b
 	}
 	defer func() { _ = body.Close() }()
 
-	local, cleanup, err := spool(body, t.tmpDir, f.Path)
+	// Small files are copied whole, which is the simplest thing and costs
+	// megabytes. Above the bound nothing is copied: what a decoder needs is the
+	// headers and the first frames, and window fetches exactly those (#149).
+	local, cleanup, err := t.localCopy(body, f)
 	if err != nil {
 		return nil, err
 	}
@@ -223,6 +226,20 @@ func (t *Thumbs) fromFFmpeg(ctx context.Context, f db.File, size thumbSize) ([]b
 		return nil, fmt.Errorf("%w: %q: %w", ErrNoThumbnail, f.Path, err)
 	}
 	return encodeThumb(frame, f.Path, size)
+}
+
+// localCopy is the file handed to ffmpeg: the whole thing when that is cheap,
+// and a window onto it when it is not.
+//
+// There is no third option. A film that cannot be windowed has no thumbnail,
+// because the alternative is the download the rule forbids -- and the listing
+// does not offer one for it either, so nothing here is answering a question
+// somebody could have asked.
+func (t *Thumbs) localCopy(body io.ReadSeeker, f db.File) (string, func(), error) {
+	if f.Size <= maxSpool {
+		return spool(body, t.tmpDir, f.Path)
+	}
+	return window(body, f.Size, f.Path, t.tmpDir, windowHead)
 }
 
 // fromTrack returns a thumbnail of the picture inside a track.
@@ -521,11 +538,17 @@ func CanThumbnail(p string, size int64) bool {
 		// Decoded from the stream, so the bound is what will be held in memory
 		// rather than what will be copied.
 		return size <= maxThumbSource
-	case decodableByFFmpeg(p):
-		// ffmpeg opens a file, so this is the copy the rule refuses to make.
-		return size <= maxSpool
-	default:
+	case !decodableByFFmpeg(p):
 		return false
+	case windowable(p):
+		// A film this size is not copied, but it can be looked at through a
+		// window: its headers and its first frames, which is a few megabytes
+		// whatever the film weighs (#149).
+		return true
+	default:
+		// AVI, WMV and MPEG-TS, where there is no window to take -- the same
+		// three the duration was refused to for the same reason.
+		return size <= maxSpool
 	}
 }
 
