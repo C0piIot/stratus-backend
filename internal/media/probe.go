@@ -35,9 +35,17 @@ func runProbe(ctx context.Context, ffprobe, path string) (probeReport, error) {
 
 	out, err := cmd.Output()
 	if err != nil {
+		// A process that was killed did not read the file and did not judge it:
+		// the out-of-memory killer and the timeout above both arrive this way,
+		// and neither says the recording is unreadable (#157).
+		var exit *exec.ExitError
+		// An exit code of -1 is the standard library's way of saying a signal
+		// ended it, and is the one form of this that is portable.
+		if errors.As(err, &exit) && exit.ExitCode() < 0 {
+			return probeReport{}, fmt.Errorf("%w: ffprobe stopped with %s", errUnreachable, exit.ProcessState)
+		}
 		// ffprobe puts the reason on stderr and only an exit status in err, so
 		// without this every failure reads "exit status 1".
-		var exit *exec.ExitError
 		if errors.As(err, &exit) && len(exit.Stderr) > 0 {
 			return probeReport{}, fmt.Errorf("ffprobe: %s", strings.TrimSpace(string(exit.Stderr)))
 		}

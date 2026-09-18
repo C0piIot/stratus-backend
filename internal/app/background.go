@@ -27,7 +27,7 @@ func (a *App) indexPeriodically(ctx context.Context, deps Deps) {
 	slog.Info("indexing media", "idle", a.cfg.IndexInterval, "version", media.Version)
 
 	for {
-		indexed, err := deps.Indexer.IndexBatch(ctx)
+		indexed, err := deps.Indexer.IndexBatch(ctx, time.Now())
 		switch {
 		case errors.Is(err, context.Canceled):
 			return

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/C0piIot/stratus-backend/internal/db"
 	"github.com/C0piIot/stratus-backend/internal/db/sqlite"
@@ -78,7 +79,7 @@ func TestIndexAPhoto(t *testing.T) {
 	indexer, service, meta := indexer(t)
 	f := write(t, service, "photos/IMG_0001.jpg", exifJPEG(t), "image/jpeg")
 
-	n, err := indexer.IndexBatch(t.Context())
+	n, err := indexer.IndexBatch(t.Context(), time.Now())
 	if err != nil {
 		t.Fatalf("IndexBatch: %v", err)
 	}
@@ -101,7 +102,7 @@ func TestIndexAPhoto(t *testing.T) {
 	}
 
 	// And it does not come back.
-	if n, err := indexer.IndexBatch(t.Context()); err != nil || n != 0 {
+	if n, err := indexer.IndexBatch(t.Context(), time.Now()); err != nil || n != 0 {
 		t.Errorf("a second pass indexed %d files, %v", n, err)
 	}
 }
@@ -113,7 +114,7 @@ func TestIndexSkipsWhatHasNoMetadata(t *testing.T) {
 	indexer, service, meta := indexer(t)
 	f := write(t, service, "notes.txt", []byte("nothing to extract"), "text/plain")
 
-	if _, err := indexer.IndexBatch(t.Context()); err != nil {
+	if _, err := indexer.IndexBatch(t.Context(), time.Now()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -124,7 +125,7 @@ func TestIndexSkipsWhatHasNoMetadata(t *testing.T) {
 	if got.Kind != db.KindOther || !got.Indexed() {
 		t.Errorf("got %+v, want a plain row with no error", got)
 	}
-	if n, _ := indexer.IndexBatch(t.Context()); n != 0 {
+	if n, _ := indexer.IndexBatch(t.Context(), time.Now()); n != 0 {
 		t.Error("the text file came back")
 	}
 }
@@ -138,7 +139,7 @@ func TestIndexRecordsAFailure(t *testing.T) {
 	// upload or a renamed file looks like.
 	f := write(t, service, "broken.jpg", []byte("this is not a jpeg"), "image/jpeg")
 
-	if _, err := indexer.IndexBatch(t.Context()); err != nil {
+	if _, err := indexer.IndexBatch(t.Context(), time.Now()); err != nil {
 		t.Fatalf("IndexBatch must not fail because one file did: %v", err)
 	}
 
@@ -152,7 +153,7 @@ func TestIndexRecordsAFailure(t *testing.T) {
 	if got.Kind != db.KindImage {
 		t.Errorf("Kind = %q, want what it claimed to be", got.Kind)
 	}
-	if n, _ := indexer.IndexBatch(t.Context()); n != 0 {
+	if n, _ := indexer.IndexBatch(t.Context(), time.Now()); n != 0 {
 		t.Error("the broken file came back")
 	}
 }
@@ -165,7 +166,7 @@ func TestIndexWithoutFFprobe(t *testing.T) {
 	track := write(t, service, "music/song.mp3", []byte("ID3 and then some"), "audio/mpeg")
 	photo := write(t, service, "photo.jpg", exifJPEG(t), "image/jpeg")
 
-	if _, err := indexer.IndexBatch(t.Context()); err != nil {
+	if _, err := indexer.IndexBatch(t.Context(), time.Now()); err != nil {
 		t.Fatalf("IndexBatch: %v", err)
 	}
 
@@ -233,7 +234,7 @@ func TestIndexClassifiesByContent(t *testing.T) {
 	// it wrong rather than a file that lies.
 	photo := write(t, service, "photos/holiday", readFixture(t, "tiny.heic"), "text/plain")
 
-	if _, err := idx.IndexBatch(t.Context()); err != nil {
+	if _, err := idx.IndexBatch(t.Context(), time.Now()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -283,7 +284,7 @@ func TestIndexRefusesToDownloadAFilm(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, ierr := idx.IndexBatch(t.Context()); ierr != nil {
+	if _, ierr := idx.IndexBatch(t.Context(), time.Now()); ierr != nil {
 		t.Fatal(ierr)
 	}
 
@@ -301,7 +302,7 @@ func TestIndexRefusesToDownloadAFilm(t *testing.T) {
 	}
 	// And it is out of the queue: a refusal that came back every pass would be
 	// the same download, once a minute.
-	pending, err := meta.PendingMedia(t.Context(), Version, 10)
+	pending, err := meta.PendingMedia(t.Context(), Version, time.Now(), 10)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -12,7 +12,7 @@ func TestMediaNormalize(t *testing.T) {
 	zone := time.FixedZone("CEST", 2*60*60)
 	when := time.Date(2024, 6, 1, 12, 0, 0, 999_999_999, zone)
 
-	m := db.Media{IndexedAt: when, TakenAt: when}.Normalize()
+	m := db.Media{IndexedAt: when, TakenAt: when, RetryAt: when}.Normalize()
 
 	for _, tc := range []struct {
 		name string
@@ -20,6 +20,7 @@ func TestMediaNormalize(t *testing.T) {
 	}{
 		{"IndexedAt", m.IndexedAt},
 		{"TakenAt", m.TakenAt},
+		{"RetryAt", m.RetryAt},
 	} {
 		if tc.got.Location() != time.UTC {
 			t.Errorf("%s is in %v, want UTC", tc.name, tc.got.Location())
@@ -31,17 +32,22 @@ func TestMediaNormalize(t *testing.T) {
 	}
 }
 
-// TestMediaNormalizeKeepsAnUnknownTakenAtZero pins the branch: a zero TakenAt
+// TestMediaNormalizeKeepsTheUnknownTimesZero pins the branch: a zero TakenAt
 // means the extractor found no date, and the drivers store that as NULL. A
 // normalisation that turned it into year 1 at millisecond precision would still
 // be zero today, but only by accident of how Truncate counts.
-func TestMediaNormalizeKeepsAnUnknownTakenAtZero(t *testing.T) {
+func TestMediaNormalizeKeepsTheUnknownTimesZero(t *testing.T) {
 	t.Parallel()
 
 	m := db.Media{IndexedAt: time.Now()}.Normalize()
 
 	if !m.TakenAt.IsZero() {
 		t.Errorf("TakenAt = %v, want the zero time", m.TakenAt)
+	}
+	// And the same for RetryAt, where zero is what says the row is the last
+	// word on the file rather than a wait.
+	if !m.RetryAt.IsZero() {
+		t.Errorf("RetryAt = %v, want the zero time", m.RetryAt)
 	}
 }
 

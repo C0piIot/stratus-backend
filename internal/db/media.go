@@ -45,6 +45,17 @@ type Media struct {
 	// Error is why extraction failed, empty when it did not. A file that cannot
 	// be parsed still gets a row, or it would be retried on every pass forever.
 	Error string
+	// RetryAt is when the queue should offer this file again, and zero when the
+	// failure was a verdict on the file rather than on our ability to reach it
+	// (#157). A store that timed out says nothing about the bytes, so the row
+	// records what happened and a time to find out again; a file nothing can
+	// parse gets no such time and is never looked at twice.
+	//
+	// The row is written either way. Leaving a deferred file without one would
+	// hold the head of the queue -- it is ordered by id and limited, so the
+	// same batch would come back for as long as the failure lasted and nothing
+	// behind it would ever be read.
+	RetryAt time.Time
 
 	// TakenAt is when the camera says the photo was taken, zero when unknown.
 	TakenAt time.Time
@@ -122,6 +133,9 @@ func (m Media) Normalize() Media {
 	m.IndexedAt = m.IndexedAt.UTC().Truncate(TimePrecision)
 	if !m.TakenAt.IsZero() {
 		m.TakenAt = m.TakenAt.UTC().Truncate(TimePrecision)
+	}
+	if !m.RetryAt.IsZero() {
+		m.RetryAt = m.RetryAt.UTC().Truncate(TimePrecision)
 	}
 	return m
 }
