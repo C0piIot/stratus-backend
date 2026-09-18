@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/evanoberholster/imagemeta"
 	"golang.org/x/image/draw"
 
 	"github.com/C0piIot/stratus-backend/internal/db"
@@ -272,24 +273,120 @@ func (t *Thumbs) cached(
 // JPEG for everything, including a PNG cover: a thumbnail is a photograph of
 // something most of the time, transparency is not meaningful at this size, and
 // one output format means one path through every client.
-func reduceTo(r io.Reader, name string, size thumbSize) ([]byte, error) {
+func reduceTo(r io.ReadSeeker, name string, size thumbSize) ([]byte, error) {
+	// Before the decode, because the decoder does not look: a photograph taken
+	// with the camera turned says so in its EXIF and image.Decode hands back the
+	// pixels as they were stored, on their side.
+	rotation := orientationOf(r)
+
 	src, _, err := image.Decode(io.LimitReader(r, maxThumbSource))
 	if err != nil {
 		return nil, fmt.Errorf("%w: decoding %q: %w", ErrNoThumbnail, name, err)
 	}
-	return encodeThumb(src, name, size)
+	// Reduced first and turned after: a quarter turn of a thumbnail is a
+	// hundredth of the work of turning twelve megapixels, and it cannot fall out
+	// of the box either -- a quarter turn swaps the two sides and both of them
+	// already fit.
+	return writeJPEG(orient(reduce(src, int(size)), rotation), name)
+}
+
+// orientationOf reads the EXIF rotation and leaves the reader where it found
+// it.
+//
+// Best effort by design: a PNG has no EXIF, a JPEG from a scanner may have none
+// either, and a malformed tag is not worth failing a picture over. Zero means
+// "as it is", which is also what the ordinary photograph says.
+func orientationOf(r io.ReadSeeker) int {
+	defer func() { _, _ = r.Seek(0, io.SeekStart) }()
+
+	exif, err := imagemeta.Decode(r)
+	if err != nil {
+		return 0
+	}
+	return int(exif.IFD0.Orientation)
 }
 
 // encodeThumb is the last step whatever produced the pixels: fit them in the
 // box and write the JPEG. ffmpeg has already scaled to the width asked for, so
 // for a landscape frame reduce has nothing to do; a portrait one comes back
 // taller than the box and this is where it stops being so.
+//
+// Rotation is not applied here, because only one of the two paths needs it:
+// ffmpeg straightens what it decodes, and reduceTo straightens what Go decodes
+// before handing it over.
 func encodeThumb(src image.Image, name string, size thumbSize) ([]byte, error) {
+	return writeJPEG(reduce(src, int(size)), name)
+}
+
+// writeJPEG is the one encoder every thumbnail goes through, whatever made the
+// pixels and whichever of the two paths fitted them in the box.
+func writeJPEG(img image.Image, name string) ([]byte, error) {
 	var out bytes.Buffer
-	if err := jpeg.Encode(&out, reduce(src, int(size)), &jpeg.Options{Quality: thumbQuality}); err != nil {
+	if err := jpeg.Encode(&out, img, &jpeg.Options{Quality: thumbQuality}); err != nil {
 		return nil, fmt.Errorf("encode a thumbnail of %q: %w", name, err)
 	}
 	return out.Bytes(), nil
+}
+
+// orient turns a picture the way its EXIF says it was taken.
+//
+// The eight values are the identity, three quarter turns and the four mirrored
+// versions of those. The mirrors are rare and cost a line each once the
+// coordinate map exists, and leaving them out would be a surprise waiting for
+// one particular photograph.
+//
+// Mapped pixel by pixel rather than through a transform library: at thumbnail
+// sizes this is at most a megapixel and a half, it runs once per picture per
+// size, and the alternative is a dependency for four lines of arithmetic.
+func orient(src image.Image, orientation int) image.Image {
+	if orientation <= 1 || orientation > 8 {
+		return src
+	}
+
+	b := src.Bounds()
+	w, h := b.Dx(), b.Dy()
+	// Five through eight are the ones that put the picture on its side, so the
+	// destination is as tall as the source is wide.
+	turned := orientation >= 5
+
+	out := image.NewRGBA(image.Rect(0, 0, pick(turned, h, w), pick(turned, w, h)))
+	for y := range h {
+		for x := range w {
+			dx, dy := orientedAt(orientation, x, y, w, h)
+			out.Set(dx, dy, src.At(b.Min.X+x, b.Min.Y+y))
+		}
+	}
+	return out
+}
+
+// orientedAt is where the pixel at (x, y) of the stored image belongs once the
+// picture is the right way up. The numbers are EXIF's, in its order.
+func orientedAt(orientation, x, y, w, h int) (int, int) {
+	switch orientation {
+	case 2: // mirrored
+		return w - 1 - x, y
+	case 3: // upside down
+		return w - 1 - x, h - 1 - y
+	case 4: // mirrored, upside down
+		return x, h - 1 - y
+	case 5: // mirrored, a quarter turn anticlockwise
+		return y, x
+	case 6: // a quarter turn clockwise
+		return h - 1 - y, x
+	case 7: // mirrored, a quarter turn clockwise
+		return h - 1 - y, w - 1 - x
+	case 8: // a quarter turn anticlockwise
+		return y, w - 1 - x
+	default:
+		return x, y
+	}
+}
+
+func pick(when bool, yes, no int) int {
+	if when {
+		return yes
+	}
+	return no
 }
 
 // coverNames are the file names an album's artwork goes by, in the order they

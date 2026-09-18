@@ -317,10 +317,11 @@ URL carries the file's ETag, so a browser caches it forever and a new upload
 gets a new one. **HEIC and video included**: JPEG and PNG are decoded in Go, and
 what Go cannot read goes to the ffmpeg in the image, which is also what turns
 the first second of a video into a frame. A photograph taken on a phone held
-upright comes out upright, because the rotation is in the file and ffmpeg
-applies it. Only what this build can decode is offered an image — camera raw and
-AVIF are not, and neither is a JPEG's own EXIF rotation, which is read by Go and
-still ignored — so a listing is never a wall of broken pictures. They load as
+upright comes out upright, whichever half of the pipeline read it: ffmpeg
+applies the rotation in a HEIC or a video, and the JPEG path reads the EXIF tag
+and turns the picture itself. Only what this build can decode is offered an
+image — camera raw and AVIF are not — so a listing is never a wall of broken
+pictures. They load as
 you scroll, and the server decodes a few at a time, because opening a folder of
 five hundred photographs should not ask for five hundred at once.
 

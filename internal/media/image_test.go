@@ -3,6 +3,8 @@ package media
 import (
 	"bytes"
 	"encoding/binary"
+	"image"
+	"image/jpeg"
 	"testing"
 	"time"
 )
@@ -36,6 +38,37 @@ const (
 func exifJPEG(t *testing.T) []byte {
 	t.Helper()
 
+	jpeg := &bytes.Buffer{}
+	jpeg.Write([]byte{0xFF, 0xD8}) // SOI
+	jpeg.Write(exifAPP1(t, 6))     // the tag that says a quarter turn clockwise
+	jpeg.Write([]byte{0xFF, 0xD9}) // EOI
+	return jpeg.Bytes()
+}
+
+// exifJPEGWithPixels is the same metadata in front of a picture that decodes,
+// which is what a thumbnail needs: the one above is enough to read a tag out of
+// and has no image in it at all.
+func exifJPEGWithPixels(t *testing.T, orientation, width, height int) []byte {
+	t.Helper()
+
+	var encoded bytes.Buffer
+	if err := jpeg.Encode(&encoded, image.NewRGBA(image.Rect(0, 0, width, height)), nil); err != nil {
+		t.Fatal(err)
+	}
+
+	// After the start-of-image marker and before everything the encoder wrote,
+	// which is where a segment goes.
+	body := encoded.Bytes()
+	out := append([]byte{}, body[:2]...)
+	out = append(out, exifAPP1(t, orientation)...)
+	return append(out, body[2:]...)
+}
+
+// exifAPP1 is the segment itself: the marker, its length, and a TIFF header
+// with the two directories inside it.
+func exifAPP1(t *testing.T, orientation int) []byte {
+	t.Helper()
+
 	tiff := &bytes.Buffer{}
 	tiff.WriteString("II")                                  // little endian
 	_ = binary.Write(tiff, binary.LittleEndian, uint16(42)) // the answer, per the TIFF spec
@@ -43,10 +76,10 @@ func exifJPEG(t *testing.T) []byte {
 
 	// IFD0: make, model, orientation, and a pointer to the Exif IFD.
 	_ = binary.Write(tiff, binary.LittleEndian, uint16(4))
-	writeEntry(tiff, 0x010F, typeASCII, 6, makeOffset)   // Make
-	writeEntry(tiff, 0x0110, typeASCII, 14, modelOffset) // Model
-	writeEntry(tiff, 0x0112, typeShort, 1, 6)            // Orientation: rotate 90
-	writeEntry(tiff, 0x8769, typeLong, 1, exifOffset)    // Exif IFD pointer
+	writeEntry(tiff, 0x010F, typeASCII, 6, makeOffset)          // Make
+	writeEntry(tiff, 0x0110, typeASCII, 14, modelOffset)        // Model
+	writeEntry(tiff, 0x0112, typeShort, 1, uint32(orientation)) // Orientation
+	writeEntry(tiff, 0x8769, typeLong, 1, exifOffset)           // Exif IFD pointer
 	_ = binary.Write(tiff, binary.LittleEndian, uint32(0))
 
 	tiff.WriteString("Apple\x00")
@@ -63,13 +96,11 @@ func exifJPEG(t *testing.T) []byte {
 
 	payload := append([]byte("Exif\x00\x00"), tiff.Bytes()...)
 
-	jpeg := &bytes.Buffer{}
-	jpeg.Write([]byte{0xFF, 0xD8})                                   // SOI
-	jpeg.Write([]byte{0xFF, 0xE1})                                   // APP1
-	_ = binary.Write(jpeg, binary.BigEndian, uint16(len(payload)+2)) // JPEG lengths are big endian and include themselves
-	jpeg.Write(payload)
-	jpeg.Write([]byte{0xFF, 0xD9}) // EOI
-	return jpeg.Bytes()
+	segment := &bytes.Buffer{}
+	segment.Write([]byte{0xFF, 0xE1})                                   // APP1
+	_ = binary.Write(segment, binary.BigEndian, uint16(len(payload)+2)) // lengths are big endian and include themselves
+	segment.Write(payload)
+	return segment.Bytes()
 }
 
 // writeEntry writes one IFD entry. Values of four bytes or fewer live in the
