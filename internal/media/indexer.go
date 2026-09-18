@@ -119,6 +119,17 @@ func (i *Indexer) extract(ctx context.Context, f db.File) (db.Media, error) {
 		return extractImage(body)
 
 	case db.KindAudio, db.KindVideo:
+		// An MP4 or a QuickTime file says what it is in a box near one end, and
+		// the store reads ranges, so the copy below is skipped entirely for the
+		// format phones record in. Anything this cannot answer for -- another
+		// container, an unknown codec, a duration only a scan could find --
+		// falls through to ffprobe, which is what the copy is for.
+		if kind == db.KindVideo && isobmff(f.Path) {
+			if m, perr := i.probeInPlace(ctx, f); perr == nil {
+				return m, nil
+			}
+		}
+
 		path, cleanup, err := i.spool(ctx, f)
 		if err != nil {
 			return db.Media{}, err
@@ -134,6 +145,18 @@ func (i *Indexer) extract(ctx context.Context, f db.File) (db.Media, error) {
 	default:
 		return db.Media{Kind: db.KindOther}, nil
 	}
+}
+
+// probeInPlace reads the metadata out of the blob itself, over ranges, without
+// a local copy of any kind.
+func (i *Indexer) probeInPlace(ctx context.Context, f db.File) (db.Media, error) {
+	body, err := i.files.OpenFile(ctx, f)
+	if err != nil {
+		return db.Media{}, err
+	}
+	defer func() { _ = body.Close() }()
+
+	return probeVideo(body, f.Size)
 }
 
 // spool copies a blob to a local file, because ffprobe seeks and the storage

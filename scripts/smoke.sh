@@ -835,6 +835,13 @@ TRACK
       "the form answered $code, WebDAV answered $gone"
   fi
 
+  # A real video, through the shipped image. Its metadata is read out of the
+  # container over ranges rather than by copying the file to disk and running
+  # ffprobe on it, which is what #48 was about -- and the assertion that it
+  # worked is that it is indexed and nothing failed.
+  curl -fsS -u "$davuser:$davpass" -X PUT --data-binary "@scripts/testdata/clip.mp4" \
+    "http://$davhost/dav/clip.mp4" >/dev/null 2>&1
+
   # The library reports on itself, which is the only way to see a first pass
   # over an adopted bucket getting anywhere. Everything this script uploaded has
   # been through the indexer by now -- and, with the idle interval ten minutes
@@ -850,6 +857,27 @@ TRACK
   else
     bad "the status page reports the library indexed" "$(grep -o '[0-9]*%' <<<"$status" | head -3 | tr '\n' ' ')"
   fi
+
+  # Indexed is not the same as read: an extraction that failed still counts as
+  # done, so this is the number that says whether anything went wrong. Exactly
+  # one thing did, and on purpose -- the track this script uploaded is a text
+  # file with an .mp3 name, which is how the Subsonic case proves that browsing
+  # reads the row rather than the bytes.
+  case "$status" in
+    *'data-count="failed">1<'*) ok "the only file that could not be read is the one planted here" ;;
+    *) bad "the only file that could not be read is the one planted here" \
+         "$(grep -o 'data-count="[a-z]*">[0-9]*' <<<"$status" | tr '\n' ' ')" ;;
+  esac
+
+  # And the video is not it. Its row is marked in the listing when it is waiting
+  # or unreadable, and it is neither: the metadata came out of the container
+  # over ranges, with no local copy and no ffprobe.
+  clip="$(curl -fsS -b "$jar" "http://$davhost/files/" 2>/dev/null | sed -n '/>clip.mp4</,/<\/tr>/p')"
+  case "$clip" in
+    "")                   bad "the video is in the listing" "no row for clip.mp4" ;;
+    *unreadable*|*waiting*) bad "the video was read out of its container" "$(tr -d '\n' <<<"$clip" | head -c 120)" ;;
+    *)                    ok "the video was read out of its container" ;;
+  esac
   # The CSRF defence, from outside: a form on somebody else's page carries the
   # cookie and must still be refused.
   code="$(curl -s -o /dev/null -w '%{http_code}' -b "$jar" \

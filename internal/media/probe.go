@@ -64,6 +64,19 @@ type probeStream struct {
 	Height    int               `json:"height"`
 	Duration  string            `json:"duration"`
 	Tags      map[string]string `json:"tags"`
+	SideData  []probeSideData   `json:"side_data_list"`
+}
+
+// probeSideData is where a display matrix arrives. ffprobe used to put the
+// angle in a stream tag and now reports it here instead, so both are read: the
+// version in the image is ours to choose, and a file indexed by one build must
+// not come back rotated differently under the next.
+type probeSideData struct {
+	// Rotation is in degrees counter-clockwise, and fractional in principle.
+	// The name of the side data type is not matched on, because ffprobe spells
+	// it "Display Matrix" in one version and "DisplayMatrix" in another --
+	// whereas the field itself only appears on the entry that has one.
+	Rotation float64 `json:"rotation"`
 }
 
 type probeFormat struct {
@@ -87,10 +100,9 @@ func (p probeReport) mediaFrom(kind db.Kind) db.Media {
 		if m.DurationMS == 0 {
 			m.DurationMS = durationMS(video.Duration)
 		}
-		// Phones record rotated and put the angle in a side matrix, which
-		// ffprobe surfaces as a tag. Without it every portrait video plays on
-		// its side.
-		m.Orientation = orientationFrom(tag(video.Tags, "rotate"))
+		// Phones record rotated and put the angle in a side matrix. Without
+		// reading it every portrait video plays on its side.
+		m.Orientation = videoOrientation(video)
 	case kind == db.KindAudio && audio != nil:
 		m.Codec = audio.CodecName
 		if m.DurationMS == 0 {
@@ -175,15 +187,31 @@ func leadingInt(s string) int {
 	return n
 }
 
-// orientationFrom maps a rotation in degrees onto the EXIF orientation values,
-// so that a photo and a video rotated the same way are stored the same way.
-func orientationFrom(rotate string) int {
-	switch strings.TrimSpace(rotate) {
-	case "90":
+// videoOrientation reads the rotation of a video stream from wherever this
+// ffprobe puts it: the old clockwise "rotate" tag, or the display matrix in the
+// side data, whose angle runs the other way.
+func videoOrientation(s *probeStream) int {
+	if degrees, err := strconv.Atoi(strings.TrimSpace(tag(s.Tags, "rotate"))); err == nil {
+		return orientationFrom(degrees)
+	}
+	for _, side := range s.SideData {
+		if side.Rotation != 0 {
+			return orientationFrom(-int(side.Rotation))
+		}
+	}
+	return 0
+}
+
+// orientationFrom maps a clockwise rotation in degrees onto the EXIF
+// orientation values, so that a photo and a video rotated the same way are
+// stored the same way.
+func orientationFrom(clockwise int) int {
+	switch ((clockwise % 360) + 360) % 360 {
+	case 90:
 		return 6
-	case "180":
+	case 180:
 		return 3
-	case "270", "-90":
+	case 270:
 		return 8
 	default:
 		return 0

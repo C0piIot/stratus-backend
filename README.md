@@ -108,6 +108,15 @@ different one does not leave the old duration behind. `/status` in the web UI
 reports how much of the library has been read, how much is waiting and what
 could not be read at all.
 
+**An MP4 or QuickTime video is never downloaded to be read.** Its duration,
+dimensions, codec, rotation and date live in a box at one end of the file, and
+the blob store reads ranges, so a four-gigabyte recording costs a few hundred
+kilobytes to index — on a bucket as much as on a disk. Every other container
+still gets a local copy first, because ffprobe has to seek in a file and only
+this one format is read here: Matroska, AVI, WMV and MPEG-TS are copied, probed
+and the copy deleted, and so is any MP4 whose codec this build does not
+recognise. A slow answer is better than a wrong one.
+
 The queue is a query rather than a table: a file with no metadata row is a file
 to look at, so nothing is lost in a restart and a newly uploaded file is picked
 up on its own. A file that cannot be parsed gets a row saying why, or it would
@@ -671,7 +680,7 @@ Working now:
   rename and delete. A signed-cookie session and a CSP that allows nothing but
   the binary's own assets.
 - A request log, migrations applied at startup, and a container asserted from
-  the outside by 78 smoke checks.
+  the outside by 80 smoke checks.
 
 Not there yet: CalDAV and sharing --
 and on the music side, anything that remembers what the user did. Work

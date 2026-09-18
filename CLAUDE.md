@@ -427,6 +427,23 @@ Restraint here is principle 3, not laziness:
   linked tools copied into the same distroless base rather than switching to one
   with a package manager.
 
+  **What it is not required for is an MP4.** ffprobe has to seek inside a file,
+  so probing one meant copying the blob to disk first -- on S3, downloading a
+  four-gigabyte recording to learn that it is four minutes long (#48). Duration,
+  dimensions, codec, rotation and date are in a box at one end of the container,
+  and the storage port reads ranges, so `internal/media/mp4.go` walks to it in
+  three ranged reads and never touches the frames. It is the argument the
+  embedded-cover and EXIF readers already make, applied where the file is
+  measured in gigabytes.
+
+  Two rules keep that from becoming a second, worse ffprobe. **It answers only
+  for `.mp4`, `.m4v` and `.mov`** -- Matroska, AVI, WMV and MPEG-TS are copied
+  and probed as before, and `.m4a` is the same box structure but has nothing to
+  win. And **it never guesses**: a codec whose fourcc is not in its table, a
+  duration the header does not state, a box that does not parse, and the file
+  goes to ffprobe. The two paths write the same column, so a test compares their
+  answers against real files whenever there is an ffprobe to compare with.
+
   **We build both** (`build/ffprobe/Dockerfile` and `build/ffmpeg/Dockerfile`,
   published by `.github/workflows/media-tools.yml`) rather than copying
   general-purpose ones, which are 128 MB each and carry everything FFmpeg ships.
