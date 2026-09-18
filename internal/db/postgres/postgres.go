@@ -27,7 +27,10 @@ import (
 var migrations embed.FS
 
 // uniqueViolation is SQLSTATE 23505.
-const uniqueViolation = "23505"
+const (
+	uniqueViolation     = "23505"
+	foreignKeyViolation = "23503"
+)
 
 // Store is a db.Store backed by a PostgreSQL database.
 type Store struct {
@@ -776,8 +779,16 @@ func mapErr(err error) error {
 		return db.ErrNotFound
 	}
 	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) && pgErr.Code == uniqueViolation {
-		return fmt.Errorf("%w: %w", db.ErrConflict, err)
+	if errors.As(err, &pgErr) {
+		switch pgErr.Code {
+		case uniqueViolation:
+			return fmt.Errorf("%w: %w", db.ErrConflict, err)
+		case foreignKeyViolation:
+			// A row whose parent is gone, which is a write racing a delete.
+			// What the caller needs to hear is "it is not there", not the
+			// shape of a constraint.
+			return fmt.Errorf("%w: %w", db.ErrNotFound, err)
+		}
 	}
 	return err
 }

@@ -812,6 +812,11 @@ func mapErr(err error) error {
 		switch serr.Code() {
 		case sqlite3.SQLITE_CONSTRAINT_UNIQUE, sqlite3.SQLITE_CONSTRAINT_PRIMARYKEY:
 			return fmt.Errorf("%w: %w", db.ErrConflict, err)
+		case sqlite3.SQLITE_CONSTRAINT_FOREIGNKEY:
+			// A row whose parent is gone, which is a write racing a delete.
+			// What the caller needs to hear is "it is not there", not the
+			// shape of a constraint.
+			return fmt.Errorf("%w: %w", db.ErrNotFound, err)
 		}
 	}
 	return err

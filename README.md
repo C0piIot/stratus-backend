@@ -100,10 +100,14 @@ did not give, and files a blob under `video/` rather than under `other/`. What
 the bytes cannot say, the name still answers.
 
 It runs in the background, in this process, and `STRATUS_INDEX_INTERVAL=0` turns
-it off. **A file is read as it arrives**: an upload tells the indexer rather
-than waiting to be found, so the interval above is the idle poll and the safety
-net — for a version bump, for rows an import inserted, for anything that landed
-while the server was not running. **An upgrade that improves the extractor
+it off. **A file is read as it arrives**: an upload hands the file to the
+indexer, which reads that file and asks the database nothing — on a library of a
+hundred thousand, asking what is missing means looking at all of them. So the
+interval is the safety net and not the pace: it runs hourly, and what it is for
+is a version bump, rows an import inserted, a file whose last attempt could not
+reach the bytes, and anything that landed while the server was not running. If
+more uploads arrive at once than the indexer can hold, it says so and the safety
+net runs immediately rather than an hour later. **An upgrade that improves the extractor
 re-reads everything**: the queue is a query for files whose metadata is older
 than the current extractor, so raising its version puts the whole library back
 in it. That is deliberate — it is how a better extractor reaches what it

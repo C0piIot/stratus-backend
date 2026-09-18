@@ -32,6 +32,7 @@ func RunMedia(t *testing.T, newRepo func(t *testing.T) db.Repo) {
 		{"the counts say how much of the library is done", mediaCounts},
 		{"states come back for the files asked about", mediaStates},
 		{"deleting the file deletes its metadata", mediaCascade},
+		{"metadata for a file that is gone is not found", mediaOrphan},
 	}
 
 	for _, tc := range cases {
@@ -470,6 +471,19 @@ func mediaStates(t *testing.T, s db.Repo) {
 	empty, err := s.MediaStates(t.Context(), nil)
 	if err != nil || len(empty) != 0 {
 		t.Errorf("MediaStates(nil) = %+v, %v", empty, err)
+	}
+}
+
+// mediaOrphan is the race a write-driven indexer can lose: a file uploaded and
+// deleted again leaves an extractor holding metadata with nowhere to put it
+// (#158). Every driver has its own name for a foreign key with no parent, so
+// the port's name for it is the one the caller can act on.
+func mediaOrphan(t *testing.T, s db.Repo) {
+	err := s.PutMedia(t.Context(), db.Media{
+		FileID: 987654, Kind: db.KindImage, IndexedAt: time.Now(), Version: 1,
+	})
+	if !errors.Is(err, db.ErrNotFound) {
+		t.Errorf("PutMedia for a file that does not exist = %v, want ErrNotFound", err)
 	}
 }
 

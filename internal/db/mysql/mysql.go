@@ -39,7 +39,12 @@ var migrations embed.FS
 
 // duplicateEntry is ER_DUP_ENTRY, which covers the primary key and the unique
 // index on (owner_id, path_hash) alike.
-const duplicateEntry = 1062
+const (
+	duplicateEntry = 1062
+	// noReferencedRow is ER_NO_REFERENCED_ROW_2: an INSERT whose foreign key
+	// names a parent that is not there.
+	noReferencedRow = 1452
+)
 
 // Connection parameters this package sets rather than taking from the operator,
 // for the same reason the SQLite driver sets its pragmas: neither is a
@@ -895,8 +900,16 @@ func mapErr(err error) error {
 		return db.ErrNotFound
 	}
 	var merr *mysqldriver.MySQLError
-	if errors.As(err, &merr) && merr.Number == duplicateEntry {
-		return fmt.Errorf("%w: %w", db.ErrConflict, err)
+	if errors.As(err, &merr) {
+		switch merr.Number {
+		case duplicateEntry:
+			return fmt.Errorf("%w: %w", db.ErrConflict, err)
+		case noReferencedRow:
+			// A row whose parent is gone, which is a write racing a delete.
+			// What the caller needs to hear is "it is not there", not the
+			// shape of a constraint.
+			return fmt.Errorf("%w: %w", db.ErrNotFound, err)
+		}
 	}
 	return err
 }
