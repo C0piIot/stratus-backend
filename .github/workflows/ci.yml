@@ -250,6 +250,19 @@ jobs:
           flyctl secrets set --stage --app "${{ vars.FLY_APP }}" \
             STRATUS_PASSWORD="${{ needs.publish.outputs.version }}"
 
+      # The machine goes first, because a deploy replaces the image and not the
+      # disk under it: without this the new binary starts on the database the
+      # last one left, and an edited 0001_schema.sql is never applied to a
+      # database that already exists. That is exactly how the demo spent two
+      # days answering 500 to every query that touched a column added in #143.
+      - name: destroy the machine, which is what empties the disk
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          for id in $(flyctl machine list --app "${{ vars.FLY_APP }}" --json | jq -r '.[].id'); do
+            flyctl machine destroy "$id" --app "${{ vars.FLY_APP }}" --force
+          done
+
       - name: deploy what publish pushed
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}

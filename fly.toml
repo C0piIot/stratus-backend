@@ -2,13 +2,19 @@
 #
 # Test infrastructure, not a recommended way to run this. Three things make that
 # literal: the smallest machine there is, **no volume** -- the data directory
-# sits on the machine's own disk, which the next deploy replaces along with the
-# image -- and a password that is the version in the page footer, which is the
-# short sha of the commit deployed and therefore public. Every merge to main is
-# a fresh server with nothing in it, a new password, and every client logged
-# out -- and on the hour, every hour, .github/workflows/demo-reset.yml empties
-# it again without changing what it runs. Do not put anything here that you
-# would miss.
+# sits on the machine's own disk -- and a password that is the version in the
+# page footer, which is the short sha of the commit deployed and therefore
+# public. Every merge to main is a fresh server with nothing in it, a new
+# password, and every client logged out -- and on the hour, every hour,
+# .github/workflows/demo-reset.yml empties it again without changing what it
+# runs. Do not put anything here that you would miss.
+#
+# **What empties it is destroying the machine**, which both of those do before
+# they deploy. A deploy on its own replaces the image and leaves the disk under
+# it, and so does stopping the machine and starting it again: all three were
+# believed to wipe, all three were tried, and the database survived. It was two
+# days of the demo answering 500 to every query touching a column added by a
+# schema an existing database never had applied to it.
 #
 # /tmp rather than /data because there is no mount: the image runs as 65532 and
 # cannot create a directory at the root of its filesystem, while /tmp is there
@@ -47,15 +53,16 @@ primary_region = "cdg"
   # wakes it.
   #
   # suspend and not stop, which is the difference between the demo having
-  # something in it and not: a Fly machine's root filesystem is ephemeral and
-  # comes back from the image when a stopped machine starts, so "stop" threw the
-  # seeded media away every time nobody looked for a few minutes -- and the next
-  # visitor got an empty tree. Suspending snapshots the machine instead and
-  # restores it as it was.
+  # something in it and not: "stop" threw the seeded media away every time
+  # nobody looked for a few minutes, and the next visitor got an empty tree.
+  # Suspending snapshots the machine instead and restores it as it was.
   #
-  # Not a guarantee. A snapshot Fly cannot keep falls back to a cold start,
-  # which is empty again until the hourly reset seeds it; and a deploy replaces
-  # the filesystem outright, which is deliberate and is what the reset uses.
+  # Not a guarantee: a snapshot Fly cannot keep falls back to a cold start,
+  # which is empty until the hourly reset seeds it again.
+  #
+  # Neither setting is what wipes the instance. Nothing here is -- see the top
+  # of this file: the reset destroys the machine, because that is the only thing
+  # tried that actually emptied the disk.
   auto_stop_machines = "suspend"
   auto_start_machines = true
   min_machines_running = 0
