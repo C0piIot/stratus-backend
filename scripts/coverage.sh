@@ -33,7 +33,7 @@ internal/auth:100
 internal/config:100
 internal/dav:89
 internal/files:92
-internal/media:88
+internal/media:89
 internal/db:63
 internal/db/postgres:94
 internal/db/sqlite:94
@@ -139,6 +139,10 @@ internal/web:98
 # layer adds to the port's paging is whether there is another page behind this
 # one, which is answered by asking for a row more than was wanted, and both
 # arms of that are an ordinary call.
+#
+# internal/media went 88 -> 89 with the wake-up (#48): what a notice is -- never
+# blocking, and holding one so that five hundred uploads are one pass -- is two
+# selects in a test and needs no backend at all.
 #
 # internal/media is lower than the rest because running ffprobe cannot be tested
 # where there is no ffprobe. Interpreting its output is tested against captured

@@ -40,11 +40,47 @@ type Database interface {
 type Service struct {
 	blobs storage.Storage
 	meta  Database
+	// watch is told about a file that has just been written, and is nil when
+	// nobody is listening. See WithWatcher.
+	watch func(db.File)
 }
 
 // New wires the two seams together.
-func New(blobs storage.Storage, meta Database) *Service {
-	return &Service{blobs: blobs, meta: meta}
+func New(blobs storage.Storage, meta Database, opts ...Option) *Service {
+	s := &Service{blobs: blobs, meta: meta}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
+}
+
+// An Option configures a Service at construction. Variadic so that the callers
+// that want none -- which is most of them, and every test -- say nothing.
+type Option func(*Service)
+
+// WithWatcher registers a function called once a write has landed: the blob is
+// stored and the row is committed. It exists so the media indexer can start on
+// a file the moment it arrives instead of finding it on its next pass, and it
+// is wired by the composition root because this package cannot import
+// internal/media -- that package imports this one.
+//
+// The watcher takes no context on purpose. What it starts outlives the request
+// that caused it, and handing it the request's context would cancel the work as
+// soon as the response was written. It must not block for the same reason: the
+// caller is still holding a client connection.
+//
+// Nothing here depends on it arriving. A watcher that is never called, or a
+// process that dies before it runs, costs latency and not correctness -- what
+// is pending is a query over the rows, and the row is already committed.
+func WithWatcher(fn func(db.File)) Option {
+	return func(s *Service) { s.watch = fn }
+}
+
+// written tells the watcher, if there is one.
+func (s *Service) written(f db.File) {
+	if s.watch != nil {
+		s.watch(f)
+	}
 }
 
 // Stat returns the row for path.
@@ -179,6 +215,7 @@ func (s *Service) Write(ctx context.Context, owner, path string, body io.Reader,
 		_ = s.blobs.Delete(ctx, key)
 		return db.File{}, err
 	}
+	s.written(f)
 	return f, nil
 }
 

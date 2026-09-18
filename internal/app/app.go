@@ -61,6 +61,11 @@ type App struct {
 type Deps struct {
 	Storage  storage.Storage
 	Database db.Store
+	// Files is the one file layer this process has, shared by every surface,
+	// the sweep and the indexer. One rather than one each because it carries
+	// the watcher that tells the indexer a file has just landed: a second
+	// instance would be a second half of the system whose writes nobody hears.
+	Files *files.Service
 	// Indexer is nil when there is nothing to index into, which today means no
 	// credentials and therefore no files.
 	Indexer *media.Indexer
@@ -102,8 +107,8 @@ func (a *App) Handler(deps Deps) http.Handler {
 	// No credentials, no file surface. Refusing to mount it is clearer than
 	// mounting something that answers 401 to everyone, and it means an install
 	// that has not been configured yet cannot be a WebDAV server by accident.
-	if creds := credentials(a.cfg); creds.Configured() && deps.Storage != nil && deps.Database != nil {
-		service := files.New(deps.Storage, deps.Database)
+	if creds := credentials(a.cfg); creds.Configured() && deps.Files != nil {
+		service := deps.Files
 		// One throttle for the whole surface, built here so that its counters
 		// are shared rather than reset per request.
 		verifier := auth.NewThrottle(creds, auth.DefaultThrottle)
@@ -126,7 +131,9 @@ func (a *App) Handler(deps Deps) http.Handler {
 		// not claim is a page rather than a bare 404. Same verifier again, and
 		// a session signed with the configured password: see auth.Sessions for
 		// what that buys and what it costs.
-		mux.Handle("/", web.Handler(a.version, a.buildDate, verifier, auth.NewSessions(creds, auth.DefaultSessionTTL), service, thumbs))
+		mux.Handle("/", web.Handler(a.version, a.buildDate, verifier,
+			auth.NewSessions(creds, auth.DefaultSessionTTL), service, thumbs,
+			web.Indexing{Index: deps.Database, Interval: a.cfg.IndexInterval}))
 	}
 	return logRequests(mux)
 }

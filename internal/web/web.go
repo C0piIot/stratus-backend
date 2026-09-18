@@ -52,6 +52,9 @@ type handler struct {
 	// thumbs takes the blob store directly, which is why it is passed in rather
 	// than built here: a derived object has no database row and never will.
 	thumbs *media.Thumbs
+	// indexing is read, never driven: this surface reports on the indexer and
+	// has no way to start, stop or hurry it.
+	indexing Indexing
 }
 
 // Handler builds the UI. It is mounted at the root, so it is also what answers
@@ -61,8 +64,13 @@ type handler struct {
 // root, unlike the Basic auth in front of WebDAV: it is meaningless on any
 // other surface -- a WebDAV or Subsonic client is not a browser and sends no
 // cookie -- and a caller that forgot it would lose the defence silently.
-func Handler(version, buildDate string, v auth.Verifier, s *auth.Sessions, service *files.Service, thumbs *media.Thumbs) http.Handler {
-	h := &handler{version: version, buildDate: buildDate, verifier: v, sessions: s, files: service, thumbs: thumbs}
+func Handler(version, buildDate string, v auth.Verifier, s *auth.Sessions,
+	service *files.Service, thumbs *media.Thumbs, indexing Indexing,
+) http.Handler {
+	h := &handler{
+		version: version, buildDate: buildDate, verifier: v, sessions: s,
+		files: service, thumbs: thumbs, indexing: indexing,
+	}
 
 	mux := http.NewServeMux()
 	// One canonical URL per directory, so the root is a redirect rather than a
@@ -72,6 +80,7 @@ func Handler(version, buildDate string, v auth.Verifier, s *auth.Sessions, servi
 	})
 	mux.HandleFunc("GET /files/{path...}", h.authenticated(h.browse))
 	mux.HandleFunc("GET /thumb/{path...}", h.authenticated(h.thumbnail))
+	mux.HandleFunc("GET /status", h.authenticated(h.status))
 	mux.HandleFunc("POST /files/{path...}", h.authenticated(h.upload))
 	mux.HandleFunc("POST /folders/{path...}", h.authenticated(h.newFolder))
 	mux.HandleFunc("GET /rename/{path...}", h.authenticated(h.renameForm))

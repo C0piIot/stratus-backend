@@ -123,7 +123,7 @@ func TestThumbnailWhenTheStoreRefuses(t *testing.T) {
 	working := files.New(blobs, meta)
 	write(t, working, "holiday.jpg", photoJPEG(t))
 
-	h := handlerOver(t, working, storagetest.FailOn(t, blobs, "Get"))
+	h := handlerOver(t, working, storagetest.FailOn(t, blobs, "Get"), meta)
 	if code := get(t, h, "/thumb/holiday.jpg", signIn(t, h)).Code; code != http.StatusInternalServerError {
 		t.Errorf("a thumbnail through a store that refuses = %d, want 500", code)
 	}

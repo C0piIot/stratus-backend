@@ -74,7 +74,7 @@ func (h *handler) browse(w http.ResponseWriter, r *http.Request, user string) {
 		User:    user,
 		Notice:  uploaded(r.URL.Query().Get("added")),
 		Crumbs:  crumbs(p),
-		Entries: entries(children),
+		Entries: entries(children, h.indexingOf(r, children)),
 		// Where this page's two forms post: into the directory being listed.
 		Here:    href(p),
 		Folders: link(folderPrefix, p),
@@ -312,6 +312,11 @@ type entry struct {
 	// cannot make one. The ETag is in the URL so the answer can be cached for a
 	// year: a new write takes a new blob key and therefore a new ETag.
 	Thumb string
+	// Indexing is what the extractor has made of this file, and empty when it
+	// has been read -- which is the ordinary case, and a mark on every row
+	// would be noise. It says something during a first pass over a library, a
+	// re-index, or an import, which is when somebody is looking.
+	Indexing string
 	// Where the two things that can be done to it are asked for. Both are
 	// pages: a rename needs a name, and a delete cannot be undone.
 	Rename string
@@ -323,7 +328,7 @@ type entry struct {
 // and it is the query's job rather than this function's: regrouping a page
 // afterwards would only group that page, so a listing scrolled through would
 // show folders, then files, then folders again.
-func entries(children []db.File) []entry {
+func entries(children []db.File, indexing map[int64]string) []entry {
 	out := make([]entry, 0, len(children))
 	for _, c := range children {
 		e := entry{
@@ -336,6 +341,7 @@ func entries(children []db.File) []entry {
 		}
 		if !c.IsDir {
 			e.Size = humanSize(c.Size)
+			e.Indexing = indexing[c.ID]
 			if media.CanThumbnail(c.Path) {
 				e.Thumb = link(thumbPrefix, c.Path) + "?size=" + strconv.Itoa(listThumb) + "&v=" + url.QueryEscape(c.ETag)
 			}

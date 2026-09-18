@@ -92,6 +92,8 @@
         class="rounded object-fit-cover" style="width:32px;height:32px">{{end}}
     </span>
     <a href="{{.Href}}" class="text-decoration-none align-middle">{{.Name}}{{if .IsDir}}/{{end}}</a>
+    {{if .Indexing}}<span class="badge text-bg-light text-body-secondary fw-normal ms-2"
+      title="Metadata: {{.Indexing}}">{{.Indexing}}</span>{{end}}
   </td>
   <td class="text-end text-body-secondary">{{.Size}}</td>
   <td class="text-end text-body-secondary d-none d-sm-table-cell">{{.Modified}}</td>

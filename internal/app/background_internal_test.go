@@ -9,6 +9,7 @@ import (
 	"github.com/C0piIot/stratus-backend/internal/config"
 	"github.com/C0piIot/stratus-backend/internal/db/dbtest"
 	"github.com/C0piIot/stratus-backend/internal/db/sqlite"
+	"github.com/C0piIot/stratus-backend/internal/files"
 	"github.com/C0piIot/stratus-backend/internal/storage/disk"
 )
 
@@ -40,7 +41,8 @@ func TestCollectorSurvivesAFailedPass(t *testing.T) {
 	}
 
 	a := New(config.Config{GCInterval: time.Millisecond, GCGrace: time.Hour}, "test", "2026-01-01T09:30:00Z")
-	deps := Deps{Storage: blobs, Database: dbtest.FailOn(t, meta, "ExpiredUploads")}
+	broken := dbtest.FailOn(t, meta, "ExpiredUploads")
+	deps := Deps{Storage: blobs, Database: broken, Files: files.New(blobs, broken)}
 
 	// Long enough for several passes to fail, short enough that the test is not
 	// waiting on anything: the loop ends when the context does.

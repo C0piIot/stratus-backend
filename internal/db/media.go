@@ -36,6 +36,12 @@ type Media struct {
 	// extractor improves, with no migration and no script.
 	IndexedAt time.Time
 	Version   int
+	// ETag is the file's validator as it was when this was extracted, and it is
+	// what makes the queue understand an overwrite. A replaced file keeps its
+	// row and therefore its id, so without this the metadata of the bytes that
+	// are gone would describe the bytes that are there, for as long as the
+	// extractor version did not move.
+	ETag string
 	// Error is why extraction failed, empty when it did not. A file that cannot
 	// be parsed still gets a row, or it would be retried on every pass forever.
 	Error string

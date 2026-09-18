@@ -22,7 +22,15 @@ const owner = "edu"
 // service wires the real backends rather than fakes. Both are in-process, and
 // the invariants under test are precisely the ones that only appear when two
 // real seams are involved.
-func service(t *testing.T) (*files.Service, storage.Storage) {
+func service(t *testing.T, opts ...files.Option) (*files.Service, storage.Storage) {
+	t.Helper()
+	s, blobs, _ := serviceOver(t, opts...)
+	return s, blobs
+}
+
+// serviceOver is service plus the metadata store, for the cases that have to
+// look at a row from the other side or break one on purpose.
+func serviceOver(t *testing.T, opts ...files.Option) (*files.Service, storage.Storage, db.Store) {
 	t.Helper()
 	dir := t.TempDir()
 
@@ -40,7 +48,7 @@ func service(t *testing.T) (*files.Service, storage.Storage) {
 	if err := meta.Migrate(t.Context()); err != nil {
 		t.Fatalf("Migrate: %v", err)
 	}
-	return files.New(blobs, meta), blobs
+	return files.New(blobs, meta, opts...), blobs, meta
 }
 
 func write(t *testing.T, s *files.Service, path, body string) db.File {

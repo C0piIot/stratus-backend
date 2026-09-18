@@ -137,13 +137,48 @@ type MediaIndex interface {
 	// MediaByFile returns the metadata for a file, or ErrNotFound.
 	MediaByFile(ctx context.Context, fileID int64) (Media, error)
 
-	// PendingMedia returns files that have never been indexed, or were indexed
-	// by an extractor older than version.
+	// PendingMedia returns files that have never been indexed, were indexed by
+	// an extractor older than version, or were indexed from different bytes
+	// than the ones the row now points at.
 	//
 	// The queue is this query rather than a table: nothing is enqueued, nothing
-	// is dequeued, a restart loses nothing, and a newly written file turns up on
-	// its own.
+	// is dequeued, a restart loses nothing, and a row that appears -- written by
+	// an upload or inserted by an import -- turns up on its own. What the query
+	// cannot see is a rename that changes an extension, since the bytes and
+	// therefore the validator are the same while the kind is not.
 	PendingMedia(ctx context.Context, version, limit int) ([]File, error)
+
+	// MediaCounts says how much of the library is indexed, for the page that
+	// reports it. One query, and it walks every file row: there is no way to
+	// count an absence from an index, and this is asked for by somebody looking
+	// at a page rather than by a loop.
+	MediaCounts(ctx context.Context, version int) (MediaCounts, error)
+
+	// MediaStates returns what is known about the metadata of the files named,
+	// for the ones that have a row at all. It exists for a listing that wants
+	// to mark what has not been indexed yet, so the ids are one page of one and
+	// the caller is what bounds them.
+	MediaStates(ctx context.Context, fileIDs []int64) (map[int64]MediaState, error)
+}
+
+// MediaCounts is the state of the library in four numbers. Pending is every
+// file that is not Indexed and did not Fail, which is what the queue would
+// hand out next.
+type MediaCounts struct {
+	Files   int64
+	Indexed int64
+	Failed  int64
+}
+
+// Pending is what is left to do.
+func (c MediaCounts) Pending() int64 { return c.Files - c.Indexed - c.Failed }
+
+// MediaState is the part of a media row a listing needs to say whether a file
+// has been looked at, without reading everything an extractor found.
+type MediaState struct {
+	Version int
+	ETag    string
+	Failed  bool
 }
 
 // Repo is every repository at once, which is what a transaction hands out: a

@@ -101,6 +101,13 @@ Hard constraints, in the same spirit as the rest of the project:
   filename is reduced to its last element before it is used -- a directory
   upload sends a relative path and an old browser a whole Windows one -- and
   what is left is refused by `files.Write` if it is still not a path.
+- **A page at `/status` reports on the indexer**, because a library is read in
+  the background and a first pass over one somebody has just pointed the server
+  at takes hours. It counts what is indexed, what is waiting and what could not
+  be read; the numbers are a fragment htmx refreshes, and the listing marks the
+  rows nothing has looked at yet. It reports and does not drive: there is no
+  button here that starts, stops or hurries the indexer, because a surface that
+  could would be a surface that has to be protected from being pressed twice.
 - **Renaming and deleting are pages, not buttons in the row.** Each is a GET
   that asks and a POST that does: a rename needs a name typed into something,
   and a delete cannot be undone -- there is no trash bin, so the page in between
@@ -441,6 +448,26 @@ Restraint here is principle 3, not laziness:
   is the assertion that matters: a codec list can be complete while the binary
   still cannot read the format somebody uploads, because HEIF is read through
   the mov demuxer and no flag name says so.
+- **The queue is a query, and a write is a tap on the shoulder.** What is
+  pending is a `LEFT JOIN` over the file rows -- nothing is enqueued, nothing is
+  dequeued, a restart loses nothing and an import that inserts rows is picked up
+  without knowing this exists. What that cost was a minute of waiting after
+  every upload, so `internal/files` now takes a watcher and the composition root
+  points it at the indexer.
+
+  The notice carries no work and no promise. It wakes the loop, which runs the
+  same batch over the same query, so there is one path that indexes anything;
+  it holds one, so five hundred photographs arriving together are one pass; and
+  it may be dropped -- by a full channel, by a process that dies -- because the
+  row is already committed and the query is still the truth. The watcher takes
+  no context for the same reason: the work outlives the request that caused it.
+
+  **A media row records the validator it was extracted from.** Replacing a file
+  keeps its row and its id, so without that the metadata of the bytes that are
+  gone would describe the bytes that are there until somebody raised the
+  extractor version -- which is what it did until #48. What this still cannot
+  see is a rename that changes an extension, where the bytes, and therefore the
+  validator, are the same while the kind is not.
 - **Thumbnails are lazy, and they are blobs.** Generated on first request rather
   than on upload, because a phone backing up five hundred photos would otherwise
   pay a decode and a resize per PUT with the client waiting -- and because lazily

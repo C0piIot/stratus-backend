@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/C0piIot/stratus-backend/internal/auth"
 	"github.com/C0piIot/stratus-backend/internal/db"
@@ -40,17 +41,38 @@ func newHandler(t *testing.T, v auth.Verifier) http.Handler {
 	if v == nil {
 		v = creds
 	}
-	s, thumbs := pieces(t)
-	return web.Handler(version, buildDate, v, auth.NewSessions(creds, auth.DefaultSessionTTL), s, thumbs)
+	s, thumbs, meta := pieces(t)
+	return web.Handler(version, buildDate, v, auth.NewSessions(creds, auth.DefaultSessionTTL),
+		s, thumbs, indexing(meta))
 }
 
 // browser is newHandler and the service behind it, for the tests that have to
 // put something in the tree before they can browse it.
 func browser(t *testing.T) (http.Handler, *files.Service) {
 	t.Helper()
-	s, thumbs := pieces(t)
+	s, thumbs, meta := pieces(t)
 	creds := credentials()
-	return web.Handler(version, buildDate, creds, auth.NewSessions(creds, auth.DefaultSessionTTL), s, thumbs), s
+	return web.Handler(version, buildDate, creds, auth.NewSessions(creds, auth.DefaultSessionTTL),
+		s, thumbs, indexing(meta)), s
+}
+
+// browserOver is browser plus the store behind it, for the tests that have to
+// write a media row or count one.
+func browserOver(t *testing.T) (http.Handler, *files.Service, db.Store) {
+	t.Helper()
+	s, thumbs, meta := pieces(t)
+	creds := credentials()
+	return web.Handler(version, buildDate, creds, auth.NewSessions(creds, auth.DefaultSessionTTL),
+		s, thumbs, indexing(meta)), s, meta
+}
+
+// handlerIndexing is handlerOver for the tests that care about what the status
+// page was told rather than about what is in the tree.
+func handlerIndexing(t *testing.T, s *files.Service, blobs storage.Storage, ix web.Indexing) http.Handler {
+	t.Helper()
+	creds := credentials()
+	return web.Handler(version, buildDate, creds, auth.NewSessions(creds, auth.DefaultSessionTTL),
+		s, media.NewThumbs(blobs, s), ix)
 }
 
 // service is the real file layer over real backends in a temporary directory,
@@ -59,11 +81,18 @@ func browser(t *testing.T) (http.Handler, *files.Service) {
 // pieces is a service and the thumbnail generator over the same blob store,
 // which is the part that matters: a generator built over a second store would
 // never find the file it was asked to make a picture of.
-func pieces(t *testing.T) (*files.Service, *media.Thumbs) {
+func pieces(t *testing.T) (*files.Service, *media.Thumbs, db.Store) {
 	t.Helper()
 	blobs, meta := backends(t)
 	s := files.New(blobs, meta)
-	return s, media.NewThumbs(blobs, s)
+	return s, media.NewThumbs(blobs, s), meta
+}
+
+// indexing is what the status page and the listing's marks read, with the
+// interval the server defaults to so that a test sees the page an ordinary
+// install shows.
+func indexing(index db.MediaIndex) web.Indexing {
+	return web.Indexing{Index: index, Interval: time.Minute}
 }
 
 // backends are those two seams on their own, for the tests that put a fault
@@ -91,11 +120,11 @@ func backends(t *testing.T) (storage.Storage, db.Store) {
 
 // handlerOver is web.Handler over a service somebody else assembled, which is
 // how a test gets a broken backend behind the pages.
-func handlerOver(t *testing.T, s *files.Service, blobs storage.Storage) http.Handler {
+func handlerOver(t *testing.T, s *files.Service, blobs storage.Storage, index db.MediaIndex) http.Handler {
 	t.Helper()
 	creds := credentials()
 	return web.Handler(version, buildDate, creds, auth.NewSessions(creds, auth.DefaultSessionTTL),
-		s, media.NewThumbs(blobs, s))
+		s, media.NewThumbs(blobs, s), indexing(index))
 }
 
 // refusing answers every login with one error, for the arms a correct password
@@ -217,10 +246,10 @@ func TestASessionFromAnotherPasswordIsNotOne(t *testing.T) {
 	t.Parallel()
 	before := signIn(t, newHandler(t, nil))
 
-	service, thumbs := pieces(t)
+	service, thumbs, meta := pieces(t)
 	after := web.Handler(version, buildDate, credentials(),
 		auth.NewSessions(auth.Credentials{Username: username, Password: "example a different one"}, auth.DefaultSessionTTL),
-		service, thumbs)
+		service, thumbs, indexing(meta))
 
 	rec := get(t, after, "/files/", before)
 	if rec.Code != http.StatusSeeOther {

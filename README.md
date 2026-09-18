@@ -21,7 +21,7 @@ protocols your existing apps already understand.
 | HTTP range | audio/video streaming | browsers, VLC, mpv | **works** |
 | CalDAV | calendar | DAVx5, Thunderbird, iOS/macOS | next |
 | OpenSubsonic | music | Symfonium, Substreamer, DSub, Feishin | **works** † |
-| Web UI | sign in, browse, upload, download, rename, delete | any browser | **partly** |
+| Web UI | sign in, browse, upload, download, rename, delete, library status | any browser | **partly** |
 | CardDAV | contacts | DAVx5, Thunderbird | planned |
 | DLNA / UPnP-AV | TVs, set-top players | | planned |
 
@@ -92,12 +92,21 @@ of a video. Without it a library is a pile of files — there is no gallery by
 date and no music browsing.
 
 It runs in the background, in this process, and `STRATUS_INDEX_INTERVAL=0` turns
-it off. **An upgrade that improves the extractor re-reads everything**: the
-queue is a query for files whose metadata is older than the current extractor,
-so raising its version puts the whole library back in it. That is deliberate --
-it is how a better extractor reaches what it already looked at, with no
-migration and no script -- but on a large library the first pass after an
-upgrade is not free.
+it off. **A file is read as it arrives**: an upload tells the indexer rather
+than waiting to be found, so the interval above is the idle poll and the safety
+net — for a version bump, for rows an import inserted, for anything that landed
+while the server was not running. **An upgrade that improves the extractor
+re-reads everything**: the queue is a query for files whose metadata is older
+than the current extractor, so raising its version puts the whole library back
+in it. That is deliberate — it is how a better extractor reaches what it
+already looked at, with no migration and no script — but on a large library the
+first pass after an upgrade is not free.
+
+**Replacing a file re-reads it too.** The queue compares the validator the
+metadata was extracted from against the file's, so overwriting a video with a
+different one does not leave the old duration behind. `/status` in the web UI
+reports how much of the library has been read, how much is waiting and what
+could not be read at all.
 
 The queue is a query rather than a table: a file with no metadata row is a file
 to look at, so nothing is lost in a restart and a newly uploaded file is picked
@@ -300,6 +309,14 @@ holds ten files or a hundred thousand, and nothing is repeated or skipped when
 somebody uploads into it while you are reading. The rest of the folder loads as
 you reach the bottom of it; with JavaScript turned off the same thing is a link
 at the end of the page that goes to the next one.
+
+**`/status` says how much of the library has been read.** Metadata is extracted
+in the background, and on a first pass over a library that somebody has just
+pointed the server at, the only honest answer to "is it done yet" is a number:
+how many files there are, how many have been read, how many are waiting and how
+many could not be read at all. The page refreshes itself, and a file the
+indexer has not reached yet is marked in the listing as well — which is
+something to see during that first pass and nothing the rest of the time.
 
 **Deleting asks first and then means it.** There is no trash bin: the row goes,
 and the blob behind it is swept up afterwards, so the page in between is the only
@@ -648,12 +665,13 @@ Working now:
   authentication schemes and sharing that same limit, with cover art from
   beside the music or out of the tags. No user state, no transcoding, and no
   client has been tried against it yet.
-- EXIF, audio tags and video probing, indexed in the background.
+- EXIF, audio tags and video probing, indexed in the background and started by
+  the upload itself, with a page saying how far it has got.
 - A web UI: sign in, walk the tree, download a file, upload one, make a folder,
   rename and delete. A signed-cookie session and a CSP that allows nothing but
   the binary's own assets.
 - A request log, migrations applied at startup, and a container asserted from
-  the outside by 72 smoke checks.
+  the outside by 78 smoke checks.
 
 Not there yet: CalDAV and sharing --
 and on the music side, anything that remembers what the user did. Work

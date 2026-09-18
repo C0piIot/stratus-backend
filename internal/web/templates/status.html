@@ -1,0 +1,55 @@
+{{define "content" -}}
+<h1 class="h4 mb-3">Status</h1>
+
+<div class="card mb-3">
+  <div class="card-body">
+    {{template "counts" .}}
+  </div>
+</div>
+
+<p class="text-body-secondary small mb-0">
+  Metadata is extracted in the background: dates and cameras from photographs,
+  tags and durations from music and video. A file is read once, and again only
+  when it is replaced or when a better extractor ships — which is what the
+  version below is for.
+</p>
+{{- end}}
+
+{{/* The numbers on their own, so htmx can ask for them again without the page
+     around them. Indexing a library takes a while and watching it is the whole
+     point of this page. */}}
+{{define "counts" -}}
+<div hx-get="/status" hx-trigger="every 10s" hx-swap="outerHTML">
+  {{if .IndexingOff}}
+  <p class="mb-2"><span class="badge text-bg-secondary">Indexing is off</span></p>
+  <p class="text-body-secondary small mb-3">
+    <code>STRATUS_INDEX_INTERVAL</code> is zero, so nothing is being extracted.
+    What has been indexed already is still here.
+  </p>
+  {{end}}
+
+  <div class="progress mb-3" role="progressbar" aria-label="Files indexed"
+       aria-valuenow="{{.Percent}}" aria-valuemin="0" aria-valuemax="100">
+    <div class="progress-bar" style="width: {{.Percent}}%">{{.Percent}}%</div>
+  </div>
+
+  <dl class="row mb-0">
+    <dt class="col-sm-4 fw-normal text-body-secondary">Files</dt>
+    <dd class="col-sm-8">{{.Counts.Files}}</dd>
+
+    <dt class="col-sm-4 fw-normal text-body-secondary">Indexed</dt>
+    <dd class="col-sm-8">{{.Counts.Indexed}}</dd>
+
+    <dt class="col-sm-4 fw-normal text-body-secondary">Waiting</dt>
+    <dd class="col-sm-8">{{.Counts.Pending}}</dd>
+
+    <dt class="col-sm-4 fw-normal text-body-secondary">Could not be read</dt>
+    <dd class="col-sm-8">{{.Counts.Failed}}</dd>
+
+    <dt class="col-sm-4 fw-normal text-body-secondary">Extractor</dt>
+    <dd class="col-sm-8">
+      version {{.IndexVersion}}{{if not .IndexingOff}}, checking every {{.IndexInterval}} when idle{{end}}
+    </dd>
+  </dl>
+</div>
+{{- end}}

@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"iter"
+	"strconv"
 	"strings"
 	"time"
 
@@ -194,7 +195,7 @@ func (r *repo) ListFilesPage(ctx context.Context, owner, dir string, after db.Cu
 	return out, nil
 }
 
-const mediaColumns = `file_id, kind, indexed_at, version, error, taken_at, width, height, orientation, latitude, longitude, camera, duration_ms, codec, artist, album, title, track_no, disc_no, year, genre, album_artist`
+const mediaColumns = `file_id, kind, indexed_at, version, etag, error, taken_at, width, height, orientation, latitude, longitude, camera, duration_ms, codec, artist, album, title, track_no, disc_no, year, genre, album_artist`
 
 // mediaWriteColumns is the read list plus the three folded columns a search
 // matches on. They are written and filtered but never read back: they are how
@@ -219,10 +220,10 @@ func (r *repo) PutMedia(ctx context.Context, m db.Media) error {
 
 	const query = `INSERT INTO media (` + mediaWriteColumns + `)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19,
-			$20, $21, $22, $23, $24, $25)
+			$20, $21, $22, $23, $24, $25, $26)
 		ON CONFLICT (file_id) DO UPDATE SET
 			kind = excluded.kind, indexed_at = excluded.indexed_at, version = excluded.version,
-			error = excluded.error, taken_at = excluded.taken_at, width = excluded.width,
+			etag = excluded.etag, error = excluded.error, taken_at = excluded.taken_at, width = excluded.width,
 			height = excluded.height, orientation = excluded.orientation,
 			latitude = excluded.latitude, longitude = excluded.longitude, camera = excluded.camera,
 			duration_ms = excluded.duration_ms, codec = excluded.codec, artist = excluded.artist,
@@ -233,7 +234,7 @@ func (r *repo) PutMedia(ctx context.Context, m db.Media) error {
 			search_album_artist = excluded.search_album_artist`
 
 	_, err := r.q.ExecContext(ctx, query,
-		m.FileID, string(m.Kind), m.IndexedAt, m.Version, m.Error, takenAt,
+		m.FileID, string(m.Kind), m.IndexedAt, m.Version, m.ETag, m.Error, takenAt,
 		m.Width, m.Height, m.Orientation, lat, lon, m.Camera,
 		m.DurationMS, m.Codec, m.Artist, m.Album, m.Title,
 		m.TrackNo, m.DiscNo, m.Year, m.Genre,
@@ -262,7 +263,7 @@ func (r *repo) PendingMedia(ctx context.Context, version, limit int) ([]db.File,
 	// file nothing can parse would come back on every pass forever.
 	const query = `SELECT f.` + `id, f.owner_id, f.path, f.blob_key, f.size, f.mtime, f.etag, f.mime_type, f.is_dir
 		FROM files f LEFT JOIN media m ON m.file_id = f.id
-		WHERE f.is_dir = FALSE AND (m.file_id IS NULL OR m.version < $1)
+		WHERE f.is_dir = FALSE AND (m.file_id IS NULL OR m.version < $1 OR m.etag <> f.etag)
 		ORDER BY f.id LIMIT $2`
 
 	out, err := sqlutil.Collect(ctx, r.q, scanFileRow, query, version, limit)
@@ -272,6 +273,73 @@ func (r *repo) PendingMedia(ctx context.Context, version, limit int) ([]db.File,
 	return out, nil
 }
 
+// MediaCounts implements db.MediaIndex.
+//
+// COUNT over a CASE rather than a FILTER clause or three queries: the filtered
+// aggregate is not portable, and the three conditions have to see the same rows
+// at the same instant or the numbers would not add up. It walks every file row,
+// which is what counting an absence costs.
+func (r *repo) MediaCounts(ctx context.Context, version int) (db.MediaCounts, error) {
+	const query = `SELECT COUNT(*),
+			COUNT(CASE WHEN m.version >= $1 AND m.etag = f.etag AND m.error = '' THEN 1 END),
+			COUNT(CASE WHEN m.version >= $1 AND m.etag = f.etag AND m.error <> '' THEN 1 END)
+		FROM files f LEFT JOIN media m ON m.file_id = f.id
+		WHERE f.is_dir = FALSE`
+
+	var c db.MediaCounts
+	err := r.q.QueryRowContext(ctx, query, version).Scan(&c.Files, &c.Indexed, &c.Failed)
+	if err != nil {
+		return db.MediaCounts{}, fmt.Errorf("count media: %w", mapErr(err))
+	}
+	return c, nil
+}
+
+// MediaStates implements db.MediaIndex.
+//
+// The only statement in this package built rather than declared, because the
+// placeholder list is as long as what the caller is rendering. It stays here
+// rather than in sqlutil for the reason that package states about itself: a
+// placeholder is dialect, and this one is bounded by a page.
+func (r *repo) MediaStates(ctx context.Context, fileIDs []int64) (map[int64]db.MediaState, error) {
+	if len(fileIDs) == 0 {
+		return map[int64]db.MediaState{}, nil
+	}
+
+	var places strings.Builder
+	args := make([]any, len(fileIDs))
+	for i, id := range fileIDs {
+		if i > 0 {
+			places.WriteString(", ")
+		}
+		places.WriteString("$" + strconv.Itoa(i+1))
+		args[i] = id
+	}
+	query := `SELECT file_id, version, etag, error <> '' FROM media WHERE file_id IN (` +
+		places.String() + `)`
+
+	rows, err := sqlutil.Collect(ctx, r.q, scanMediaState, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("read media states: %w", mapErr(err))
+	}
+	out := make(map[int64]db.MediaState, len(rows))
+	for _, row := range rows {
+		out[row.id] = row.state
+	}
+	return out, nil
+}
+
+// mediaStateRow is one row of MediaStates, keyed on the way out.
+type mediaStateRow struct {
+	id    int64
+	state db.MediaState
+}
+
+func scanMediaState(rows *sql.Rows) (mediaStateRow, error) {
+	var row mediaStateRow
+	err := rows.Scan(&row.id, &row.state.Version, &row.state.ETag, &row.state.Failed)
+	return row, err
+}
+
 func scanMedia(row *sql.Row) (db.Media, error) {
 	var m db.Media
 	var kind string
@@ -279,7 +347,7 @@ func scanMedia(row *sql.Row) (db.Media, error) {
 	var indexedAt time.Time
 	var takenAt sql.NullTime
 
-	err := row.Scan(&m.FileID, &kind, &indexedAt, &m.Version, &m.Error, &takenAt,
+	err := row.Scan(&m.FileID, &kind, &indexedAt, &m.Version, &m.ETag, &m.Error, &takenAt,
 		&m.Width, &m.Height, &m.Orientation, &lat, &lon, &m.Camera,
 		&m.DurationMS, &m.Codec, &m.Artist, &m.Album, &m.Title,
 		&m.TrackNo, &m.DiscNo, &m.Year, &m.Genre, &m.AlbumArtist)
@@ -590,7 +658,7 @@ func scanTrack(rows *sql.Rows) (db.Track, error) {
 	err := rows.Scan(
 		&t.File.ID, &t.File.OwnerID, &t.File.Path, &t.File.BlobKey, &t.File.Size,
 		&t.File.MTime, &t.File.ETag, &t.File.MIMEType, &t.File.IsDir,
-		&t.Media.FileID, &kind, &t.Media.IndexedAt, &t.Media.Version, &t.Media.Error, &takenAt,
+		&t.Media.FileID, &kind, &t.Media.IndexedAt, &t.Media.Version, &t.Media.ETag, &t.Media.Error, &takenAt,
 		&t.Media.Width, &t.Media.Height, &t.Media.Orientation, &lat, &lon, &t.Media.Camera,
 		&t.Media.DurationMS, &t.Media.Codec, &t.Media.Artist, &t.Media.Album, &t.Media.Title,
 		&t.Media.TrackNo, &t.Media.DiscNo, &t.Media.Year, &t.Media.Genre, &t.Media.AlbumArtist)

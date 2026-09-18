@@ -182,6 +182,7 @@ func (s *Service) CompleteUpload(ctx context.Context, owner, id string) (db.File
 		_ = s.blobs.Delete(ctx, u.BlobKey)
 		return db.File{}, err
 	}
+	s.written(f)
 	return f, nil
 }
 
