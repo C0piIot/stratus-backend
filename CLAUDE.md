@@ -562,9 +562,17 @@ Restraint here is principle 3, not laziness:
   extension added on one side only is a broken thumbnail in production, not a
   broken build.
 
-  A JPEG's own EXIF rotation is still ignored, because that file is decoded in
-  Go and never reaches ffmpeg. That is a gap of its own rather than part of
-  this one.
+  **Both halves turn a picture the right way up** (#148). ffmpeg does it for
+  what it decodes; for what Go decodes, `reduceTo` reads the EXIF tag off the
+  head of the file -- the same ranged read the indexer and the cover reader
+  make -- and turns the thumbnail after it has been reduced, which is a
+  hundredth of the work of turning the original. The row keeps the value the
+  file gave: a client that rotated what we serve would rotate it twice.
+
+  Thumbnails made before that fix stay on their side. A derived key is a pure
+  function of its parent's, which is what lets the sweep collect one, and
+  changing it to invalidate them would leave objects with a live parent that
+  nothing would ever collect.
 
   **Two surfaces ask for them now**, and the second one changed the shape: a
   listing in the browser offers a picture for every row this build can decode,
