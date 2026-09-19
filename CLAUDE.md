@@ -76,6 +76,23 @@ Hard constraints, in the same spirit as the rest of the project:
   that was offered and refused is `403` rather than a redirect, because somebody
   sent a dead link needs to be told and a receiver needs a status code.
 
+  **A link works on `/dav/` too, for a plain read.** The app speaks WebDAV and
+  nothing else, and what it needs is a URL a Chromecast can fetch -- a receiver
+  gets the media itself and cannot send an `Authorization` header. Making it
+  derive the browser surface's URL instead would have worked and is the worse
+  trade: `/files/` is the web UI, the thing most likely to change shape, while
+  `/dav/` is a mount that will not move, and a client should depend on the
+  protocol surface.
+
+  It widens no authority. The signature already authorises reading that path,
+  and a `GET` there is the same bytes through the same `ServeContent` with the
+  same ranges; what changes is the address it can be presented at. `GET` and
+  `HEAD` only -- not `PROPFIND`, so a folder link opens nothing there and stays
+  what it is, something for a person on the surface that renders HTML. The gate
+  is `internal/dav/signed.go`, and `auth.Basic` now passes through a request
+  that already carries a user, which is safe for the reason the context key is
+  unexported: nothing outside `internal/auth` can claim to be somebody.
+
   The owner authorises the read and is not shown for it: a shared page carries
   no name, no Sign out and no way back to the share's own root -- the
   breadcrumbs start at the share, because a trail that climbed higher would

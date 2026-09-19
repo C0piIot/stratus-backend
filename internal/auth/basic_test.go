@@ -1,6 +1,8 @@
 package auth_test
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -147,4 +149,38 @@ func TestBasicRefusesAFloodWith429(t *testing.T) {
 	if reached {
 		t.Error("the handler ran anyway")
 	}
+}
+
+// TestBasicBelievesAnUpstreamCredential is the door a signed link comes through
+// (internal/dav/signed.go): only this package can put a user on a context, so a
+// request that already has one has been authenticated and asking for a password
+// on top would be asking twice for one thing.
+func TestBasicBelievesAnUpstreamCredential(t *testing.T) {
+	t.Parallel()
+
+	var served string
+	h := auth.Basic("stratus", refusingVerifier{}, http.HandlerFunc(
+		func(_ http.ResponseWriter, r *http.Request) {
+			served, _ = auth.User(r.Context())
+		}))
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/dav/notes.txt", nil)
+	req = req.WithContext(auth.WithUser(req.Context(), "edu"))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("an already-authenticated request = %d", rec.Code)
+	}
+	if served != "edu" {
+		t.Errorf("the handler saw %q", served)
+	}
+}
+
+// refusingVerifier fails every password, so the test above can only pass by
+// not asking it.
+type refusingVerifier struct{}
+
+func (refusingVerifier) Verify(context.Context, string, string) error {
+	return errors.New("this verifier says no to everything")
 }
