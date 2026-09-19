@@ -444,6 +444,9 @@ and not a file.
 
 A link can be given a life of a day, a week, a month, or none — which lasts
 until the password changes. Making one needs an account; opening one does not.
+**The same link also works under `/dav/`**, for reading, which is what lets a
+phone hand a video to a Chromecast: the receiver fetches it itself and cannot
+send a password.
 A client that already has the password can also derive one for itself without
 asking the server, which is how the mobile app hands a video to a Chromecast:
 the format is in `CLAUDE.md`.

@@ -116,7 +116,12 @@ func (a *App) Handler(deps Deps) http.Handler {
 		// One throttle for the whole surface, built here so that its counters
 		// are shared rather than reset per request.
 		verifier := auth.NewThrottle(creds, auth.DefaultThrottle)
-		mux.Handle(davPrefix, auth.Basic(davRealm, verifier, dav.Handler(davPrefix, service)))
+		// A share link is the other way in, and only for a plain read: the app
+		// needs a URL a Chromecast can fetch, and this is the surface it
+		// already speaks. See internal/dav/signed.go.
+		shares := auth.NewShares(creds)
+		mux.Handle(davPrefix, dav.SignedLinks(davPrefix, shares,
+			auth.Basic(davRealm, verifier, dav.Handler(davPrefix, service))))
 		// The same realm and the same throttle: it is the same credentials, and
 		// a second budget of guesses would be a second way in.
 		mux.Handle(tusPrefix, auth.Basic(davRealm, verifier, tus.Handler(tusPrefix, service)))
@@ -136,7 +141,7 @@ func (a *App) Handler(deps Deps) http.Handler {
 		// a session signed with the configured password: see auth.Sessions for
 		// what that buys and what it costs.
 		mux.Handle("/", web.Handler(a.version, a.buildDate, verifier,
-			auth.NewSessions(creds, auth.DefaultSessionTTL), auth.NewShares(creds), service, thumbs,
+			auth.NewSessions(creds, auth.DefaultSessionTTL), shares, service, thumbs,
 			web.Indexing{Index: deps.Database, Interval: a.cfg.IndexInterval}))
 	}
 	return logRequests(mux)

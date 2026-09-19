@@ -24,6 +24,15 @@ const prefix = "/dav/"
 // is only tested against fakes tests the fakes.
 func server(t *testing.T) http.Handler {
 	t.Helper()
+	// The handler takes the owner from the request, so the tests put one there
+	// the way auth.Basic does.
+	return withUser(dav.Handler(prefix, service(t)), "edu")
+}
+
+// service is the real file layer over real backends in a temporary directory:
+// an adapter tested only against fakes tests the fakes.
+func service(t *testing.T) *files.Service {
+	t.Helper()
 	dir := t.TempDir()
 
 	blobs, err := disk.New(filepath.Join(dir, "blobs"))
@@ -40,9 +49,7 @@ func server(t *testing.T) http.Handler {
 	if err := meta.Migrate(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	// The handler takes the owner from the request, so the tests put one there
-	// the way auth.Basic does.
-	return withUser(dav.Handler(prefix, files.New(blobs, meta)), "edu")
+	return files.New(blobs, meta)
 }
 
 func withUser(h http.Handler, username string) http.Handler {

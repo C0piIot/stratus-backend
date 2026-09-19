@@ -979,6 +979,18 @@ TRACK
       "link '$share_link', body '$shared_body', a file beside it answered $shared_above"
   fi
 
+  # And the same link on the protocol surface, which is what the app needs: it
+  # speaks WebDAV and has to hand a Chromecast a URL, and a receiver cannot send
+  # an Authorization header. Same token, the address the app already builds, no
+  # credentials on the request at all.
+  dav_link="${share_link/\/files\//\/dav\/}"
+  dav_shared="$(curl -s "http://$davhost$dav_link")"
+  if [ "$dav_shared" = "smoke" ]; then
+    ok "a shared link works on the WebDAV surface too"
+  else
+    bad "a shared link works on the WebDAV surface too" "'$dav_link' served '$dav_shared'"
+  fi
+
   # Indexed is not the same as read: an extraction that failed still counts as
   # done, so this is the number that says whether anything went wrong. Exactly
   # one thing did, and on purpose -- the track this script uploaded is a text

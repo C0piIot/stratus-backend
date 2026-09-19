@@ -20,6 +20,15 @@ func Basic(realm string, v Verifier, h http.Handler) http.Handler {
 	challenge := `Basic realm="` + strings.NewReplacer(`"`, "", `\`, "").Replace(realm) + `", charset="UTF-8"`
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Somebody upstream already said who this is -- a signed link, today.
+		// Believed because only this package can put a user on a context: the
+		// key is unexported, so there is no way for a request to claim one.
+		// Asking for a password on top would be asking twice for one thing.
+		if _, ok := User(r.Context()); ok {
+			h.ServeHTTP(w, r)
+			return
+		}
+
 		username, password, ok := r.BasicAuth()
 		if !ok {
 			// No credentials at all, or a header we cannot parse. Both are the
