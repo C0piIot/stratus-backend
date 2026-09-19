@@ -17,9 +17,14 @@
 
 {{/* The numbers on their own, so htmx can ask for them again without the page
      around them. Indexing a library takes a while and watching it is the whole
-     point of this page. */}}
+     point of this page.
+
+     Every thirty seconds and not every ten: counting what has no metadata means
+     looking at every file row -- 105 ms over a hundred thousand of them -- and
+     a page somebody left open should not spend that six times a minute to
+     repaint three numbers that have not moved (#158). */}}
 {{define "counts" -}}
-<div hx-get="/status" hx-trigger="every 10s" hx-swap="outerHTML">
+<div hx-get="/status" hx-trigger="every 30s" hx-swap="outerHTML">
   {{if .IndexingOff}}
   <p class="mb-2"><span class="badge text-bg-secondary">Indexing is off</span></p>
   <p class="text-body-secondary small mb-3">
@@ -48,7 +53,9 @@
 
     <dt class="col-sm-4 fw-normal text-body-secondary">Extractor</dt>
     <dd class="col-sm-8">
-      version {{.IndexVersion}}{{if not .IndexingOff}}, checking every {{.IndexInterval}} when idle{{end}}
+      version {{.IndexVersion}}{{if not .IndexingOff}}; a file is read as it
+      arrives, and every {{.IndexInterval}} the queue is swept for anything
+      nothing announced{{end}}
     </dd>
   </dl>
 </div>
