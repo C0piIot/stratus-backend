@@ -38,9 +38,23 @@ const listFragment = "rows"
 // browse answers both halves of "open this": a directory is a page, a file is
 // its bytes.
 func (h *handler) browse(w http.ResponseWriter, r *http.Request, user string) {
+	// Empty for an ordinary request, and what makes the page read-only for a
+	// shared one: every link below carries it, and the template drops
+	// everything that writes.
+	token := r.URL.Query().Get(shareParam)
+
+	// Who the page says is signed in, which for a shared one is nobody. The
+	// owner authorises the read and is not on show for it: a visitor with a
+	// link has no account here, and a navbar naming somebody would be both a
+	// door that does not open and a name they did not mean to publish.
+	display := user
+	if token != "" {
+		display = ""
+	}
+
 	p, err := toPath(r.PathValue("path"))
 	if err != nil {
-		h.fail(w, r, user, err)
+		h.fail(w, r, display, err)
 		return
 	}
 
@@ -49,38 +63,40 @@ func (h *handler) browse(w http.ResponseWriter, r *http.Request, user string) {
 	if p != "" {
 		f, statErr := h.files.Stat(r.Context(), user, p)
 		if statErr != nil {
-			h.fail(w, r, user, statErr)
+			h.fail(w, r, display, statErr)
 			return
 		}
 		if !f.IsDir {
-			h.download(w, r, user, f)
+			h.download(w, r, display, f)
 			return
 		}
 	}
 
 	after, err := parseCursor(r.URL.Query().Get("after"))
 	if err != nil {
-		h.badRequest(w, user, "That is not a place in this folder to carry on from.")
+		h.badRequest(w, display, "That is not a place in this folder to carry on from.")
 		return
 	}
 	children, more, err := h.files.ListPage(r.Context(), user, p, after, listPageSize)
 	if err != nil {
-		h.fail(w, r, user, err)
+		h.fail(w, r, display, err)
 		return
 	}
 
 	v := view{
 		Title:   pageTitle(p),
-		User:    user,
+		User:    display,
+		Shared:  token,
 		Notice:  uploaded(r.URL.Query().Get("added")),
-		Crumbs:  crumbs(p),
-		Entries: entries(children, h.indexingOf(r, children)),
+		Crumbs:  crumbs(p, token),
+		Entries: entries(children, h.indexingOf(r, children), token),
 		// Where this page's two forms post: into the directory being listed.
 		Here:    href(p),
 		Folders: link(folderPrefix, p),
 	}
 	if more {
-		v.NextPage = href(p) + "?after=" + url.QueryEscape(encodeCursor(db.After(children[len(children)-1])))
+		v.NextPage = shared(href(p)+"?after="+
+			url.QueryEscape(encodeCursor(db.After(children[len(children)-1]))), token)
 	}
 
 	// htmx asked for the rows to append; anything else asked for the page. The
@@ -273,6 +289,14 @@ func (h *handler) badRequest(w http.ResponseWriter, user, message string) {
 	})
 }
 
+// forbidden is the answer to a link that is not good any more. No User on the
+// view, because whoever is reading this has no account here.
+func (h *handler) forbidden(w http.ResponseWriter, message string) {
+	h.render(w, http.StatusForbidden, pageError, view{
+		Title: "Not available", Message: message,
+	})
+}
+
 func pageTitle(dir string) string {
 	if dir == "" {
 		return "Files"
@@ -287,7 +311,14 @@ type crumb struct {
 	Last bool
 }
 
-func crumbs(dir string) []crumb {
+// crumbs is the trail above the directory being listed, and for a shared one it
+// starts at the share rather than at the root: a link that drew a path back to
+// "Files" would be offering a door it does not open.
+func crumbs(dir, token string) []crumb {
+	if token != "" {
+		return []crumb{{Name: pageTitle(dir), Last: true}}
+	}
+
 	trail := []crumb{{Name: "Files", Href: filesPrefix}}
 	if dir != "" {
 		var walked string
@@ -321,6 +352,7 @@ type entry struct {
 	// pages: a rename needs a name, and a delete cannot be undone.
 	Rename string
 	Delete string
+	Share  string
 }
 
 // entries renders what the port returned, in the order it returned it.
@@ -328,22 +360,27 @@ type entry struct {
 // and it is the query's job rather than this function's: regrouping a page
 // afterwards would only group that page, so a listing scrolled through would
 // show folders, then files, then folders again.
-func entries(children []db.File, indexing map[int64]string) []entry {
+func entries(children []db.File, indexing map[int64]string, token string) []entry {
 	out := make([]entry, 0, len(children))
 	for _, c := range children {
 		e := entry{
 			Name:     path.Base(c.Path),
-			Href:     href(c.Path),
+			Href:     shared(href(c.Path), token),
 			IsDir:    c.IsDir,
 			Modified: c.MTime.Format("2006-01-02 15:04"),
 			Rename:   link(renamePrefix, c.Path),
 			Delete:   link(deletePrefix, c.Path),
+			Share:    link(sharePrefix, c.Path),
 		}
 		if !c.IsDir {
 			e.Size = humanSize(c.Size)
 			e.Indexing = indexing[c.ID]
 			if media.CanThumbnail(c.Path, c.Size) {
-				e.Thumb = link(thumbPrefix, c.Path) + "?size=" + strconv.Itoa(listThumb) + "&v=" + url.QueryEscape(c.ETag)
+				// The thumbnail carries the signature too. Without it a shared
+				// listing is a grid of broken images, which is the half of this
+				// that fails quietly.
+				e.Thumb = shared(link(thumbPrefix, c.Path)+"?size="+strconv.Itoa(listThumb)+
+					"&v="+url.QueryEscape(c.ETag), token)
 			}
 		}
 		out = append(out, e)

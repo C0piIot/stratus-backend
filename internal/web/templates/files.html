@@ -11,6 +11,7 @@
   </ol>
 </nav>
 
+{{if not .Shared}}
 {{if .Notice}}
 <div class="alert alert-success py-2" role="status">{{.Notice}}</div>
 {{end}}
@@ -42,6 +43,7 @@
     </div>
   </form>
 </div>
+{{end}}
 
 {{if .Entries}}
 <div class="card">
@@ -104,10 +106,15 @@
   </td>
   <td class="text-end text-body-secondary">{{.Size}}</td>
   <td class="text-end text-body-secondary d-none d-sm-table-cell">{{.Modified}}</td>
+  {{if $.Shared}}
+  <td></td>
+  {{else}}
   <td class="text-end text-nowrap">
+    <a class="link-secondary small text-decoration-none me-3" href="{{.Share}}">Share</a>
     <a class="link-secondary small text-decoration-none me-3" href="{{.Rename}}">Rename</a>
     <a class="link-danger small text-decoration-none" href="{{.Delete}}">Delete</a>
   </td>
+  {{end}}
 </tr>
 {{end}}
 {{if .NextPage}}

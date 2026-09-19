@@ -36,6 +36,8 @@ const (
 	pageRename = "rename.html"
 	pageDelete = "delete.html"
 	pageStatus = "status.html"
+	pageShare  = "share.html"
+	pageShared = "shared.html"
 	pageError  = "error.html"
 )
 
@@ -48,6 +50,8 @@ var pages = map[string]*template.Template{
 	pageRename: parse(pageRename),
 	pageDelete: parse(pageDelete),
 	pageStatus: parse(pageStatus),
+	pageShare:  parse(pageShare),
+	pageShared: parse(pageShared),
 	pageError:  parse(pageError),
 }
 
@@ -97,6 +101,15 @@ type view struct {
 	// FreeSpace is what the blob store says is left, already rendered, and
 	// empty when it would not say.
 	FreeSpace string
+	// Shared is the signature this page was reached with, empty for a request
+	// that arrived with a session. Every link the page emits carries it, or the
+	// second click is a login form.
+	Shared string
+	// Lives, Link and Expires are the two share pages: what to offer, what came
+	// out, and until when.
+	Lives   []shareLifetime
+	Link    string
+	Expires string
 	// Name, IsDir, Action and Back are the two pages that act on one thing:
 	// what it is called, what it is, where the form posts and where Cancel goes.
 	Name   string

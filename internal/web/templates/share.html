@@ -1,0 +1,32 @@
+{{define "content" -}}
+<div class="row justify-content-center">
+  <div class="col-12 col-md-8 col-lg-6">
+    <h1 class="h4">Share {{if .IsDir}}folder{{else}}file{{end}}</h1>
+    <form method="post" action="{{.Action}}" class="card card-body">
+      <p class="mb-3">
+        A link to <code>{{.Name}}</code> that anybody can open, with no account
+        and no password.{{if .IsDir}} It reaches everything inside the folder,
+        and nothing above it.{{end}}
+      </p>
+
+      <label class="form-label" for="life">How long it lasts</label>
+      <select class="form-select" id="life" name="life" autofocus>
+        {{range .Lives}}<option value="{{.Value}}">{{.Label}}</option>
+        {{end}}
+      </select>
+
+      <p class="text-body-secondary small mt-3 mb-0">
+        Nothing is written down: the link is a signature, so there is no list of
+        what has been shared and no way to withdraw one on its own. Changing the
+        password withdraws every link at once — and signs every browser out with
+        them.
+      </p>
+
+      <div class="d-flex gap-2 mt-3">
+        <button class="btn btn-primary" type="submit">Make the link</button>
+        <a class="btn btn-outline-secondary" href="{{.Back}}">Cancel</a>
+      </div>
+    </form>
+  </div>
+</div>
+{{- end}}

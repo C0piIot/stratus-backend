@@ -42,7 +42,7 @@ func newHandler(t *testing.T, v auth.Verifier) http.Handler {
 		v = creds
 	}
 	s, thumbs, meta := pieces(t)
-	return web.Handler(version, buildDate, v, auth.NewSessions(creds, auth.DefaultSessionTTL),
+	return web.Handler(version, buildDate, v, auth.NewSessions(creds, auth.DefaultSessionTTL), auth.NewShares(creds),
 		s, thumbs, indexing(meta))
 }
 
@@ -52,7 +52,7 @@ func browser(t *testing.T) (http.Handler, *files.Service) {
 	t.Helper()
 	s, thumbs, meta := pieces(t)
 	creds := credentials()
-	return web.Handler(version, buildDate, creds, auth.NewSessions(creds, auth.DefaultSessionTTL),
+	return web.Handler(version, buildDate, creds, auth.NewSessions(creds, auth.DefaultSessionTTL), auth.NewShares(creds),
 		s, thumbs, indexing(meta)), s
 }
 
@@ -62,7 +62,7 @@ func browserOver(t *testing.T) (http.Handler, *files.Service, db.Store) {
 	t.Helper()
 	s, thumbs, meta := pieces(t)
 	creds := credentials()
-	return web.Handler(version, buildDate, creds, auth.NewSessions(creds, auth.DefaultSessionTTL),
+	return web.Handler(version, buildDate, creds, auth.NewSessions(creds, auth.DefaultSessionTTL), auth.NewShares(creds),
 		s, thumbs, indexing(meta)), s, meta
 }
 
@@ -71,7 +71,7 @@ func browserOver(t *testing.T) (http.Handler, *files.Service, db.Store) {
 func handlerIndexing(t *testing.T, s *files.Service, blobs storage.Storage, ix web.Indexing) http.Handler {
 	t.Helper()
 	creds := credentials()
-	return web.Handler(version, buildDate, creds, auth.NewSessions(creds, auth.DefaultSessionTTL),
+	return web.Handler(version, buildDate, creds, auth.NewSessions(creds, auth.DefaultSessionTTL), auth.NewShares(creds),
 		s, media.NewThumbs(blobs, s, "ffmpeg", t.TempDir()), ix)
 }
 
@@ -123,7 +123,7 @@ func backends(t *testing.T) (storage.Storage, db.Store) {
 func handlerOver(t *testing.T, s *files.Service, blobs storage.Storage, index db.MediaIndex) http.Handler {
 	t.Helper()
 	creds := credentials()
-	return web.Handler(version, buildDate, creds, auth.NewSessions(creds, auth.DefaultSessionTTL),
+	return web.Handler(version, buildDate, creds, auth.NewSessions(creds, auth.DefaultSessionTTL), auth.NewShares(creds),
 		s, media.NewThumbs(blobs, s, "ffmpeg", t.TempDir()), indexing(index))
 }
 
@@ -247,8 +247,9 @@ func TestASessionFromAnotherPasswordIsNotOne(t *testing.T) {
 	before := signIn(t, newHandler(t, nil))
 
 	service, thumbs, meta := pieces(t)
+	changed := auth.Credentials{Username: username, Password: "example a different one"}
 	after := web.Handler(version, buildDate, credentials(),
-		auth.NewSessions(auth.Credentials{Username: username, Password: "example a different one"}, auth.DefaultSessionTTL),
+		auth.NewSessions(changed, auth.DefaultSessionTTL), auth.NewShares(changed),
 		service, thumbs, indexing(meta))
 
 	rec := get(t, after, "/files/", before)
