@@ -28,6 +28,49 @@ func (h *handler) signedIn(page func(http.ResponseWriter, *http.Request, string)
 	}
 }
 
+// withPicture is readable plus HTTP Basic, and it wraps exactly one route.
+//
+// A thumbnail is the one thing this surface holds that another surface needs.
+// #136 put a has-preview property in the PROPFIND listing so a client drawing a
+// grid knows which tiles to ask for -- and the client that asks is the app,
+// which authenticates over WebDAV with Basic and could not reach /thumb/ at
+// all. A property that points at nothing is worse than no property.
+//
+// **This is the extension principle 2 warns about, taken knowingly.** There is
+// no standard way to ask a WebDAV server for a preview -- #136 checked, and the
+// only convention with deployment behind it is one vendor's. What keeps this on
+// the right side of the line is that nothing depends on it: a client that does
+// not know this URL renders no thumbnails and works, which is what the app does
+// against any other WebDAV server today.
+//
+// The same verifier as the other surfaces, so a wrong password here counts
+// against the same rate limit rather than opening an oracle beside it.
+func (h *handler) withPicture(page func(http.ResponseWriter, *http.Request, string)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		username, password, ok := r.BasicAuth()
+		if !ok {
+			h.readable(page)(w, r)
+			return
+		}
+		switch err := h.verifier.Verify(r.Context(), username, password); {
+		case errors.Is(err, auth.ErrTooManyAttempts):
+			// 429 and not 401, for the reason auth.Basic gives: the
+			// credentials were never judged, so saying "unauthorized" would be
+			// a guess.
+			w.Header().Set("Retry-After", "2")
+			http.Error(w, "too many attempts", http.StatusTooManyRequests)
+			return
+		case err != nil:
+			// No challenge header: this is not a surface a browser should be
+			// prompted for, and the client that sends Basic here already knows
+			// what it is doing.
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		page(w, r, username)
+	}
+}
+
 // readable is signedIn plus the other way in: a signed link, which authorises
 // reading one path or one subtree and nothing else.
 //

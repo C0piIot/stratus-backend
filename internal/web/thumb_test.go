@@ -6,9 +6,11 @@ import (
 	"image/color"
 	"image/jpeg"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/C0piIot/stratus-backend/internal/auth"
 	"github.com/C0piIot/stratus-backend/internal/files"
 	"github.com/C0piIot/stratus-backend/internal/storage/storagetest"
 )
@@ -146,5 +148,85 @@ func TestThumbnailOfAnImpossiblePath(t *testing.T) {
 	// every other page uses.
 	if code := get(t, h, "/thumb/bad%00name.jpg", cookie).Code; code == http.StatusOK {
 		t.Error("a path with a control character in it was served")
+	}
+}
+
+// A thumbnail is the one thing on this surface another surface needs: #136 put
+// has-preview in the WebDAV listing, and the client that reads it authenticates
+// with Basic.
+
+// TestThumbnailOverBasic is that, end to end and with no cookie anywhere.
+func TestThumbnailOverBasic(t *testing.T) {
+	t.Parallel()
+	h, s := browser(t)
+	write(t, s, "photo.jpg", photoJPEG(t))
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/thumb/photo.jpg?size=96", nil)
+	req.SetBasicAuth(username, examplePassword)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("a thumbnail over Basic = %d: %s", rec.Code, rec.Body)
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "image/jpeg" {
+		t.Errorf("content type = %q", ct)
+	}
+}
+
+// TestThumbnailRefusesAWrongPassword: the same verifier as every other surface,
+// so a guess here counts against the same rate limit instead of opening an
+// oracle beside it.
+func TestThumbnailRefusesAWrongPassword(t *testing.T) {
+	t.Parallel()
+	h, s := browser(t)
+	write(t, s, "photo.jpg", photoJPEG(t))
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/thumb/photo.jpg?size=96", nil)
+	req.SetBasicAuth(username, "not the password")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("a wrong password = %d, want 401", rec.Code)
+	}
+	// And no challenge: this is not a surface to prompt a browser for.
+	if got := rec.Header().Get("WWW-Authenticate"); got != "" {
+		t.Errorf("WWW-Authenticate = %q, want none", got)
+	}
+}
+
+// TestThumbnailIsThrottledLikeEverythingElse: a guess here goes through the
+// same verifier as WebDAV and Subsonic, so it counts against the same limit.
+// 429 and not 401, because the credentials were never judged.
+func TestThumbnailIsThrottledLikeEverythingElse(t *testing.T) {
+	t.Parallel()
+	h := newHandler(t, refusing{err: auth.ErrTooManyAttempts})
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/thumb/photo.jpg?size=96", nil)
+	req.SetBasicAuth(username, examplePassword)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusTooManyRequests {
+		t.Errorf("a throttled request = %d, want 429", rec.Code)
+	}
+	if rec.Header().Get("Retry-After") == "" {
+		t.Error("no Retry-After on a 429")
+	}
+}
+
+// TestThumbnailStillTakesASession is the half that must not have changed: the
+// listing in a browser asks for these with a cookie.
+func TestThumbnailStillTakesASession(t *testing.T) {
+	t.Parallel()
+	h, s := browser(t)
+	write(t, s, "photo.jpg", photoJPEG(t))
+
+	if rec := get(t, h, "/thumb/photo.jpg?size=96", signIn(t, h)); rec.Code != http.StatusOK {
+		t.Errorf("a thumbnail with a session = %d", rec.Code)
+	}
+	if rec := get(t, h, "/thumb/photo.jpg?size=96"); rec.Code != http.StatusSeeOther {
+		t.Errorf("a thumbnail with nothing = %d, want the login form", rec.Code)
 	}
 }
