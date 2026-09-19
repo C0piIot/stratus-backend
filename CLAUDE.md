@@ -986,4 +986,22 @@ Restraint here is principle 3, not laziness:
   vendored assets and 50 KB of that htmx -- which is the whole reason
   `scripts/smoke.sh` carries a size budget: the number moved because a decision
   moved it.
+- **One deploy manifest, and it is Render's** (#13). `render.yaml` is the only
+  hosted-platform file here that is a recommendation: a web service on the
+  published image and a disk at `/data`. The three platforms a Go binary is
+  usually pushed to are excluded on purpose -- Vercel, Netlify and Cloud Run are
+  stateless and scale to zero, which kills the indexer goroutine and forces S3
+  plus a hosted database before anything works -- and Fly has no button to
+  offer, which is why `fly.toml` in this repository is the throwaway test
+  instance and must not be advertised as a way to run Stratus.
 
+  What made a button possible at all is the password being held as configured:
+  no platform can compute a bcrypt hash in its own form, so a hashed one meant
+  a laptop and a terminal before the first boot.
+
+  **The thing to check on any platform added here is who owns the mount.** The
+  image runs as 65532, and a platform that hands it a root-owned volume -- which
+  is exactly what Docker does with a fresh named one -- produces a server that
+  refuses to start with a message about `/data` and no obvious cause. Fly reads
+  the image's user and mounts accordingly; that is a property of the platform,
+  not of the manifest, so it is answered by deploying rather than by reading.

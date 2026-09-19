@@ -1,0 +1,57 @@
+# Render Blueprint: what the Deploy to Render button in the README creates.
+#
+# One web service running the published image and one disk, which is the whole
+# of a Stratus install -- the blobs and the SQLite database both live under
+# /data, so the disk is not an extra here: without it the library is gone on the
+# next deploy. Render has no free instance type that takes a disk, so this
+# deploys something billed by the month on purpose.
+
+services:
+  - type: web
+    name: stratus
+    runtime: image
+    image:
+      # What CI publishes on every merge to main, multi-arch and public, so
+      # Render pulls it with no credentials. There are no releases yet, so there
+      # is no tag that holds still.
+      url: ghcr.io/c0piiot/stratus-backend:main
+
+    # The smallest instance that can carry a disk: 0.5 CPU and 512 MB. The same
+    # image runs the test instance in 256 MB.
+    plan: starter
+
+    # No region on purpose. Render defaults to oregon and a service's region
+    # cannot be changed afterwards, so anybody nearer frankfurt or singapore
+    # wants a fork of this file with the region in it rather than a button.
+
+    # Liveness, which touches no dependency -- see the README on why this and
+    # not /readyz.
+    healthCheckPath: /healthz
+
+    # A button copies this Blueprint into somebody else's account; a merge here
+    # should not redeploy their server. Quoted because YAML reads a bare off as
+    # false and the field is a string.
+    autoDeployTrigger: "off"
+
+    # The library. /data is where the image already points STRATUS_DATA_DIR, and
+    # sizeGB can be raised later but never lowered.
+    disk:
+      name: stratus-data
+      mountPath: /data
+      sizeGB: 10
+
+    envVars:
+      # Render routes to $PORT and only falls back to sniffing the listener when
+      # it is unset. The image listens on 8080.
+      - key: PORT
+        value: "8080"
+
+      # Asked for once, in the form the button opens, and this is the entire
+      # credential bootstrap. The password is held as configured rather than
+      # hashed -- OpenSubsonic's token auth needs the plaintext -- so there is
+      # nothing to compute on a laptop before the first boot, which is what
+      # a button exists to avoid.
+      - key: STRATUS_USERNAME
+        sync: false
+      - key: STRATUS_PASSWORD
+        sync: false

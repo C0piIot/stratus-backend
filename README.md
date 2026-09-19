@@ -552,6 +552,35 @@ make down      # stop, keeping your data
 WebDAV is only mounted once there are credentials, so set `STRATUS_USERNAME` and
 `STRATUS_PASSWORD` in `.env` before mounting anything.
 
+### One click, on Render
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/C0piIot/stratus-backend)
+
+[`render.yaml`](render.yaml) is a Render Blueprint: one web service running the
+published image, one 10 GB disk mounted at `/data`, and nothing else. The form
+the button opens asks for `STRATUS_USERNAME` and `STRATUS_PASSWORD` and for
+nothing further — there is no hash to compute on a laptop before the first boot,
+which is what holding the password as configured buys. Render terminates TLS and
+forwards the scheme, so the session cookie comes back `Secure` with no setting
+to find.
+
+Four things are worth knowing before clicking:
+
+- **It is not free.** No Render instance type that takes a disk is, and the disk
+  is where the library lives: $7 a month for the smallest instance, plus $0.25
+  per GB, so around $9.50 for the 10 GB in that file. The workspace itself costs
+  nothing. A free instance would lose every photograph on the next deploy, which
+  is why this Blueprint does not offer one.
+- **The region is Render's default, `oregon`**, and a service cannot be moved
+  afterwards. If you are nearer frankfurt or singapore, fork the repository, put
+  `region:` in `render.yaml` and use the button on your copy.
+- **Deploys are not zero-downtime** once a disk is attached: Render stops the
+  old instance before it starts the new one, which is a few seconds either way.
+- **Upgrading is a deploy you ask for.** The Blueprint pins `:main` and sets
+  `autoDeployTrigger: off`, so a merge in this repository never touches a server
+  somebody else deployed; the dashboard's Deploy latest reference pulls the tag
+  again.
+
 ## Configuration
 
 Every setting has a default and an env var. Copy `.env.example` to `.env`, or
