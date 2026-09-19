@@ -14,7 +14,8 @@
 <body class="bg-body-tertiary d-flex flex-column min-vh-100">
 <nav class="navbar bg-body border-bottom">
   <div class="container">
-    <a class="navbar-brand" href="/">Stratus</a>
+    {{if .Shared}}<span class="navbar-brand">Stratus</span>
+    {{else}}<a class="navbar-brand" href="/">Stratus</a>{{end}}
     {{if .User}}
     <form method="post" action="/logout" class="d-flex align-items-center gap-3 m-0">
       <a class="navbar-text link-secondary text-decoration-none" href="/status">Status</a>

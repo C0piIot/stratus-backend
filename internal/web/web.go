@@ -48,7 +48,12 @@ type handler struct {
 	buildDate string
 	verifier  auth.Verifier
 	sessions  *auth.Sessions
-	files     *files.Service
+	// shares verifies the links somebody without an account can open, and is
+	// derived from the same credentials as sessions with a context string of
+	// its own -- so one password revokes both at once and neither value can be
+	// read as the other.
+	shares *auth.Shares
+	files  *files.Service
 	// thumbs takes the blob store directly, which is why it is passed in rather
 	// than built here: a derived object has no database row and never will.
 	thumbs *media.Thumbs
@@ -64,11 +69,11 @@ type handler struct {
 // root, unlike the Basic auth in front of WebDAV: it is meaningless on any
 // other surface -- a WebDAV or Subsonic client is not a browser and sends no
 // cookie -- and a caller that forgot it would lose the defence silently.
-func Handler(version, buildDate string, v auth.Verifier, s *auth.Sessions,
+func Handler(version, buildDate string, v auth.Verifier, s *auth.Sessions, shares *auth.Shares,
 	service *files.Service, thumbs *media.Thumbs, indexing Indexing,
 ) http.Handler {
 	h := &handler{
-		version: version, buildDate: buildDate, verifier: v, sessions: s,
+		version: version, buildDate: buildDate, verifier: v, sessions: s, shares: shares,
 		files: service, thumbs: thumbs, indexing: indexing,
 	}
 
@@ -78,15 +83,17 @@ func Handler(version, buildDate string, v auth.Verifier, s *auth.Sessions,
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		redirectLocal(w, r, filesPrefix)
 	})
-	mux.HandleFunc("GET /files/{path...}", h.authenticated(h.browse))
-	mux.HandleFunc("GET /thumb/{path...}", h.authenticated(h.thumbnail))
-	mux.HandleFunc("GET /status", h.authenticated(h.status))
-	mux.HandleFunc("POST /files/{path...}", h.authenticated(h.upload))
-	mux.HandleFunc("POST /folders/{path...}", h.authenticated(h.newFolder))
-	mux.HandleFunc("GET /rename/{path...}", h.authenticated(h.renameForm))
-	mux.HandleFunc("POST /rename/{path...}", h.authenticated(h.rename))
-	mux.HandleFunc("GET /delete/{path...}", h.authenticated(h.deleteForm))
-	mux.HandleFunc("POST /delete/{path...}", h.authenticated(h.remove))
+	mux.HandleFunc("GET /files/{path...}", h.readable(h.browse))
+	mux.HandleFunc("GET /thumb/{path...}", h.readable(h.thumbnail))
+	mux.HandleFunc("GET /status", h.signedIn(h.status))
+	mux.HandleFunc("POST /files/{path...}", h.signedIn(h.upload))
+	mux.HandleFunc("POST /folders/{path...}", h.signedIn(h.newFolder))
+	mux.HandleFunc("GET /share/{path...}", h.signedIn(h.shareForm))
+	mux.HandleFunc("POST /share/{path...}", h.signedIn(h.share))
+	mux.HandleFunc("GET /rename/{path...}", h.signedIn(h.renameForm))
+	mux.HandleFunc("POST /rename/{path...}", h.signedIn(h.rename))
+	mux.HandleFunc("GET /delete/{path...}", h.signedIn(h.deleteForm))
+	mux.HandleFunc("POST /delete/{path...}", h.signedIn(h.remove))
 	mux.HandleFunc("GET /login", h.loginForm)
 	mux.HandleFunc("POST /login", h.login)
 	mux.HandleFunc("POST /logout", h.logout)

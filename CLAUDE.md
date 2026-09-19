@@ -47,6 +47,60 @@ Hard constraints, in the same spirit as the rest of the project:
   ceiling that is not renewed on use**, which is the only bound the design has.
   A map in memory was the alternative: real revocation, at the price of a
   restart signing everybody out.
+- **A share link is the ordinary URL with a signature on it, and that is the
+  whole of the design** (#169). `internal/auth/share.go` is the fourth
+  credential adapter beside the other three, derived from the same password with
+  a context string of its own, so one password change revokes every link and
+  every session together and neither value can be read as the other.
+
+  It is not a surface. `/files/<path>` already streams a file's bytes through
+  `http.ServeContent` -- ranges included, which is what casting turns on -- and
+  renders a folder as HTML for the most universal client there is, so a link is
+  that URL with `?k=` on the end and a browser is told nothing new. **WebDAV was
+  the obvious home and it is the wrong one**: a signed `/dav/` URL serves the
+  same bytes, but its listing is `PROPFIND`, which no browser issues and no
+  receiver speaks, and no WebDAV client will put a query string on every request
+  -- so a folder link there would open onto nothing.
+
+  **Read-only is which gate the route goes through, not a check somebody
+  remembers.** `readable` wraps the routes that read and accepts either a
+  session or a link; `signedIn` wraps the routes that write and accepts only a
+  session. A new writing route is read-only-safe by default, because the wrong
+  gate is the one that has to be chosen on purpose.
+
+  Three details that are easy to get wrong and are all tested: the signature is
+  checked against **the path the request asked for** rather than the one the
+  token names, and a subtree match has to be on `path + "/"` or a link to
+  `album` opens `album2`; every link a shared page emits carries the token, the
+  thumbnails included, or the listing is a grid of broken images; and a link
+  that was offered and refused is `403` rather than a redirect, because somebody
+  sent a dead link needs to be told and a receiver needs a status code.
+
+  The owner authorises the read and is not shown for it: a shared page carries
+  no name, no Sign out and no way back to the share's own root -- the
+  breadcrumbs start at the share, because a trail that climbed higher would
+  offer a door the link does not open and one that stopped at the current
+  folder would strand a visitor two levels down.
+
+  **A token is a pure function of the credentials, and that is deliberate.**
+  Anything holding the username and the password can compute the same key and
+  mint the same link, `stratus-app` included -- which is how the app gets a URL
+  a Chromecast can fetch without asking this server for one, and therefore
+  without the private JSON endpoint principle 2 forbids. There is no call to
+  make: the answer was already derivable from what the client has.
+
+  What that costs is a format shared across two repositories, so it is written
+  down rather than left to be read out of the code:
+
+      key     = HMAC-SHA256(key: password, msg: "stratus share link v1\x00" + username)
+      payload = "k1" "." b64url(owner) "." b64url(path) "." ("f" | "d") "." unix-expiry-or-0
+      token   = payload "." b64url(HMAC-SHA256(key: key, msg: payload))
+
+  where `f` is one file and `d` is a path and everything under it, and the
+  expiry is `0` for a link with none. The `k1` is what makes changing the shape
+  safe: a client minting an older one is refused rather than misread, which is
+  the whole reason the version is inside the signature.
+
 - CSRF is that cookie's `SameSite=Lax` plus `http.CrossOriginProtection` from
   the standard library, and it is wired **inside `internal/web`** rather than by
   the composition root. It is meaningless on the other surfaces -- a WebDAV or

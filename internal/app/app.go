@@ -136,7 +136,7 @@ func (a *App) Handler(deps Deps) http.Handler {
 		// a session signed with the configured password: see auth.Sessions for
 		// what that buys and what it costs.
 		mux.Handle("/", web.Handler(a.version, a.buildDate, verifier,
-			auth.NewSessions(creds, auth.DefaultSessionTTL), service, thumbs,
+			auth.NewSessions(creds, auth.DefaultSessionTTL), auth.NewShares(creds), service, thumbs,
 			web.Indexing{Index: deps.Database, Interval: a.cfg.IndexInterval}))
 	}
 	return logRequests(mux)

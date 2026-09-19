@@ -1,0 +1,25 @@
+{{define "content" -}}
+<div class="row justify-content-center">
+  <div class="col-12 col-md-8 col-lg-6">
+    <h1 class="h4">Link to {{.Name}}</h1>
+    <div class="card card-body">
+      {{/* Readonly and selected rather than a copy button: copying needs
+           script, and the policy forbids it. */}}
+      <label class="form-label" for="link">Anybody with this can open it</label>
+      <input class="form-control font-monospace" id="link" type="text"
+             value="{{.Link}}" readonly autofocus>
+
+      <p class="text-body-secondary small mt-3 mb-0">
+        {{if .Expires}}It stops working on {{.Expires}}.{{else}}It works until
+        the password changes.{{end}}
+        The address is the one this page is at — send it whole, with whatever
+        comes before <code>/files/</code>.
+      </p>
+
+      <div class="d-flex gap-2 mt-3">
+        <a class="btn btn-outline-secondary" href="{{.Back}}">Done</a>
+      </div>
+    </div>
+  </div>
+</div>
+{{- end}}

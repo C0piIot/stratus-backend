@@ -413,6 +413,27 @@ many could not be read at all. The page refreshes itself, and a file the
 indexer has not reached yet is marked in the listing as well — which is
 something to see during that first pass and nothing the rest of the time.
 
+**A link somebody without an account can open.** Share a file or a folder from
+the listing and what comes back is the ordinary URL with a signature on it —
+`/files/<path>?k=…`. No new address to learn and nothing for the person at the
+other end to install: a file streams with ranges, so a Chromecast can fetch it
+directly instead of a phone proxying the film, and a folder renders the same
+listing with everything that writes taken out of it. A folder link reaches
+what is under it and nothing above it.
+
+**Nothing is written down**, and the three consequences are worth knowing before
+you send one. There is no list of what has been shared. There is no withdrawing
+one link on its own — changing `STRATUS_PASSWORD` withdraws every link at once,
+and signs every browser out with them, because both keys come from it. And a
+shared path that is renamed breaks its own link, since a signature names a path
+and not a file.
+
+A link can be given a life of a day, a week, a month, or none — which lasts
+until the password changes. Making one needs an account; opening one does not.
+A client that already has the password can also derive one for itself without
+asking the server, which is how the mobile app hands a video to a Chromecast:
+the format is in `CLAUDE.md`.
+
 **Deleting asks first and then means it.** There is no trash bin: the row goes,
 and the blob behind it is swept up afterwards, so the page in between is the only
 chance to have not meant it. Deleting a folder takes everything inside it.

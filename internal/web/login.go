@@ -9,10 +9,15 @@ import (
 	"github.com/C0piIot/stratus-backend/internal/auth"
 )
 
-// authenticated is the gate in front of every page that is not the login form.
-// A browser with no usable session is sent to it rather than refused, and told
+// shareParam is where a link carries its signature. A query parameter and not a
+// path segment, so that a shared URL is the ordinary URL with something on the
+// end rather than a second address for the same thing (#169).
+const shareParam = "k"
+
+// signedIn is the gate in front of every page that is not the login form. A
+// browser with no usable session is sent to it rather than refused, and told
 // where it was going so a bookmark deep in the UI survives signing in.
-func (h *handler) authenticated(page func(http.ResponseWriter, *http.Request, string)) http.HandlerFunc {
+func (h *handler) signedIn(page func(http.ResponseWriter, *http.Request, string)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		user, err := h.session(r)
 		if err != nil {
@@ -20,6 +25,39 @@ func (h *handler) authenticated(page func(http.ResponseWriter, *http.Request, st
 			return
 		}
 		page(w, r, user)
+	}
+}
+
+// readable is signedIn plus the other way in: a signed link, which authorises
+// reading one path or one subtree and nothing else.
+//
+// It wraps the routes that only read, and the routes that write are wrapped by
+// signedIn instead -- so a link is read-only because of which gate it goes
+// through, not because of a check somebody has to remember to write.
+//
+// A link that was offered and refused is 403 and not a redirect. Somebody sent
+// a dead link needs to be told it is dead rather than shown a login form for an
+// account they do not have, and a Chromecast fetching a film needs a status
+// code rather than HTML.
+func (h *handler) readable(page func(http.ResponseWriter, *http.Request, string)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		token := r.URL.Query().Get(shareParam)
+		if token == "" {
+			h.signedIn(page)(w, r)
+			return
+		}
+
+		p, err := toPath(r.PathValue("path"))
+		if err != nil {
+			h.forbidden(w, "That link does not point anywhere here.")
+			return
+		}
+		share, err := h.shares.Verify(token, p, time.Now())
+		if err != nil {
+			h.forbidden(w, "That link has expired or is not valid any more.")
+			return
+		}
+		page(w, r.WithContext(withShare(r.Context(), share)), share.Owner)
 	}
 }
 

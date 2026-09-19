@@ -932,6 +932,25 @@ TRACK
     bad "the status page reports the library indexed" "$(grep -o '[0-9]*%' <<<"$status" | head -3 | tr '\n' ' ')"
   fi
 
+  # A link somebody without an account can open, made the way a person makes
+  # one and fetched with no cookie, no password and no header (#169). The jar
+  # is deliberately absent from the second curl: that is the whole assertion.
+  share_page="$(curl -fsS -b "$jar" -X POST --data-urlencode 'life=7d' \
+    "http://$davhost/share/notes.txt" 2>/dev/null || true)"
+  share_link="$(grep -o 'value="/files/notes.txt?k=[^"]*"' <<<"$share_page" |
+    head -1 | sed -e 's/^value="//' -e 's/"$//' -e 's/&amp;/\&/g')"
+  if [ -n "$share_link" ]; then
+    shared_body="$(curl -s "http://$davhost$share_link")"
+    shared_above="$(curl -s -o /dev/null -w '%{http_code}' \
+      "http://$davhost/files/track.mp3?k=${share_link#*k=}")"
+  fi
+  if [ "$shared_body" = "smoke" ] && [ "$shared_above" = "403" ]; then
+    ok "a shared link opens with no credentials and reaches nothing else"
+  else
+    bad "a shared link opens with no credentials and reaches nothing else" \
+      "link '$share_link', body '$shared_body', a file beside it answered $shared_above"
+  fi
+
   # Indexed is not the same as read: an extraction that failed still counts as
   # done, so this is the number that says whether anything went wrong. Exactly
   # one thing did, and on purpose -- the track this script uploaded is a text
