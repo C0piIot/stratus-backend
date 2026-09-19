@@ -277,8 +277,15 @@ needs no branch for the backend that cannot say. The disk backend asks
 `Statfs` for the blocks available to a non-root process, since that is what this
 container can actually write; S3 says `Unlimited`, which is a report and not an
 evasion, because a bucket has no size the API will admit to. Not enough room is
-a refusal before the first byte, and `507` on the wire. The other half of #154 --
-showing the number to somebody -- is still open.
+a refusal before the first byte, and `507` on the wire.
+
+`/status` shows the same number, where `Unlimited` renders as the word and not
+as nine exabytes -- which is the thing #154 warned a UI would do with an
+invented figure, and the reason the constant is named for what it means. The
+one place left that could say it is WebDAV, through RFC 4331's
+`quota-available-bytes`, and go-webdav has no quota support and no way for a
+backend to add a property: that is the same wall #136 is waiting at, and now the
+second reason to take that decision.
 
 **A directory moves with everything under it**, in one statement per driver
 rather than a row at a time: a rewrite that stopped halfway would leave the rest

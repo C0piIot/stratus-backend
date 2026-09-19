@@ -1,6 +1,8 @@
 package web_test
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -11,6 +13,7 @@ import (
 	"github.com/C0piIot/stratus-backend/internal/db/dbtest"
 	"github.com/C0piIot/stratus-backend/internal/files"
 	"github.com/C0piIot/stratus-backend/internal/media"
+	"github.com/C0piIot/stratus-backend/internal/storage"
 	"github.com/C0piIot/stratus-backend/internal/web"
 )
 
@@ -196,4 +199,74 @@ func indexOne(t *testing.T, s *files.Service, meta db.Store, path string) {
 	if err != nil {
 		t.Fatal(err)
 	}
+}
+
+// TestStatusSaysHowMuchRoomIsLeft is the half of #154 that a person sees. A
+// self-hosted server on a home machine fills up, and the first symptom used to
+// be an upload failing with whatever the filesystem said.
+func TestStatusSaysHowMuchRoomIsLeft(t *testing.T) {
+	t.Parallel()
+	h, _, _ := browserOver(t)
+
+	body := get(t, h, "/status", signIn(t, h)).Body.String()
+	if !strings.Contains(body, "data-free-space") {
+		t.Fatal("the status page says nothing about how much room is left")
+	}
+	// A real disk under a temporary directory, so what it says is a size and
+	// not a count: the assertion is the shape, since the number is the
+	// machine's and moves.
+	if !strings.Contains(body, "iB</dd>") {
+		t.Errorf("the room left is not rendered as a size: %s", between(body, "data-free-space"))
+	}
+}
+
+// TestStatusOnAStoreWithNoSize is the other answer, and the reason the port has
+// a word for it: an object store has no size to report, and a page that
+// rendered Unlimited as nine exabytes would be lying in the one place somebody
+// looks to decide whether their upload fits.
+func TestStatusOnAStoreWithNoSize(t *testing.T) {
+	t.Parallel()
+	_, _, meta := pieces(t)
+	h := handlerIndexing(t, files.New(unmeasured{}, meta), unmeasured{}, indexing(meta))
+
+	body := get(t, h, "/status", signIn(t, h)).Body.String()
+	if !strings.Contains(body, "unlimited") {
+		t.Errorf("a store with no size to report rendered as %q", between(body, "data-free-space"))
+	}
+}
+
+// TestStatusWhenTheStoreWillNotSay: one line of a page about something else,
+// so it goes quiet rather than taking the page down with it.
+func TestStatusWhenTheStoreWillNotSay(t *testing.T) {
+	t.Parallel()
+	_, _, meta := pieces(t)
+	h := handlerIndexing(t, files.New(silent{}, meta), silent{}, indexing(meta))
+
+	rec := get(t, h, "/status", signIn(t, h))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("the status page = %d, want it to render anyway", rec.Code)
+	}
+	if strings.Contains(rec.Body.String(), "data-free-space") {
+		t.Error("a store that would not answer still produced a number")
+	}
+}
+
+// between is the fragment around a marker, for an error message that says what
+// was rendered instead.
+func between(body, marker string) string {
+	i := strings.Index(body, marker)
+	if i < 0 {
+		return "nothing"
+	}
+	return body[i:min(i+80, len(body))]
+}
+
+type unmeasured struct{ storage.Storage }
+
+func (unmeasured) FreeSpace(context.Context) (int64, error) { return storage.Unlimited, nil }
+
+type silent struct{ storage.Storage }
+
+func (silent) FreeSpace(context.Context) (int64, error) {
+	return 0, errors.New("this store will not say")
 }

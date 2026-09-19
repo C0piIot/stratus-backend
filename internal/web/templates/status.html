@@ -13,6 +13,12 @@
   when it is replaced or when a better extractor ships — which is what the
   version below is for.
 </p>
+
+<p class="text-body-secondary small mb-0">
+  The room left is the whole volume's, shared with the database and with what
+  the indexer spools while it reads — not a figure set aside for files. An
+  object store has no size to report, so it says so instead.
+</p>
 {{- end}}
 
 {{/* The numbers on their own, so htmx can ask for them again without the page
@@ -57,6 +63,11 @@
 
     <dt class="col-sm-4 fw-normal text-body-secondary">Could not be read</dt>
     <dd class="col-sm-8" data-count="failed">{{.Counts.Failed}}</dd>
+
+    {{if .FreeSpace}}
+    <dt class="col-sm-4 fw-normal text-body-secondary">Room left</dt>
+    <dd class="col-sm-8" data-free-space>{{.FreeSpace}}</dd>
+    {{end}}
 
     <dt class="col-sm-4 fw-normal text-body-secondary">Extractor</dt>
     <dd class="col-sm-8">

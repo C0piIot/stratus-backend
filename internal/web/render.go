@@ -94,6 +94,9 @@ type view struct {
 	IndexVersion  int
 	IndexInterval string
 	IndexingOff   bool
+	// FreeSpace is what the blob store says is left, already rendered, and
+	// empty when it would not say.
+	FreeSpace string
 	// Name, IsDir, Action and Back are the two pages that act on one thing:
 	// what it is called, what it is, where the form posts and where Cancel goes.
 	Name   string
