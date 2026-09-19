@@ -380,49 +380,6 @@ func TestOpenSeeks(t *testing.T) {
 
 var _ = context.Background
 
-// TestWalk is what PROPFIND with infinite depth reads: everything under a
-// directory, with each directory followed immediately by its own contents.
-func TestWalk(t *testing.T) {
-	t.Parallel()
-	s, _ := service(t)
-	for _, dir := range []string{"album", "album/raw"} {
-		if _, err := s.Mkdir(t.Context(), owner, dir); err != nil {
-			t.Fatal(err)
-		}
-	}
-	write(t, s, "album/one.jpg", "one")
-	write(t, s, "album/raw/two.dng", "two")
-	write(t, s, "top.txt", "top")
-
-	got, err := s.Walk(t.Context(), owner, "album")
-	if err != nil {
-		t.Fatalf("Walk: %v", err)
-	}
-	var paths []string
-	for _, f := range got {
-		paths = append(paths, f.Path)
-	}
-	want := []string{"album/one.jpg", "album/raw", "album/raw/two.dng"}
-	if len(paths) != len(want) {
-		t.Fatalf("Walk = %v, want %v", paths, want)
-	}
-	for i := range want {
-		if paths[i] != want[i] {
-			t.Errorf("Walk = %v, want %v", paths, want)
-			break
-		}
-	}
-
-	// From the root it reaches everything, and nothing twice.
-	all, err := s.Walk(t.Context(), owner, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(all) != 5 {
-		t.Errorf("Walk from the root returned %d entries, want 5", len(all))
-	}
-}
-
 func TestOpenMissing(t *testing.T) {
 	t.Parallel()
 	s, _ := service(t)

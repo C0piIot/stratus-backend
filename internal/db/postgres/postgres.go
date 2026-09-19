@@ -149,8 +149,15 @@ func (r *repo) ListFiles(ctx context.Context, owner, dir string) ([]db.File, err
 	if err := db.ValidateDir(dir); err != nil {
 		return nil, err
 	}
+	// Directories first and then by name, which is the order files_owner_parent
+	// is built in. Ordering by path alone sent SQLite to the unique index on
+	// (owner_id, path) instead -- it matched the sort, so the planner took a
+	// scan of every row this owner has over sorting the handful in one folder,
+	// and a directory of a hundred cost 58 ms on a library of a hundred
+	// thousand rather than 0.3 (#160). It is also the order ListFilesPage
+	// already returns, so the two no longer disagree.
 	const query = `SELECT ` + fileColumns + ` FROM files
-		WHERE owner_id = $1 AND parent_path = $2 ORDER BY path`
+		WHERE owner_id = $1 AND parent_path = $2 ORDER BY is_dir DESC, path`
 
 	out, err := sqlutil.Collect(ctx, r.q, scanFileRow, query, owner, dir)
 	if err != nil {

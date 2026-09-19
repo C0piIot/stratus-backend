@@ -499,6 +499,21 @@ if wait_serving "$davname"; then
     bad "PROPFIND answers a multistatus" "got $code"
   fi
 
+  # And the whole tree at once is refused, in the words RFC 4918 14.5 has for
+  # it: a client that meant Depth: infinity has to learn to walk a level at a
+  # time, which it cannot do from a timeout or a dead server. Asserted from
+  # outside because it is a header this project reads for itself -- the library
+  # would have answered 207 and built the answer in memory first.
+  finite="$(mktmp)/body"
+  refused="$(curl -s -u "$davuser:$davpass" -X PROPFIND "http://$davhost/dav/" \
+    -o "$finite" -w '%{http_code}')"
+  if [ "$refused" = "403" ] && grep -q 'propfind-finite-depth' "$finite"; then
+    ok "a PROPFIND for the whole tree is refused with a precondition"
+  else
+    bad "a PROPFIND for the whole tree is refused with a precondition" \
+      "got $refused: $(head -c 200 "$finite")"
+  fi
+
   # The body this time, because #126 was a 207 with the wrong thing in it: a
   # Depth 1 listing has to carry the collection it was asked about, not only its
   # members. Matched on the element content rather than a namespace prefix the

@@ -432,6 +432,36 @@ Restraint here is principle 3, not laziness:
 
 - Go, `net/http` from stdlib, **no web framework**.
 - `github.com/emersion/go-webdav` for DAV/CalDAV primitives.
+
+  **A `PROPFIND` for the whole tree is refused before the library sees it**
+  (#160), with the `403` and the `DAV:propfind-finite-depth` precondition
+  RFC 4918 9.1 provides for exactly this. The library builds a multistatus as
+  one value and marshals it whole -- `ServeMultiStatus` carries a
+  `// TODO: streaming` -- and its `FileSystem` hands back a slice, so there is
+  no shape here in which the answer goes out as it is found. Measured: a
+  hundred thousand files in a thousand folders came to 44 MB of XML inside
+  310 MB of heap, and it is linear. Saying yes properly means streaming, which
+  means this library changing or being replaced, and that is a conversation to
+  have when a real client needs it rather than a handler to write on
+  speculation.
+
+  The `Depth` header is read in `internal/dav/depth.go` and not taken from the
+  library, which only passes the backend a bool by which time the answer is
+  being built. An absent header is infinity, because the RFC says so, so it is
+  refused too: one level would be a wrong answer a client could not tell from a
+  right one. With that gone, `files.Walk` had no caller and is deleted -- the
+  three hundred megabytes are not gated, they are unreachable.
+
+  **And a directory listing uses its index now**, which is the other half of
+  the same measurement and the part that was a plain bug. `ListFiles` ordered
+  by `path` alone, which matched the unique index on `(owner_id, path)`, so
+  SQLite took that one, used only `owner_id` from it and filtered
+  `parent_path` over every row this owner has: one folder of a hundred cost
+  58 ms on a library of a hundred thousand, against 0.3 ms through
+  `files_owner_parent`. Ordering by `is_dir DESC, path` -- which that index is
+  built in, and which `ListFilesPage` already answered in -- is the whole fix,
+  and it was never only about deep listings: every `Depth: 1` PROPFIND, both
+  Subsonic browse calls and the folder-cover lookup were paying it.
 - `minio-go` for S3 (much lighter than `aws-sdk-go-v2`). The client, not the
   server: MinIO the server was archived in April 2026, and the conformance
   suite runs against Silo, a maintained fork of it (#116). minio-go is a

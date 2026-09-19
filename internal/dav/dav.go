@@ -43,6 +43,12 @@ func Handler(prefix string, service *files.Service) http.Handler {
 	dav := &webdav.Handler{FileSystem: fs}
 
 	return http.StripPrefix(prefix, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// A PROPFIND over the whole tree is refused before the library sees it,
+		// with the precondition the RFC has for saying so. See depth.go.
+		if refuseInfiniteDepth(w, r) {
+			return
+		}
+
 		// LOCK and UNLOCK never reach the library: it is class 1 and answers
 		// 405 to both. See lock.go for what these do and what they do not.
 		switch r.Method {
@@ -137,7 +143,7 @@ func (f *fileSystem) Stat(ctx context.Context, name string) (*webdav.FileInfo, e
 // collection is looked up twice per PROPFIND -- the library has already done it
 // and has nowhere to hand it over -- which is one indexed read against a listing
 // that is already several.
-func (f *fileSystem) ReadDir(ctx context.Context, name string, recursive bool) ([]webdav.FileInfo, error) {
+func (f *fileSystem) ReadDir(ctx context.Context, name string, _ bool) ([]webdav.FileInfo, error) {
 	p, err := toPath(name)
 	if err != nil {
 		return nil, err
@@ -153,12 +159,11 @@ func (f *fileSystem) ReadDir(ctx context.Context, name string, recursive bool) (
 		return nil, err
 	}
 
-	var listing []db.File
-	if recursive {
-		listing, err = f.files.Walk(ctx, owner, p)
-	} else {
-		listing, err = f.files.List(ctx, owner, p)
-	}
+	// recursive is ignored, and is the reason there is nothing here that walks:
+	// the library only sets it for Depth: infinity, which is refused before it
+	// gets this far (see depth.go). A walk that cannot be asked for is a walk
+	// nobody has to keep correct.
+	listing, err := f.files.List(ctx, owner, p)
 	if err != nil {
 		return nil, mapErr(err)
 	}

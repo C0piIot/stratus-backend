@@ -69,6 +69,15 @@ the tree lives in the database, and the ETag is a SHA-256 of what was actually
 stored. Ranges, conditional requests and video seeking come from
 `http.ServeContent`, which the reader is shaped for.
 
+**A `PROPFIND` for the whole tree at once is refused**, with the `403` and the
+`DAV:propfind-finite-depth` precondition RFC 4918 has for saying so. Listing a
+directory at a time is what almost every client does anyway, and it costs an
+indexed read; answering `Depth: infinity` over a hundred thousand files meant
+44 MB of XML built inside 300 MB of memory before a single byte could go out,
+and that grows with the library. A request that leaves the `Depth` header out
+is the same request — the RFC says an absent header means infinity — so it gets
+the same answer rather than one level and a wrong impression.
+
 Locking is **advertised and not enforced**. macOS Finder refuses to mount a
 share read-write unless the server claims class 2, so `LOCK` answers with a
 well-formed token that nothing records and `UNLOCK` always succeeds.
