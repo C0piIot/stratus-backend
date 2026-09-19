@@ -783,6 +783,19 @@ TRACK
          "the page did not link one, or the request answered '$thumbcode'" ;;
   esac
 
+  # The same picture over the credentials a WebDAV client has, with no cookie.
+  # #136 put has-preview in the PROPFIND listing so a client knows which tiles
+  # to ask for, and the client that reads it authenticates with Basic -- a
+  # property pointing at something unreachable would be worse than none.
+  basicthumb="$(mktmp)/thumb.jpg"
+  basiccode="$(curl -s -o "$basicthumb" -w '%{http_code} %{content_type}' -u "$davuser:$davpass" \
+    "http://$davhost/thumb/cover.jpg?size=96")"
+  case "$basiccode" in
+    "200 image/jpeg"*) ok "a thumbnail is reachable with the credentials WebDAV uses" ;;
+    *) bad "a thumbnail is reachable with the credentials WebDAV uses" \
+         "got '$basiccode': $(head -c 120 "$basicthumb")" ;;
+  esac
+
   # And a file that cannot have one is not offered one, which is what keeps a
   # listing from being a wall of broken images.
   case "$listing" in

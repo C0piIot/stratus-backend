@@ -84,7 +84,7 @@ func Handler(version, buildDate string, v auth.Verifier, s *auth.Sessions, share
 		redirectLocal(w, r, filesPrefix)
 	})
 	mux.HandleFunc("GET /files/{path...}", h.readable(h.browse))
-	mux.HandleFunc("GET /thumb/{path...}", h.readable(h.thumbnail))
+	mux.HandleFunc("GET /thumb/{path...}", h.withPicture(h.thumbnail))
 	mux.HandleFunc("GET /status", h.signedIn(h.status))
 	mux.HandleFunc("POST /files/{path...}", h.signedIn(h.upload))
 	mux.HandleFunc("POST /folders/{path...}", h.signedIn(h.newFolder))

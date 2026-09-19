@@ -551,6 +551,16 @@ Restraint here is principle 3, not laziness:
   One thing changed that a client can see: **a collection's href ends in a
   slash now**, which is what RFC 4918's own examples do.
 
+  And the property needs somewhere to point: `/thumb/` takes HTTP Basic as well
+  as a session, because the client that reads `has-preview` authenticates over
+  WebDAV and could not reach it otherwise. **That is the extension principle 2
+  warns about, taken knowingly**, and what keeps it on the right side of the
+  line is that nothing depends on it -- there is no standard way to ask a
+  WebDAV server for a preview, so a client that does not know this URL renders
+  none and works, which is what the app does against any other server today. It
+  goes through the same verifier as every other surface, so a guess counts
+  against the same rate limit rather than opening an oracle beside it.
+
   **A `PROPFIND` for the whole tree is refused before the library sees it**
   (#160), with the `403` and the `DAV:propfind-finite-depth` precondition
   RFC 4918 9.1 provides for exactly this. The library builds a multistatus as

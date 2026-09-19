@@ -82,6 +82,12 @@ RFC has for it: a copy is the first thing here that can fill a disk on purpose,
 and a full disk takes the database with it. On S3 there is no number to check
 against, so nothing is refused.
 
+**A thumbnail can be fetched with the same credentials**, at
+`/thumb/<path>?size=96`, so a client that read the property below can act on
+it. It is not a standard — there is none for previews over WebDAV — and nothing
+breaks without it: a client that does not know the URL simply shows no
+thumbnails.
+
 **The listing says which files have a preview and how much room is left.** A
 client drawing a grid of a few hundred files would otherwise ask for every
 thumbnail and count the ones that come back missing; it can read the answer out
