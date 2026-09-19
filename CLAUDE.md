@@ -254,6 +254,32 @@ absurdly beside this one. Deferred length is not implemented and not advertised
 -- every client this is for knows how big the file is, and accepting an upload
 of unknown length means inventing a rule for when it ended.
 
+**A directory copies too, and that is the ordering's second use.** `COPY` of a
+collection was a 501 because of what a half-finished one leaves behind, not
+because of the recursion (#43). Blob first and row second is what answers it:
+a tree copy writes every blob, commits every row in one transaction, and a
+failure anywhere leaves a tree that was never touched and orphans the sweep
+takes. The bytes move outside the transaction, so a copy of a thousand
+photographs does not hold a write transaction open for as long as it runs.
+`Write` was split for it -- `storeBlob` returns the row without committing it --
+so a copy cannot grow a second opinion about what a blob key is or how an ETag
+is computed.
+
+The blob is **not** shared between the two rows, tempting as one insert would
+be: `Remove` deletes blobs as soon as its transaction commits, so removing
+either copy would destroy the other. That wants reference counting, or a delete
+that leaves its blobs to the sweep, and both are larger than the feature.
+
+And because a copy is the first thing here that can predictably fill a disk,
+the port grew `FreeSpace`, which answers a number or `storage.Unlimited` -- a
+number and not a second return value, so the only thing a caller does with it
+needs no branch for the backend that cannot say. The disk backend asks
+`Statfs` for the blocks available to a non-root process, since that is what this
+container can actually write; S3 says `Unlimited`, which is a report and not an
+evasion, because a bucket has no size the API will admit to. Not enough room is
+a refusal before the first byte, and `507` on the wire. The other half of #154 --
+showing the number to somebody -- is still open.
+
 **A directory moves with everything under it**, in one statement per driver
 rather than a row at a time: a rewrite that stopped halfway would leave the rest
 of the tree pointing at a parent that no longer exists. `db.ValidateMove` is

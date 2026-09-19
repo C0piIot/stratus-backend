@@ -239,3 +239,24 @@ func TestUploadOnAReadOnlyRoot(t *testing.T) {
 		t.Error("StartUpload into a read-only directory succeeded, want an error")
 	}
 }
+
+// TestFreeSpaceOfSomethingThatIsNotThere: the number comes from the filesystem,
+// so a data directory that has gone away is an error and not a zero -- a zero
+// would refuse every copy, which is a worse answer than saying so.
+func TestFreeSpaceOfSomethingThatIsNotThere(t *testing.T) {
+	t.Parallel()
+
+	dir := filepath.Join(t.TempDir(), "blobs")
+	store, err := disk.New(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = store.Close() }()
+
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatal(err)
+	}
+	if free, err := store.FreeSpace(t.Context()); err == nil {
+		t.Errorf("FreeSpace of a directory that is gone = %d, want an error", free)
+	}
+}

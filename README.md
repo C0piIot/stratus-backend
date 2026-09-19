@@ -69,6 +69,19 @@ the tree lives in the database, and the ETag is a SHA-256 of what was actually
 stored. Ranges, conditional requests and video seeking come from
 `http.ServeContent`, which the reader is shaped for.
 
+**A collection copies, and it is all or nothing.** `COPY` of a folder walks it,
+writes every file under the destination and commits the tree in one go — so a
+copy that fails partway leaves nothing rather than half a folder, which is what
+RFC 4918 would otherwise want reported member by member. The copies are bytes of
+their own and not a second name for the originals, so deleting one side leaves
+the other readable. `Depth: 0` copies the folder without its contents, as the
+RFC says it should.
+
+**And one that would not fit is refused before it starts**, with the `507` the
+RFC has for it: a copy is the first thing here that can fill a disk on purpose,
+and a full disk takes the database with it. On S3 there is no number to check
+against, so nothing is refused.
+
 **A `PROPFIND` for the whole tree at once is refused**, with the `403` and the
 `DAV:propfind-finite-depth` precondition RFC 4918 has for saying so. Listing a
 directory at a time is what almost every client does anyway, and it costs an

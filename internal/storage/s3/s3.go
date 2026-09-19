@@ -240,6 +240,16 @@ func (s *Store) Delete(ctx context.Context, key string) error {
 	return nil
 }
 
+// FreeSpace implements storage.Storage, and answers that there is no number.
+//
+// A bucket has no size this can see. S3 itself imposes none, and where one
+// exists -- a quota on a MinIO-style server, a billing limit -- it is not
+// something the API reports, so any figure here would be invented. Unlimited is
+// the report: as far as anything on this side can tell, it fits.
+func (s *Store) FreeSpace(_ context.Context) (int64, error) {
+	return storage.Unlimited, nil
+}
+
 // List implements storage.Storage.
 func (s *Store) List(ctx context.Context, prefix string) iter.Seq2[storage.ObjectInfo, error] {
 	return func(yield func(storage.ObjectInfo, error) bool) {

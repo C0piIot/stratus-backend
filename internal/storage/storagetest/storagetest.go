@@ -48,6 +48,7 @@ func Run(t *testing.T, newStore func(t *testing.T) storage.Storage) {
 		{"objects above the multipart threshold round trip", multipartObject},
 		{"missing objects report ErrNotFound", missingObject},
 		{"delete is idempotent", deleteIdempotent},
+		{"free space is a number or Unlimited", freeSpace},
 		{"ranges", ranges},
 		{"invalid ranges are rejected", invalidRanges},
 		{"invalid keys are rejected", invalidKeys},
@@ -274,6 +275,30 @@ func missingObject(t *testing.T, s storage.Storage) {
 	put(t, s, "a", []byte("x"))
 	if _, err := s.Stat(t.Context(), "a/b"); !errors.Is(err, storage.ErrNotFound) {
 		t.Errorf("Stat under an object = %v, want ErrNotFound", err)
+	}
+}
+
+// freeSpace is the whole contract: a backend either measures what is left or
+// says it cannot, and a caller comparing what it is about to write against the
+// answer must be right either way.
+//
+// Deliberately loose. The number is a filesystem's and moves under a running
+// test -- another process, another test in this package -- so the assertion is
+// the shape of the answer and not its value.
+func freeSpace(t *testing.T, s storage.Storage) {
+	free, err := s.FreeSpace(t.Context())
+	if err != nil {
+		t.Fatalf("FreeSpace: %v", err)
+	}
+	if free < 0 {
+		t.Errorf("FreeSpace = %d, which is not a number of bytes anybody can write", free)
+	}
+	// And it is usable without knowing which backend answered, which is the
+	// point of Unlimited being a number: an object store says yes to this and a
+	// disk with room says yes to it too.
+	const modest = 1 << 20
+	if free < modest {
+		t.Errorf("FreeSpace = %d, which would refuse a megabyte on a store this suite just wrote to", free)
 	}
 }
 
