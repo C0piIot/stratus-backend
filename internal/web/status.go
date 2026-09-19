@@ -1,12 +1,14 @@
 package web
 
 import (
+	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/C0piIot/stratus-backend/internal/db"
 	"github.com/C0piIot/stratus-backend/internal/media"
+	"github.com/C0piIot/stratus-backend/internal/storage"
 )
 
 // countsFragment is the part of that page htmx refreshes on its own: the
@@ -32,10 +34,11 @@ func (h *handler) status(w http.ResponseWriter, r *http.Request, user string) {
 	}
 
 	v := view{
-		Title:   "Status",
-		User:    user,
-		Counts:  counts,
-		Percent: percent(counts),
+		Title:     "Status",
+		User:      user,
+		Counts:    counts,
+		Percent:   percent(counts),
+		FreeSpace: h.freeSpace(r),
 		// The version is on the page because it is what a re-index moves: an
 		// operator who raised it wants to see the numbers fall and climb again.
 		IndexVersion:  media.Version,
@@ -48,6 +51,43 @@ func (h *handler) status(w http.ResponseWriter, r *http.Request, user string) {
 		return
 	}
 	h.render(w, http.StatusOK, pageStatus, v)
+}
+
+// freeSpace is how much room the blob store says is left, rendered.
+//
+// A failure is not a failure of the page: this is one line on a page about
+// something else, and a server that would not say how much room it has is
+// still able to say how much of the library it has read. It logs and renders
+// nothing, the same way the listing's indexing marks do.
+func (h *handler) freeSpace(r *http.Request) string {
+	free, err := h.files.FreeSpace(r.Context())
+	switch {
+	case err != nil:
+		slog.WarnContext(r.Context(), "reading the free space", "err", err)
+		return ""
+	case free == storage.Unlimited:
+		// Not a number, and not an evasion either: a bucket has no size the
+		// API will admit to, so this is the whole of what is known.
+		return "unlimited"
+	}
+	return humanBytes(free)
+}
+
+// humanBytes renders a byte count the way somebody reads one. Binary units and
+// their real names, because what a filesystem reports is what you can write and
+// rounding it to a marketing gigabyte would make the number wrong in the
+// direction that matters.
+func humanBytes(n int64) string {
+	const unit = 1024
+	if n < unit {
+		return fmt.Sprintf("%d B", n)
+	}
+	div, exp := int64(unit), 0
+	for rest := n / unit; rest >= unit; rest /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %ciB", float64(n)/float64(div), "KMGTPE"[exp])
 }
 
 // percent is how much of the library has been looked at, rounded down so that

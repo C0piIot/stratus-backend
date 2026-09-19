@@ -394,6 +394,17 @@ somebody uploads into it while you are reading. The rest of the folder loads as
 you reach the bottom of it; with JavaScript turned off the same thing is a link
 at the end of the page that goes to the next one.
 
+**`/status` also says how much room is left.** A self-hosted server on a home
+machine fills up, and the first symptom should not be an upload failing with
+whatever the filesystem said. It is the whole volume's free space — shared with
+the database and with what the indexer spools while it reads, not a figure set
+aside for files — and on S3 it says `unlimited`, because a bucket has no size
+the API will admit to. That is also the number a `COPY` of a folder checks
+before it starts.
+
+What it does not do is enforce a quota. Reporting is not limiting, and a limit
+per user needs the thing this does not have yet: more than one user.
+
 **`/status` says how much of the library has been read.** Metadata is extracted
 in the background, and on a first pass over a library that somebody has just
 pointed the server at, the only honest answer to "is it done yet" is a number:

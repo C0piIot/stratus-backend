@@ -90,6 +90,16 @@ func (s *Service) Stat(ctx context.Context, owner, path string) (db.File, error)
 	return s.meta.FileByPath(ctx, owner, path)
 }
 
+// FreeSpace reports how many bytes the blob store says can still be written,
+// or storage.Unlimited when it has no number to give.
+//
+// A passthrough, like Stat and List: what a caller above needs is the store's
+// answer, and what this package owns is that nothing reaches the store except
+// through here.
+func (s *Service) FreeSpace(ctx context.Context) (int64, error) {
+	return s.blobs.FreeSpace(ctx)
+}
+
 // List returns the direct children of dir, files and directories alike.
 func (s *Service) List(ctx context.Context, owner, dir string) ([]db.File, error) {
 	return s.meta.ListFiles(ctx, owner, dir)
