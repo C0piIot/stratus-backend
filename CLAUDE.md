@@ -67,6 +67,21 @@ Hard constraints, in the same spirit as the rest of the project:
   goes through its `maybeEval`, and the `htmx-config` meta element in the layout
   turns that off. A meta element and not a line of script, since the policy
   forbids that too.
+
+  **The same trap caught us a second time, on `style-src`.** No `'unsafe-inline'`
+  beside it means a browser drops every `style` attribute, silently and with
+  nothing on the server to see -- and two templates were setting sizes that way.
+  Bootstrap's progress bar takes its width from one, so a fully indexed library
+  rendered as "100%" painted in a sliver a few characters wide, which is how it
+  was finally noticed. The answer is not to widen the policy: a size belongs in
+  a `width`/`height` attribute, and the bar is now the native `<progress>`
+  element, which takes its value in one too. `TestNoTemplateWritesAnInlineStyle`
+  is the guard, and it lives in this package because what makes it true is the
+  directive fifty lines above it.
+
+  This is the shape of every bug this policy will ever cause: the markup is
+  right, the server is happy, and the browser quietly does less than was asked.
+  Anything new that a directive could forbid gets an assertion the same day.
 - **One URL per directory and the same one per file**, under `/files/`. A
   directory renders a page and a file hands over its bytes, because to somebody
   typing a URL they are the same thing.

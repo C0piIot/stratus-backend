@@ -53,7 +53,7 @@ func TestStatusRefreshesItself(t *testing.T) {
 	if strings.Contains(body, "<html") || strings.Contains(body, "navbar") {
 		t.Error("htmx was sent the whole page")
 	}
-	if !strings.Contains(body, "progress-bar") {
+	if !strings.Contains(body, "<progress") {
 		t.Error("the fragment does not carry the numbers it was asked for")
 	}
 }
