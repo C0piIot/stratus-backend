@@ -88,7 +88,7 @@ func (h *handler) browse(w http.ResponseWriter, r *http.Request, user string) {
 		User:    display,
 		Shared:  token,
 		Notice:  uploaded(r.URL.Query().Get("added")),
-		Crumbs:  crumbs(p, token),
+		Crumbs:  crumbs(p, token, sharedRoot(r)),
 		Entries: entries(children, h.indexingOf(r, children), token),
 		// Where this page's two forms post: into the directory being listed.
 		Here:    href(p),
@@ -311,24 +311,44 @@ type crumb struct {
 	Last bool
 }
 
-// crumbs is the trail above the directory being listed, and for a shared one it
-// starts at the share rather than at the root: a link that drew a path back to
-// "Files" would be offering a door it does not open.
-func crumbs(dir, token string) []crumb {
-	if token != "" {
-		return []crumb{{Name: pageTitle(dir), Last: true}}
+// crumbs is the trail above the directory being listed.
+//
+// A shared one starts at the share and not at the root: climbing to "Files"
+// would offer a door the link does not open, and stopping at the current folder
+// would strand a visitor two levels down with no way back to what they were
+// sent. So the trail is the share, then what is under it, and every step of it
+// carries the signature.
+func crumbs(dir, token, root string) []crumb {
+	var trail []crumb
+	walked := ""
+	segments := dir
+
+	if token == "" {
+		trail = append(trail, crumb{Name: "Files", Href: filesPrefix})
+	} else {
+		trail = append(trail, crumb{Name: pageTitle(root), Href: shared(href(root), token)})
+		walked = root
+		segments = strings.TrimPrefix(strings.TrimPrefix(dir, root), "/")
 	}
 
-	trail := []crumb{{Name: "Files", Href: filesPrefix}}
-	if dir != "" {
-		var walked string
-		for _, seg := range strings.Split(dir, "/") {
+	if segments != "" {
+		for _, seg := range strings.Split(segments, "/") {
 			walked = path.Join(walked, seg)
-			trail = append(trail, crumb{Name: seg, Href: href(walked)})
+			trail = append(trail, crumb{Name: seg, Href: shared(href(walked), token)})
 		}
 	}
 	trail[len(trail)-1].Last = true
 	return trail
+}
+
+// sharedRoot is where the link this request arrived on starts, or "" when it
+// did not arrive on one.
+func sharedRoot(r *http.Request) string {
+	share, ok := shareOf(r.Context())
+	if !ok {
+		return ""
+	}
+	return share.Root
 }
 
 // entry is one row of the listing, with everything already in the shape the

@@ -47,6 +47,19 @@ const (
 	shareSubtree = "d"
 )
 
+// Share is what a verified link authorises: whose files, which path, and
+// whether it reaches inside that path.
+//
+// The root travels with the owner because a page rendered from a link needs it:
+// a trail of breadcrumbs that climbed above the share would offer a door the
+// link does not open, and one that stopped at the current folder would leave a
+// visitor two levels down with no way back to what they were sent.
+type Share struct {
+	Owner   string
+	Root    string
+	Subtree bool
+}
+
 // Shares issues and verifies those links.
 type Shares struct {
 	key []byte
@@ -88,7 +101,7 @@ func (s *Shares) Issue(owner, path string, subtree bool, expires time.Time) stri
 	return payload + "." + base64.RawURLEncoding.EncodeToString(s.sign(payload))
 }
 
-// Verify returns who the link belongs to, or ErrShareInvalid.
+// Verify returns what the link authorises, or ErrShareInvalid.
 //
 // path is the one the request asked for and not the one the token names: a
 // token is a claim about what may be read, and the question here is whether
@@ -97,38 +110,38 @@ func (s *Shares) Issue(owner, path string, subtree bool, expires time.Time) stri
 // The shape is parsed first and believed second. Nothing the token says -- not
 // the owner, not the path, not the expiry -- is acted on until the signature
 // over all of it has been checked.
-func (s *Shares) Verify(token, path string, now time.Time) (string, error) {
+func (s *Shares) Verify(token, path string, now time.Time) (Share, error) {
 	parts := strings.Split(token, ".")
 	if len(parts) != 6 || parts[0] != shareVersion {
-		return "", ErrShareInvalid
+		return Share{}, ErrShareInvalid
 	}
 	owner, err := base64.RawURLEncoding.DecodeString(parts[1])
 	if err != nil {
-		return "", ErrShareInvalid
+		return Share{}, ErrShareInvalid
 	}
-	shared, err := base64.RawURLEncoding.DecodeString(parts[2])
+	root, err := base64.RawURLEncoding.DecodeString(parts[2])
 	if err != nil {
-		return "", ErrShareInvalid
+		return Share{}, ErrShareInvalid
 	}
 	deadline, err := strconv.ParseInt(parts[4], 10, 64)
 	if err != nil {
-		return "", ErrShareInvalid
+		return Share{}, ErrShareInvalid
 	}
 	sig, err := base64.RawURLEncoding.DecodeString(parts[5])
 	if err != nil {
-		return "", ErrShareInvalid
+		return Share{}, ErrShareInvalid
 	}
 
 	if !hmac.Equal(sig, s.sign(strings.Join(parts[:5], "."))) {
-		return "", ErrShareInvalid
+		return Share{}, ErrShareInvalid
 	}
 	if deadline != 0 && !now.Before(time.Unix(deadline, 0)) {
-		return "", ErrShareInvalid
+		return Share{}, ErrShareInvalid
 	}
-	if !covers(string(shared), parts[3], path) {
-		return "", ErrShareInvalid
+	if !covers(string(root), parts[3], path) {
+		return Share{}, ErrShareInvalid
 	}
-	return string(owner), nil
+	return Share{Owner: string(owner), Root: string(root), Subtree: parts[3] == shareSubtree}, nil
 }
 
 // covers reports whether a link over shared reaches path.

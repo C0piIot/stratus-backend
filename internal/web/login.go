@@ -52,12 +52,12 @@ func (h *handler) readable(page func(http.ResponseWriter, *http.Request, string)
 			h.forbidden(w, "That link does not point anywhere here.")
 			return
 		}
-		user, err := h.shares.Verify(token, p, time.Now())
+		share, err := h.shares.Verify(token, p, time.Now())
 		if err != nil {
 			h.forbidden(w, "That link has expired or is not valid any more.")
 			return
 		}
-		page(w, r, user)
+		page(w, r.WithContext(withShare(r.Context(), share)), share.Owner)
 	}
 }
 

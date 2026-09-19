@@ -163,6 +163,40 @@ func TestSharedPageCarriesItsOwnToken(t *testing.T) {
 	}
 }
 
+// TestSharedCrumbsWalkBackToTheShareAndNoFurther: a visitor two folders deep
+// needs a way back to what they were sent, and no way past it.
+func TestSharedCrumbsWalkBackToTheShareAndNoFurther(t *testing.T) {
+	t.Parallel()
+	h, s, _ := browserOver(t)
+	mkdir(t, s, "album")
+	mkdir(t, s, "album/raw")
+	write(t, s, "album/raw/two.txt", "two")
+
+	link := linkTo(t, h, "album", "never")
+	token := link[strings.Index(link, "?"):]
+
+	body := get(t, h, "/files/album/raw"+token).Body.String()
+	trail := regexp.MustCompile(`(?s)<ol class="breadcrumb">.*?</ol>`).FindString(body)
+	if trail == "" {
+		t.Fatal("the page has no breadcrumbs at all")
+	}
+	if !strings.Contains(trail, "album") {
+		t.Errorf("two folders into a share there is no way back to it: %s", trail)
+	}
+	if strings.Contains(trail, `href="/files/"`) {
+		t.Errorf("the trail climbs above the share: %s", trail)
+	}
+
+	// And the way back works, signature and all.
+	back := regexp.MustCompile(`href="(/files/album\?[^"]*)"`).FindStringSubmatch(trail)
+	if back == nil {
+		t.Fatalf("the share is in the trail but not as a link: %s", trail)
+	}
+	if rec := get(t, h, html(back[1])); rec.Code != http.StatusOK {
+		t.Errorf("following the trail back to the share = %d", rec.Code)
+	}
+}
+
 // TestADeadLinkIsRefusedRatherThanRedirected: somebody sent a link that no
 // longer works needs to be told, and a receiver needs a status code rather than
 // the HTML of a login form.

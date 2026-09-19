@@ -21,13 +21,17 @@ func TestShareRoundTrip(t *testing.T) {
 	now := time.Now()
 
 	file := s.Issue("edu", "photos/IMG_0001.jpg", false, now.Add(time.Hour))
-	if got, err := s.Verify(file, "photos/IMG_0001.jpg", now); err != nil || got != "edu" {
-		t.Errorf("a file link = %q, %v", got, err)
+	got, err := s.Verify(file, "photos/IMG_0001.jpg", now)
+	if err != nil || got.Owner != "edu" || got.Root != "photos/IMG_0001.jpg" || got.Subtree {
+		t.Errorf("a file link = %+v, %v", got, err)
 	}
 
 	folder := s.Issue("edu", "photos", true, now.Add(time.Hour))
-	if got, err := s.Verify(folder, "photos/IMG_0001.jpg", now); err != nil || got != "edu" {
-		t.Errorf("a folder link over a file inside it = %q, %v", got, err)
+	// The root comes back with the owner because a page rendered from a link
+	// needs to know where the link starts.
+	got, err = s.Verify(folder, "photos/IMG_0001.jpg", now)
+	if err != nil || got.Owner != "edu" || got.Root != "photos" || !got.Subtree {
+		t.Errorf("a folder link over a file inside it = %+v, %v", got, err)
 	}
 }
 

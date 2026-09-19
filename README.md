@@ -430,6 +430,9 @@ and not a file.
 
 A link can be given a life of a day, a week, a month, or none — which lasts
 until the password changes. Making one needs an account; opening one does not.
+A client that already has the password can also derive one for itself without
+asking the server, which is how the mobile app hands a video to a Chromecast:
+the format is in `CLAUDE.md`.
 
 **Deleting asks first and then means it.** There is no trash bin: the row goes,
 and the blob behind it is swept up afterwards, so the page in between is the only

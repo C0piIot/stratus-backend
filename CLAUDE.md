@@ -77,7 +77,29 @@ Hard constraints, in the same spirit as the rest of the project:
   sent a dead link needs to be told and a receiver needs a status code.
 
   The owner authorises the read and is not shown for it: a shared page carries
-  no name, no Sign out and no way back to the root.
+  no name, no Sign out and no way back to the share's own root -- the
+  breadcrumbs start at the share, because a trail that climbed higher would
+  offer a door the link does not open and one that stopped at the current
+  folder would strand a visitor two levels down.
+
+  **A token is a pure function of the credentials, and that is deliberate.**
+  Anything holding the username and the password can compute the same key and
+  mint the same link, `stratus-app` included -- which is how the app gets a URL
+  a Chromecast can fetch without asking this server for one, and therefore
+  without the private JSON endpoint principle 2 forbids. There is no call to
+  make: the answer was already derivable from what the client has.
+
+  What that costs is a format shared across two repositories, so it is written
+  down rather than left to be read out of the code:
+
+      key     = HMAC-SHA256(key: password, msg: "stratus share link v1\x00" + username)
+      payload = "k1" "." b64url(owner) "." b64url(path) "." ("f" | "d") "." unix-expiry-or-0
+      token   = payload "." b64url(HMAC-SHA256(key: key, msg: payload))
+
+  where `f` is one file and `d` is a path and everything under it, and the
+  expiry is `0` for a link with none. The `k1` is what makes changing the shape
+  safe: a client minting an older one is refused rather than misread, which is
+  the whole reason the version is inside the signature.
 
 - CSRF is that cookie's `SameSite=Lax` plus `http.CrossOriginProtection` from
   the standard library, and it is wired **inside `internal/web`** rather than by
