@@ -108,8 +108,10 @@ func TestReduce(t *testing.T) {
 func TestThumbKeyIsCollectable(t *testing.T) {
 	t.Parallel()
 
+	// Spelled out rather than built, because what this is checking is the
+	// shape: the parent in the path, the generation and the size in the leaf.
 	key := thumbKey("blobs/ab/cd/efgh", thumbMedium)
-	if want := "derived/blobs/ab/cd/efgh/300.jpg"; key != want {
+	if want := "derived/blobs/ab/cd/efgh/g1-300.jpg"; key != want {
 		t.Fatalf("thumbKey = %q, want %q", key, want)
 	}
 	// And the port agrees, which is the half a test can check without the

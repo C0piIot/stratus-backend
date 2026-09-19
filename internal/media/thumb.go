@@ -514,6 +514,14 @@ func reduce(src image.Image, px int) image.Image {
 // name and the parent blob is in the path, which is what lets one sweep collect
 // both -- see files.DerivedKey.
 //
+// **Changing what comes out of this package means raising
+// files.DerivedGeneration.** The key carries it, so pictures made by an older
+// generator stop being served and are collected on the next sweep; without
+// that they stay as they were made, which is what happened to every portrait
+// photograph thumbnailed before #148 and every black first frame before #149.
+// TestTheGeneratorOutputHasNotMoved is the reminder, and it fails on the day
+// it matters rather than a release later.
+//
 // Two names because one blob can have two derived pictures: a track is both
 // something with a thumbnail of its own one day and the place its album's cover
 // is kept today.

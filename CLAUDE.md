@@ -703,10 +703,32 @@ Restraint here is principle 3, not laziness:
   hundredth of the work of turning the original. The row keeps the value the
   file gave: a client that rotated what we serve would rotate it twice.
 
-  Thumbnails made before that fix stay on their side. A derived key is a pure
-  function of its parent's, which is what lets the sweep collect one, and
-  changing it to invalidate them would leave objects with a live parent that
-  nothing would ever collect.
+  **The generator has a version now, and it is `files.DerivedGeneration`**
+  (#161). Raising it changes the key -- the number is on the front of the leaf,
+  so `parentOf` still finds the parent by cutting at the last slash -- and that
+  alone would only stop the old picture being served, leaving it on the disk for
+  as long as its parent lived, which is the objection that kept the key a pure
+  function of its parent's. So the sweep gained a second rule beside the first:
+  **a derived object is garbage when its parent is gone, or when its leaf does
+  not name the current generation.** A leaf naming none is stale too, which is
+  what collects every picture made before this existed -- the sideways ones from
+  before #148 and the black frames from before #149, on the first sweep after
+  the upgrade.
+
+  It is `media.Version` for the other half of this package, and the asymmetry it
+  removes is exactly the one that paragraph names: one half could reach what it
+  had already looked at and the other could not. It lives in `internal/files`
+  because that is where the sweep reads it back, the same reason the rest of the
+  shape does, and `TestTheGeneratorOutputHasNotMoved` is the mirror that makes
+  somebody notice -- a digest of what comes out of `reduceTo`, which fails on
+  the day the pixels move rather than a release later.
+
+  What that costs, and it is the same cost as a version bump on the other side:
+  the library is regenerated. Lazily, so nobody waits for all of it, but paced
+  by whoever is browsing rather than by one worker -- a grid of a hundred
+  photographs after an upgrade remakes a hundred thumbnails, four at a time.
+  The day the reason to raise it is "the scaler is five per cent better" is the
+  day to not raise it.
 
   **Two surfaces ask for them now**, and the second one changed the shape: a
   listing in the browser offers a picture for every row this build can decode,
