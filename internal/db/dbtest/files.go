@@ -648,12 +648,13 @@ func listMixed(t *testing.T, s db.Files) {
 		t.Fatalf("listing = %+v, want the file and the subdirectory", got)
 	}
 	// PROPFIND wants both kinds in one listing, told apart by a flag rather
-	// than by two queries.
-	if got[0].Path != "album/one.jpg" || got[0].IsDir {
-		t.Errorf("first entry = %+v, want the file", got[0])
+	// than by two queries -- and directories first, which is the order the
+	// index is built in and the one a paged listing already answered in.
+	if got[0].Path != "album/raw" || !got[0].IsDir {
+		t.Errorf("first entry = %+v, want the directory", got[0])
 	}
-	if got[1].Path != "album/raw" || !got[1].IsDir {
-		t.Errorf("second entry = %+v, want the directory", got[1])
+	if got[1].Path != "album/one.jpg" || got[1].IsDir {
+		t.Errorf("second entry = %+v, want the file", got[1])
 	}
 }
 
@@ -750,7 +751,7 @@ func moveTree(t *testing.T, s db.Files) {
 	if got := paths(t, s, "archive/raw"); !slices.Equal(got, []string{"archive/raw/IMG_0001.dng"}) {
 		t.Errorf("listing the moved subdirectory = %v", got)
 	}
-	if got := paths(t, s, "archive"); !slices.Equal(got, []string{"archive/photo.jpg", "archive/raw"}) {
+	if got := paths(t, s, "archive"); !slices.Equal(got, []string{"archive/raw", "archive/photo.jpg"}) {
 		t.Errorf("listing the moved directory = %v", got)
 	}
 

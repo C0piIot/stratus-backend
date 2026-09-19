@@ -64,8 +64,12 @@ type Files interface {
 	// Direct children only: this is PROPFIND with Depth 1, and a recursive walk
 	// is a different query that arrives when something needs it.
 	//
-	// The order is by path, because a listing that changes order between calls
-	// is useless to a sync client.
+	// Directories first and then by path. Stable, because a listing that
+	// changed order between calls would be useless to a sync client -- and in
+	// that order rather than by path alone because it is the one the index is
+	// built in, which is the difference between reading a folder and scanning
+	// the library (#160). ListFilesPage has always answered in this order, so
+	// the two halves of "list a directory" now agree.
 	//
 	// A slice rather than an iterator, on the same rule storage.Storage.List
 	// states from the other side: one directory is bounded by what the caller

@@ -144,30 +144,6 @@ func (s *Service) OpenFile(ctx context.Context, f db.File) (io.ReadSeekCloser, e
 	return &blobReader{ctx: ctx, blobs: s.blobs, key: f.BlobKey, size: f.Size}, nil
 }
 
-// Walk returns everything under dir, depth first, for PROPFIND with infinite
-// depth. One query per directory: fine for a photo album, and worth revisiting
-// when somebody points it at a library with a hundred thousand of them.
-func (s *Service) Walk(ctx context.Context, owner, dir string) ([]db.File, error) {
-	children, err := s.meta.ListFiles(ctx, owner, dir)
-	if err != nil {
-		return nil, err
-	}
-
-	out := make([]db.File, 0, len(children))
-	for _, child := range children {
-		out = append(out, child)
-		if !child.IsDir {
-			continue
-		}
-		deeper, err := s.Walk(ctx, owner, child.Path)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, deeper...)
-	}
-	return out, nil
-}
-
 // Write stores body at path, replacing whatever was there.
 //
 // size may be negative when the client did not say. The ETag is a digest of

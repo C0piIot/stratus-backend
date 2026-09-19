@@ -287,23 +287,37 @@ func TestMoveACollectionWithThingsInIt(t *testing.T) {
 	}
 }
 
-func TestPropfindInfiniteDepth(t *testing.T) {
+func TestPropfindRefusesAnInfiniteDepth(t *testing.T) {
 	t.Parallel()
 	h := server(t)
 	do(t, h, "MKCOL", "/dav/album", "")
 	do(t, h, "MKCOL", "/dav/album/raw", "")
 	do(t, h, http.MethodPut, "/dav/album/raw/deep.txt", "deep")
 
-	got := hrefs(t, do(t, h, "PROPFIND", "/dav/", "", "Depth", "infinity"))
-	wantHrefs(t, got, "/dav/", "/dav/album", "/dav/album/raw", "/dav/album/raw/deep.txt")
-
-	// Exactly once each: prepending the collection to a recursive walk is how a
-	// tree grows duplicates, and a substring match could never see one.
-	sorted := slices.Clone(got)
-	slices.Sort(sorted)
-	if len(slices.Compact(sorted)) != len(got) {
-		t.Errorf("a listing repeated an href: %v", got)
+	// RFC 4918 9.1 lets a server refuse the whole tree at once, and 14.5 says
+	// what it has to answer so that a client knows to walk it a level at a
+	// time instead of retrying the same thing. Measured at 44 MB of XML built
+	// inside 300 MB of heap for a hundred thousand files, and linear (#160).
+	for _, depth := range []string{"infinity", ""} {
+		rec := do(t, h, "PROPFIND", "/dav/", "", "Depth", depth)
+		if rec.Code != http.StatusForbidden {
+			t.Errorf("PROPFIND with Depth %q = %d, want 403", depth, rec.Code)
+		}
+		if !strings.Contains(rec.Body.String(), "propfind-finite-depth") {
+			t.Errorf("PROPFIND with Depth %q answered %q, want the precondition",
+				depth, rec.Body.String())
+		}
 	}
+
+	// An absent header is the same request: RFC 4918 9.1 says a PROPFIND with
+	// no Depth means infinity, and answering one level to it would be telling
+	// a client the tree is four entries deep when it is not.
+
+	// And a level at a time still works, which is the way through.
+	wantHrefs(t, hrefs(t, do(t, h, "PROPFIND", "/dav/", "", "Depth", "1")),
+		"/dav/", "/dav/album")
+	wantHrefs(t, hrefs(t, do(t, h, "PROPFIND", "/dav/album/raw", "", "Depth", "1")),
+		"/dav/album/raw", "/dav/album/raw/deep.txt")
 }
 
 func TestCollections(t *testing.T) {
@@ -508,7 +522,10 @@ func TestWithoutAnAuthenticatedUser(t *testing.T) {
 		{method: http.MethodPut, body: "x"},
 		{method: http.MethodDelete},
 		{method: "MKCOL"},
-		{method: "PROPFIND"},
+		// Depth 1, because a PROPFIND that asks for the whole tree is refused
+		// before this package looks at who is asking -- in the server that
+		// cannot happen, since auth.Basic is in front of the whole handler.
+		{method: "PROPFIND", headers: []string{"Depth", "1"}},
 		{method: "MOVE", headers: []string{"Destination", "/dav/moved.txt"}},
 		{method: "COPY", headers: []string{"Destination", "/dav/copied.txt"}},
 	} {
