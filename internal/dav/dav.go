@@ -321,32 +321,21 @@ func (f *fileSystem) Copy(ctx context.Context, name, dest string, opts *webdav.C
 		return false, err
 	}
 
-	source, err := f.files.Stat(ctx, owner, from)
-	if err != nil {
-		return false, mapErr(err)
-	}
-	if source.IsDir {
-		return false, webdav.NewHTTPError(http.StatusNotImplemented, errors.New("copying a collection is not supported"))
-	}
-
-	_, statErr := f.files.Stat(ctx, owner, to)
-	if statErr == nil && opts != nil && opts.NoOverwrite {
-		return false, webdav.NewHTTPError(http.StatusPreconditionFailed, errors.New("the destination exists"))
-	}
-	if statErr != nil && !errors.Is(statErr, db.ErrNotFound) {
+	if _, statErr := f.files.Stat(ctx, owner, to); statErr == nil {
+		if opts != nil && opts.NoOverwrite {
+			return false, webdav.NewHTTPError(http.StatusPreconditionFailed, errors.New("the destination exists"))
+		}
+	} else if !errors.Is(statErr, db.ErrNotFound) {
 		return false, mapErr(statErr)
 	}
 
-	body, _, err := f.files.Open(ctx, owner, from)
+	// NoRecursive is the library's reading of Depth: 0, which on a collection
+	// means the collection and not its members (RFC 4918 9.8.3).
+	created, err := f.files.Copy(ctx, owner, from, to, opts == nil || !opts.NoRecursive)
 	if err != nil {
 		return false, mapErr(err)
 	}
-	defer func() { _ = body.Close() }()
-
-	if _, err := f.files.Write(ctx, owner, to, body, source.Size, source.MIMEType); err != nil {
-		return false, mapErr(err)
-	}
-	return statErr != nil, nil
+	return created, nil
 }
 
 // checkConditions applies If-Match and If-None-Match, which is how a client
@@ -458,6 +447,10 @@ func mapErr(err error) error {
 		return webdav.NewHTTPError(http.StatusBadRequest, err)
 	case errors.Is(err, storage.ErrInvalidRange):
 		return webdav.NewHTTPError(http.StatusRequestedRangeNotSatisfiable, err)
+	case errors.Is(err, files.ErrNoSpace):
+		// RFC 4918 9.8.5 has this one for a copy with nowhere to land, and it
+		// is the answer a client can act on rather than retry.
+		return webdav.NewHTTPError(http.StatusInsufficientStorage, err)
 	default:
 		return fmt.Errorf("dav: %w", err)
 	}

@@ -526,6 +526,21 @@ if wait_serving "$davname"; then
     *)           bad "a PROPFIND listing includes the collection itself" "no self entry in the multistatus" ;;
   esac
 
+  # A whole folder copied, which is the thing #43 left at 501 and the only
+  # WebDAV method that writes a tree. From outside because what is being checked
+  # is the tree that comes back, not the loop that made it.
+  curl -fsS -o /dev/null -u "$davuser:$davpass" -X MKCOL "http://$davhost/dav/album" 2>/dev/null || true
+  curl -fsS -o /dev/null -u "$davuser:$davpass" -T - "http://$davhost/dav/album/deep.txt" \
+    <<<'inside the album' 2>/dev/null || true
+  copied="$(curl -s -o /dev/null -w '%{http_code}' -u "$davuser:$davpass" -X COPY \
+    -H "Destination: http://$davhost/dav/album-copy" "http://$davhost/dav/album")"
+  copy_body="$(curl -s -u "$davuser:$davpass" "http://$davhost/dav/album-copy/deep.txt")"
+  if [ "$copied" = "201" ] && [ "$copy_body" = "inside the album" ]; then
+    ok "a collection copies with everything under it"
+  else
+    bad "a collection copies with everything under it" "COPY = $copied, the copy reads '$copy_body'"
+  fi
+
   # A resumable upload, cut in half, against the shipped image. The point is not
   # that two PATCHes work -- the unit tests cover that -- but that an upload
   # survives being interrupted in the one place it has to: between requests,

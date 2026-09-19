@@ -12,6 +12,7 @@ import (
 	"errors"
 	"io"
 	"iter"
+	"math"
 	"time"
 )
 
@@ -28,6 +29,14 @@ var (
 	// driver's own words: tus answers 409 to it and the client asks again.
 	ErrUploadOffset = errors.New("storage: upload offset mismatch")
 )
+
+// Unlimited is what FreeSpace answers when the backend cannot say how much room
+// is left -- which for an object store is the truth rather than an evasion.
+//
+// A number and not a second return value or a sentinel error, because the only
+// thing a caller does with free space is compare it against what it is about to
+// write, and this makes the store that cannot say need no special case at all.
+const Unlimited = math.MaxInt64
 
 // ObjectInfo is everything a backend can report about an object without reading
 // it. Deliberately minimal: an ETag or a content hash is a decision for
@@ -70,6 +79,19 @@ type Storage interface {
 	// there is not an error. S3 answers 204 either way, and demanding
 	// ErrNotFound would turn every delete into a HEAD plus a DELETE.
 	Delete(ctx context.Context, key string) error
+
+	// FreeSpace reports how many bytes can still be written, or Unlimited when
+	// this backend has no number to give.
+	//
+	// It exists because a copy of a collection is the first thing this server
+	// does that can predictably fill a disk, and the worst moment to find that
+	// out is thirty gigabytes in, with the database on the same disk (#43). A
+	// caller asks before it writes.
+	//
+	// It is a best answer and not a reservation: nothing stops another process
+	// filling the disk between this call and the write. What it rules out is
+	// starting something that never had room.
+	FreeSpace(ctx context.Context) (int64, error)
 
 	// List yields every object whose key starts with prefix, where prefix is a
 	// plain string prefix and not a directory path: "a/b" also matches "a/bc".

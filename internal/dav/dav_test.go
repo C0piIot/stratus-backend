@@ -382,9 +382,14 @@ func TestCopy(t *testing.T) {
 		t.Errorf("the source reads %q", got)
 	}
 
+	// And a collection, with everything under it (#43).
 	do(t, h, "MKCOL", "/dav/album", "")
-	if got := do(t, h, "COPY", "/dav/album", "", "Destination", "/dav/copy").Code; got != http.StatusNotImplemented {
-		t.Errorf("COPY of a collection = %d, want 501 until it is implemented", got)
+	do(t, h, http.MethodPut, "/dav/album/deep.txt", "deep")
+	if got := do(t, h, "COPY", "/dav/album", "", "Destination", "/dav/copy").Code; got != http.StatusCreated {
+		t.Errorf("COPY of a collection = %d, want 201", got)
+	}
+	if got := do(t, h, http.MethodGet, "/dav/copy/deep.txt", "").Body.String(); got != "deep" {
+		t.Errorf("the copied tree reads %q", got)
 	}
 }
 
@@ -561,9 +566,8 @@ func TestConditionalDelete(t *testing.T) {
 	}
 }
 
-// TestCopyEdges covers what COPY does that MOVE does not: it refuses a
-// collection outright, and it reports 201 or 204 depending on whether the
-// destination was there.
+// TestCopyEdges covers what COPY does that MOVE does not: Depth 0 on a
+// collection, and 201 or 204 depending on whether the destination was there.
 func TestCopyEdges(t *testing.T) {
 	t.Parallel()
 	h := server(t)
@@ -571,10 +575,13 @@ func TestCopyEdges(t *testing.T) {
 	do(t, h, http.MethodPut, "/dav/album/one.txt", "one")
 	do(t, h, http.MethodPut, "/dav/two.txt", "two")
 
-	// Copying a collection means walking a tree and writing every blob in it,
-	// which is #43's subject. Answering 501 is the honest refusal.
-	if got := do(t, h, "COPY", "/dav/album", "", "Destination", "/dav/copy").Code; got != http.StatusNotImplemented {
-		t.Errorf("COPY of a collection = %d, want 501", got)
+	// Depth: 0 on a collection is the collection and not its members, which is
+	// RFC 4918 9.8.3 and the one copy that moves no bytes at all.
+	if got := do(t, h, "COPY", "/dav/album", "", "Destination", "/dav/shallow", "Depth", "0").Code; got != http.StatusCreated {
+		t.Errorf("COPY of a collection at Depth 0 = %d, want 201", got)
+	}
+	if got := do(t, h, http.MethodGet, "/dav/shallow/one.txt", "").Code; got != http.StatusNotFound {
+		t.Errorf("Depth 0 copied a member: /dav/shallow/one.txt = %d, want 404", got)
 	}
 	// A destination that does not exist yet is created, which is 201.
 	if got := do(t, h, "COPY", "/dav/two.txt", "", "Destination", "/dav/three.txt").Code; got != http.StatusCreated {

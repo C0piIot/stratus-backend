@@ -150,6 +150,44 @@ func (s *Service) OpenFile(ctx context.Context, f db.File) (io.ReadSeekCloser, e
 // what was actually stored, computed on the way past, so it is a strong
 // validator rather than a guess from a size and a timestamp.
 func (s *Service) Write(ctx context.Context, owner, path string, body io.Reader, size int64, mimeType string) (db.File, error) {
+	f, err := s.storeBlob(ctx, owner, path, body, size, mimeType)
+	if err != nil {
+		return db.File{}, err
+	}
+
+	err = s.meta.Tx(ctx, func(r db.Repo) error {
+		if perr := s.requireParent(ctx, r, owner, path); perr != nil {
+			return perr
+		}
+		stored, perr := r.PutFile(ctx, f)
+		if perr != nil {
+			return perr
+		}
+		f = stored
+		return nil
+	})
+	if err != nil {
+		// The blob is already written and now points at nothing. Removing it is
+		// best effort: if this fails too, #17 collects it.
+		_ = s.blobs.Delete(ctx, f.BlobKey)
+		return db.File{}, err
+	}
+	s.written(f)
+	return f, nil
+}
+
+// storeBlob writes the bytes and returns the row that would describe them,
+// without committing it.
+//
+// Split out of Write for Copy, which writes a tree of blobs and then commits
+// every row at once: the ordering this package relies on -- blob first, row
+// second, a blob with no row being collectable garbage -- is what lets a copy be
+// all or nothing, and it only works if the rows wait.
+//
+// It is one function and not two copies of one, which is the whole reason this
+// package exists: a second opinion here about what a blob key looks like or how
+// an ETag is computed is exactly the drift internal/files was created to stop.
+func (s *Service) storeBlob(ctx context.Context, owner, path string, body io.Reader, size int64, mimeType string) (db.File, error) {
 	if err := db.ValidatePath(path); err != nil {
 		return db.File{}, err
 	}
@@ -180,7 +218,7 @@ func (s *Service) Write(ctx context.Context, owner, path string, body io.Reader,
 		return db.File{}, fmt.Errorf("store %q: %w", path, err)
 	}
 
-	f := db.File{
+	return db.File{
 		OwnerID:  owner,
 		Path:     path,
 		BlobKey:  key,
@@ -188,27 +226,7 @@ func (s *Service) Write(ctx context.Context, owner, path string, body io.Reader,
 		MTime:    info.ModTime,
 		ETag:     etag(digest),
 		MIMEType: contentType(mimeType, sniffedType),
-	}
-
-	err = s.meta.Tx(ctx, func(r db.Repo) error {
-		if perr := s.requireParent(ctx, r, owner, path); perr != nil {
-			return perr
-		}
-		stored, perr := r.PutFile(ctx, f)
-		if perr != nil {
-			return perr
-		}
-		f = stored
-		return nil
-	})
-	if err != nil {
-		// The blob is already written and now points at nothing. Removing it is
-		// best effort: if this fails too, #17 collects it.
-		_ = s.blobs.Delete(ctx, key)
-		return db.File{}, err
-	}
-	s.written(f)
-	return f, nil
+	}, nil
 }
 
 // contentType keeps what the client declared unless it declared nothing worth
