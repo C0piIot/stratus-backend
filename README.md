@@ -82,6 +82,14 @@ RFC has for it: a copy is the first thing here that can fill a disk on purpose,
 and a full disk takes the database with it. On S3 there is no number to check
 against, so nothing is refused.
 
+**The listing says which files have a preview and how much room is left.** A
+client drawing a grid of a few hundred files would otherwise ask for every
+thumbnail and count the ones that come back missing; it can read the answer out
+of the `PROPFIND` it was making anyway. Free space is reported the way RFC 4331
+says — `quota-available-bytes` and `quota-used-bytes` — which is what a mounted
+volume draws its bar from, so Finder and `rclone about` understand it without
+being told anything.
+
 **A `PROPFIND` for the whole tree at once is refused**, with the `403` and the
 `DAV:propfind-finite-depth` precondition RFC 4918 has for saying so. Listing a
 directory at a time is what almost every client does anyway, and it costs an

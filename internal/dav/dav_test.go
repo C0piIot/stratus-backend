@@ -156,6 +156,9 @@ func hrefs(t *testing.T, rec *httptest.ResponseRecorder) []string {
 // wantHrefs compares a listing as a set, since the order of the members is the
 // server's business -- except for the first entry, which the callers that care
 // about check themselves.
+// wantHrefs compares a listing's hrefs, where a collection's ends in a slash:
+// that is what RFC 4918's own examples do and what the library answering
+// PROPFIND emits (see propfind.go).
 func wantHrefs(t *testing.T, got []string, want ...string) {
 	t.Helper()
 	sorted := slices.Clone(got)
@@ -178,11 +181,11 @@ func TestPropfind(t *testing.T) {
 	do(t, h, http.MethodPut, "/dav/album/two.txt", "two")
 
 	got := hrefs(t, do(t, h, "PROPFIND", "/dav/album", "", "Depth", "1"))
-	wantHrefs(t, got, "/dav/album", "/dav/album/one.txt", "/dav/album/two.txt")
+	wantHrefs(t, got, "/dav/album/", "/dav/album/one.txt", "/dav/album/two.txt")
 
 	// First, which is where mod_dav, sabre/dav and go-webdav's own local
 	// backend put it, and what a client that takes response[0] expects.
-	if len(got) > 0 && got[0] != "/dav/album" {
+	if len(got) > 0 && got[0] != "/dav/album/" {
 		t.Errorf("hrefs[0] = %q, want the collection itself", got[0])
 	}
 }
@@ -195,7 +198,7 @@ func TestPropfindDepthZero(t *testing.T) {
 	do(t, h, "MKCOL", "/dav/album", "")
 	do(t, h, http.MethodPut, "/dav/album/one.txt", "one")
 
-	wantHrefs(t, hrefs(t, do(t, h, "PROPFIND", "/dav/album", "", "Depth", "0")), "/dav/album")
+	wantHrefs(t, hrefs(t, do(t, h, "PROPFIND", "/dav/album", "", "Depth", "0")), "/dav/album/")
 }
 
 // TestPropfindOfAnEmptyCollection is the other half of #126, and the pair is the
@@ -207,7 +210,7 @@ func TestPropfindOfAnEmptyCollection(t *testing.T) {
 	h := server(t)
 	do(t, h, "MKCOL", "/dav/empty", "")
 
-	wantHrefs(t, hrefs(t, do(t, h, "PROPFIND", "/dav/empty", "", "Depth", "1")), "/dav/empty")
+	wantHrefs(t, hrefs(t, do(t, h, "PROPFIND", "/dav/empty", "", "Depth", "1")), "/dav/empty/")
 
 	if code := do(t, h, "PROPFIND", "/dav/missing", "", "Depth", "1").Code; code != http.StatusNotFound {
 		t.Errorf("PROPFIND of a missing collection = %d, want 404", code)
@@ -226,7 +229,7 @@ func TestPropfindOfTheRoot(t *testing.T) {
 	do(t, h, http.MethodPut, "/dav/notes.txt", "notes")
 
 	wantHrefs(t, hrefs(t, do(t, h, "PROPFIND", "/dav/", "", "Depth", "1")),
-		"/dav/", "/dav/album", "/dav/notes.txt")
+		"/dav/", "/dav/album/", "/dav/notes.txt")
 }
 
 // TestPropfindOfAFile pins that none of this reaches a resource that is not a
@@ -249,7 +252,7 @@ func TestPropfindEscapesTheSelfHref(t *testing.T) {
 	do(t, h, http.MethodPut, "/dav/rock%20&%20roll/song.mp3", "song")
 
 	wantHrefs(t, hrefs(t, do(t, h, "PROPFIND", "/dav/rock%20&%20roll", "", "Depth", "1")),
-		"/dav/rock & roll", "/dav/rock & roll/song.mp3")
+		"/dav/rock & roll/", "/dav/rock & roll/song.mp3")
 }
 
 // TestMoveACollectionWithThingsInIt is #101 over WebDAV: renaming a folder is
@@ -271,7 +274,7 @@ func TestMoveACollectionWithThingsInIt(t *testing.T) {
 
 	// Everything came with it, which is what a listing of the new name shows.
 	wantHrefs(t, hrefs(t, do(t, h, "PROPFIND", "/dav/archive", "", "Depth", "1")),
-		"/dav/archive", "/dav/archive/one.txt", "/dav/archive/raw")
+		"/dav/archive/", "/dav/archive/one.txt", "/dav/archive/raw/")
 	if body := do(t, h, http.MethodGet, "/dav/archive/raw/deep.txt", "").Body.String(); body != "deep" {
 		t.Errorf("the deepest file reads %q after the move", body)
 	}
@@ -315,9 +318,9 @@ func TestPropfindRefusesAnInfiniteDepth(t *testing.T) {
 
 	// And a level at a time still works, which is the way through.
 	wantHrefs(t, hrefs(t, do(t, h, "PROPFIND", "/dav/", "", "Depth", "1")),
-		"/dav/", "/dav/album")
+		"/dav/", "/dav/album/")
 	wantHrefs(t, hrefs(t, do(t, h, "PROPFIND", "/dav/album/raw", "", "Depth", "1")),
-		"/dav/album/raw", "/dav/album/raw/deep.txt")
+		"/dav/album/raw/", "/dav/album/raw/deep.txt")
 }
 
 func TestCollections(t *testing.T) {

@@ -1,0 +1,2 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<multistatus xmlns="DAV:"><response xmlns="DAV:"><href>/dav/album/one.txt</href><propstat xmlns="DAV:"><prop xmlns="DAV:"><getcontentlength xmlns="DAV:"></getcontentlength><getlastmodified xmlns="DAV:"></getlastmodified><getcontenttype xmlns="DAV:"></getcontenttype><getetag xmlns="DAV:"></getetag><resourcetype xmlns="DAV:"></resourcetype></prop><status>HTTP/1.1 200 OK</status></propstat></response></multistatus>

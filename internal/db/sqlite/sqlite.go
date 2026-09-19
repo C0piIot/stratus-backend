@@ -738,6 +738,33 @@ func (r *repo) BlobKeys(ctx context.Context) iter.Seq2[string, error] {
 }
 
 // MoveFile implements db.Repo.
+// SubtreeSize implements db.Files.
+func (r *repo) SubtreeSize(ctx context.Context, owner, dir string) (int64, error) {
+	if err := db.ValidateDir(dir); err != nil {
+		return 0, err
+	}
+
+	// Two statements rather than one with a predicate pasted in, the way
+	// ListFilesPage is two: the queries in this package are consts a reader can
+	// grep for.
+	const (
+		whole = `SELECT COALESCE(SUM(size), 0) FROM files WHERE owner_id = ? AND is_dir = 0`
+		under = `SELECT COALESCE(SUM(size), 0) FROM files
+			WHERE owner_id = ? AND is_dir = 0 AND path >= ? AND path < ?`
+	)
+
+	query, args := whole, []any{owner}
+	if from, to, all := db.SubtreeRange(dir); !all {
+		query, args = under, []any{owner, from, to}
+	}
+
+	var total int64
+	if err := r.q.QueryRowContext(ctx, query, args...).Scan(&total); err != nil {
+		return 0, fmt.Errorf("size of %q: %w", dir, mapErr(err))
+	}
+	return total, nil
+}
+
 func (r *repo) MoveFile(ctx context.Context, owner, from, to string) error {
 	if err := db.ValidateMove(from, to); err != nil {
 		return err

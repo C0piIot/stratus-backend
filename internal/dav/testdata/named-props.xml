@@ -1,0 +1,2 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<multistatus xmlns="DAV:"><response xmlns="DAV:"><href>/dav/album/one.txt</href><propstat xmlns="DAV:"><prop xmlns="DAV:"><getcontentlength xmlns="DAV:">3</getcontentlength><getetag xmlns="DAV:">&#34;7692c3ad3540bb803c020b3aee66cd8887123234ea0c6e7143c0add73ff431ed&#34;</getetag><resourcetype xmlns="DAV:"></resourcetype></prop><status>HTTP/1.1 200 OK</status></propstat><propstat xmlns="DAV:"><prop xmlns="DAV:"><displayname xmlns="DAV:"></displayname></prop><status>HTTP/1.1 404 Not Found</status></propstat></response></multistatus>

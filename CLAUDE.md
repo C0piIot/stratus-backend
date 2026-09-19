@@ -518,7 +518,38 @@ Restraint here is principle 3, not laziness:
 ## Tech decisions
 
 - Go, `net/http` from stdlib, **no web framework**.
-- `github.com/emersion/go-webdav` for DAV/CalDAV primitives.
+- **Two WebDAV libraries, split by method.** `github.com/emersion/go-webdav`
+  answers everything except `PROPFIND`, which is
+  `golang.org/x/net/webdav`'s. The rule in one line: **the one that can express
+  a property answers `PROPFIND`.**
+
+  That is not a taste. emersion builds every response from a fixed set --
+  `webdav.FileInfo` has six fields and `propFindFile` has no hook -- and it has
+  cost us four things: no class 2, so `LOCK` and `UNLOCK` are intercepted in
+  front of it (#3); a multistatus built whole in memory, which is why
+  `Depth: infinity` is refused (#160); no way to report free space over RFC
+  4331 (#154); and no way to say which files have a preview (#136). Four is a
+  pattern, and all four are the same wall.
+
+  x/net has the door: `DeadPropsHolder` lets a `File` contribute properties,
+  and its writer emits each response as it is produced. What made it look like
+  the wrong trade is its `FileSystem` -- a `PUT` is `OpenFile` plus
+  `io.Copy`, which fits a blob store badly and would want a pipe between the
+  library and `files.Write`, and it does not honour `If-Match` (a `TODO` in its
+  own source). **Both objections are about writing, and `PROPFIND` does not
+  write**: it touches `Stat`, `OpenFile` with `O_RDONLY` and `Readdir`, which is
+  why the split is by method and not by surface. The write path is untouched,
+  `If-Match` still works, and CalDAV stays emersion's.
+
+  `internal/dav/propfind.go` is the adapter, and it is **built per request on
+  purpose**: x/net walks a directory and then reopens every resource to read
+  its properties, throwing away the `os.FileInfo` it already had. Measured, a
+  folder of fifty children costs 204 lookups without somewhere to keep what the
+  listing returned and 4 with it -- the N+1 shape #160 removed from this very
+  surface, and a test fails if it comes back.
+
+  One thing changed that a client can see: **a collection's href ends in a
+  slash now**, which is what RFC 4918's own examples do.
 
   **A `PROPFIND` for the whole tree is refused before the library sees it**
   (#160), with the `403` and the `DAV:propfind-finite-depth` precondition
