@@ -135,7 +135,11 @@ func TestPropfindStillSaysWhatItSaid(t *testing.T) {
 					continue
 				}
 				for prop, want := range props {
-					// The times are the fixture's own and move with the tree.
+					// The fixture's own times and validators move with the
+					// tree, so what is checked is that they are still there.
+					// Whether the validator is the *right* one is the test
+					// below, and skipping that here is how a synthesised ETag
+					// got past this once already.
 					if prop == "getlastmodified" || prop == "getetag" {
 						if _, there := got[prop]; !there {
 							t.Errorf("%s lost %s", href, prop)
@@ -226,6 +230,35 @@ type countingStore struct {
 func (c *countingStore) FileByPath(ctx context.Context, owner, path string) (db.File, error) {
 	c.lookups++
 	return c.Store.FileByPath(ctx, owner, path)
+}
+
+// TestPropfindAgreesWithGetAboutTheETag is the one the fixture comparison
+// cannot make, because a fixture's validators are its own.
+//
+// x/net computes an ETag from the modification time and the size unless the
+// os.FileInfo says otherwise, so without rowInfo.ETag the same file has two
+// validators -- one in a listing and another on a GET -- and a client that
+// compared them would decide it had changed underneath. It shipped that way for
+// a day and the app's conformance suite is what found it.
+func TestPropfindAgreesWithGetAboutTheETag(t *testing.T) {
+	t.Parallel()
+	h := server(t)
+	do(t, h, http.MethodPut, "/dav/notes.txt", "notes")
+
+	listed := propsOf(t, do(t, h, "PROPFIND", "/dav/notes.txt", "", "Depth", "0",
+		"Content-Type", "application/xml").Body.String())["/dav/notes.txt"]["getetag"]
+	served := do(t, h, http.MethodGet, "/dav/notes.txt", "").Header().Get("ETag")
+
+	if listed == "" || served == "" {
+		t.Fatalf("a validator went missing: listed %q, served %q", listed, served)
+	}
+	if listed != served {
+		t.Errorf("PROPFIND says %s and GET says %s", listed, served)
+	}
+	// And it is the digest internal/files computed, not a time and a size.
+	if len(listed) != 66 {
+		t.Errorf("the validator is %s, which is not a SHA-256 in quotes", listed)
+	}
 }
 
 // TestPropfindAnswersHasPreview is #136: a client drawing a grid asks once, in

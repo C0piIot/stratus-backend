@@ -173,6 +173,26 @@ func (i rowInfo) ModTime() time.Time { return i.row.MTime }
 func (i rowInfo) IsDir() bool        { return i.row.IsDir }
 func (i rowInfo) Sys() any           { return i.row }
 
+// ETag is x/net's ETager, and it is not optional for us.
+//
+// Without it the library computes one from the modification time and the size,
+// which would be a different string from the one every other surface sends --
+// the same file would have two validators depending on which request asked, and
+// a client comparing them would decide it had changed. Caught by the app's
+// conformance suite rather than by anything here, which is what that suite is
+// for.
+//
+// Quoted, because that is the form the interface asks for and the framing HTTP
+// wants; internal/files stores the validator itself, unquoted, for every
+// surface to frame its own way.
+func (i rowInfo) ETag(context.Context) (string, error) {
+	if i.row.ETag == "" {
+		// Nothing to say, so the library's own is better than an empty header.
+		return "", xnet.ErrNotImplemented
+	}
+	return strconv.Quote(i.row.ETag), nil
+}
+
 func (i rowInfo) Mode() os.FileMode {
 	if i.row.IsDir {
 		return fs.ModeDir | 0o555
