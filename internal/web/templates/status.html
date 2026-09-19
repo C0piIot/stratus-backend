@@ -33,9 +33,16 @@
   </p>
   {{end}}
 
-  <div class="progress mb-3" role="progressbar" aria-label="Files indexed"
-       aria-valuenow="{{.Percent}}" aria-valuemin="0" aria-valuemax="100">
-    <div class="progress-bar" style="width: {{.Percent}}%">{{.Percent}}%</div>
+  {{/* The native element and not Bootstrap's progress bar, which sets its
+       width with a style attribute: the policy is style-src 'self' with no
+       'unsafe-inline', so the browser drops that attribute and the bar shrinks
+       to fit its own label -- a full library rendered as "100%" painted in a
+       sliver. This takes its value in an attribute instead, and is what
+       role="progressbar" was imitating. */}}
+  <div class="d-flex align-items-center gap-2 mb-3">
+    <progress class="w-100" max="100" value="{{.Percent}}"
+              aria-label="Files indexed">{{.Percent}}%</progress>
+    <span class="text-body-secondary small">{{.Percent}}%</span>
   </div>
 
   <dl class="row mb-0">
