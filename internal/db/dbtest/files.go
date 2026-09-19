@@ -47,6 +47,7 @@ func RunFiles(t *testing.T, newFiles func(t *testing.T) db.Files) {
 		{"paths are opaque unicode", unicodePaths},
 		{"invalid paths are rejected", invalidPaths},
 		{"a size larger than 32 bits survives", largeFiles},
+		{"a subtree adds up to what is under it", subtreeSize},
 		{"mtime survives the round trip", timeRoundTrip},
 		{"directories are rows of their own", emptyDirectories},
 		{"a directory listing holds both kinds", listMixed},
@@ -655,6 +656,65 @@ func listMixed(t *testing.T, s db.Files) {
 	}
 	if got[1].Path != "album/one.jpg" || got[1].IsDir {
 		t.Errorf("second entry = %+v, want the file", got[1])
+	}
+}
+
+// subtreeSize is RFC 4331's quota-used-bytes from the other side, and the two
+// things that can go wrong with it are both about where a branch ends: a
+// sibling whose name starts with the same characters, and the root, which has
+// no prefix at all.
+func subtreeSize(t *testing.T, s db.Files) {
+	if _, err := s.CreateDir(t.Context(), owner, "album"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateDir(t.Context(), owner, "album/raw"); err != nil {
+		t.Fatal(err)
+	}
+	// album2 is the one a prefix match gets wrong: it sorts right after
+	// "album/" and is not under it.
+	if _, err := s.CreateDir(t.Context(), owner, "album2"); err != nil {
+		t.Fatal(err)
+	}
+
+	sized := func(path string, size int64) {
+		t.Helper()
+		f := file(path)
+		f.Size = size
+		put(t, s, f)
+	}
+	sized("album/one.jpg", 100)
+	sized("album/raw/two.dng", 20)
+	sized("album2/other.jpg", 4000)
+	sized("loose.txt", 7)
+
+	for dir, want := range map[string]int64{
+		"album":     120,
+		"album/raw": 20,
+		"album2":    4000,
+		// The root is everything, including what is not in any folder.
+		"": 4127,
+	} {
+		got, err := s.SubtreeSize(t.Context(), owner, dir)
+		if err != nil {
+			t.Fatalf("SubtreeSize(%q): %v", dir, err)
+		}
+		if got != want {
+			t.Errorf("SubtreeSize(%q) = %d, want %d", dir, got, want)
+		}
+	}
+
+	// A directory with nothing under it is zero and not an error, and so is one
+	// that is not there: the question "how much is under this" has an answer
+	// either way, and a caller drawing a bar should not have to branch.
+	for _, dir := range []string{"album/raw/deeper", "nowhere"} {
+		if got, err := s.SubtreeSize(t.Context(), owner, dir); err != nil || got != 0 {
+			t.Errorf("SubtreeSize(%q) = %d, %v", dir, got, err)
+		}
+	}
+
+	// And one owner's bytes are not another's.
+	if got, err := s.SubtreeSize(t.Context(), "somebody", ""); err != nil || got != 0 {
+		t.Errorf("another owner's root = %d, %v", got, err)
 	}
 }
 

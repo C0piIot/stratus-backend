@@ -100,6 +100,11 @@ func (s *Service) FreeSpace(ctx context.Context) (int64, error) {
 	return s.blobs.FreeSpace(ctx)
 }
 
+// SubtreeSize is how many bytes the files under dir add up to.
+func (s *Service) SubtreeSize(ctx context.Context, owner, dir string) (int64, error) {
+	return s.meta.SubtreeSize(ctx, owner, dir)
+}
+
 // List returns the direct children of dir, files and directories alike.
 func (s *Service) List(ctx context.Context, owner, dir string) ([]db.File, error) {
 	return s.meta.ListFiles(ctx, owner, dir)

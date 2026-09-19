@@ -142,3 +142,33 @@ func TestValidateMove(t *testing.T) {
 		})
 	}
 }
+
+// TestSubtreeRange is where a branch ends, which is the one thing three drivers
+// must not disagree about: "album2" sorts right after "album/" and is not under
+// it, and a prefix match hands it over.
+func TestSubtreeRange(t *testing.T) {
+	t.Parallel()
+
+	from, to, whole := db.SubtreeRange("album")
+	if whole {
+		t.Fatal("a named directory is not the whole tree")
+	}
+	if from != "album/" {
+		t.Errorf("from = %q", from)
+	}
+	for _, under := range []string{"album/one.jpg", "album/raw/two.dng", "album/" + strings.Repeat("z", 80)} {
+		if under < from || under >= to {
+			t.Errorf("%q is under album and outside [%q, %q)", under, from, to)
+		}
+	}
+	for _, outside := range []string{"album", "album2", "album2/one.jpg", "albumsomething", "loose.txt", "aa"} {
+		if outside >= from && outside < to {
+			t.Errorf("%q is not under album and inside [%q, %q)", outside, from, to)
+		}
+	}
+
+	// The root has no prefix to bound: it is every row this owner has.
+	if _, _, whole := db.SubtreeRange(""); !whole {
+		t.Error("the root was given a range")
+	}
+}

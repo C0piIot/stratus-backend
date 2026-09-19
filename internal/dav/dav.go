@@ -6,11 +6,12 @@
 // and, mostly, the mapping from this project's sentinel errors onto status
 // codes -- which is the part a library cannot guess.
 //
-// **This file is the only one that knows which library that is.** Everything
-// else in the package -- locking, paths, MIME types -- is written against
-// net/http and this project's own types, so replacing the library means
+// **This file and propfind.go are the only two that know which libraries those
+// are** -- there are two now, split by method, and propfind.go says why.
+// Everything else in the package -- locking, paths, MIME types -- is written
+// against net/http and this project's own types, so replacing either means
 // rewriting one file rather than the package. That is deliberate: the choice
-// has been questioned once already (#3) and may be again.
+// has been questioned twice now (#3, #136) and may be again.
 package dav
 
 import (
@@ -46,6 +47,26 @@ func Handler(prefix string, service *files.Service) http.Handler {
 		// A PROPFIND over the whole tree is refused before the library sees it,
 		// with the precondition the RFC has for saying so. See depth.go.
 		if refuseInfiniteDepth(w, r) {
+			return
+		}
+
+		// PROPFIND is answered by the other library, which can express a
+		// property. See propfind.go for why there are two.
+		if r.Method == "PROPFIND" {
+			owner, err := fs.owner(r.Context())
+			if err != nil {
+				// The only way here is no authenticated user, and the wrapper
+				// in front of this handler is what puts one on the request.
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+			// The prefix goes back on before it comes off again: this
+			// handler is inside a StripPrefix, and x/net strips the prefix
+			// itself and joins it back to build every href. Handing it a
+			// stripped path would cost the hrefs their /dav.
+			restored := r.Clone(r.Context())
+			restored.URL.Path = prefix + r.URL.Path
+			fs.propfindHandler(owner).ServeHTTP(w, restored)
 			return
 		}
 
@@ -127,54 +148,25 @@ func (f *fileSystem) Stat(ctx context.Context, name string) (*webdav.FileInfo, e
 	return f.toFileInfo(file), nil
 }
 
-// ReadDir implements webdav.FileSystem, and it returns the directory itself
-// before what is in it.
+// ReadDir implements webdav.FileSystem and is unreachable.
 //
-// That reads like a bug and is the opposite of one. RFC 4918 9.1 says a Depth 1
-// PROPFIND "applies to the resource and its internal members", and go-webdav
-// builds the whole multistatus out of what this returns: for a collection it
-// calls Stat only to learn that it is one, throws that result away, and never
-// adds the collection back. Its own LocalFileSystem roots its walk at the
-// directory for exactly this reason. Deleting the self entry as redundant is
-// #126 coming back.
+// The library calls it from one place, building a PROPFIND response, and
+// PROPFIND is answered by the other library now (see propfind.go). Left as a
+// refusal rather than deleted because the interface requires it, and a refusal
+// is what should happen if it is ever reached again.
 //
-// The entry comes from Stat rather than a lookup of our own because the root is
-// not a row, and one place in this file should know that. The cost is that the
-// collection is looked up twice per PROPFIND -- the library has already done it
-// and has nowhere to hand it over -- which is one indexed read against a listing
-// that is already several.
-func (f *fileSystem) ReadDir(ctx context.Context, name string, _ bool) ([]webdav.FileInfo, error) {
-	p, err := toPath(name)
-	if err != nil {
-		return nil, err
-	}
-
-	owner, err := f.owner(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	self, err := f.Stat(ctx, name)
-	if err != nil {
-		return nil, err
-	}
-
-	// recursive is ignored, and is the reason there is nothing here that walks:
-	// the library only sets it for Depth: infinity, which is refused before it
-	// gets this far (see depth.go). A walk that cannot be asked for is a walk
-	// nobody has to keep correct.
-	listing, err := f.files.List(ctx, owner, p)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-
-	out := make([]webdav.FileInfo, 0, len(listing)+1)
-	out = append(out, *self)
-	for _, file := range listing {
-		out = append(out, *f.toFileInfo(file))
-	}
-	return out, nil
+// What it used to carry was #126: a Depth 1 listing has to include the
+// collection itself, and this library throws away the Stat it made and never
+// adds it back, so the entry had to be prepended here. x/net walks from the
+// requested resource, so it includes it natively -- and the test that pins it
+// is still there, now watching a different implementation keep the promise.
+func (f *fileSystem) ReadDir(context.Context, string, bool) ([]webdav.FileInfo, error) {
+	return nil, errNotThisLibrary
 }
+
+// errNotThisLibrary marks the corner of the emersion adapter that PROPFIND used
+// to reach.
+var errNotThisLibrary = errors.New("dav: PROPFIND is answered by golang.org/x/net/webdav")
 
 // Create implements webdav.FileSystem, which is PUT.
 func (f *fileSystem) Create(ctx context.Context, name string, body io.ReadCloser, opts *webdav.CreateOptions) (*webdav.FileInfo, bool, error) {

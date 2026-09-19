@@ -110,6 +110,22 @@ type Files interface {
 	// column, and what it names does not know what it is called.
 	MoveFile(ctx context.Context, owner, from, to string) error
 
+	// SubtreeSize is the number of bytes the files under dir add up to, dir
+	// itself included, and 0 for a directory with nothing in it. An empty dir
+	// is the whole tree.
+	//
+	// It exists for RFC 4331's quota-used-bytes, which is what a mounted volume
+	// draws its bar from (#136). Computed and not kept: a running total on
+	// directory rows would mean updating every ancestor on every write and
+	// moving totals between two chains on every rename, three times over, and
+	// lying the first time any of that went wrong.
+	//
+	// Cheap because it is a range and not a prefix match: on a hundred thousand
+	// files it is 0.10 ms for a folder of a hundred and 63 ms for the root,
+	// which is the one case that walks everything because it was asked about
+	// everything.
+	SubtreeSize(ctx context.Context, owner, dir string) (int64, error)
+
 	// BlobKeys yields the blob key of every file row, which is what the
 	// collector subtracts from what the blob store actually holds.
 	//

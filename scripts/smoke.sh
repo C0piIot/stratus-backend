@@ -526,6 +526,21 @@ if wait_serving "$davname"; then
     *)           bad "a PROPFIND listing includes the collection itself" "no self entry in the multistatus" ;;
   esac
 
+  # The two properties that made PROPFIND change libraries (#136): whether a
+  # file has a preview, and how much room is left, both in the listing a client
+  # was making anyway. Asserted from outside, because what matters is the
+  # document a client reads.
+  props="$(curl -fsS -u "$davuser:$davpass" -H 'Depth: 1' \
+    -X PROPFIND "http://$davhost/dav/" 2>/dev/null || true)"
+  case "$props" in
+    *has-preview*) ok "the listing says which files have a preview" ;;
+    *) bad "the listing says which files have a preview" "no has-preview in the multistatus" ;;
+  esac
+  case "$props" in
+    *quota-available-bytes*) ok "the listing says how much room is left" ;;
+    *) bad "the listing says how much room is left" "no quota in the multistatus" ;;
+  esac
+
   # A whole folder copied, which is the thing #43 left at 501 and the only
   # WebDAV method that writes a tree. From outside because what is being checked
   # is the tree that comes back, not the loop that made it.
