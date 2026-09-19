@@ -190,6 +190,50 @@ func TestCollectKeepsDerivedObjectsAlive(t *testing.T) {
 	}
 }
 
+// TestCollectSweepsAnOlderGeneration is what makes files.DerivedGeneration mean
+// anything (#161): a picture made by a generator that has moved on is garbage
+// even though the file it was made from is right there.
+//
+// Without it, raising the generation would stop the old object being served and
+// leave it on the disk for as long as its parent lived -- which is the
+// objection that kept a derived key a pure function of its parent's, and the
+// reason a thumbnail made before the EXIF fix stayed sideways for good.
+func TestCollectSweepsAnOlderGeneration(t *testing.T) {
+	t.Parallel()
+	s, blobs := service(t)
+
+	live := write(t, s, "photo.jpg", "the original")
+	current := files.DerivedKey(live.BlobKey, "300.jpg")
+	// Written by hand, because there is no way to ask DerivedKey for a key it
+	// no longer writes -- which is the property being tested from the other
+	// side. The second is what the very first thumbnails looked like, before
+	// any of this existed.
+	older := files.DerivedPrefix + live.BlobKey + "/g0-300.jpg"
+	unstamped := files.DerivedPrefix + live.BlobKey + "/300.jpg"
+
+	for _, key := range []string{current, older, unstamped} {
+		if _, err := blobs.Put(t.Context(), key, strings.NewReader("a thumbnail"), -1); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	done, err := s.Collect(t.Context(), 0)
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	if done.Deleted != 2 {
+		t.Errorf("Collect deleted %d objects, want the two an older generator made", done.Deleted)
+	}
+	if _, err := blobs.Stat(t.Context(), current); err != nil {
+		t.Errorf("the picture this build makes was collected: %v", err)
+	}
+	for _, key := range []string{older, unstamped} {
+		if _, err := blobs.Stat(t.Context(), key); err == nil {
+			t.Errorf("%s survived, so raising the generation would only hide it", key)
+		}
+	}
+}
+
 // TestCollectSweepsDerivedObjectsWithTheirParent is the other half, and the
 // case a key convention buys over a table: the derived key carries its
 // parent's, so one rule collects both -- including after an overwrite, which

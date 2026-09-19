@@ -241,6 +241,12 @@ exactly when the file it was made from is. One rule collects both, including
 after an overwrite, which leaves the old blob orphaned *and* its thumbnails
 filed under a key nothing will look for again.
 
+It is also garbage when the thumbnail generator has changed since it was made —
+the key says which generator made it. So an upgrade that improves the pictures
+replaces the ones already made: they stop being served immediately and the next
+sweep deletes them, rather than a photograph staying sideways because it was
+looked at once before the fix. Nothing to run, and nothing to remember.
+
 That prefix is worth knowing about beyond tidiness. Deleting everything under it
 is safe — the pictures are regenerated the next time something asks — and on S3
 it is where a lifecycle rule or a backup policy would treat derived data

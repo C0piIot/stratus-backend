@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -27,6 +28,22 @@ const DefaultGrace = time.Hour
 // parent's -- which is what lets one sweep collect both.
 const DerivedPrefix = "derived/"
 
+// DerivedGeneration is which generator made the objects this build writes.
+//
+// Raise it when what comes out of the generator changes -- a rotation that was
+// not read, a frame chosen differently, a different encoder -- and every
+// derived object made by an older one stops being served and is collected on
+// the next sweep. It is media.Version for the other half of internal/media,
+// and it exists because that half had no such thing: a thumbnail made before
+// the EXIF fix stayed sideways for good, since a derived key is a pure function
+// of its parent's and nothing in it could say the generator had moved (#161).
+//
+// It lives here and not beside the generator because this is where the sweep
+// reads it back, which is the same reason the rest of the shape does. Whoever
+// changes what a picture looks like has to come here, and internal/media says
+// so where the pixels are made.
+const DerivedGeneration = 1
+
 // DerivedKey names an object generated from the blob at parent. The shape is
 // defined here, next to the sweep that has to read it back, so that a caller
 // cannot invent a key nothing will ever collect.
@@ -38,11 +55,40 @@ const DerivedPrefix = "derived/"
 // object would name a parent no row holds and the sweep would delete it an hour
 // later. It panics rather than returning an error because every caller passes a
 // constant: a slash here is a bug in this repository, not a condition to handle.
+// The generation goes on the front of that segment rather than being a path
+// element of its own, so that parentOf still finds the parent by cutting at the
+// last slash and callers keep passing the name they already passed.
 func DerivedKey(parent, name string) string {
 	if strings.Contains(name, "/") {
 		panic(fmt.Sprintf("files: derived name %q is not one segment", name))
 	}
-	return DerivedPrefix + parent + "/" + name
+	return DerivedPrefix + parent + "/" + generationPrefix + strconv.Itoa(DerivedGeneration) + "-" + name
+}
+
+// generationPrefix marks the number at the front of a derived leaf. A letter
+// and not bare digits, so that it cannot be read as a size.
+const generationPrefix = "g"
+
+// staleGeneration reports whether a derived key was written by a generator that
+// is no longer this one.
+//
+// A leaf that names no generation at all is stale too, and deliberately: those
+// are the keys written before this existed, which is exactly the set of
+// pictures this mechanism was added to replace. Nothing else can be under the
+// prefix -- DerivedKey is the only way to make one of these, and it stamps
+// every object it names.
+func staleGeneration(key string) bool {
+	leaf := key[strings.LastIndexByte(key, '/')+1:]
+	rest, ok := strings.CutPrefix(leaf, generationPrefix)
+	if !ok {
+		return true
+	}
+	digits, _, ok := strings.Cut(rest, "-")
+	if !ok {
+		return true
+	}
+	generation, err := strconv.Atoi(digits)
+	return err != nil || generation != DerivedGeneration
 }
 
 // parentOf undoes DerivedKey: everything between the prefix and the last
@@ -131,6 +177,15 @@ func (s *Service) Collect(ctx context.Context, olderThan time.Duration) (Collect
 			continue
 		case derived:
 			_, live = referenced[parent]
+			// And a picture whose generator has moved on is garbage even
+			// though the file it was made from is still here. Without this the
+			// generation in the key would only stop the old object being
+			// served, and leave it on the disk for as long as its parent
+			// lived -- which is the objection that kept the key a pure
+			// function of its parent's in the first place (#161).
+			if live && staleGeneration(info.Key) {
+				live = false
+			}
 		default:
 			_, live = referenced[info.Key]
 		}
