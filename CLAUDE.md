@@ -24,6 +24,22 @@ Hard constraints, in the same spirit as the rest of the project:
 - **No hand-written stylesheet.** Bootstrap's utility classes cover the layout we
   need. If something genuinely cannot be expressed with them, that is a
   conversation, not a new `.css` file that grows forever.
+- **One script of our own, and this is the conversation about it.** The share
+  page hands back a URL to send somebody, and copying it by hand out of a text
+  field is the kind of small misery that makes a feature feel unfinished. There
+  is no way to avoid script: the policy below is `script-src 'self'` with no
+  `'unsafe-inline'`, so not even an `onclick` attribute would run, which is why
+  `internal/web/static/stratus/copy.js` is a file rather than three characters
+  in the markup.
+
+  Twenty lines, no build, no library. **It degrades by construction**: the
+  button ships with `d-none` and the script is what removes it, so a browser
+  with no JavaScript shows the field alone, which is what the page was before.
+  Its URL carries the build version as a query, since it has no version of its
+  own and the `immutable` header has to stay true.
+
+  This is not permission for more. The next feature that wants script gets the
+  same paragraph written about it, or it gets a form.
 - **htmx only where it is genuinely required**, vendored and embedded like
   Bootstrap. Default to a plain form and a full page render. One page needs it
   so far: the file listing, which is paged by a cursor and extends itself as

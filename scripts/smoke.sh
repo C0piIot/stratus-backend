@@ -965,13 +965,22 @@ TRACK
   # is deliberately absent from the second curl: that is the whole assertion.
   share_page="$(curl -fsS -b "$jar" -X POST --data-urlencode 'life=7d' \
     "http://$davhost/share/notes.txt" 2>/dev/null || true)"
-  share_link="$(grep -o 'value="/files/notes.txt?k=[^"]*"' <<<"$share_page" |
+  # A whole address, not a path: the page hands back something you can send
+  # somebody, built from the host this request arrived at.
+  share_link="$(grep -o 'value="https\?://[^"]*"' <<<"$share_page" |
     head -1 | sed -e 's/^value="//' -e 's/"$//' -e 's/&amp;/\&/g')"
+  shared_body=""
+  shared_above=""
   if [ -n "$share_link" ]; then
-    shared_body="$(curl -s "http://$davhost$share_link")"
+    shared_body="$(curl -s "$share_link")"
     shared_above="$(curl -s -o /dev/null -w '%{http_code}' \
       "http://$davhost/files/track.mp3?k=${share_link#*k=}")"
   fi
+  case "$share_link" in
+    "http://$davhost/files/notes.txt?k="*) ok "a share link is a whole address" ;;
+    *) bad "a share link is a whole address" "got '$share_link'" ;;
+  esac
+
   if [ "$shared_body" = "smoke" ] && [ "$shared_above" = "403" ]; then
     ok "a shared link opens with no credentials and reaches nothing else"
   else
@@ -984,7 +993,7 @@ TRACK
   # an Authorization header. Same token, the address the app already builds, no
   # credentials on the request at all.
   dav_link="${share_link/\/files\//\/dav\/}"
-  dav_shared="$(curl -s "http://$davhost$dav_link")"
+  dav_shared="$(curl -s "$dav_link")"
   if [ "$dav_shared" = "smoke" ]; then
     ok "a shared link works on the WebDAV surface too"
   else

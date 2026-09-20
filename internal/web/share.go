@@ -80,11 +80,8 @@ func (h *handler) share(w http.ResponseWriter, r *http.Request, user string) {
 	h.render(w, http.StatusOK, pageShared, view{
 		Title: "Share", User: user,
 		Name: path.Base(target), IsDir: f.IsDir,
-		Back: href(db.ParentOf(target)),
-		// Relative, because this server does not know what name it is reached
-		// by: behind a reverse proxy the Host header is a claim and building an
-		// absolute URL out of it would hand somebody a link to the wrong place.
-		Link:    shared(href(target), token),
+		Back:    href(db.ParentOf(target)),
+		Link:    absolute(r, shared(href(target), token)),
 		Expires: expiryLabel(expires),
 	})
 }
@@ -103,6 +100,31 @@ func shared(target, token string) string {
 		separator = "&"
 	}
 	return target + separator + shareParam + "=" + url.QueryEscape(token)
+}
+
+// absolute turns a path on this server into the URL somebody can be sent.
+//
+// It was relative at first, on the argument that behind a reverse proxy the
+// Host header is a claim rather than a fact. That was true and beside the
+// point: a link you have to assemble by hand is not a link, which is the whole
+// of what this page produces.
+//
+// So it is built from the request, the way every self-hosted server builds
+// one. What it costs is a wrong link when a proxy does not pass the name it is
+// reached by -- shown to the owner, who can see that it is wrong, on a page
+// that is never cached. A configured external URL is the fix for that, and it
+// waits until somebody's proxy is actually wrong.
+func absolute(r *http.Request, path string) string {
+	scheme := "http"
+	switch {
+	case r.TLS != nil:
+		scheme = "https"
+	case r.Header.Get("X-Forwarded-Proto") == "https":
+		// A claim, and believed for the same reason the host is: getting it
+		// wrong shows somebody a link they can see is wrong.
+		scheme = "https"
+	}
+	return scheme + "://" + r.Host + path
 }
 
 func shareLife(value string) (time.Duration, bool) {

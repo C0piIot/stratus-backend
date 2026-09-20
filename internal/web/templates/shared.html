@@ -3,17 +3,21 @@
   <div class="col-12 col-md-8 col-lg-6">
     <h1 class="h4">Link to {{.Name}}</h1>
     <div class="card card-body">
-      {{/* Readonly and selected rather than a copy button: copying needs
-           script, and the policy forbids it. */}}
       <label class="form-label" for="link">Anybody with this can open it</label>
-      <input class="form-control font-monospace" id="link" type="text"
-             value="{{.Link}}" readonly autofocus>
+      <div class="input-group">
+        <input class="form-control font-monospace" id="link" type="text"
+               value="{{.Link}}" readonly autofocus>
+        {{/* Hidden until the script shows it, so a browser with no JavaScript
+             gets the field alone rather than a button that does nothing. */}}
+        <button class="btn btn-outline-secondary d-none" type="button"
+                data-copies="link">Copy</button>
+      </div>
 
       <p class="text-body-secondary small mt-3 mb-0">
         {{if .Expires}}It stops working on {{.Expires}}.{{else}}It works until
         the password changes.{{end}}
-        The address is the one this page is at — send it whole, with whatever
-        comes before <code>/files/</code>.
+        It is the address this server was reached at. If that is not the name
+        somebody else would use, the proxy in front is not passing it on.
       </p>
 
       <div class="d-flex gap-2 mt-3">

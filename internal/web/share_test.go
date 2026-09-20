@@ -33,7 +33,7 @@ func linkTo(t *testing.T, h http.Handler, target, life string) string {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("POST /share/%s = %d: %s", target, rec.Code, rec.Body)
 	}
-	found := regexp.MustCompile(`value="(/files/[^"]+)"`).FindStringSubmatch(rec.Body.String())
+	found := regexp.MustCompile(`value="(https?://[^"]+)"`).FindStringSubmatch(rec.Body.String())
 	if found == nil {
 		t.Fatalf("the share page handed back no link: %s", rec.Body)
 	}
@@ -44,6 +44,72 @@ func linkTo(t *testing.T, h http.Handler, target, life string) string {
 // test wants is the URL a browser would follow.
 func html(s string) string {
 	return strings.NewReplacer("&amp;", "&", "&#43;", "+", "&#61;", "=").Replace(s)
+}
+
+// TestAShareLinkIsAWholeAddress is the bug this page shipped with: it handed
+// back a path, and a path is not something you can send anybody. The host comes
+// from the request, the way every self-hosted server builds one.
+func TestAShareLinkIsAWholeAddress(t *testing.T) {
+	t.Parallel()
+	h, s, _ := browserOver(t)
+	write(t, s, "holiday.txt", "the whole film")
+
+	link := linkTo(t, h, "holiday.txt", "7d")
+	if !strings.HasPrefix(link, "http://example.com/files/holiday.txt?") {
+		t.Errorf("the link is %q, want the address this request arrived at", link)
+	}
+
+	// And behind something that terminates TLS, which is how most of these are
+	// actually reached.
+	rec := postProxied(t, h, "/share/holiday.txt", url.Values{"life": {"7d"}}, signIn(t, h))
+	if !strings.Contains(rec.Body.String(), "https://stratus.example/files/holiday.txt?") {
+		t.Errorf("behind a proxy the link is not https at the proxy's name: %s", rec.Body)
+	}
+}
+
+// postProxied is post with the headers a reverse proxy adds.
+func postProxied(t *testing.T, h http.Handler, target string, form url.Values, cookies ...*http.Cookie) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, target, strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("X-Forwarded-Proto", "https")
+	req.Host = "stratus.example"
+	for _, c := range cookies {
+		req.AddCookie(c)
+	}
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	return rec
+}
+
+// TestTheShareePageOffersToCopy is the button, and the half that matters is
+// that it is not there until something can make it work: a browser with no
+// script gets the field alone rather than a button that does nothing.
+func TestTheSharePageOffersToCopy(t *testing.T) {
+	t.Parallel()
+	h, s, _ := browserOver(t)
+	write(t, s, "holiday.txt", "the whole film")
+
+	body := post(t, h, "/share/holiday.txt", url.Values{"life": {"7d"}}, signIn(t, h)).Body.String()
+	if !strings.Contains(body, `data-copies="link"`) {
+		t.Errorf("no copy button: %s", body)
+	}
+	if !strings.Contains(body, `class="btn btn-outline-secondary d-none"`) {
+		t.Error("the button is not hidden, so a browser with no script shows a dead one")
+	}
+	if !strings.Contains(body, "/static/stratus/copy.js?v=") {
+		t.Error("the page does not load the script that would show it")
+	}
+
+	// And the script is actually served, with the build on the URL so a new
+	// one is a new address.
+	rec := get(t, h, "/static/stratus/copy.js?v="+version, signIn(t, h))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("the script = %d", rec.Code)
+	}
+	if !strings.Contains(rec.Header().Get("Cache-Control"), "immutable") {
+		t.Errorf("Cache-Control = %q", rec.Header().Get("Cache-Control"))
+	}
 }
 
 // TestSharedFileOpensWithoutAnAccount is the requirement, including the range:

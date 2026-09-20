@@ -27,6 +27,11 @@ import (
 const (
 	assetPrefix = "/static/bootstrap-5.3.8"
 	htmxPrefix  = "/static/htmx-2.0.10"
+	// ownPrefix is where this project's own script lives, and it has no version
+	// in its path because it has no version: the build's goes on as a query, so
+	// the URL still changes when the bytes do and the immutable header stays
+	// true.
+	ownPrefix = "/static/stratus"
 )
 
 // contentSecurityPolicy is as narrow as it is because nothing is loaded from
