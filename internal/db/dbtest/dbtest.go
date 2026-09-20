@@ -9,7 +9,9 @@ package dbtest
 
 import (
 	"errors"
+	"fmt"
 	"slices"
+	"sync"
 	"testing"
 
 	"github.com/C0piIot/stratus-backend/internal/db"
@@ -53,6 +55,7 @@ func Run(t *testing.T, newStore func(t *testing.T) db.Store) {
 		{"a transaction rolls back on panic", txRollsBackOnPanic},
 		{"migrating twice changes nothing", migrateIsIdempotent},
 		{"a move rolled back leaves the tree as it was", moveRollsBack},
+		{"two writers at once both get through", concurrentWriters},
 	}
 
 	for _, tc := range cases {
@@ -60,6 +63,64 @@ func Run(t *testing.T, newStore func(t *testing.T) db.Store) {
 			t.Parallel()
 			tc.fn(t, newStore(t))
 		})
+	}
+}
+
+// concurrentWriters is the promise a database is for: two of them at the same
+// time is ordinary, and the second one waits rather than failing.
+//
+// It is here rather than in one driver because it is a property of the seam.
+// It only ever failed on one of them -- SQLite refuses to upgrade a deferred
+// transaction's read lock, and busy_timeout does not apply to that -- and it
+// failed as a 500 on a plain PUT, which is a phone backing up a camera roll
+// with more than one upload in flight. Found by litmus (#173), which is what
+// that suite is for.
+func concurrentWriters(t *testing.T, s db.Store) {
+	if _, err := s.CreateDir(t.Context(), owner, "busy"); err != nil {
+		t.Fatal(err)
+	}
+
+	const writers = 24
+	var wg sync.WaitGroup
+	errs := make(chan error, writers)
+	for i := range writers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			// A read and then a write in one transaction, which is the shape
+			// internal/files writes in and the shape that could not upgrade.
+			err := s.Tx(t.Context(), func(r db.Repo) error {
+				if _, err := r.FileByPath(t.Context(), owner, "busy"); err != nil {
+					return err
+				}
+				_, err := r.PutFile(t.Context(), file(fmt.Sprintf("busy/f%02d.txt", i)))
+				return err
+			})
+			if err != nil {
+				errs <- err
+			}
+		}()
+	}
+	wg.Wait()
+	close(errs)
+
+	var failed int
+	for err := range errs {
+		if failed == 0 {
+			t.Errorf("a concurrent write failed: %v", err)
+		}
+		failed++
+	}
+	if failed > 0 {
+		t.Errorf("%d of %d writers were refused", failed, writers)
+	}
+
+	got, err := s.ListFiles(t.Context(), owner, "busy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != writers {
+		t.Errorf("%d of %d rows landed", len(got), writers)
 	}
 }
 

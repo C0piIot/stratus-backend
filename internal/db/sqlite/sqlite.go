@@ -34,6 +34,7 @@ var migrations embed.FS
 //   - foreign_keys, which SQLite leaves off for backwards compatibility and
 //     which every schema here assumes.
 //   - busy_timeout, so a concurrent writer waits instead of failing instantly.
+//     It is half of that promise: see _txlock in New for the other half.
 //   - synchronous=NORMAL, the pairing WAL is designed for.
 var pragmas = []string{
 	"journal_mode(WAL)",
@@ -68,6 +69,21 @@ func New(ctx context.Context, path string) (*Store, error) {
 	for _, p := range pragmas {
 		query.Add("_pragma", p)
 	}
+	query.Set("_txlock", "immediate")
+	// Every transaction takes the write lock up front.
+	//
+	// Without this the driver opens one with a plain BEGIN, which is deferred:
+	// a transaction that reads before it writes -- which is every write in
+	// internal/files, since each one checks its parent first -- holds a read
+	// snapshot and then has to upgrade. SQLite refuses that upgrade with
+	// SQLITE_BUSY **immediately**, and busy_timeout does not apply, because
+	// waiting cannot help: the snapshot it read is already stale.
+	//
+	// The symptom was two clients writing at once getting 500s -- measured at
+	// 22 failures in 60 concurrent writes, which is a phone backing up a camera
+	// roll. With the lock taken at BEGIN there is nothing to upgrade, so the
+	// second writer waits out busy_timeout like it was always supposed to.
+	query.Set("_txlock", "immediate")
 	dsn.RawQuery = query.Encode()
 
 	sqlDB, err := sql.Open("sqlite", dsn.String())
