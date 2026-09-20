@@ -30,10 +30,16 @@ DAV_PASS=litmus-secret
 #                      properties, so three of these cannot pass, and the
 #                      fourth wants a malformed namespace declaration answered
 #                      with 400 where the library answers 207.
-#   locks    17 of 32  LOCK is advertised and not enforced (#174). Everything
-#                      that checks a lock actually holds a resource fails, on
-#                      purpose and on the record, and the README says so.
-declare -A EXPECTED=( [basic]=16 [copymove]=13 [http]=4 [props]=10 [locks]=17 )
+#   locks    29 of 33  Locking is real now (#174) and four remain, each for a
+#                      reason rather than a gap: owner_modify twice, which is
+#                      PROPPATCH and the props gap above; lock_shared, since
+#                      the lock system holds one token per resource and asking
+#                      for a shared one is refused rather than answered with
+#                      an exclusive lock; and unmapped_lock, which is a LOCK
+#                      on a path with nothing at it, refused because granting
+#                      it means writing an empty resource through a filesystem
+#                      built to refuse writes.
+declare -A EXPECTED=( [basic]=16 [copymove]=13 [http]=4 [props]=10 [locks]=29 )
 SUITES=(basic copymove http props locks)
 
 green=$'\e[32m'; red=$'\e[31m'; bold=$'\e[1m'; off=$'\e[0m'

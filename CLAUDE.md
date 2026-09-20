@@ -958,11 +958,85 @@ Restraint here is principle 3, not laziness:
   **Each suite is held to the number it passes today**, and that number is the
   point. `basic`, `copymove` and `http` pass whole. `props` passes 10 of 14 --
   `PROPPATCH` is refused, because there are no dead properties here. `locks`
-  passes 17 of 32, because `LOCK` is advertised and not enforced (#174). A
-  suite that passes fewer is a regression and fails the build; one that passes
-  more is a number to raise in a commit, with the reason. That is the same
+  passes 29 of 33, and it went from 17 the day locking became real (#174):
+  what is left is `PROPPATCH` twice, a shared lock and a `LOCK` on a path with
+  nothing at it, each refused on purpose. A suite that passes fewer is a
+  regression and fails the build; one that passes more is a number to raise in
+  a commit, with the reason. That is the same
   discipline as `deps.allow` and the coverage floors, and it is what keeps
   "known gap" from becoming "silently excluded".
+- **Locking is real, and what made it possible was already linked** (#174).
+  `LOCK` used to answer with a token nothing recorded, because Finder will not
+  mount a share read-write against a class 1 server (#3) and the state looked
+  like a table. It is not a table: `golang.org/x/net/webdav` arrived for
+  `PROPFIND` (#136) and brought a `LockSystem` with it.
+
+  **The lock system is an interface the library brought, not a third seam this
+  project invented.** `xnet.LockSystem` is four methods; the composition names
+  `NewMemLS()`, and a table-backed one the day a lock has to outlive a restart
+  is a type satisfying the same four and a line in `dav.Handler`. There is no
+  configuration variable for it today, deliberately: a setting that accepts one
+  value promises a choice that does not exist, which is what principle 3 calls
+  "just in case".
+
+  **In memory is right rather than merely cheap.** A lock is a claim with a
+  timeout measured in minutes and a restart forgetting one costs a client a
+  retry -- the same trade the signed session makes. It is also consistent with
+  a server that assumes a single instance in five other places, none of which
+  said so out loud: SQLite is a local file, the indexer would have two
+  instances take the same batch, the sweep would have both compute the same
+  garbage, the tus spool for S3 is local so a resumed upload must come back to
+  the same process, and the disk backend empties its reserved directory at
+  startup on the argument that what is in it belongs to a dead process. A lock
+  table would have been the only cluster-ready thing in it. That inventory is
+  an issue of its own, as what #28 has to answer before stateless deployment
+  means more than one of anything.
+
+  **The `If` header parser is vendored, and that is the expensive part.** RFC
+  4918 10.4 is the gnarliest grammar in the specification and x/net keeps its
+  parser unexported: 173 lines with a lexer of its own.
+  `internal/dav/ifheader.go` is that file copied byte for byte, package clause
+  aside, with
+  its 322 lines of upstream tests beside it -- because a lock is the one place
+  a parser bug is a silent authorisation failure, and a fresh parser would be
+  our own bugs there. What it costs is stated in its header: it is Go source
+  rather than an asset, so `deps.allow` cannot see it, no upstream fix arrives
+  on its own, and it is ours from now on. `.golangci.yml` excludes both files,
+  because linting a copy is how it stops being one.
+
+  **Enforcement is ours, and it is not x/net's** -- that library enforces locks
+  inside handlers which serve nothing here. `internal/dav/locks.go` is the
+  third thing in this package that reads a request before the library does,
+  after `depth.go` and `signed.go`, and it differs from x/net in three places
+  that were each found by litmus or by reading its source:
+
+  - **A tagged list has to be about this request.** x/net confirms the
+    conditions against the resource named in the tag and then lets the request
+    through, so a client holding a lock of its own anywhere could name it and
+    walk past somebody else's. Here the tag has to name what is being written
+    or a collection above it -- which is also how a client submits the token of
+    a folder it locked while writing a file inside, the shape litmus's
+    `lock_collection` uses.
+  - **A destination that nobody has locked is not an error.** x/net asks for
+    every named resource to be covered by a claimed lock, which makes a `MOVE`
+    onto a free path impossible for the client holding the source. What the
+    other end has to be is not somebody else's, and a brief lock for the length
+    of the request is how that is asked -- the same trick as the no-`If` case.
+  - **`Not` and `ETag` conditions are evaluated.** The lock system ignores both
+    -- a `TODO` in its own source -- and says only whether some token can claim
+    a lock here. So `If: (<token> ["etag"])`, a client saying "only if the bytes
+    are still these", would be a precondition nobody checked: the same quiet lie
+    as a lock nothing records, one layer along. `fail_complex_cond_put` is what
+    catches it.
+
+  Two smaller things are deliberate. A token goes out as
+  `opaquelocktoken:<n>` because RFC 4918 6.5 says a lock token is a URI and
+  `memLS` hands back a bare integer; it is **not** made unguessable, and that
+  is not an oversight -- anybody who can take a lock is shown the shape of
+  them, and anybody who cannot take one cannot write either. And a shared lock
+  is refused with `501` rather than granted as an exclusive one, which is what
+  `supportedlock` has been advertising all along.
+
 - **Principle 5 is a gate, not an intention.** `deps.allow` lists every module
   linked into the binary and `scripts/smoke.sh` checks it against the shipped
   one, so a transitive arrival is a line in a diff. `depguard` is the other half

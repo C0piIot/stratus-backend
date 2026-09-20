@@ -108,17 +108,25 @@ the same answer rather than one level and a wrong impression.
 **What the server claims about WebDAV is checked by litmus**, the protocol
 compliance suite, on every build: `basic`, `copymove` and `http` pass whole.
 Two suites do not, and both are written down rather than hidden — `props`
-because `PROPPATCH` is refused, and `locks` because of the next paragraph.
+because `PROPPATCH` is refused, and `locks` at 29 of 33 for the reasons in the
+next paragraph.
 
-Locking is **advertised and not enforced**. macOS Finder refuses to mount a
-share read-write unless the server claims class 2, so `LOCK` answers with a
-well-formed token that nothing records and `UNLOCK` always succeeds.
+**Locking is real.** `LOCK` takes an exclusive write lock, and a `PUT`,
+`DELETE`, `MOVE`, `COPY`, `MKCOL` or `PROPPATCH` against something somebody
+else holds is refused with `423 Locked`. A lock on a folder covers everything
+under it, and the client that took it carries on working by submitting its
+token in the `If` header — where an `ETag` condition beside the token is
+checked too, so "only if the bytes are still these" means what it says.
 
-That is a lie to the client, and the cost of it is worth stating: two clients
-writing the same file at the same time are not protected — and they were not
-protected before either, because there was no locking at all. It removes no
-guarantee. The real defence against a lost update here is the strong ETag and
-`If-Match`, which every write already honours.
+Three limits, because they are the kind a client discovers at the worst
+moment. **A lock lives in memory**, so restarting the server drops every one of
+them; that is the same trade the signed session makes, and the strong ETag with
+`If-Match` is the defence that survives a restart. **Only exclusive locks**: a
+request for a shared one is answered `501` rather than granted as an exclusive
+lock the client would think it was sharing. And **`LOCK` on a path with nothing
+at it is `404`** rather than creating the empty resource RFC 4918 allows, which
+is what leaves the four litmus tests above: two of them are `PROPPATCH`, one is
+the shared lock and one is that empty resource.
 
 ### Logs
 
