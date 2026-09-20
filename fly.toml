@@ -24,7 +24,7 @@
 #   make demo BASE=https://<app>.fly.dev                        # the demo media
 #
 # CI deploys this same file with the digest it just published; see ci.yml.
-app = "stratus-edu"
+app = "stratus-demo"
 primary_region = "cdg"
 
 [build]
