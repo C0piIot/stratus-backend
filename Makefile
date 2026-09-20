@@ -235,6 +235,10 @@ demo:
 smoke:
 	./scripts/smoke.sh
 
+## litmus: run the WebDAV compliance suite against the image
+litmus: image
+	./scripts/litmus.sh
+
 ## smoke-cover: the same suite again, against an instrumented image
 #
 # What `make cover` cannot see: the container suite drives the binary from the
@@ -261,7 +265,7 @@ smoke-cover: | $(CACHE_DIR)
 	@printf '\n  profile: coverage-smoke.out\n\n'
 
 ## ci: everything CI runs, in one command
-ci: fmt-check vet lint tidy-check test-race test-s3 test-db cover smoke smoke-cover
+ci: fmt-check vet lint tidy-check test-race test-s3 test-db cover smoke smoke-cover litmus
 
 # --- services for tests ---------------------------------------------------
 #
@@ -430,5 +434,5 @@ version:
 
 .PHONY: help env up down restart logs ps health image build fmt fmt-check vet \
         lint tidy tidy-check vuln deps deps-update demo test test-race test-s3 test-db silo-up \
-        silo-down postgres-up postgres-down cover smoke smoke-cover ci shell clean \
+        silo-down postgres-up postgres-down cover smoke smoke-cover litmus ci shell clean \
         clean-data version

@@ -105,6 +105,11 @@ and that grows with the library. A request that leaves the `Depth` header out
 is the same request — the RFC says an absent header means infinity — so it gets
 the same answer rather than one level and a wrong impression.
 
+**What the server claims about WebDAV is checked by litmus**, the protocol
+compliance suite, on every build: `basic`, `copymove` and `http` pass whole.
+Two suites do not, and both are written down rather than hidden — `props`
+because `PROPPATCH` is refused, and `locks` because of the next paragraph.
+
 Locking is **advertised and not enforced**. macOS Finder refuses to mount a
 share read-write unless the server claims class 2, so `LOCK` answers with a
 well-formed token that nothing records and `UNLOCK` always succeeds.
