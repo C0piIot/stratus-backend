@@ -23,8 +23,10 @@ import (
 	"net/url"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/emersion/go-webdav"
+	xnet "golang.org/x/net/webdav"
 
 	"github.com/C0piIot/stratus-backend/internal/auth"
 	"github.com/C0piIot/stratus-backend/internal/db"
@@ -40,8 +42,10 @@ import (
 // should know the difference.
 func Handler(prefix string, service *files.Service) http.Handler {
 	prefix = strings.TrimSuffix(prefix, "/")
-	fs := &fileSystem{files: service, prefix: prefix}
+	fs := &fileSystem{files: service, prefix: prefix, locks: memoryLocks(), now: time.Now}
 	dav := &webdav.Handler{FileSystem: fs}
+	// Everything that writes goes through the lock gate first. See locks.go.
+	guarded := fs.enforceLocks(dav)
 
 	return http.StripPrefix(prefix, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// A PROPFIND over the whole tree is refused before the library sees it,
@@ -76,11 +80,11 @@ func Handler(prefix string, service *files.Service) http.Handler {
 		case "LOCK":
 			fs.handleLock(w, r)
 		case "UNLOCK":
-			handleUnlock(w, r)
+			fs.handleUnlock(w, r)
 		case http.MethodOptions:
 			dav.ServeHTTP(&advertiseLocking{ResponseWriter: w}, r)
 		default:
-			dav.ServeHTTP(w, r)
+			guarded.ServeHTTP(w, r)
 		}
 	}))
 }
@@ -91,6 +95,18 @@ type fileSystem struct {
 	// still on the Destination header, and it has to be put back on every href
 	// in a multistatus or the client follows a link to nowhere.
 	prefix string
+	// locks is what makes LOCK mean something. One for the process, not one
+	// per request: a lock nobody else can see is not a lock.
+	//
+	// The interface is x/net's rather than one invented here, so the day a
+	// lock has to outlive a restart it is a type satisfying the same four
+	// methods and a line in the composition root. See locks.go.
+	locks xnet.LockSystem
+	// now is the clock the lock system is driven by. Every one of its four
+	// methods takes the time as an argument rather than reading it, which is
+	// the library saying the caller owns the clock -- and it is what lets a
+	// test watch a lock expire instead of waiting an hour for one.
+	now func() time.Time
 }
 
 // owner is whoever authenticated. go-webdav hands the request's context to

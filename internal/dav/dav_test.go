@@ -662,23 +662,27 @@ func TestCopyOutsideTheCollection(t *testing.T) {
 	}
 }
 
-// TestLockDepth is what a client reads back to know what it holds: LOCK defaults
-// to infinite depth and only "0" means this resource alone. Answering the wrong
-// one is not a lie about a lock we keep -- we keep none -- but it is a lie about
-// the answer, and a client that parses it deserves the truth.
+// TestLockDepth is what a client reads back to know what it holds: LOCK
+// defaults to infinite depth and only "0" means this resource alone. It is the
+// difference between a lock on a folder and a lock on a folder and everything
+// in it, and a client that parses the answer has no other way to tell.
+//
+// Two files, because the second LOCK of the same one is now refused by the
+// first -- which is the feature.
 func TestLockDepth(t *testing.T) {
 	t.Parallel()
 	h := server(t)
-	do(t, h, http.MethodPut, "/dav/notes.txt", "one")
+	do(t, h, http.MethodPut, "/dav/deep.txt", "one")
+	do(t, h, http.MethodPut, "/dav/shallow.txt", "one")
 
 	const body = `<?xml version="1.0"?><D:lockinfo xmlns:D="DAV:">` +
 		`<D:lockscope><D:exclusive/></D:lockscope><D:locktype><D:write/></D:locktype></D:lockinfo>`
 
-	deep := do(t, h, "LOCK", "/dav/notes.txt", body, "Content-Type", "application/xml")
+	deep := do(t, h, "LOCK", "/dav/deep.txt", body, "Content-Type", "application/xml")
 	if !strings.Contains(deep.Body.String(), "<D:depth>infinity</D:depth>") {
 		t.Errorf("LOCK with no Depth header answered %s", deep.Body.String())
 	}
-	shallow := do(t, h, "LOCK", "/dav/notes.txt", body, "Content-Type", "application/xml", "Depth", "0")
+	shallow := do(t, h, "LOCK", "/dav/shallow.txt", body, "Content-Type", "application/xml", "Depth", "0")
 	if !strings.Contains(shallow.Body.String(), "<D:depth>0</D:depth>") {
 		t.Errorf("LOCK with Depth: 0 answered %s", shallow.Body.String())
 	}

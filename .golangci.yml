@@ -203,6 +203,20 @@ linters:
         linters:
           - gosec
           - prealloc
+      # The If: header parser and its tests are copied from
+      # golang.org/x/net/webdav, byte for byte apart from the package clause,
+      # so that a later diff against upstream is a diff and not an argument.
+      # Linting them would be linting the Go project's code and the first fix
+      # would throw that away -- which is the whole reason they are copied
+      # rather than adapted. See internal/dav/ifheader.go.
+      - path: internal/dav/ifheader(_test)?\.go
+        linters:
+          - gocritic
+          - govet
+          - perfsprint
+          - revive
+          - staticcheck
+          - wastedassign
 
 formatters:
   enable:

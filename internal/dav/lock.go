@@ -1,35 +1,42 @@
 package dav
 
 import (
-	"crypto/rand"
 	"encoding/xml"
+	"errors"
 	"io"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
+
+	xnet "golang.org/x/net/webdav"
 )
 
-// Locking here is advertised and not enforced, on purpose.
+// Locking, and it is real now (#174).
 //
 // macOS Finder refuses to mount a WebDAV share read-write unless the server
-// says it is class 2, which means LOCK and UNLOCK. The library this package is
+// says it is class 2, which means LOCK and UNLOCK. The library this package was
 // built on is class 1 and answers 405 to both, so Finder mounts read-only or
-// not at all (#3).
+// not at all (#3) -- and for a long time this file answered LOCK with a
+// well-formed token that nothing ever checked. That was a lie, documented as
+// one, on the argument that the real protection against a lost update is the
+// strong ETag and If-Match.
 //
-// What is below answers LOCK with a well-formed token that nothing ever checks.
-// That is a lie to the client, and it is worth being exact about what it costs:
-// two clients writing the same file at the same time are not protected -- and
-// they were not protected before either, because there was no locking at all.
-// It removes no guarantee; it declines to add one, in exchange for a client
-// that works. The real protection against a lost update is the strong ETag and
-// If-Match, which this server has done since the WebDAV surface landed.
+// What this file predicted is exactly what it cost to stop lying: "the state is
+// a table and the hard part is the If: header grammar in RFC 4918 section 10.4,
+// not this file." Half right. The state is not a table -- x/net/webdav arrived
+// for PROPFIND (#136) and brought a LockSystem, held for the process in
+// dav.go. The If: header was the hard part, and it is vendored in
+// ifheader.go with the enforcement in locks.go.
 //
-// If it ever needs to become real, the state is a table and the hard part is
-// the If: header grammar in RFC 4918 section 10.4, not this file.
+// What stays true: a lock lives in memory, so a restart drops every one of
+// them. That is the same trade the signed session makes, and the ETag is still
+// the defence that survives a restart.
 const (
-	// lockTimeout is what a client is told its lock lasts. Nothing expires
-	// because nothing is stored, so this is only the number Finder shows.
+	// lockTimeout is how long a lock lasts without being refreshed. An hour is
+	// long enough that a client editing a file does not lose it, and short
+	// enough that a client which died holding one does not block the path for
+	// a day.
 	lockTimeout = time.Hour
 
 	// maxLockBody bounds the request body. The owner element is arbitrary XML
@@ -41,6 +48,12 @@ const (
 // lockInfo is the request body of a LOCK.
 type lockInfo struct {
 	XMLName xml.Name `xml:"DAV: lockinfo"`
+	// Shared is the other lock scope, which this server does not have: the
+	// lock system holds one token per resource. It is read so that asking for
+	// one can be refused rather than answered with an exclusive lock and a
+	// response saying so -- which is a client being told it shares something
+	// it does not.
+	Shared *struct{} `xml:"lockscope>shared"`
 	// Owner is arbitrary XML that the client expects to see again untouched, so
 	// it travels as raw bytes rather than being interpreted.
 	Owner ownerXML `xml:"owner"`
@@ -50,39 +63,67 @@ type ownerXML struct {
 	Inner string `xml:",innerxml"`
 }
 
-// handleLock answers a LOCK with a token nothing records.
+// handleLock takes a lock, or refreshes one.
 func (f *fileSystem) handleLock(w http.ResponseWriter, r *http.Request) {
+	path, err := toPath(r.URL.Path)
+	if err != nil {
+		http.Error(w, "that is not a path here", http.StatusBadRequest)
+		return
+	}
+
 	var info lockInfo
 	body, err := io.ReadAll(io.LimitReader(r.Body, maxLockBody))
 	if err != nil {
 		http.Error(w, "cannot read the lock request", http.StatusBadRequest)
 		return
 	}
-	// An empty body is a refresh of an existing lock, which for a server that
-	// stores none is the same answer as a new one.
-	if len(body) > 0 {
-		if err := xml.Unmarshal(body, &info); err != nil {
-			http.Error(w, "malformed lock request", http.StatusBadRequest)
-			return
-		}
+	// An empty body is a refresh of a lock the client already holds, named by
+	// the If header rather than by the body.
+	if len(body) == 0 {
+		f.refreshLock(w, r)
+		return
+	}
+	if uerr := xml.Unmarshal(body, &info); uerr != nil {
+		http.Error(w, "malformed lock request", http.StatusBadRequest)
+		return
 	}
 
-	// 201 when the lock creates a lock-null resource, 200 when the resource is
-	// already there. Finder locks a path before its first PUT, so this is the
-	// ordinary case rather than an edge one.
-	status := http.StatusOK
-	if p, perr := toPath(strings.TrimPrefix(r.URL.Path, f.prefix)); perr == nil {
-		if owner, oerr := f.owner(r.Context()); oerr == nil {
-			if _, serr := f.files.Stat(r.Context(), owner, p); serr != nil {
-				status = http.StatusCreated
-			}
-		}
+	// A shared lock is refused rather than granted as an exclusive one. What
+	// PROPFIND advertises in supportedlock is exclusive alone, so this is the
+	// same answer twice rather than a surprise.
+	if info.Shared != nil {
+		http.Error(w, "this server takes exclusive write locks only", http.StatusNotImplemented)
+		return
 	}
 
-	token := "opaquelocktoken:" + strings.ToLower(rand.Text())
+	// A lock on a path that is not there would have to create an empty
+	// resource to hold it (RFC 4918 7.3). Refused: it means writing through a
+	// filesystem built to refuse writes, and no client this server is for
+	// needs it. Finder locks a file it is about to replace, which exists.
+	owner, err := f.owner(r.Context())
+	if err != nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if _, serr := f.files.Stat(r.Context(), owner, path); serr != nil {
+		http.Error(w, "there is nothing there to lock", http.StatusNotFound)
+		return
+	}
+
+	token, err := f.locks.Create(f.now(), xnet.LockDetails{
+		Root:      lockName(path),
+		Duration:  lockTimeout,
+		OwnerXML:  info.Owner.Inner,
+		ZeroDepth: depthOf(r) == "0",
+	})
+	if err != nil {
+		http.Error(w, "locked", lockStatus(err))
+		return
+	}
+
 	w.Header().Set("Lock-Token", "<"+token+">")
 	w.Header().Set("Content-Type", "application/xml; charset=utf-8")
-	w.WriteHeader(status)
+	w.WriteHeader(http.StatusOK)
 
 	// The prefix is back on: the request path arrives stripped, and a lockroot
 	// pointing at /notes.txt instead of /dav/notes.txt names a resource the
@@ -90,9 +131,57 @@ func (f *fileSystem) handleLock(w http.ResponseWriter, r *http.Request) {
 	_, _ = io.WriteString(w, lockDiscovery(token, f.prefix+r.URL.Path, depthOf(r), info.Owner.Inner))
 }
 
-// handleUnlock always succeeds. There is nothing to release, and telling a
-// client its unlock failed would strand it holding a lock that never existed.
-func handleUnlock(w http.ResponseWriter, _ *http.Request) {
+// refreshLock is a LOCK with no body: the client is asking for more time on a
+// lock it names in its If header.
+//
+// Answering it with a fresh token, which is what this did when nothing was
+// stored, is what litmus calls out -- a client that asked to keep its lock is
+// told about a different one and holds neither.
+func (f *fileSystem) refreshLock(w http.ResponseWriter, r *http.Request) {
+	parsed, ok := parseIfHeader(r.Header.Get("If"))
+	if !ok || len(parsed.lists) == 0 || len(parsed.lists[0].conditions) == 0 {
+		http.Error(w, "a refresh has to name its lock", http.StatusBadRequest)
+		return
+	}
+
+	token := parsed.lists[0].conditions[0].Token
+	details, err := f.locks.Refresh(f.now(), token, lockTimeout)
+	if err != nil {
+		http.Error(w, "no such lock", lockStatus(err))
+		return
+	}
+
+	w.Header().Set("Lock-Token", "<"+token+">")
+	w.Header().Set("Content-Type", "application/xml; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	depth := "infinity"
+	if details.ZeroDepth {
+		depth = "0"
+	}
+	_, _ = io.WriteString(w, lockDiscovery(token, f.prefix+r.URL.Path, depth, details.OwnerXML))
+}
+
+// handleUnlock releases a lock, and can fail now: a token nobody holds is a
+// client that believes something untrue, and saying so is more use than a 204
+// it cannot learn from.
+func (f *fileSystem) handleUnlock(w http.ResponseWriter, r *http.Request) {
+	token := strings.TrimSuffix(strings.TrimPrefix(r.Header.Get("Lock-Token"), "<"), ">")
+	if token == "" {
+		http.Error(w, "no lock token", http.StatusBadRequest)
+		return
+	}
+	switch err := f.locks.Unlock(f.now(), token); {
+	case err == nil:
+	case errors.Is(err, xnet.ErrNoSuchLock):
+		// RFC 4918 9.11.1: 409, and not the 412 the same error means when a
+		// write was claiming to hold something. Here the request is the unlock
+		// itself, and what it names is not there.
+		http.Error(w, "no such lock", http.StatusConflict)
+		return
+	default:
+		http.Error(w, "cannot unlock that", lockStatus(err))
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 

@@ -46,11 +46,12 @@ func (f *fileSystem) propfindHandler(owner string) http.Handler {
 	return &xnet.Handler{
 		Prefix:     f.prefix,
 		FileSystem: &readOnlyFS{files: f.files, owner: owner, listed: map[string]db.File{}},
-		// A lock system is required for the supportedlock and lockdiscovery
-		// properties, which this reports honestly: nothing holds a lock here,
-		// because LOCK is answered in lock.go with a token nothing records.
-		// Making it real is #174.
-		LockSystem: xnet.NewMemLS(),
+		// The process's own rather than one built for this request (#174).
+		// x/net uses it for nothing this route reaches -- supportedlock is a
+		// constant and lockdiscovery is a TODO in its own source -- but a
+		// PROPFIND holding a lock system that knows of no locks is a thing
+		// that is true until it is not.
+		LockSystem: f.locks,
 	}
 }
 
