@@ -1,4 +1,4 @@
-// Vendored from golang.org/x/net/webdav@v0.58.0, if.go, byte for byte.
+// Vendored from golang.org/x/net/webdav@v0.59.0, if.go, byte for byte.
 //
 // The If header is RFC 4918 section 10.4 and it is the gnarliest grammar in the
 // specification -- a disjunction of tagged lists of conditions, each a token or

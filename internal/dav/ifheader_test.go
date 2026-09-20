@@ -1,4 +1,4 @@
-// Vendored from golang.org/x/net/webdav@v0.58.0, if_test.go, byte for byte.
+// Vendored from golang.org/x/net/webdav@v0.59.0, if_test.go, byte for byte.
 //
 // These are the reason ifheader.go was copied rather than written. A test
 // edited to pass would throw that away, so the only change here is the package
