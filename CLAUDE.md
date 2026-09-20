@@ -924,6 +924,28 @@ Restraint here is principle 3, not laziness:
   equivalent of. JPEG and PNG are decoded and encoded by the stdlib; HEIC and
   video frames need the ffmpeg above, so a format is either read in-process or
   refused honestly, never read badly.
+- **litmus is the canary, and it is the only test here that did not come from
+  our own understanding** (#173). Everything else in this repository was
+  written from the same reading of WebDAV as the code, so it agrees with the
+  code by construction. litmus is a 2011 C suite by the people who wrote the
+  reference implementations, and it has no opinion about what we meant: its
+  first run found a `SQLITE_BUSY` under two concurrent writers that every test
+  here had missed (#183).
+
+  Built rather than installed, in `build/litmus`, because there is no image, no
+  release on any forge and no package worth pinning -- the last release is a
+  tarball on a web page, so the source is pinned by digest the way ffmpeg's is.
+  Debian and not Alpine, unlike the other two: it carries its own `getopt` for
+  systems without one, and on musl that collides. It never ships.
+
+  **Each suite is held to the number it passes today**, and that number is the
+  point. `basic`, `copymove` and `http` pass whole. `props` passes 10 of 14 --
+  `PROPPATCH` is refused, because there are no dead properties here. `locks`
+  passes 17 of 32, because `LOCK` is advertised and not enforced (#174). A
+  suite that passes fewer is a regression and fails the build; one that passes
+  more is a number to raise in a commit, with the reason. That is the same
+  discipline as `deps.allow` and the coverage floors, and it is what keeps
+  "known gap" from becoming "silently excluded".
 - **Principle 5 is a gate, not an intention.** `deps.allow` lists every module
   linked into the binary and `scripts/smoke.sh` checks it against the shipped
   one, so a transitive arrival is a line in a diff. `depguard` is the other half

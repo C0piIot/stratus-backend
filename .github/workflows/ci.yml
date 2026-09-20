@@ -126,6 +126,16 @@ jobs:
       - name: smoke tests
         run: make smoke
 
+      # What WebDAV actually is, rather than what we think it is: litmus is a
+      # C suite by the people who wrote the reference implementations, and it
+      # has no opinion about how we meant things. Its first run found a
+      # SQLITE_BUSY under two concurrent writers (#183).
+      #
+      # Each suite is held to what it passes today, so a gap that is known
+      # stays visible and a gap that is new fails the build.
+      - name: litmus
+        run: make litmus
+
       # The same assertions again, against a twin of the image built with
       # `go build -cover`. It is what measures cmd/stratus and the startup
       # paths, which no unit test can import.
