@@ -526,20 +526,6 @@ if wait_serving "$davname"; then
     *)           bad "a PROPFIND listing includes the collection itself" "no self entry in the multistatus" ;;
   esac
 
-  # The two properties that made PROPFIND change libraries (#136): whether a
-  # file has a preview, and how much room is left, both in the listing a client
-  # was making anyway. Asserted from outside, because what matters is the
-  # document a client reads.
-  props="$(curl -fsS -u "$davuser:$davpass" -H 'Depth: 1' \
-    -X PROPFIND "http://$davhost/dav/" 2>/dev/null || true)"
-  case "$props" in
-    *has-preview*) ok "the listing says which files have a preview" ;;
-    *) bad "the listing says which files have a preview" "no has-preview in the multistatus" ;;
-  esac
-  case "$props" in
-    *quota-available-bytes*) ok "the listing says how much room is left" ;;
-    *) bad "the listing says how much room is left" "no quota in the multistatus" ;;
-  esac
 
   # A whole folder copied, which is the thing #43 left at 501 and the only
   # WebDAV method that writes a tree. From outside because what is being checked
@@ -818,6 +804,37 @@ TRACK
   # read out of its boxes (#145). Its thumbnail is ffmpeg's either way.
   curl -fsS -u "$davuser:$davpass" -X PUT --data-binary "@scripts/testdata/film.mkv" \
     "http://$davhost/dav/film.mkv" >/dev/null 2>&1
+
+  # The two properties that made PROPFIND change libraries (#136): whether a
+  # file has a preview, and how much room is left, both in the listing a client
+  # was making anyway. Asserted from outside, because what matters is the
+  # document a client reads.
+  props="$(curl -fsS -u "$davuser:$davpass" -H 'Depth: 1' \
+    -X PROPFIND "http://$davhost/dav/" 2>/dev/null || true)"
+
+  # First, that it carries every member. The self entry is written before the
+  # walk begins, so an assertion that only looks for it cannot tell a listing
+  # from a listing that died after one line -- which is how a camera roll came
+  # back empty for a day. Every file this project's own tests listed was a
+  # .txt, whose type Go knows without opening the file.
+  missing=""
+  for f in cover.jpg track.mp3 photo.heic clip.mp4 film.mkv; do
+    case "$props" in *"/dav/$f<"*) ;; *) missing="$missing $f" ;; esac
+  done
+  case "$props" in *"Internal Server Error"*) missing="$missing (and the walk died)" ;; esac
+  if [ -z "$missing" ]; then
+    ok "a listing carries every member, whatever its type"
+  else
+    bad "a listing carries every member, whatever its type" "missing:$missing"
+  fi
+  case "$props" in
+    *has-preview*) ok "the listing says which files have a preview" ;;
+    *) bad "the listing says which files have a preview" "no has-preview in the multistatus" ;;
+  esac
+  case "$props" in
+    *quota-available-bytes*) ok "the listing says how much room is left" ;;
+    *) bad "the listing says how much room is left" "no quota in the multistatus" ;;
+  esac
 
   for subject in photo.heic clip.mp4 film.mkv; do
     file="$(mktmp)/thumb.jpg"

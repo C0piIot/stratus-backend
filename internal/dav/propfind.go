@@ -173,6 +173,28 @@ func (i rowInfo) ModTime() time.Time { return i.row.MTime }
 func (i rowInfo) IsDir() bool        { return i.row.IsDir }
 func (i rowInfo) Sys() any           { return i.row }
 
+// ContentType is x/net's ContentTyper, and like ETag it is not optional.
+//
+// Without it the library falls back to mime.TypeByExtension and then, when
+// that says nothing, to **reading the first 512 bytes of the file** -- which
+// this filesystem refuses, so the whole listing dies with a 500 after a
+// partial document. Go's built-in table has no .heic, .mp4, .mkv, .mp3 or
+// .dng, and a distroless image has no /etc/mime.types to widen it, so the
+// files that broke it were a camera roll.
+//
+// The row's own type is the right answer anyway: internal/files decided it
+// from the bytes and from what the client declared (#146), which is a better
+// answer than a second guess from the first 512 bytes.
+func (i rowInfo) ContentType(context.Context) (string, error) {
+	if i.row.MIMEType == "" {
+		// Not ErrNotImplemented: that hands the question back to the library,
+		// which answers it by reading, which is the thing that cannot happen
+		// here.
+		return "application/octet-stream", nil
+	}
+	return i.row.MIMEType, nil
+}
+
 // ETag is x/net's ETager, and it is not optional for us.
 //
 // Without it the library computes one from the modification time and the size,

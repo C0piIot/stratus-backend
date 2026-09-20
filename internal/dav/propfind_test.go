@@ -232,6 +232,47 @@ func (c *countingStore) FileByPath(ctx context.Context, owner, path string) (db.
 	return c.Store.FileByPath(ctx, owner, path)
 }
 
+// TestPropfindListsAPhotograph is the bug the library swap shipped, and the
+// reason it went unseen for a day: every test here used .txt.
+//
+// x/net answers getcontenttype from mime.TypeByExtension and then, when that
+// says nothing, by reading the first 512 bytes -- which this filesystem
+// refuses. Go's built-in table has no .heic, .mp4, .mkv or .mp3, and a
+// distroless image has no /etc/mime.types, so a Depth: 1 listing of a camera
+// roll died with a 500 after a partial document. Which is Finder opening a
+// folder of photographs.
+func TestPropfindListsAPhotograph(t *testing.T) {
+	t.Parallel()
+	h := server(t)
+	do(t, h, "MKCOL", "/dav/camera", "")
+	for _, name := range []string{"IMG_0001.HEIC", "clip.mp4", "song.flac", "raw.dng", "nameless"} {
+		do(t, h, http.MethodPut, "/dav/camera/"+name, "bytes")
+	}
+
+	rec := do(t, h, "PROPFIND", "/dav/camera", "", "Depth", "1", "Content-Type", "application/xml")
+	if rec.Code != http.StatusMultiStatus {
+		t.Fatalf("PROPFIND = %d", rec.Code)
+	}
+	body := rec.Body.String()
+	// The tail is the tell: a walk that died wrote a closed multistatus and
+	// then an error after it.
+	if strings.Contains(body, "Internal Server Error") {
+		t.Errorf("the walk failed partway: %s", body[max(0, len(body)-120):])
+	}
+
+	props := propsOf(t, body)
+	for _, name := range []string{"IMG_0001.HEIC", "clip.mp4", "song.flac", "raw.dng", "nameless"} {
+		if _, there := props["/dav/camera/"+name]; !there {
+			t.Errorf("%s is not in the listing", name)
+		}
+	}
+	// And the type is the row's, which internal/files decided from the bytes,
+	// rather than a second guess from the first 512.
+	if got := props["/dav/camera/IMG_0001.HEIC"]["getcontenttype"]; got == "" {
+		t.Error("a photograph has no content type in the listing")
+	}
+}
+
 // TestPropfindAgreesWithGetAboutTheETag is the one the fixture comparison
 // cannot make, because a fixture's validators are its own.
 //

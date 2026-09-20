@@ -594,6 +594,23 @@ Restraint here is principle 3, not laziness:
   One thing changed that a client can see: **a collection's href ends in a
   slash now**, which is what RFC 4918's own examples do.
 
+  **Two of x/net's optional interfaces are not optional here**, and both cost
+  a bug before they were found. `ETager`, or the library computes a validator
+  from the modification time and the size and a listing disagrees with a `GET`
+  about the same bytes. And `ContentTyper`, or it falls back to
+  `mime.TypeByExtension` and then to **reading the first 512 bytes** -- which
+  this read-only filesystem refuses, so a `Depth: 1` listing of a folder died
+  with a 500 after a partial document. Go's built-in table has no `.heic`,
+  `.mp4`, `.mkv` or `.mp3`, and a distroless image has no `/etc/mime.types`,
+  so the folder that broke it was a camera roll.
+
+  Both were missed the same way: every listing this repository tested held a
+  `.txt`, whose type Go knows without opening it, and the smoke assertion
+  looked for the collection's own entry -- which is written before the walk
+  begins, so a walk that died after one line still matched. **An assertion
+  that only checks the first thing written cannot tell a listing from a
+  failure.**
+
   And the property needs somewhere to point: `/thumb/` takes HTTP Basic as well
   as a session, because the client that reads `has-preview` authenticates over
   WebDAV and could not reach it otherwise. **That is the extension principle 2
