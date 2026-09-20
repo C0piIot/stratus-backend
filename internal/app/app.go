@@ -144,7 +144,9 @@ func (a *App) Handler(deps Deps) http.Handler {
 			auth.NewSessions(creds, auth.DefaultSessionTTL), shares, service, thumbs,
 			web.Indexing{Index: deps.Database, Interval: a.cfg.IndexInterval}))
 	}
-	return logRequests(mux)
+	// The log is outside the compression so that the bytes it counts are the
+	// bytes that went out rather than the ones the handler wrote.
+	return logRequests(compress(mux))
 }
 
 // Server applies the timeout policy. Separate from Run so the policy itself can

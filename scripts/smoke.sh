@@ -836,6 +836,53 @@ TRACK
     *) bad "the listing says how much room is left" "no quota in the multistatus" ;;
   esac
 
+  # Compression, which is the largest thing that ever happened to a listing:
+  # the same multistatus is forty tags repeated, and gzip takes a folder of two
+  # hundred from 138 KB to 3.2 KB (#178). There is no reverse proxy in this
+  # deployment to do it -- principle 1 -- so it is asserted here, on the shipped
+  # image, rather than assumed.
+  plain="$(curl -fsS -u "$davuser:$davpass" -H 'Depth: 1' -X PROPFIND \
+    -o /dev/null -w '%{size_download}' "http://$davhost/dav/" 2>/dev/null || echo 0)"
+  # curl only decodes for --compressed, so asking for the header by hand is
+  # what counts the bytes that were actually on the wire.
+  zipped="$(curl -fsS -u "$davuser:$davpass" -H 'Depth: 1' -H 'Accept-Encoding: gzip' \
+    -X PROPFIND -o /dev/null -w '%{size_download}' \
+    "http://$davhost/dav/" 2>/dev/null || echo 0)"
+  headers="$(curl -fsS -u "$davuser:$davpass" -H 'Depth: 1' -H 'Accept-Encoding: gzip' \
+    -X PROPFIND -D - -o /dev/null "http://$davhost/dav/" 2>/dev/null || true)"
+  if [ "$zipped" -gt 0 ] && [ "$plain" -gt "$((zipped * 3))" ]; then
+    ok "a listing is compressed on the wire ($plain to $zipped bytes)"
+  else
+    bad "a listing is compressed on the wire" "$plain plain, $zipped gzipped"
+  fi
+  # Vary, or a cache in front of this hands the compressed body to a client
+  # that never asked for one -- which it cannot decode and cannot diagnose.
+  case "$headers" in
+    *[Vv]ary:*Accept-Encoding*) ok "a compressed answer varies on Accept-Encoding" ;;
+    *) bad "a compressed answer varies on Accept-Encoding" "$(printf '%s' "$headers" | head -c 200)" ;;
+  esac
+  # And a photograph is not compressed: it already is, so the only thing gzip
+  # could do is spend CPU making it slightly larger.
+  blob="$(curl -fsS -u "$davuser:$davpass" -H 'Accept-Encoding: gzip' \
+    -D - -o /dev/null "http://$davhost/dav/cover.jpg" 2>/dev/null || true)"
+  case "$blob" in
+    *[Cc]ontent-[Ee]ncoding*) bad "a photograph is served as it is" "it was encoded" ;;
+    *) ok "a photograph is served as it is" ;;
+  esac
+  # The one that would corrupt a download rather than waste time: Content-Range
+  # counts bytes of the original representation, so a compressed 206 describes
+  # itself wrongly. Video seeking is made of these, and a text file is what
+  # proves it, since anything gzip would decline is not a test of the branch.
+  head -c 4000 /dev/zero | tr '\0' 'a' | curl -fsS -u "$davuser:$davpass" \
+    -T - "http://$davhost/dav/ranges.txt" >/dev/null 2>&1
+  ranged="$(curl -fsS -u "$davuser:$davpass" -H 'Accept-Encoding: gzip' \
+    -H 'Range: bytes=10-40' -D - -o /dev/null "http://$davhost/dav/ranges.txt" 2>/dev/null || true)"
+  case "$ranged" in
+    *[Cc]ontent-[Ee]ncoding*) bad "a range is never compressed" "it was encoded" ;;
+    *206*) ok "a range is never compressed" ;;
+    *) bad "a range is never compressed" "$(printf '%s' "$ranged" | head -c 200)" ;;
+  esac
+
   for subject in photo.heic clip.mp4 film.mkv; do
     file="$(mktmp)/thumb.jpg"
     code="$(curl -s -o "$file" -w '%{http_code} %{content_type}' -b "$jar" \

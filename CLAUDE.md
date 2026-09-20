@@ -1037,6 +1037,43 @@ Restraint here is principle 3, not laziness:
   is refused with `501` rather than granted as an exclusive one, which is what
   `supportedlock` has been advertising all along.
 
+- **Text answers are compressed, and it is the composition root that does it**
+  (#178). `internal/app/compress.go` wraps the whole mux, inside the request log
+  so the bytes it counts are the bytes that went out.
+
+  The measurement is the argument: a `PROPFIND` of two hundred files is 138 KB
+  of XML and gzip takes it to 3.2 KB, because a multistatus is the same forty
+  tags repeated and that is the best case deflate has. The issue behind it was
+  filed about the namespace declaration repeated on every element -- a fifth of
+  the document when it was measured against emersion, and 2% of it once
+  PROPFIND moved to x/net (#136), which is a good reminder that a measurement
+  has a date on it. Compressed, that 2% is worth nothing at all, and the
+  thousand lines of multistatus writer it would have taken to recover stay
+  unwritten.
+
+  **There is no reverse proxy to do it for us**, which is principle 1 read from
+  the other side: the thing that would normally compress -- nginx, Caddy, a CDN
+  -- is exactly what "one binary, one container" says we do not deploy.
+
+  Three rules in it are correctness rather than preference, and each has a test:
+  a partial response is never compressed, because `Content-Range` counts bytes
+  of the original representation and video seeking is made of these; a response
+  that already carries a `Content-Encoding` is left alone; and a strong `ETag`
+  on a compressed answer is weakened, since it names a representation and this
+  is a different one. `Vary: Accept-Encoding` goes on every answer to a client
+  that asked, including the ones we decline to compress, or a cache in front
+  hands the gzipped body to somebody who cannot read it.
+
+  **The gate is the content type, not the route.** A photograph, a video and a
+  track are already compressed, so trying is pure cost -- and doing it by type
+  means a surface added later is covered without anybody remembering to.
+
+  BREACH was considered and does not apply here, which is worth writing down
+  before somebody makes it apply: it needs a secret in the response body beside
+  attacker-influenced content, and there is none -- the session is a cookie and
+  CSRF is `SameSite` plus `CrossOriginProtection`, so no page carries a token.
+  The day a form grows one is the day this paragraph is a problem.
+
 - **Principle 5 is a gate, not an intention.** `deps.allow` lists every module
   linked into the binary and `scripts/smoke.sh` checks it against the shipped
   one, so a transitive arrival is a line in a diff. `depguard` is the other half

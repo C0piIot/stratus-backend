@@ -128,10 +128,34 @@ at it is `404`** rather than creating the empty resource RFC 4918 allows, which
 is what leaves the four litmus tests above: two of them are `PROPPATCH`, one is
 the shared lock and one is that empty resource.
 
+### Compression
+
+**Text answers are gzipped when the client asks for it**, which on a listing is
+the largest difference this server can make to what goes over somebody's
+uplink. Measured on a folder of two hundred files, through the shipped image:
+
+| | as it is | gzipped |
+|---|---|---|
+| `PROPFIND` with no body, so every property | 138,822 | **3,166** |
+| `PROPFIND` naming the five a client reads | 84,622 | **1,432** |
+
+A multistatus is the same forty tags repeated, which is the best case deflate
+has. It costs under a millisecond of CPU for that document, and it is done here
+rather than by a reverse proxy because this server is meant to run without one.
+
+What is **not** compressed: anything that is not text — a photograph, a video
+and a track are already compressed, and the only thing gzip could do is spend
+CPU to make them slightly bigger — and any partial response, because
+`Content-Range` counts bytes of the original and a compressed range would
+describe itself wrongly. A compressed answer carries `Vary: Accept-Encoding`
+and, if it had a strong `ETag`, a weakened one: it is a different
+representation of the same thing.
+
 ### Logs
 
 JSON on stdout, one line per request: method, path, status, bytes, duration and
-the caller's address. No headers and no query string — one carries the
+the caller's address. The bytes are what went on the wire, so a compressed
+answer logs its compressed size. No headers and no query string — one carries the
 credentials and the other is where a token would end up if a protocol ever put
 one there. `/healthz` and `/readyz` log at debug, because the container asks
 every thirty seconds and three thousand lines a day of nothing is not a log — a
