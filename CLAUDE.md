@@ -254,9 +254,19 @@ Rules that follow from this:
 
 - **A DSN may carry secrets, so it is never logged verbatim.** Redact userinfo and
   secret query parameters before any log line or error message touches one.
-- **The sqlite DSN takes no parameters.** WAL, `foreign_keys` and `busy_timeout`
-  are correctness requirements for a server, not operator preferences, so the
-  adapter sets them. The postgres one passes its parameters through: that set is
+- **The sqlite DSN takes no parameters.** WAL, `foreign_keys`, `busy_timeout`
+  and `_txlock=immediate` are correctness requirements for a server, not
+  operator preferences, so the adapter sets them.
+
+  That last one is not obvious and cost us a bug. Without it the driver opens a
+  transaction with a plain `BEGIN`, which is deferred: one that reads before it
+  writes -- every write in `internal/files`, since each checks its parent first
+  -- takes a read snapshot and then has to upgrade, and SQLite refuses that
+  upgrade with `SQLITE_BUSY` **immediately**. `busy_timeout` does not apply,
+  because waiting cannot help a snapshot that is already stale. Measured: 22 of
+  60 concurrent writes failed, which is a phone with more than one upload in
+  flight getting 500s. Taking the write lock at `BEGIN` leaves nothing to
+  upgrade, and the second writer waits like the timeout always promised. The postgres one passes its parameters through: that set is
   large, documented and legitimate, and pgx rejects what it does not know at
   connect time, which happens at startup anyway.
 - **The password is held as configured, in the clear, and this was chosen rather
