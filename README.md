@@ -442,6 +442,11 @@ and signs every browser out with them, because both keys come from it. And a
 shared path that is renamed breaks its own link, since a signature names a path
 and not a file.
 
+What comes back is the whole address, built from the name this server was
+reached at — so if a proxy in front does not pass that on, the link will say
+the wrong one and you can see that it does. There is a button to copy it, and
+without JavaScript the field is still there to copy by hand.
+
 A link can be given a life of a day, a week, a month, or none — which lasts
 until the password changes. Making one needs an account; opening one does not.
 **The same link also works under `/dav/`**, for reading, which is what lets a
