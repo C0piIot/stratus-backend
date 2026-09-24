@@ -390,8 +390,25 @@ caches rows sees them without asking twice. What is worth knowing:
 added. A playlist holds files, so renaming or overwriting a track keeps it in
 every playlist and deleting it takes it out of all of them. An edit is all or
 nothing: a position that is not there, or a song that is not yours, changes
-nothing at all. Playlists live in the database and are not visible over WebDAV
-as `.m3u` files -- that is [#203](https://github.com/C0piIot/stratus-backend/issues/203).
+nothing at all.
+
+**The same playlists are `.m3u8` files at `/playlists/`**, a WebDAV mount of
+their own with the same credentials, so a player that has never heard of
+Subsonic -- VLC, foobar2000, anything that opens a playlist by URL -- can play
+them. Three things are worth knowing:
+
+- **It is a separate mount on purpose.** Your files under `/dav/` are yours, and
+  a generated `Mix.m3u8` in there could collide with one you uploaded. Nothing
+  of yours can ever be at `/playlists/`.
+- **It is read-only.** The files are generated from the database on every read,
+  so they are never stale -- a renamed track is in the next read -- and there
+  is nothing for a write to mean. Finder mounts it read-only; everything that
+  writes is refused. Editing happens over OpenSubsonic.
+- **Each entry is a URL on this server**, `/dav/music/...`. That works for a
+  player that opens the playlist from here, and not for a copy synced to a local
+  disk, where `/dav/` is not a path. Two playlists with the same name, or names
+  that differ only in case, become `Mix.m3u8` and `Mix (2).m3u8`, the older one
+  keeping the plain name; characters a file name cannot hold become `_`.
 
 What is not there yet, and it is better to know before installing a client:
 
@@ -906,7 +923,7 @@ Working now:
   rename and delete. A signed-cookie session and a CSP that allows nothing but
   the binary's own assets.
 - A request log, migrations applied at startup, and a container asserted from
-  the outside by 97 smoke checks.
+  the outside by 99 smoke checks.
 
 Not there yet: CalDAV and sharing. Work
 and the decisions behind it are tracked on the

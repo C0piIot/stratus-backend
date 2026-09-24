@@ -683,6 +683,23 @@ TRACK
     *) bad "getCoverArt reduces a picture found beside the music" "got '$code'" ;;
   esac
 
+  # A playlist made over OpenSubsonic and read back as an .m3u8 from its own
+  # mount, which is the point of #203: a player that has never heard of
+  # Subsonic opens the file and finds the track, over the same credentials.
+  curl -fsS "http://$davhost/rest/createPlaylist.view?c=smoke&u=$davuser&t=$token&s=$salt&name=Smoke&songId=$song_id" \
+    >/dev/null 2>&1
+  body="$(curl -fsS -u "$davuser:$davpass" "http://$davhost/playlists/Smoke.m3u8" 2>/dev/null || true)"
+  case "$body" in
+    '#EXTM3U'*'/dav/'*) ok "a playlist is an .m3u8 over WebDAV" ;;
+    *)                  bad "a playlist is an .m3u8 over WebDAV" "got '$(head -c 120 <<<"$body")'" ;;
+  esac
+  code="$(curl -s -o /dev/null -w '%{http_code}' "http://$davhost/playlists/Smoke.m3u8")"
+  if [ "$code" = "401" ]; then
+    ok "the playlists mount asks for the password"
+  else
+    bad "the playlists mount asks for the password" "got $code"
+  fi
+
   # The web UI, driven the way a browser drives it: a cookie jar, a form post
   # and a redirect. Its session is signed rather than stored, so what is asserted
   # here is the whole round trip through the shipped binary.
