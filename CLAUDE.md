@@ -561,6 +561,15 @@ Restraint here is principle 3, not laziness:
   music query. An album's star is keyed by its tags, like the album itself, so a
   retag leaves it behind -- the price of having no derived tables, and the case
   `dbtest` pins.
+
+  **Nor did the play count, which this paragraph had named** (#195). What
+  scrobbling needs is a counter on the row a track's star is already on and a
+  `GREATEST` on its time, and both are one statement in each driver; the only
+  thing above it is reading the protocol's parameters, which is the adapter's.
+  An album's plays are its tracks' summed at read time rather than kept, so
+  there is no second count to keep in step -- which is exactly the derived
+  state a package here would have existed to own. The day is a playlist, or a
+  count that has to be kept in two places; not an `UPDATE ... + 1`.
 - **`photos`.** Photo backup is files plus EXIF indexing; the photo-ness lives in
   `media` and in date queries.
 - **Any job framework.** The indexer is a goroutine started by `app`.

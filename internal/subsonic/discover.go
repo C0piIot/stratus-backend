@@ -64,11 +64,8 @@ type songList struct {
 	Songs []child `xml:"song" json:"song"`
 }
 
-// albumOrders maps the protocol's ten types onto what the library can answer.
-//
-// The two that are missing are not an oversight: frequent and recent are
-// ordered by a play count, and nothing records one yet (#195). They answer an
-// empty list -- see emptyAlbumList for why that rather than an error.
+// albumOrders maps the protocol's ten types onto what the library can answer,
+// which is all of them.
 var albumOrders = map[string]db.AlbumOrder{
 	"alphabeticalByName":   db.AlbumsByName,
 	"alphabeticalByArtist": db.AlbumsByArtist,
@@ -76,20 +73,10 @@ var albumOrders = map[string]db.AlbumOrder{
 	"random":               db.AlbumsRandom,
 	"starred":              db.AlbumsStarred,
 	"highest":              db.AlbumsHighest,
+	"frequent":             db.AlbumsFrequent,
+	"recent":               db.AlbumsRecent,
 	"byGenre":              db.AlbumsByName,
 	"byYear":               db.AlbumsByYear,
-}
-
-// emptyAlbumList are the types this server accepts and cannot fill.
-//
-// An empty shelf is the honest answer and the useful one: the client shows
-// "Most played" with nothing under it, which is exactly what we know, and it
-// fills itself the day there is something to count without this adapter
-// changing. Answering an error instead makes some clients report a connection
-// failure for the whole screen.
-var emptyAlbumList = map[string]bool{
-	"frequent": true,
-	"recent":   true,
 }
 
 func (h *handler) albumList2(w http.ResponseWriter, r *http.Request, username string) {
@@ -142,10 +129,6 @@ func (h *handler) albumsFor(r *http.Request, username string) ([]db.Album, *apiE
 	kind := q.Get("type")
 	if kind == "" {
 		return nil, &apiError{errMissingParam, "the type parameter is required"}
-	}
-	if emptyAlbumList[kind] {
-		// Nothing to ask the database. See emptyAlbumList.
-		return nil, nil
 	}
 	order, ok := albumOrders[kind]
 	if !ok {

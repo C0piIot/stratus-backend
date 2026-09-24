@@ -490,17 +490,17 @@ func (r *repo) TrackByFile(ctx context.Context, owner string, fileID int64) (db.
 // song count is COUNT(*) over them, so a WHERE that dropped the tracks not
 // matching would leave the album in the answer with the wrong numbers beside it.
 func (r *repo) AlbumList(ctx context.Context, owner string, f db.AlbumFilter) ([]db.Album, error) {
-	join, order, err := albumOrder(f.Order)
+	o, err := albumOrder(f.Order)
 	if err != nil {
 		return nil, err
 	}
 
-	query := albumSelect + join + `
+	query := albumSelect + o.join + `
 		WHERE f.owner_id = $1 AND m.kind = $2 AND m.album <> ''` + albumGroup + `
 		HAVING ($3 = '' OR SUM(CASE WHEN m.genre = $3 THEN 1 ELSE 0 END) > 0)
 		   AND ($4 = 0 OR MAX(m.year) >= $4)
-		   AND ($5 = 0 OR MAX(m.year) <= $5)
-		ORDER BY ` + order + `
+		   AND ($5 = 0 OR MAX(m.year) <= $5)` + o.having + `
+		ORDER BY ` + o.by + `
 		LIMIT $6 OFFSET $7`
 
 	out, err := sqlutil.Collect(ctx, r.q, scanAlbum, query,
@@ -512,31 +512,41 @@ func (r *repo) AlbumList(ctx context.Context, owner string, f db.AlbumFilter) ([
 	return out, nil
 }
 
-// albumOrder is the ORDER BY for each way a client asks to see a library, and
-// the join the two that are also filters need. Every one of them ends in the
-// same tie-break, so a page boundary lands in the same place twice -- except the
-// random one, which is a different set by definition.
-func albumOrder(o db.AlbumOrder) (join, order string, err error) {
+// albumListing is what one order adds to the album aggregate: a join for the
+// orders that read annotations, a condition on the group for the ones that are
+// also filters, and the ORDER BY.
+type albumListing struct{ join, having, by string }
+
+// albumOrder is the listing for each way a client asks to see a library. Every
+// one of them ends in the same tie-break, so a page boundary lands in the same
+// place twice -- except the random one, which is a different set by definition.
+func albumOrder(o db.AlbumOrder) (albumListing, error) {
 	const tie = `, m.album_artist, m.album`
 	switch o {
 	case db.AlbumsByName:
-		return "", `m.album, m.album_artist`, nil
+		return albumListing{by: `m.album, m.album_artist`}, nil
 	case db.AlbumsByArtist:
-		return "", `m.album_artist, m.album`, nil
+		return albumListing{by: `m.album_artist, m.album`}, nil
 	case db.AlbumsByAdded:
-		return "", `MIN(f.mtime) DESC` + tie, nil
+		return albumListing{by: `MIN(f.mtime) DESC` + tie}, nil
 	case db.AlbumsByYear:
-		return "", `MAX(m.year)` + tie, nil
+		return albumListing{by: `MAX(m.year)` + tie}, nil
 	case db.AlbumsByYearDesc:
-		return "", `MAX(m.year) DESC` + tie, nil
+		return albumListing{by: `MAX(m.year) DESC` + tie}, nil
 	case db.AlbumsRandom:
-		return "", `random()`, nil
+		return albumListing{by: `random()`}, nil
 	case db.AlbumsStarred:
-		return albumAnnotated + ` AND a.starred_at IS NOT NULL`, `MAX(a.starred_at) DESC` + tie, nil
+		return albumListing{join: albumAnnotated + ` AND a.starred_at IS NOT NULL`, by: `MAX(a.starred_at) DESC` + tie}, nil
 	case db.AlbumsHighest:
-		return albumAnnotated + ` AND a.rating > 0`, `MAX(a.rating) DESC` + tie, nil
+		return albumListing{join: albumAnnotated + ` AND a.rating > 0`, by: `MAX(a.rating) DESC` + tie}, nil
+	case db.AlbumsFrequent:
+		return albumListing{join: albumPlayed, having: ` AND SUM(t.play_count) > 0`,
+			by: `SUM(t.play_count) DESC` + tie}, nil
+	case db.AlbumsRecent:
+		return albumListing{join: albumPlayed, having: ` AND MAX(t.played_at) IS NOT NULL`,
+			by: `MAX(t.played_at) DESC` + tie}, nil
 	default:
-		return "", "", fmt.Errorf("list albums: unknown order %q", o)
+		return albumListing{}, fmt.Errorf("list albums: unknown order %q", o)
 	}
 }
 

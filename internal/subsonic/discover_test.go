@@ -50,16 +50,10 @@ func TestGetAlbumList2(t *testing.T) {
 			query: []string{"type", "newest"},
 			want:  []string{"Meia", "Zeta", "Aaron"},
 		},
-		{
-			// Accepted and empty: the shelf is honest about there being no play
-			// counts rather than filled with something else.
-			name:  "most played, which nothing counts",
-			query: []string{"type", "frequent"},
-			want:  []string{},
-		},
-		{name: "recently played", query: []string{"type", "recent"}, want: []string{}},
-		// Filters as well as orders, so nothing rated and nothing starred is
-		// an empty shelf. The full shelves are in annotate_test.go.
+		// Filters as well as orders, so nothing played, rated or starred is an
+		// empty shelf. The full shelves are in annotate_test.go.
+		{name: "most played, with nothing played", query: []string{"type", "frequent"}, want: []string{}},
+		{name: "recently played, with nothing played", query: []string{"type", "recent"}, want: []string{}},
 		{name: "highest rated, with nothing rated", query: []string{"type", "highest"}, want: []string{}},
 		{name: "starred, with nothing starred", query: []string{"type", "starred"}, want: []string{}},
 	}

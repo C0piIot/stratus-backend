@@ -83,13 +83,19 @@ func ValidateRating(rating int) error {
 	return nil
 }
 
-// Annotation is what one user has said about one subject. The zero value is
-// the answer for a subject nobody has touched.
+// Annotation is what one user has said about one subject, and what they have
+// done with it. The zero value is the answer for a subject nobody has touched.
 type Annotation struct {
 	// Starred is when it was starred, and zero when it is not.
 	Starred time.Time
 	// Rating is 1 to MaxRating, and 0 for none.
 	Rating int
+	// PlayCount is how many plays were recorded, and Played the latest of
+	// them. A track has its own; an album's are the sum and the latest of its
+	// tracks', computed rather than kept, so they cannot disagree. An artist
+	// has none.
+	PlayCount int64
+	Played    time.Time
 }
 
 // StarredItems is everything a user has starred that the library still holds.
@@ -99,9 +105,9 @@ type StarredItems struct {
 	Tracks  []Track
 }
 
-// Annotations is the repository for what a user has said about their library:
-// stars and ratings. Separate from Music because that one only reads tags, and
-// this is the first thing about music that is written by somebody.
+// Annotations is the repository for what a user has said about their library
+// and done with it: stars, ratings and plays. Separate from Music because that
+// one only reads tags, and this is what is written by somebody.
 //
 // Every write is idempotent. A client retries, and starring twice or clearing
 // a rating nobody gave is the same answer as doing it once.
@@ -118,6 +124,15 @@ type Annotations interface {
 	// SetRating rates s, and 0 takes a rating away. Off the scale is
 	// ErrInvalidRating.
 	SetRating(ctx context.Context, owner string, s Subject, rating int) error
+
+	// RecordPlay counts one play of a track, at the time given. Played only
+	// moves forward: a play reported late, which is what a client syncing an
+	// offline session does, still counts and does not make the track look
+	// less recent than it is. A file that is not there is ErrNotFound.
+	//
+	// Not idempotent, unlike the rest, and it cannot be: two plays and one
+	// play retried look the same from here.
+	RecordPlay(ctx context.Context, owner string, fileID int64, at time.Time) error
 
 	// AnnotationsOf reads the annotations of the subjects named, for the ones
 	// that have any. It exists so that decorating a whole response costs a

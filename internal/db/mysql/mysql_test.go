@@ -127,14 +127,19 @@ func TestAnnotationsOnAClosedStore(t *testing.T) {
 
 	track, album := db.TrackSubject(1), db.AlbumSubject("a", "b")
 	calls := map[string]func() error{
-		"Star":      func() error { return store.Star(t.Context(), "edu", album, time.Now()) },
-		"Unstar":    func() error { return store.Unstar(t.Context(), "edu", album) },
-		"SetRating": func() error { return store.SetRating(t.Context(), "edu", track, 3) },
+		"Star":       func() error { return store.Star(t.Context(), "edu", album, time.Now()) },
+		"Unstar":     func() error { return store.Unstar(t.Context(), "edu", album) },
+		"SetRating":  func() error { return store.SetRating(t.Context(), "edu", track, 3) },
+		"RecordPlay": func() error { return store.RecordPlay(t.Context(), "edu", 1, time.Now()) },
 		"AnnotationsOf tracks": func() error {
 			_, err := store.AnnotationsOf(t.Context(), "edu", []db.Subject{track})
 			return err
 		},
 		"AnnotationsOf tags": func() error {
+			_, err := store.AnnotationsOf(t.Context(), "edu", []db.Subject{db.ArtistSubject("a")})
+			return err
+		},
+		"AnnotationsOf albums": func() error {
 			_, err := store.AnnotationsOf(t.Context(), "edu", []db.Subject{album})
 			return err
 		},
