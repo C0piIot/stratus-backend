@@ -680,6 +680,28 @@ Restraint here is principle 3, not laziness:
   built in, and which `ListFilesPage` already answered in -- is the whole fix,
   and it was never only about deep listings: every `Depth: 1` PROPFIND, both
   Subsonic browse calls and the folder-cover lookup were paying it.
+- **Playlists are `.m3u8` files on a mount of their own**, `/playlists/`
+  (#203), read-only WebDAV from `internal/dav/playlists.go`. **Not a folder in
+  the tree, and that is the design:** `/dav/` is the user's namespace, and a
+  generated file there -- a reserved `.playlists` folder, or an `.m3u8` beside
+  the tracks -- can collide with a real one, which would mean refusing a path
+  that has always been legal, including in a library adopted from elsewhere.
+  The server's own URL space cannot collide, by construction.
+
+  The files are generated per request and never stored, so they cannot go
+  stale; the ETag is a digest of the body, because a renamed or deleted track
+  changes the file without touching the playlist's row. It answers class 1 and
+  refuses every write, which is what makes Finder mount it read-only. Two
+  things x/net gets wrong for it are worked around in the handler rather than
+  lived with: it turns any error opening a file into a 404, so the file is
+  resolved before the library sees the request and a broken database is a 500;
+  and it leaves a GET's type to `ServeContent`, which sniffs an `.m3u8` as text.
+
+  Names are made unique in id order, case-insensitively -- Finder and Windows
+  fold case -- and stripped of what a Windows file name cannot hold. Entries are
+  URLs rooted at the server, which is right for a player and wrong for a copy
+  synced to disk; that, and importing an `.m3u8`, is the harder question this
+  one deliberately did not answer.
 - `minio-go` for S3 (much lighter than `aws-sdk-go-v2`). The client, not the
   server: MinIO the server was archived in April 2026, and the conformance
   suite runs against Silo, a maintained fork of it (#116). minio-go is a

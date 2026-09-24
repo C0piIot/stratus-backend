@@ -45,6 +45,11 @@ const tusPrefix = "/tus/"
 // URL it is given.
 const subsonicPrefix = "/rest/"
 
+// playlistsPrefix is where playlists are served as .m3u8 files. A mount of its
+// own and not a folder under davPrefix: that tree is the user's, and a
+// generated file there could collide with a real one (#203).
+const playlistsPrefix = "/playlists/"
+
 // App holds the wired application. Construction is pure: no I/O happens until
 // Run, so Handler can be exercised from tests without touching the filesystem.
 type App struct {
@@ -134,9 +139,11 @@ func (a *App) Handler(deps Deps) http.Handler {
 		// generator takes the store directly: a derived object has no database
 		// row and never will.
 		thumbs := deps.Thumbs
+		playlists := music.New(deps.Database)
 		mux.Handle(subsonicPrefix,
-			subsonic.Handler(subsonicPrefix, a.version, verifier, deps.Database, service,
-				music.New(deps.Database), thumbs))
+			subsonic.Handler(subsonicPrefix, a.version, verifier, deps.Database, service, playlists, thumbs))
+		// The same realm and throttle as /dav/, for the reason tus shares them.
+		mux.Handle(playlistsPrefix, auth.Basic(davRealm, verifier, dav.Playlists(playlistsPrefix, davPrefix, playlists)))
 
 		// The browser surface, at the root, so everything the prefixes above did
 		// not claim is a page rather than a bare 404. Same verifier again, and
