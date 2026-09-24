@@ -41,9 +41,8 @@ func (h *handler) status(w http.ResponseWriter, r *http.Request, user string) {
 		FreeSpace: h.freeSpace(r),
 		// The version is on the page because it is what a re-index moves: an
 		// operator who raised it wants to see the numbers fall and climb again.
-		IndexVersion:  media.Version,
-		IndexInterval: h.indexing.Interval.String(),
-		IndexingOff:   h.indexing.Interval == 0,
+		IndexVersion: media.Version,
+		IndexingOff:  h.indexing.Interval == 0,
 	}
 
 	if r.Header.Get("HX-Request") == "true" {

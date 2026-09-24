@@ -8,13 +8,6 @@
 </div>
 
 <p class="text-body-secondary small mb-0">
-  Metadata is extracted in the background: dates and cameras from photographs,
-  tags and durations from music and video. A file is read once, and again only
-  when it is replaced or when a better extractor ships — which is what the
-  version below is for.
-</p>
-
-<p class="text-body-secondary small mb-0">
   The room left is the whole volume's, shared with the database and with what
   the indexer spools while it reads — not a figure set aside for files. An
   object store has no size to report, so it says so instead.
@@ -70,11 +63,7 @@
     {{end}}
 
     <dt class="col-sm-4 fw-normal text-body-secondary">Extractor</dt>
-    <dd class="col-sm-8">
-      version {{.IndexVersion}}{{if not .IndexingOff}}; a file is read as it
-      arrives, and every {{.IndexInterval}} the queue is swept for anything
-      nothing announced{{end}}
-    </dd>
+    <dd class="col-sm-8">version {{.IndexVersion}}</dd>
   </dl>
 </div>
 {{- end}}
