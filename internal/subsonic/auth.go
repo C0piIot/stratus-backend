@@ -12,12 +12,13 @@ import (
 // Subsonic error codes, the ones this adapter answers with. The rest of the
 // list exists but nothing here produces it.
 const (
-	errGeneric      = 0
-	errMissingParam = 10
-	errBadLogin     = 40
-	errNoTokenAuth  = 41
-	errConflicting  = 43
-	errNotFound     = 70
+	errGeneric       = 0
+	errMissingParam  = 10
+	errBadLogin      = 40
+	errNoTokenAuth   = 41
+	errConflicting   = 43
+	errNotAuthorized = 50
+	errNotFound      = 70
 )
 
 // Verifier is what this adapter authenticates against: both schemes a Subsonic

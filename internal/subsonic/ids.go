@@ -24,6 +24,8 @@ const (
 	albumPrefix  = "al-"
 	songPrefix   = "tr-"
 	dirPrefix    = "d-"
+	// A playlist is a row, so its id is the row's, like a song's.
+	playlistPrefix = "pl-"
 )
 
 // idSeparator joins the two tags of an album id. NUL rather than a printable
@@ -36,6 +38,20 @@ var idEncoding = base64.RawURLEncoding
 // songID is the one id built from a row, because a track is one: the client
 // sends it back to stream, and a file id is what names the bytes.
 func songID(fileID int64) string { return songPrefix + strconv.FormatInt(fileID, 10) }
+
+func playlistID(id int64) string { return playlistPrefix + strconv.FormatInt(id, 10) }
+
+func parsePlaylistID(id string) (int64, bool) {
+	rest, ok := strings.CutPrefix(id, playlistPrefix)
+	if !ok {
+		return 0, false
+	}
+	n, err := strconv.ParseInt(rest, 10, 64)
+	if err != nil || n <= 0 {
+		return 0, false
+	}
+	return n, true
+}
 
 func artistID(name string) string { return artistPrefix + idEncoding.EncodeToString([]byte(name)) }
 

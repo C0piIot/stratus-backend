@@ -18,6 +18,7 @@ import (
 	"github.com/C0piIot/stratus-backend/internal/db"
 	"github.com/C0piIot/stratus-backend/internal/files"
 	"github.com/C0piIot/stratus-backend/internal/media"
+	"github.com/C0piIot/stratus-backend/internal/music"
 	"github.com/C0piIot/stratus-backend/internal/storage"
 	"github.com/C0piIot/stratus-backend/internal/subsonic"
 	"github.com/C0piIot/stratus-backend/internal/tus"
@@ -134,7 +135,8 @@ func (a *App) Handler(deps Deps) http.Handler {
 		// row and never will.
 		thumbs := deps.Thumbs
 		mux.Handle(subsonicPrefix,
-			subsonic.Handler(subsonicPrefix, a.version, verifier, deps.Database, service, thumbs))
+			subsonic.Handler(subsonicPrefix, a.version, verifier, deps.Database, service,
+				music.New(deps.Database), thumbs))
 
 		// The browser surface, at the root, so everything the prefixes above did
 		// not claim is a page rather than a bare 404. Same verifier again, and

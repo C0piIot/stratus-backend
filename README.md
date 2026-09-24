@@ -385,6 +385,14 @@ caches rows sees them without asking twice. What is worth knowing:
   like a song's star does. A play reported late -- a phone catching up after a
   flight -- still counts and never makes a track look less recent.
 
+**Playlists are kept too**: `getPlaylists`, `getPlaylist`, `createPlaylist`,
+`updatePlaylist` and `deletePlaylist`, with a song as many times as it was
+added. A playlist holds files, so renaming or overwriting a track keeps it in
+every playlist and deleting it takes it out of all of them. An edit is all or
+nothing: a position that is not there, or a song that is not yours, changes
+nothing at all. Playlists live in the database and are not visible over WebDAV
+as `.m3u` files -- that is [#203](https://github.com/C0piIot/stratus-backend/issues/203).
+
 What is not there yet, and it is better to know before installing a client:
 
 - **Cover art comes from two places, and Ogg is the one gap.** A `cover.jpg`,
@@ -394,8 +402,6 @@ What is not there yet, and it is better to know before installing a client:
   base64-encoded inside a comment and are not read yet. Albums always advertise
   a `coverArt` id, and asking for one that is not there is answered as "there is
   none", which is what a client draws a placeholder for.
-- **No playlists.** `getUser` says there are none rather than letting a client
-  find out.
 - **No transcoding.** `maxBitRate` and `format` are ignored and the original is
   served, which is what `format=raw` asks for explicitly.
 - **A file is in the library once the indexer has read it**, which is also how
@@ -892,8 +898,8 @@ Working now:
 - OpenSubsonic: browsing by tag and by folder, search, the album lists a home
   screen is made of, and streaming -- over both of the protocol's
   authentication schemes and sharing that same limit, with cover art from
-  beside the music or out of the tags, and stars, ratings and plays kept. No
-  playlists, no transcoding, and no client has been tried against it yet.
+  beside the music or out of the tags, and stars, ratings, plays and playlists
+  kept. No transcoding, and no client has been tried against it yet.
 - EXIF, audio tags and video probing, indexed in the background and started by
   the upload itself, with a page saying how far it has got.
 - A web UI: sign in, walk the tree, download a file, upload one, make a folder,
@@ -902,8 +908,7 @@ Working now:
 - A request log, migrations applied at startup, and a container asserted from
   the outside by 97 smoke checks.
 
-Not there yet: CalDAV and sharing --
-and on the music side, playlists. Work
+Not there yet: CalDAV and sharing. Work
 and the decisions behind it are tracked on the
 [Stratus project board](https://github.com/users/C0piIot/projects/2), where
 `Priority` says when and the `decision` label says what still needs a call.

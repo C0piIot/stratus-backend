@@ -34,6 +34,7 @@ internal/config:100
 internal/dav:89
 internal/files:92
 internal/media:89
+internal/music:100
 internal/db:63
 internal/db/postgres:94
 internal/db/sqlite:94

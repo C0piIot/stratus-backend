@@ -497,6 +497,7 @@ internal/db/sqlutil/      plumbing both SQL adapters share, and not one line of 
 internal/db/dbtest/       conformance suite every adapter must pass
 
 internal/files/           cross-protocol file invariants
+internal/music/           playlist edits, in one transaction each
 internal/calendar/        collections, objects, recurrence            -- not yet
 internal/media/           EXIF/tag extraction, thumbnails, ffprobe
 internal/auth/            credential verification, per-protocol adapters
@@ -516,7 +517,7 @@ internal/web/             inbound adapter: server-rendered UI
   leak; the rule that matters is that no driver escapes its adapter package. A
   separate package of anemic types plus mappers would only separate two types
   that are the same thing in this project.
-- **Features** (`files`, `calendar`) own the invariants that must look
+- **Features** (`files`, `music`, `calendar`) own the invariants that must look
   identical from every protocol. `files` exists for a concrete reason: a file is
   a database row *plus* a blob, and if `dav` and `web` each wired storage and db
   themselves they would diverge on ETag computation and on what happens when the
@@ -524,6 +525,23 @@ internal/web/             inbound adapter: server-rendered UI
   and cannot be, with two independent seams -- so ordering is the mitigation:
   **blob first, row second**, which leaves a collectable orphan blob instead of a
   row pointing at nothing.
+
+  `music` exists for the same kind of reason, and was created the day it had
+  one (#196): removing entries from a playlist by index is a read and a write
+  that have to be one transaction, or a second client editing in between is
+  silently undone -- and an inbound adapter has no transaction and must not
+  grow one. The read locks the playlist's row (`FOR UPDATE`, or SQLite's
+  write lock taken at `BEGIN`), and an index is only ever computed there.
+
+  What it does **not** hold is the rest of the music library, and that was
+  tried twice before it was created. Browsing is `db.Music`: an album is a
+  `GROUP BY` over tags, not a row, so reading one is calling the port. Stars,
+  ratings and plays are `db.Annotations` beside it (#194, #195), and the
+  adapter decorates what it is about to send with one `AnnotationsOf` call per
+  response rather than a join in every music query. An album's star is keyed
+  by its tags, like the album itself, so a retag leaves it behind -- the price
+  of having no derived tables, and the case `dbtest` pins -- and its plays are
+  its tracks' summed at read time rather than a second count to keep in step.
 - **Inbound adapters** (`dav`, `tus`, `subsonic`, `web`) translate protocol bytes into
   feature calls and back. They are the only packages that know about HTTP status
   codes, XML namespaces or template rendering.
@@ -546,30 +564,6 @@ Restraint here is principle 3, not laziness:
   vs Subsonic error codes vs an HTML page). The only shared part is the
   classification, which is already the sentinel errors. Create it when two
   handlers genuinely duplicate something.
-- **`music`.** There was a package pencilled in here for the library model, and
-  writing the OpenSubsonic adapter showed there is nothing for it to hold. An
-  album is not a row -- it is a `GROUP BY` over tags -- so the model is the
-  `db.Music` port and the queries behind it, and browsing is calling them. The
-  only logic above that is the id encoding and the envelope, which are the
-  protocol's and belong in `internal/subsonic`. A feature package here would be
-  a pass-through, and the day it stops being one (derived tables, a play count,
-  a playlist) is the day to create it.
-
-  Stars and ratings did not make it that day (#194): they are `db.Annotations`,
-  a second port beside `db.Music`, and the adapter decorates what it is about
-  to send with one `AnnotationsOf` call per response rather than a join in every
-  music query. An album's star is keyed by its tags, like the album itself, so a
-  retag leaves it behind -- the price of having no derived tables, and the case
-  `dbtest` pins.
-
-  **Nor did the play count, which this paragraph had named** (#195). What
-  scrobbling needs is a counter on the row a track's star is already on and a
-  `GREATEST` on its time, and both are one statement in each driver; the only
-  thing above it is reading the protocol's parameters, which is the adapter's.
-  An album's plays are its tracks' summed at read time rather than kept, so
-  there is no second count to keep in step -- which is exactly the derived
-  state a package here would have existed to own. The day is a playlist, or a
-  count that has to be kept in two places; not an `UPDATE ... + 1`.
 - **`photos`.** Photo backup is files plus EXIF indexing; the photo-ness lives in
   `media` and in date queries.
 - **Any job framework.** The indexer is a goroutine started by `app`.

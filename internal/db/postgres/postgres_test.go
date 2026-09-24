@@ -209,3 +209,35 @@ func TestAnnotationsOnAClosedStore(t *testing.T) {
 		}
 	}
 }
+
+// TestPlaylistsOnAClosedStore covers the error paths of the playlist
+// repository the way TestMusicOnAClosedStore covers browsing.
+func TestPlaylistsOnAClosedStore(t *testing.T) {
+	t.Parallel()
+	store := newStore(t)
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now()
+	calls := map[string]func() error{
+		"CreatePlaylist": func() error {
+			_, err := store.CreatePlaylist(t.Context(), db.Playlist{OwnerID: "edu", Name: "x", Created: now, Changed: now})
+			return err
+		},
+		"Playlists":      func() error { _, err := store.Playlists(t.Context(), "edu"); return err },
+		"PlaylistByID":   func() error { _, err := store.PlaylistByID(t.Context(), "edu", 1); return err },
+		"LockPlaylist":   func() error { return store.LockPlaylist(t.Context(), "edu", 1) },
+		"PlaylistTracks": func() error { _, err := store.PlaylistTracks(t.Context(), "edu", 1); return err },
+		"UpdatePlaylist": func() error {
+			return store.UpdatePlaylist(t.Context(), db.Playlist{ID: 1, OwnerID: "edu", Created: now, Changed: now})
+		},
+		"SetPlaylistTracks": func() error { return store.SetPlaylistTracks(t.Context(), "edu", 1, []int64{1}, now) },
+		"DeletePlaylist":    func() error { return store.DeletePlaylist(t.Context(), "edu", 1) },
+	}
+	for name, call := range calls {
+		if err := call(); err == nil {
+			t.Errorf("%s against a closed store reported no error", name)
+		}
+	}
+}

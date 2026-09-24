@@ -19,6 +19,7 @@ import (
 	"github.com/C0piIot/stratus-backend/internal/db/sqlite"
 	"github.com/C0piIot/stratus-backend/internal/files"
 	"github.com/C0piIot/stratus-backend/internal/media"
+	"github.com/C0piIot/stratus-backend/internal/music"
 	"github.com/C0piIot/stratus-backend/internal/storage/disk"
 	"github.com/C0piIot/stratus-backend/internal/subsonic"
 )
@@ -87,7 +88,7 @@ func newLibrary(t *testing.T) *library {
 	thumbs := media.NewThumbs(blobs, service, "ffmpeg", t.TempDir())
 	verifier := auth.NewThrottle(auth.Credentials{Username: username, Password: password}, auth.DefaultThrottle)
 	return &library{
-		Handler:  subsonic.Handler(prefix, serverVersion, verifier, meta, service, thumbs),
+		Handler:  subsonic.Handler(prefix, serverVersion, verifier, meta, service, music.New(meta), thumbs),
 		files:    service,
 		meta:     meta,
 		blobs:    blobs,
@@ -458,7 +459,7 @@ func TestTokenAuthAgainstAVerifierThatCannotAnswerIt(t *testing.T) {
 	t.Parallel()
 
 	throttle := auth.NewThrottle(passwordOnly{}, auth.DefaultThrottle)
-	h := subsonic.Handler(prefix, serverVersion, throttle, nil, nil, nil)
+	h := subsonic.Handler(prefix, serverVersion, throttle, nil, nil, nil, nil)
 
 	q := url.Values{"c": {"tests"}, "u": {username}, "t": {"whatever"}, "s": {"salt"}, "f": {"json"}}
 	if code := errorCode(t, get(t, h, "ping", q.Encode())); code != 41 {
@@ -547,12 +548,12 @@ func TestGetUserIsHonest(t *testing.T) {
 	// Every role is present, true or false, because absence is not the same
 	// claim as false and a client is entitled to read all of them.
 	want := map[string]bool{
-		"scrobblingEnabled":   false,
+		"scrobblingEnabled":   true,
 		"adminRole":           false,
 		"settingsRole":        false,
 		"downloadRole":        true,
 		"uploadRole":          false,
-		"playlistRole":        false,
+		"playlistRole":        true,
 		"coverArtRole":        false,
 		"commentRole":         false,
 		"podcastRole":         false,
@@ -583,7 +584,7 @@ func TestThrottledLoginIsNotARejection(t *testing.T) {
 	// held: it makes the second guess deterministic and instant.
 	creds := auth.Credentials{Username: username, Password: password}
 	throttle := auth.NewThrottle(creds, auth.ThrottleConfig{Every: time.Hour, Burst: 1, MaxWait: 0})
-	h := subsonic.Handler(prefix, serverVersion, throttle, nil, nil, nil)
+	h := subsonic.Handler(prefix, serverVersion, throttle, nil, nil, nil, nil)
 
 	wrong := url.Values{"c": {"tests"}, "u": {username}, "p": {"not it"}, "f": {"json"}}.Encode()
 	if code := errorCode(t, get(t, h, "ping", wrong)); code != 40 {

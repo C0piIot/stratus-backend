@@ -221,6 +221,7 @@ type Repo interface {
 	MediaIndex
 	Music
 	Annotations
+	Playlists
 	Uploads
 }
 
