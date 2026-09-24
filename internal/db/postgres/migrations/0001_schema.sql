@@ -35,6 +35,11 @@ CREATE TABLE media (
     -- describes bytes that are no longer there.
     etag                TEXT             NOT NULL DEFAULT '',
     error               TEXT             NOT NULL DEFAULT '',
+    -- When the queue should offer this file again, and NULL when never. A
+    -- failure to reach the bytes is not a verdict on them (#157): the row
+    -- records what happened so that /status can say it, and a time to find out
+    -- again. A file nothing can parse gets no such time.
+    retry_at            TIMESTAMPTZ,
     taken_at            TIMESTAMPTZ,
     width               INTEGER          NOT NULL DEFAULT 0,
     height              INTEGER          NOT NULL DEFAULT 0,
@@ -44,6 +49,15 @@ CREATE TABLE media (
     camera              TEXT             NOT NULL DEFAULT '',
     duration_ms         BIGINT           NOT NULL DEFAULT 0,
     codec               TEXT             NOT NULL DEFAULT '',
+    -- The audio stream a transcode decision is made from (#197): whether a
+    -- client can take the file as it is, and what a transcode must not exceed.
+    -- Zero is unknown, and bit_depth is zero for a lossy codec, which has none.
+    -- Filled for audio only; a video's are #207.
+    bitrate             INTEGER          NOT NULL DEFAULT 0,
+    sample_rate         INTEGER          NOT NULL DEFAULT 0,
+    channels            INTEGER          NOT NULL DEFAULT 0,
+    bit_depth           INTEGER          NOT NULL DEFAULT 0,
+    codec_profile       TEXT             NOT NULL DEFAULT '',
     artist              TEXT             NOT NULL DEFAULT '',
     album               TEXT             NOT NULL DEFAULT '',
     title               TEXT             NOT NULL DEFAULT '',
@@ -75,3 +89,72 @@ CREATE TABLE uploads (
 );
 
 CREATE INDEX uploads_expires_at ON uploads (expires_at);
+
+-- What a user has said about their library: stars and ratings (#194).
+--
+-- Two tables because a track is a row and an album or an artist is not. A
+-- track's annotation goes with its file, which is what the foreign key is for;
+-- the id already survives an overwrite and a rename. An album's is keyed by the
+-- tags that make it one, so it outlives its tracks and a retag leaves it behind.
+--
+-- The owner is on both even while there is only one, because favourites are the
+-- first thing sharing will want: somebody else's file can be my favourite.
+-- file_id leads the key so the cascade on a delete is a seek.
+--
+-- A row with neither a star nor a rating is deleted rather than kept.
+
+CREATE TABLE track_annotations (
+    file_id    BIGINT      NOT NULL REFERENCES files (id) ON DELETE CASCADE,
+    owner_id   TEXT        NOT NULL,
+    starred_at TIMESTAMPTZ,
+    rating     INTEGER     NOT NULL DEFAULT 0,
+    -- Plays (#195): a count rather than a log of every play. Nothing asks when
+    -- each one happened, only how many and the latest, and a log would grow
+    -- for as long as somebody listens.
+    play_count BIGINT      NOT NULL DEFAULT 0,
+    played_at  TIMESTAMPTZ,
+    PRIMARY KEY (file_id, owner_id)
+);
+
+-- kind is 'album' or 'artist'; an artist's album is ''.
+CREATE TABLE tag_annotations (
+    owner_id   TEXT        NOT NULL,
+    kind       TEXT        NOT NULL,
+    artist     TEXT        NOT NULL,
+    album      TEXT        NOT NULL,
+    starred_at TIMESTAMPTZ,
+    rating     INTEGER     NOT NULL DEFAULT 0,
+    PRIMARY KEY (owner_id, kind, artist, album)
+);
+
+-- Playlists (#196). A row rather than something derived from tags, because
+-- somebody made it.
+--
+-- An entry's position only orders: a deleted file's entries go with it by
+-- cascade and leave a gap, which nothing minds, because an index a client sends
+-- is into the list as it is read and never into these numbers.
+--
+-- The owner is on the playlist and not on each entry: an entry is part of the
+-- playlist, and sharing one will be a question about the playlist.
+
+CREATE TABLE playlists (
+    id         BIGSERIAL   PRIMARY KEY,
+    owner_id   TEXT        NOT NULL,
+    name       TEXT        NOT NULL,
+    comment    TEXT        NOT NULL DEFAULT '',
+    public     BOOLEAN     NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMPTZ NOT NULL,
+    changed_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE INDEX playlists_owner ON playlists (owner_id, name);
+
+CREATE TABLE playlist_entries (
+    playlist_id BIGINT  NOT NULL REFERENCES playlists (id) ON DELETE CASCADE,
+    position    INTEGER NOT NULL,
+    file_id     BIGINT  NOT NULL REFERENCES files (id) ON DELETE CASCADE,
+    PRIMARY KEY (playlist_id, position)
+);
+
+-- What the cascade from files seeks on.
+CREATE INDEX playlist_entries_file ON playlist_entries (file_id);

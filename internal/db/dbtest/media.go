@@ -131,14 +131,21 @@ func media(f db.File) db.Media {
 		Camera:      "Sony ILCE-7M4",
 		DurationMS:  742_000,
 		Codec:       "hevc",
-		Artist:      "Boards of Canada",
-		AlbumArtist: "Various Artists",
-		Album:       "Music Has the Right to Children",
-		Title:       "Roygbiv",
-		TrackNo:     10,
-		DiscNo:      2,
-		Year:        1998,
-		Genre:       "Electronic",
+		// Distinct values, so a driver that wrote one column into another
+		// comes back wrong rather than coincidentally right.
+		Bitrate:      320_000,
+		SampleRate:   48_000,
+		Channels:     6,
+		BitDepth:     24,
+		CodecProfile: "HE-AAC",
+		Artist:       "Boards of Canada",
+		AlbumArtist:  "Various Artists",
+		Album:        "Music Has the Right to Children",
+		Title:        "Roygbiv",
+		TrackNo:      10,
+		DiscNo:       2,
+		Year:         1998,
+		Genre:        "Electronic",
 	}
 }
 

@@ -129,9 +129,14 @@ type child struct {
 	Suffix      string `xml:"suffix,attr,omitempty" json:"suffix,omitempty"`
 	Duration    int    `xml:"duration,attr,omitempty" json:"duration,omitempty"`
 	BitRate     int    `xml:"bitRate,attr,omitempty" json:"bitRate,omitempty"`
-	Path        string `xml:"path,attr,omitempty" json:"path,omitempty"`
-	Created     string `xml:"created,attr,omitempty" json:"created,omitempty"`
-	CoverArt    string `xml:"coverArt,attr,omitempty" json:"coverArt,omitempty"`
+	// OpenSubsonic's, and what lets a client say "FLAC 24/96". Absent when
+	// unknown, and bitDepth is absent for a lossy codec, which has none.
+	BitDepth     int    `xml:"bitDepth,attr,omitempty" json:"bitDepth,omitempty"`
+	SamplingRate int    `xml:"samplingRate,attr,omitempty" json:"samplingRate,omitempty"`
+	ChannelCount int    `xml:"channelCount,attr,omitempty" json:"channelCount,omitempty"`
+	Path         string `xml:"path,attr,omitempty" json:"path,omitempty"`
+	Created      string `xml:"created,attr,omitempty" json:"created,omitempty"`
+	CoverArt     string `xml:"coverArt,attr,omitempty" json:"coverArt,omitempty"`
 	// Type is "music" for a track. The other values in the schema are for
 	// surfaces this server does not have.
 	Type string `xml:"type,attr,omitempty" json:"type,omitempty"`
@@ -140,9 +145,11 @@ type child struct {
 
 // songOf renders a track as a Child.
 //
-// The bit rate is computed rather than read: the extractor does not record one,
-// and bytes times eight over milliseconds is kilobits per second exactly. A
-// client shows it, and some decide their buffer from it.
+// The bit rate is the audio stream's, which the extractor reads (#197). The
+// file's size over its duration is only the fallback for a row that has none,
+// because it counts an embedded cover as if it were sound: a 320 kbps MP3 with
+// a large picture used to read as 400. A client shows the number, and some
+// decide their buffer from it.
 func songOf(t db.Track) child {
 	c := child{
 		ID:          songID(t.File.ID),
@@ -170,9 +177,15 @@ func songOf(t db.Track) child {
 		// listing done once per row.
 		c.CoverArt = c.AlbumID
 	}
-	if t.Media.DurationMS > 0 {
+	switch {
+	case t.Media.Bitrate > 0:
+		c.BitRate = (t.Media.Bitrate + 500) / 1000
+	case t.Media.DurationMS > 0:
 		c.BitRate = int(t.File.Size * 8 / t.Media.DurationMS)
 	}
+	c.BitDepth = t.Media.BitDepth
+	c.SamplingRate = t.Media.SampleRate
+	c.ChannelCount = t.Media.Channels
 	return c
 }
 

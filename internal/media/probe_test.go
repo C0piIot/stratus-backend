@@ -207,3 +207,75 @@ func parse(t *testing.T, s string) probeReport {
 	}
 	return report
 }
+
+// TestProbeReportAudioStream is what a transcode decision is made from. The
+// first four are what ffprobe 7.1 printed for the same two seconds of sine
+// encoded four ways, trimmed to the fields that matter and with every quirk
+// left in: the rates are strings, a FLAC has no bitrate on its stream, a
+// lossless codec states its width in bits_per_raw_sample and a lossy one
+// states none. PCM and the unparseable report are written for their edges.
+func TestProbeReportAudioStream(t *testing.T) {
+	t.Parallel()
+	for name, c := range map[string]struct {
+		report string
+		want   db.Media
+	}{
+		"flac takes the file's bitrate": {
+			report: `{"streams": [{"codec_type": "audio", "codec_name": "flac", "sample_rate": "44100",
+				"channels": 2, "bits_per_sample": 0, "bits_per_raw_sample": "16"}],
+				"format": {"duration": "2.000000", "bit_rate": "131028"}}`,
+			want: db.Media{Codec: "flac", Bitrate: 131_028, SampleRate: 44_100, Channels: 2, BitDepth: 16},
+		},
+		"mp3 has a bitrate and no width": {
+			report: `{"streams": [{"codec_type": "audio", "codec_name": "mp3", "sample_rate": "44100",
+				"channels": 2, "bits_per_sample": 0, "bit_rate": "320000"}],
+				"format": {"duration": "2.000000", "bit_rate": "330364"}}`,
+			want: db.Media{Codec: "mp3", Bitrate: 320_000, SampleRate: 44_100, Channels: 2},
+		},
+		"aac says which profile": {
+			report: `{"streams": [{"codec_type": "audio", "codec_name": "aac", "profile": "LC",
+				"sample_rate": "44100", "channels": 2, "bits_per_sample": 0, "bit_rate": "217241"}],
+				"format": {"duration": "2.000000", "bit_rate": "224400"}}`,
+			want: db.Media{Codec: "aac", CodecProfile: "LC", Bitrate: 217_241, SampleRate: 44_100, Channels: 2},
+		},
+		"alac is lossless in an m4a": {
+			report: `{"streams": [{"codec_type": "audio", "codec_name": "alac", "sample_rate": "44100",
+				"channels": 2, "bits_per_sample": 0, "bit_rate": "136208", "bits_per_raw_sample": "16"}],
+				"format": {"duration": "2.000000", "bit_rate": "139500"}}`,
+			want: db.Media{Codec: "alac", Bitrate: 136_208, SampleRate: 44_100, Channels: 2, BitDepth: 16},
+		},
+		"pcm states its width in bits_per_sample": {
+			report: `{"streams": [{"codec_type": "audio", "codec_name": "pcm_s24le", "sample_rate": "48000",
+				"channels": 2, "bits_per_sample": 24, "bit_rate": "2304000"}],
+				"format": {"duration": "2.000000", "bit_rate": "2304200"}}`,
+			want: db.Media{Codec: "pcm_s24le", Bitrate: 2_304_000, SampleRate: 48_000, Channels: 2, BitDepth: 24},
+		},
+		"nothing parseable is unknown": {
+			report: `{"streams": [{"codec_type": "audio", "codec_name": "opus", "profile": "unknown",
+				"sample_rate": "N/A", "bit_rate": "N/A"}], "format": {"bit_rate": "N/A"}}`,
+			want: db.Media{Codec: "opus"},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			m := parse(t, c.report).mediaFrom(db.KindAudio)
+			if m.Codec != c.want.Codec || m.CodecProfile != c.want.CodecProfile || m.Bitrate != c.want.Bitrate ||
+				m.SampleRate != c.want.SampleRate || m.Channels != c.want.Channels || m.BitDepth != c.want.BitDepth {
+				t.Errorf("got %s/%q %d bps %d Hz %d ch %d bits, want %s/%q %d bps %d Hz %d ch %d bits",
+					m.Codec, m.CodecProfile, m.Bitrate, m.SampleRate, m.Channels, m.BitDepth,
+					c.want.Codec, c.want.CodecProfile, c.want.Bitrate, c.want.SampleRate, c.want.Channels, c.want.BitDepth)
+			}
+		})
+	}
+}
+
+// TestProbeReportVideoLeavesTheAudioStreamAlone: a video's audio track is #207,
+// and a row that carried it in columns described as the file's own audio
+// would be read as such by the first decision that looked.
+func TestProbeReportVideoLeavesTheAudioStreamAlone(t *testing.T) {
+	t.Parallel()
+	m := parse(t, videoReport).mediaFrom(db.KindVideo)
+	if m.Bitrate != 0 || m.SampleRate != 0 || m.Channels != 0 || m.BitDepth != 0 || m.CodecProfile != "" {
+		t.Errorf("a video row carries audio stream facts: %+v", m)
+	}
+}

@@ -69,6 +69,13 @@ type Media struct {
 	// DurationMS and Codec describe audio and video.
 	DurationMS int64
 	Codec      string
+	// Bitrate (bits per second), SampleRate, Channels, BitDepth and
+	// CodecProfile describe an audio stream, and are what a transcode decision
+	// is made from (#197). Zero is unknown. BitDepth is zero for a lossy codec,
+	// which has none; CodecProfile is ffprobe's name for the variant, "LC" or
+	// "HE-AAC", which is what tells two AACs a client may take differently.
+	Bitrate, SampleRate, Channels, BitDepth int
+	CodecProfile                            string
 
 	// The rest is what a music library needs.
 	Artist, Album, Title, Genre string

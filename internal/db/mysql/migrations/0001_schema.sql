@@ -52,6 +52,11 @@ CREATE TABLE media (
     -- describes bytes that are no longer there.
     etag                TEXT        NOT NULL,
     error               TEXT        NOT NULL,
+    -- When the queue should offer this file again, and NULL when never. A
+    -- failure to reach the bytes is not a verdict on them (#157): the row
+    -- records what happened so that /status can say it, and a time to find out
+    -- again. A file nothing can parse gets no such time.
+    retry_at            BIGINT       NULL,
     taken_at            BIGINT      NULL,
     width               INT         NOT NULL DEFAULT 0,
     height              INT         NOT NULL DEFAULT 0,
@@ -61,6 +66,15 @@ CREATE TABLE media (
     camera              TEXT        NOT NULL,
     duration_ms         BIGINT      NOT NULL DEFAULT 0,
     codec               TEXT        NOT NULL,
+    -- The audio stream a transcode decision is made from (#197): whether a
+    -- client can take the file as it is, and what a transcode must not exceed.
+    -- Zero is unknown, and bit_depth is zero for a lossy codec, which has none.
+    -- Filled for audio only; a video's are #207.
+    bitrate             INT         NOT NULL DEFAULT 0,
+    sample_rate         INT         NOT NULL DEFAULT 0,
+    channels            INT         NOT NULL DEFAULT 0,
+    bit_depth           INT         NOT NULL DEFAULT 0,
+    codec_profile       TEXT        NOT NULL,
     artist              TEXT        NOT NULL,
     album               TEXT        NOT NULL,
     title               TEXT        NOT NULL,
@@ -93,4 +107,80 @@ CREATE TABLE uploads (
     expires_at BIGINT       NOT NULL,
 
     KEY uploads_expires_at (expires_at)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_bin;
+
+-- What a user has said about their library: stars and ratings (#194).
+--
+-- Two tables because a track is a row and an album or an artist is not. A
+-- track's annotation goes with its file, which is what the foreign key is for;
+-- the id already survives an overwrite and a rename. An album's is keyed by the
+-- tags that make it one, so it outlives its tracks and a retag leaves it behind.
+--
+-- The owner is on both even while there is only one, because favourites are the
+-- first thing sharing will want: somebody else's file can be my favourite.
+-- file_id leads the key so the cascade on a delete is a seek.
+--
+-- A row with neither a star nor a rating is deleted rather than kept.
+
+CREATE TABLE track_annotations (
+    file_id    BIGINT       NOT NULL,
+    owner_id   VARCHAR(255) NOT NULL,
+    starred_at BIGINT       NULL,
+    rating     INT          NOT NULL DEFAULT 0,
+    -- Plays (#195): a count rather than a log of every play. Nothing asks when
+    -- each one happened, only how many and the latest, and a log would grow
+    -- for as long as somebody listens.
+    play_count BIGINT       NOT NULL DEFAULT 0,
+    played_at  BIGINT       NULL,
+
+    PRIMARY KEY (file_id, owner_id),
+    CONSTRAINT track_annotations_file FOREIGN KEY (file_id) REFERENCES files (id) ON DELETE CASCADE
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_bin;
+
+-- The tags are TEXT and cannot be a key, for the reason files.path cannot: the
+-- key is key_hash, sha256 of the kind and both tags, computed by the adapter.
+CREATE TABLE tag_annotations (
+    owner_id   VARCHAR(255) NOT NULL,
+    key_hash   BINARY(32)   NOT NULL,
+    kind       VARCHAR(16)  NOT NULL,
+    artist     TEXT         NOT NULL,
+    album      TEXT         NOT NULL,
+    starred_at BIGINT       NULL,
+    rating     INT          NOT NULL DEFAULT 0,
+
+    PRIMARY KEY (owner_id, key_hash)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_bin;
+
+-- Playlists (#196). A row rather than something derived from tags, because
+-- somebody made it.
+--
+-- An entry's position only orders: a deleted file's entries go with it by
+-- cascade and leave a gap, which nothing minds, because an index a client sends
+-- is into the list as it is read and never into these numbers.
+--
+-- The owner is on the playlist and not on each entry: an entry is part of the
+-- playlist, and sharing one will be a question about the playlist.
+
+CREATE TABLE playlists (
+    id         BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    owner_id   VARCHAR(255) NOT NULL,
+    name       TEXT         NOT NULL,
+    comment    TEXT         NOT NULL,
+    public     TINYINT(1)   NOT NULL DEFAULT 0,
+    created_at BIGINT       NOT NULL,
+    changed_at BIGINT       NOT NULL,
+
+    KEY playlists_owner (owner_id)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_bin;
+
+-- The foreign key to files is what indexes file_id here: InnoDB makes one for
+-- every foreign key that has none.
+CREATE TABLE playlist_entries (
+    playlist_id BIGINT NOT NULL,
+    position    INT    NOT NULL,
+    file_id     BIGINT NOT NULL,
+
+    PRIMARY KEY (playlist_id, position),
+    CONSTRAINT playlist_entries_playlist FOREIGN KEY (playlist_id) REFERENCES playlists (id) ON DELETE CASCADE,
+    CONSTRAINT playlist_entries_file FOREIGN KEY (file_id) REFERENCES files (id) ON DELETE CASCADE
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_bin;

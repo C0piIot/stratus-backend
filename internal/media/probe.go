@@ -65,14 +65,23 @@ type probeReport struct {
 	Format  probeFormat   `json:"format"`
 }
 
+// The numbers ffprobe prints as strings -- a rate, a bitrate, a raw sample
+// width -- are strings here too, and are parsed where they are read: a field
+// that did not parse would otherwise fail the whole report.
 type probeStream struct {
-	CodecType string            `json:"codec_type"`
-	CodecName string            `json:"codec_name"`
-	Width     int               `json:"width"`
-	Height    int               `json:"height"`
-	Duration  string            `json:"duration"`
-	Tags      map[string]string `json:"tags"`
-	SideData  []probeSideData   `json:"side_data_list"`
+	CodecType        string            `json:"codec_type"`
+	CodecName        string            `json:"codec_name"`
+	Profile          string            `json:"profile"`
+	Width            int               `json:"width"`
+	Height           int               `json:"height"`
+	Duration         string            `json:"duration"`
+	SampleRate       string            `json:"sample_rate"`
+	Channels         int               `json:"channels"`
+	BitRate          string            `json:"bit_rate"`
+	BitsPerSample    int               `json:"bits_per_sample"`
+	BitsPerRawSample string            `json:"bits_per_raw_sample"`
+	Tags             map[string]string `json:"tags"`
+	SideData         []probeSideData   `json:"side_data_list"`
 }
 
 // probeSideData is where a display matrix arrives. ffprobe used to put the
@@ -89,6 +98,7 @@ type probeSideData struct {
 
 type probeFormat struct {
 	Duration string            `json:"duration"`
+	BitRate  string            `json:"bit_rate"`
 	Tags     map[string]string `json:"tags"`
 }
 
@@ -116,6 +126,7 @@ func (p probeReport) mediaFrom(kind db.Kind) db.Media {
 		if m.DurationMS == 0 {
 			m.DurationMS = durationMS(audio.Duration)
 		}
+		audioStream(&m, audio, p.Format)
 	}
 
 	tags := p.Format.Tags
@@ -135,6 +146,39 @@ func (p probeReport) mediaFrom(kind db.Kind) db.Media {
 	}
 	m.TakenAt = parseProbeTime(tag(tags, "creation_time"))
 	return m
+}
+
+// audioStream fills what a transcode decision is made from (#197).
+//
+// A FLAC states no bitrate for its stream, so the file's stands in -- which
+// is its size over its duration and therefore counts an embedded cover too.
+// Close enough to choose between direct play and a transcode, and the only
+// number there is. The width is the decoded one for a lossless codec and the
+// container's for PCM; a lossy codec has neither and keeps zero.
+func audioStream(m *db.Media, audio *probeStream, format probeFormat) {
+	m.SampleRate = atoi(audio.SampleRate)
+	m.Channels = audio.Channels
+	m.Bitrate = atoi(audio.BitRate)
+	if m.Bitrate == 0 {
+		m.Bitrate = atoi(format.BitRate)
+	}
+	m.BitDepth = atoi(audio.BitsPerRawSample)
+	if m.BitDepth == 0 {
+		m.BitDepth = audio.BitsPerSample
+	}
+	if audio.Profile != "unknown" {
+		m.CodecProfile = audio.Profile
+	}
+}
+
+// atoi reads one of ffprobe's numbers-as-strings, and "N/A" or nothing as zero,
+// which is what the row calls unknown.
+func atoi(s string) int {
+	n, err := strconv.Atoi(s)
+	if err != nil || n < 0 {
+		return 0
+	}
+	return n
 }
 
 func (p probeReport) stream(codecType string) *probeStream {

@@ -225,6 +225,11 @@ func musicTrackByFile(t *testing.T, s db.Repo) {
 	if got.Media.Title != "Hunter" || got.Media.DurationMS == 0 {
 		t.Errorf("the metadata half is wrong: %+v", got.Media)
 	}
+	// A track is read through its own scan, not MediaByFile's, so the audio
+	// stream is asserted on this path too.
+	if got.Media.SampleRate != 96_000 || got.Media.BitDepth != 24 || got.Media.Bitrate != 2_300_000 || got.Media.Channels != 2 {
+		t.Errorf("the audio stream is wrong: %+v", got.Media)
+	}
 }
 
 func musicTrackMissing(t *testing.T, s db.Repo) {
@@ -704,6 +709,10 @@ func song(albumArtist, artist, album, title string, trackNo int) db.Media {
 		Version:     1,
 		DurationMS:  254_000,
 		Codec:       "flac",
+		Bitrate:     2_300_000,
+		SampleRate:  96_000,
+		Channels:    2,
+		BitDepth:    24,
 		AlbumArtist: albumArtist,
 		Artist:      artist,
 		Album:       album,

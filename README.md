@@ -165,8 +165,9 @@ failed readiness check logs its own reason at error level instead.
 
 Every file that arrives is read once for what it can say about itself: when a
 photo was taken, its dimensions and orientation, where it was taken, the camera;
-the duration, artist, album and track of a recording; the codec and dimensions
-of a video. Without it a library is a pile of files — there is no gallery by
+the duration, artist, album and track of a recording, and for music the
+bitrate, sample rate, channels and bit depth of its audio; the codec and
+dimensions of a video. Without it a library is a pile of files — there is no gallery by
 date and no music browsing.
 
 **What a file is comes from its first bytes**, not from its name. A name is
@@ -420,7 +421,10 @@ What is not there yet, and it is better to know before installing a client:
   a `coverArt` id, and asking for one that is not there is answered as "there is
   none", which is what a client draws a placeholder for.
 - **No transcoding.** `maxBitRate` and `format` are ignored and the original is
-  served, which is what `format=raw` asks for explicitly.
+  served, which is what `format=raw` asks for explicitly. What a song reports
+  is its own audio stream -- `bitRate`, and OpenSubsonic's `samplingRate`,
+  `channelCount` and `bitDepth` -- so a client can show "FLAC 24/96" and knows
+  what it is about to be sent.
 - **A file is in the library once the indexer has read it**, which is also how
   long it takes to appear in a folder listing. That is the same rule for both
   views, so they cannot disagree.
