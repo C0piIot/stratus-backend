@@ -726,7 +726,7 @@ Restraint here is principle 3, not laziness:
     so the demuxer list mirrors `byExtension` in `internal/media` and a test
     holds the two together — an extension added without its demuxer fails at
     probe time in production rather than at build time.
-  - **`ffmpeg`, 10.8 MB.** For pictures, only what Go cannot decode: HEIC,
+  - **`ffmpeg`, 12.9 MB on amd64 and 10.8 on arm64.** For pictures, only what Go cannot decode: HEIC,
     which needs libheif and therefore cgo, and a frame out of a video. It
     decodes and scales; the JPEG is written in Go, so it emits a rawvideo frame
     already reduced rather than a full-size one. AV1 and camera raw are

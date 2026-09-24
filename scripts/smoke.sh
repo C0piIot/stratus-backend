@@ -49,8 +49,8 @@ fi
 # standard library -- and the remaining increments of it are templates, not
 # packages.
 BIN_SIZE_FAIL=$((25 * 1024 * 1024))
-# ffprobe and ffmpeg together, which are trimmed builds of our own: 1.8 MB and
-# 10.8 MB today against the 128 MB one general-purpose static FFmpeg costs.
+# ffprobe and ffmpeg together, which are trimmed builds of our own: 1.9 MB and
+# 12.9 MB on amd64 today against the 128 MB one general-purpose static FFmpeg costs.
 # Raised from 10 MB when ffmpeg learned audio and HTTPS (#50): the encoders and
 # libopus are about 1.5 MB of that and a static OpenSSL is five.
 TOOLS_SIZE_FAIL=$((16 * 1024 * 1024))
