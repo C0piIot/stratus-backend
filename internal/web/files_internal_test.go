@@ -113,3 +113,27 @@ func TestHumanSize(t *testing.T) {
 		}
 	}
 }
+
+// TestDisposition: what the browser may open is what cannot run a script as
+// the owner. An SVG is an image and is still refused, because it can carry one.
+func TestDisposition(t *testing.T) {
+	t.Parallel()
+	for mimeType, want := range map[string]string{
+		"image/jpeg":                "inline",
+		"image/heic":                "inline",
+		"video/mp4":                 "inline",
+		"audio/flac":                "inline",
+		"application/pdf":           "inline",
+		"text/plain; charset=utf-8": "inline",
+		"image/svg+xml":             "attachment",
+		"text/html":                 "attachment",
+		"text/javascript":           "attachment",
+		"application/xhtml+xml":     "attachment",
+		"application/octet-stream":  "attachment",
+		"":                          "attachment",
+	} {
+		if got := disposition(mimeType); got != want {
+			t.Errorf("disposition(%q) = %q, want %q", mimeType, got, want)
+		}
+	}
+}

@@ -153,12 +153,12 @@ func (h *handler) download(w http.ResponseWriter, r *http.Request, user string, 
 	}
 	defer func() { _ = body.Close() }()
 
-	// An attachment rather than something the browser renders. This origin
-	// serves the UI, and a file somebody uploaded is not the UI's to display in
-	// it -- the content security policy would already stop a script inside one,
-	// and the disposition is what stops the question from arising at all.
+	disp := disposition(f.MIMEType)
 	w.Header().Set("Content-Disposition",
-		mime.FormatMediaType("attachment", map[string]string{"filename": path.Base(f.Path)}))
+		mime.FormatMediaType(disp, map[string]string{"filename": path.Base(f.Path)}))
+	if disp == "inline" {
+		w.Header().Set("Content-Security-Policy", fileContentSecurityPolicy)
+	}
 	if f.MIMEType != "" {
 		w.Header().Set("Content-Type", f.MIMEType)
 	}
@@ -420,4 +420,27 @@ func humanSize(n int64) string {
 		exp++
 	}
 	return strconv.FormatFloat(float64(n)/float64(div), 'f', 1, 64) + " " + string("KMGTPE"[exp]) + "B"
+}
+
+// disposition lets the browser open what cannot carry a script and hands
+// everything else over as an attachment.
+//
+// This origin serves the UI and holds the session cookie, so an uploaded HTML
+// page or SVG rendered here would run as the owner. The content security policy
+// does not stop that on its own: script-src 'self' is satisfied by a .js file
+// uploaded beside the page. The list is of types that are passive by
+// construction, and a type nobody recorded is not one of them.
+func disposition(mimeType string) string {
+	mediaType, _, err := mime.ParseMediaType(mimeType)
+	if err != nil {
+		return "attachment"
+	}
+	switch top, _, _ := strings.Cut(mediaType, "/"); {
+	case mediaType == "image/svg+xml":
+		return "attachment"
+	case top == "image", top == "video", top == "audio",
+		mediaType == "application/pdf", mediaType == "text/plain":
+		return "inline"
+	}
+	return "attachment"
 }

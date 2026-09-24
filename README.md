@@ -433,9 +433,11 @@ rclone or DAVx5 is overkill, and it consumes the same internals the protocol
 handlers do — it will never grow a private JSON API of its own.
 
 **One URL per directory, and the same one per file**: `/files/photos/2026` is a
-page, `/files/photos/2026/img.jpg` is the picture. Opening a file downloads it
-rather than rendering it in the page — this origin serves the UI, and a file
-somebody uploaded is not the UI's to display inside it. Downloads go through
+page, `/files/photos/2026/img.jpg` is the picture. Opening a photograph, a
+video, a track, a PDF or a text file leaves it to the browser, which shows or
+plays it; anything that could carry a script — HTML, SVG, and whatever has no
+recorded type — is downloaded instead, because this origin serves the UI and a
+page opened here would run as whoever is signed in. Files go through
 `http.ServeContent`, so ranges, conditional requests and resuming a half-finished
 download behave exactly as they do on the streaming surface.
 
@@ -811,10 +813,11 @@ because the whole clone is 6.6 MB and carrying the media would double it for
 everybody, forever. `scripts/demo/SHA256SUMS` pins the bytes and
 `scripts/demo/CREDITS.md` carries the attribution.
 
-One thing that demo does not show, and it is worth knowing which: the video
-**downloads rather than plays**, because the UI serves files as attachments on
-purpose. What it does show is the file tree with thumbnails, downloads, and the
-whole music library in a Subsonic client.
+What it shows is the file tree with thumbnails, the photographs, the video and
+the music opened by the browser itself, and the whole music library in a
+Subsonic client. Anything that could carry a script -- an HTML page, an SVG --
+is saved rather than opened, because the UI and the file share an origin and a
+page opened there would run as whoever is signed in.
 
 `.golangci.yml` uses `depguard` to enforce the architecture rules from
 [`CLAUDE.md`](CLAUDE.md), so a driver type leaking out of its package is a failed
@@ -902,7 +905,7 @@ Working now:
   kept. No transcoding, and no client has been tried against it yet.
 - EXIF, audio tags and video probing, indexed in the background and started by
   the upload itself, with a page saying how far it has got.
-- A web UI: sign in, walk the tree, download a file, upload one, make a folder,
+- A web UI: sign in, walk the tree, open or download a file, upload one, make a folder,
   rename and delete. A signed-cookie session and a CSP that allows nothing but
   the binary's own assets.
 - A request log, migrations applied at startup, and a container asserted from

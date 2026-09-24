@@ -116,8 +116,8 @@ func TestListingWhenThereIsNothing(t *testing.T) {
 	}
 }
 
-// TestDownload: opening a file hands over the bytes, as an attachment rather
-// than as something this origin renders.
+// TestDownload: opening a file hands over the bytes, and plain text is opened
+// by the browser rather than saved.
 func TestDownload(t *testing.T) {
 	t.Parallel()
 	h, s := browser(t)
@@ -133,8 +133,14 @@ func TestDownload(t *testing.T) {
 	}
 
 	head := rec.Header()
-	if got := head.Get("Content-Disposition"); got != `attachment; filename=notes.txt` {
+	if got := head.Get("Content-Disposition"); got != `inline; filename=notes.txt` {
 		t.Errorf("Content-Disposition = %q", got)
+	}
+	// A file the browser opens gets the policy for viewing a file, which still
+	// refuses every script.
+	if got := head.Get("Content-Security-Policy"); !strings.HasPrefix(got, "default-src 'none'; img-src 'self'; media-src 'self';") ||
+		strings.Contains(got, "script-src") {
+		t.Errorf("Content-Security-Policy = %q", got)
 	}
 	if got := head.Get("Content-Type"); got != "text/plain" {
 		t.Errorf("Content-Type = %q, want what was stored with it", got)
@@ -310,5 +316,24 @@ func TestABackendThatWillNotAnswer(t *testing.T) {
 	}
 	if strings.Contains(body, dbtest.ErrInjected.Error()) {
 		t.Error("the page carries the error, which belongs in the log")
+	}
+}
+
+// TestAnHTMLFileIsNotOpened: a page somebody uploaded would run as the owner on
+// this origin, so it is saved rather than shown, under the pages' own policy.
+func TestAnHTMLFileIsNotOpened(t *testing.T) {
+	t.Parallel()
+	h, s := browser(t)
+	const page = "<!doctype html><html><body><script src=x.js></script></body></html>"
+	if _, err := s.Write(t.Context(), username, "page.html", strings.NewReader(page), int64(len(page)), "text/html"); err != nil {
+		t.Fatal(err)
+	}
+
+	head := get(t, h, "/files/page.html", signIn(t, h)).Header()
+	if got := head.Get("Content-Disposition"); got != `attachment; filename=page.html` {
+		t.Errorf("Content-Disposition = %q", got)
+	}
+	if got := head.Get("Content-Security-Policy"); !strings.Contains(got, "script-src 'self'") {
+		t.Errorf("Content-Security-Policy = %q, want the pages' own", got)
 	}
 }

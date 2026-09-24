@@ -182,12 +182,21 @@ Hard constraints, in the same spirit as the rest of the project:
   groups the ordering had reached, since directories sort before files and a
   page boundary can fall between them.
 
-  A file is served as an **attachment, never inline**. This origin serves the
-  UI, and a file somebody uploaded is not the UI's to render inside it -- the
-  content security policy above would already stop a script in an uploaded
-  HTML page, and the disposition is what stops the question from arising. The
-  day a preview is worth having is the day to decide where it renders, and the
-  answer will not be "the same origin as the session cookie".
+  **A file is the browser's to open when it cannot carry a script, and an
+  attachment otherwise.** Images, video, audio, PDF and plain text go out
+  `inline`; HTML, SVG, anything else and anything with no recorded type are
+  saved. This origin holds the session cookie, so an uploaded page rendered
+  here would run as the owner -- and the pages' policy does not stop it on its
+  own, because `script-src 'self'` is satisfied by a `.js` uploaded beside the
+  page. The list is `disposition` in `internal/web/files.go`, and it decides
+  on the same stored type the response is sent with under `nosniff`, so the
+  browser cannot read the bytes as something the list never saw.
+
+  **An inline file carries a policy of its own.** What the browser renders is
+  a document it builds around the bytes -- an `<img>` or `<video>` pointing at
+  the same URL, centred by inline styles -- and the pages' policy blocks those
+  styles and, with no `media-src`, the video. The file policy allows media,
+  images and inline styles and still refuses every script.
 
   The bytes go out through `http.ServeContent` over the seeker `internal/files`
   returns, so ranges, conditional requests and a resumed download are the

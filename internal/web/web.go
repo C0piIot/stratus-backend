@@ -48,6 +48,15 @@ const (
 const contentSecurityPolicy = "default-src 'none'; style-src 'self'; script-src 'self'; " +
 	"connect-src 'self'; img-src 'self' data:; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"
 
+// fileContentSecurityPolicy replaces the pages' policy on a file the browser is
+// allowed to open. What it renders is not a template but a document the browser
+// builds around the bytes -- an <img> or a <video> pointing at this same URL,
+// centred by inline styles -- and the pages' policy blocks those styles and,
+// with no media-src, the video itself. Scripts stay refused: nothing a file
+// shows needs one.
+const fileContentSecurityPolicy = "default-src 'none'; img-src 'self'; media-src 'self'; " +
+	"style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'"
+
 type handler struct {
 	version   string
 	buildDate string
