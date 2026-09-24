@@ -45,7 +45,10 @@ type handler struct {
 	// because clients are split down the middle on which one they browse.
 	lib  Library
 	tree Tree
-	art  Art
+	// lists is the playlists, which are edited through a feature rather than
+	// the port: see Playlists.
+	lists Playlists
+	art   Art
 	// serverVersion is this build, which OpenSubsonic requires in every
 	// envelope so a client can notice an upgrade and ask again what it does.
 	serverVersion string
@@ -56,8 +59,8 @@ type handler struct {
 // The prefix is stripped here rather than by the caller, for the reason the
 // WebDAV adapter gives: exactly one place should know the difference between
 // the path a client asks for and the method being called.
-func Handler(prefix, serverVersion string, v Verifier, lib Library, tree Tree, art Art) http.Handler {
-	h := &handler{verifier: v, lib: lib, tree: tree, art: art, serverVersion: serverVersion}
+func Handler(prefix, serverVersion string, v Verifier, lib Library, tree Tree, lists Playlists, art Art) http.Handler {
+	h := &handler{verifier: v, lib: lib, tree: tree, lists: lists, art: art, serverVersion: serverVersion}
 
 	mux := http.NewServeMux()
 
@@ -99,6 +102,12 @@ func Handler(prefix, serverVersion string, v Verifier, lib Library, tree Tree, a
 	mux.HandleFunc("GET /unstar", h.authed(h.unstar))
 	mux.HandleFunc("GET /setRating", h.authed(h.setRating))
 	mux.HandleFunc("GET /scrobble", h.authed(h.scrobble))
+
+	mux.HandleFunc("GET /getPlaylists", h.authed(h.playlists))
+	mux.HandleFunc("GET /getPlaylist", h.authed(h.playlist))
+	mux.HandleFunc("GET /createPlaylist", h.authed(h.createPlaylist))
+	mux.HandleFunc("GET /updatePlaylist", h.authed(h.updatePlaylist))
+	mux.HandleFunc("GET /deletePlaylist", h.authed(h.deletePlaylist))
 
 	// The bytes. Their errors are XML whatever f said, so they authenticate
 	// through their own wrapper.
@@ -176,14 +185,18 @@ func (h *handler) musicFolders(w http.ResponseWriter, r *http.Request, _ string)
 	h.write(w, r, env)
 }
 
-// user reports what this server can actually do. Everything absent is false:
-// there are no playlists, so a client is better told now than refused later.
+// user reports what this server can actually do. Everything absent is false,
+// so a client is better told now than refused later.
 func (h *handler) user(w http.ResponseWriter, r *http.Request, username string) {
 	env := h.ok()
 	env.User = &user{
 		Username:     username,
 		StreamRole:   true,
 		DownloadRole: true,
+		PlaylistRole: true,
+		// A client that reads false here never sends a scrobble, and plays
+		// have been counted since #195.
+		ScrobblingEnabled: true,
 	}
 	h.write(w, r, env)
 }

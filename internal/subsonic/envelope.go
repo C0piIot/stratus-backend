@@ -33,16 +33,18 @@ type envelope struct {
 	ServerVersion string `xml:"serverVersion,attr" json:"serverVersion"`
 	OpenSubsonic  bool   `xml:"openSubsonic,attr" json:"openSubsonic"`
 
-	Error        *apiError     `xml:"error,omitempty" json:"error,omitempty"`
-	License      *license      `xml:"license,omitempty" json:"license,omitempty"`
-	MusicFolders *musicFolders `xml:"musicFolders,omitempty" json:"musicFolders,omitempty"`
-	User         *user         `xml:"user,omitempty" json:"user,omitempty"`
-	Artists      *artistsList  `xml:"artists,omitempty" json:"artists,omitempty"`
-	Artist       *artistDetail `xml:"artist,omitempty" json:"artist,omitempty"`
-	Album        *albumDetail  `xml:"album,omitempty" json:"album,omitempty"`
-	Song         *child        `xml:"song,omitempty" json:"song,omitempty"`
-	Indexes      *indexes      `xml:"indexes,omitempty" json:"indexes,omitempty"`
-	Directory    *directory    `xml:"directory,omitempty" json:"directory,omitempty"`
+	Error        *apiError       `xml:"error,omitempty" json:"error,omitempty"`
+	License      *license        `xml:"license,omitempty" json:"license,omitempty"`
+	MusicFolders *musicFolders   `xml:"musicFolders,omitempty" json:"musicFolders,omitempty"`
+	User         *user           `xml:"user,omitempty" json:"user,omitempty"`
+	Artists      *artistsList    `xml:"artists,omitempty" json:"artists,omitempty"`
+	Artist       *artistDetail   `xml:"artist,omitempty" json:"artist,omitempty"`
+	Album        *albumDetail    `xml:"album,omitempty" json:"album,omitempty"`
+	Song         *child          `xml:"song,omitempty" json:"song,omitempty"`
+	Indexes      *indexes        `xml:"indexes,omitempty" json:"indexes,omitempty"`
+	Directory    *directory      `xml:"directory,omitempty" json:"directory,omitempty"`
+	Playlists    *playlistsList  `xml:"playlists,omitempty" json:"playlists,omitempty"`
+	Playlist     *playlistDetail `xml:"playlist,omitempty" json:"playlist,omitempty"`
 
 	AlbumList2    *albumList2    `xml:"albumList2,omitempty" json:"albumList2,omitempty"`
 	AlbumList     *albumList     `xml:"albumList,omitempty" json:"albumList,omitempty"`

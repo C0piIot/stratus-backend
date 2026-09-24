@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/C0piIot/stratus-backend/internal/db"
+	"github.com/C0piIot/stratus-backend/internal/music"
 	"github.com/C0piIot/stratus-backend/internal/subsonic"
 )
 
@@ -25,6 +26,7 @@ import (
 type breaking struct {
 	music subsonic.Library
 	tree  subsonic.Tree
+	lists subsonic.Playlists
 	art   subsonic.Art
 	fail  string
 }
@@ -143,6 +145,48 @@ func (b breaking) Starred(ctx context.Context, owner string) (db.StarredItems, e
 	return b.music.Starred(ctx, owner)
 }
 
+func (b breaking) Playlists(ctx context.Context, owner string) ([]db.Playlist, error) {
+	if err := b.err("Playlists"); err != nil {
+		return nil, err
+	}
+	return b.lists.Playlists(ctx, owner)
+}
+
+func (b breaking) Playlist(ctx context.Context, owner string, id int64) (db.Playlist, []db.Track, error) {
+	if err := b.err("Playlist"); err != nil {
+		return db.Playlist{}, nil, err
+	}
+	return b.lists.Playlist(ctx, owner, id)
+}
+
+func (b breaking) Create(ctx context.Context, owner, name string, fileIDs []int64) (db.Playlist, error) {
+	if err := b.err("Create"); err != nil {
+		return db.Playlist{}, err
+	}
+	return b.lists.Create(ctx, owner, name, fileIDs)
+}
+
+func (b breaking) Replace(ctx context.Context, owner string, id int64, name string, fileIDs []int64) (db.Playlist, error) {
+	if err := b.err("Replace"); err != nil {
+		return db.Playlist{}, err
+	}
+	return b.lists.Replace(ctx, owner, id, name, fileIDs)
+}
+
+func (b breaking) Update(ctx context.Context, owner string, id int64, e music.Edit) error {
+	if err := b.err("Update"); err != nil {
+		return err
+	}
+	return b.lists.Update(ctx, owner, id, e)
+}
+
+func (b breaking) Delete(ctx context.Context, owner string, id int64) error {
+	if err := b.err("Delete"); err != nil {
+		return err
+	}
+	return b.lists.Delete(ctx, owner, id)
+}
+
 func (b breaking) Stat(ctx context.Context, owner, path string) (db.File, error) {
 	if err := b.err("Stat"); err != nil {
 		return db.File{}, err
@@ -242,6 +286,13 @@ func TestABrokenBackendIsNotANotFound(t *testing.T) {
 		{name: "unstarring", call: "Unstar", method: "unstar", id: theTrack},
 		{name: "rating", call: "SetRating", method: "setRating", id: theTrack, extra: []string{"rating", "3"}},
 		{name: "scrobbling", call: "RecordPlay", method: "scrobble", id: theTrack},
+		{name: "listing playlists", call: "Playlists", method: "getPlaylists"},
+		{name: "reading a playlist", call: "Playlist", method: "getPlaylist", extra: []string{"id", "pl-1"}},
+		{name: "reading the stars of a playlist", call: "AnnotationsOf", method: "getPlaylist", extra: []string{"id", "pl-1"}},
+		{name: "making a playlist", call: "Create", method: "createPlaylist", extra: []string{"name", "Mix"}},
+		{name: "replacing a playlist", call: "Replace", method: "createPlaylist", extra: []string{"playlistId", "pl-1"}},
+		{name: "editing a playlist", call: "Update", method: "updatePlaylist", extra: []string{"playlistId", "pl-1"}},
+		{name: "deleting a playlist", call: "Delete", method: "deletePlaylist", extra: []string{"id", "pl-1"}},
 		{name: "finding the track to scrobble", call: "TrackByFile", method: "scrobble", id: theTrack},
 		{
 			name: "finding the folder a cover is in", call: "Tracks",
@@ -268,9 +319,13 @@ func TestABrokenBackendIsNotANotFound(t *testing.T) {
 			if err := l.meta.Star(t.Context(), username, db.TrackSubject(track.ID), time.Now()); err != nil {
 				t.Fatal(err)
 			}
+			// And a playlist, pl-1, holding the track.
+			if _, err := music.New(l.meta).Create(t.Context(), username, "Mix", []int64{track.ID}); err != nil {
+				t.Fatal(err)
+			}
 
-			b := breaking{music: l.meta, tree: l.files, art: l.art, fail: tt.call}
-			h := subsonic.Handler(prefix, serverVersion, l.verifier, b, b, b)
+			b := breaking{music: l.meta, tree: l.files, lists: music.New(l.meta), art: l.art, fail: tt.call}
+			h := subsonic.Handler(prefix, serverVersion, l.verifier, b, b, b, b)
 
 			params := append([]string{"f", "json"}, tt.extra...)
 			if tt.id != nil {
@@ -295,8 +350,8 @@ func TestTheRootIsNotStatted(t *testing.T) {
 	l := newLibrary(t)
 	l.add(t, "loose.flac", song("Loose", "Singles", "Loose", 1))
 
-	b := breaking{music: l.meta, tree: l.files, art: l.art, fail: "Stat"}
-	h := subsonic.Handler(prefix, serverVersion, l.verifier, b, b, b)
+	b := breaking{music: l.meta, tree: l.files, lists: music.New(l.meta), art: l.art, fail: "Stat"}
+	h := subsonic.Handler(prefix, serverVersion, l.verifier, b, b, b, b)
 
 	env := response(t, get(t, h, "getMusicDirectory", query("f", "json", "id", dirIDOf(""))))
 	if got, _ := env["status"].(string); got != "ok" {

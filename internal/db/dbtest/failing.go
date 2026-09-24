@@ -36,6 +36,8 @@ var repoMethods = []string{
 	"PutFile", "CreateDir", "FileByPath", "ListFiles", "ListFilesPage", "MoveFile", "DeleteFile",
 	"BlobKeys", "PutMedia", "MediaCounts", "MediaStates",
 	"PutUpload", "UploadByID", "DeleteUpload", "ExpiredUploads",
+	"TrackByFile", "CreatePlaylist", "PlaylistByID", "LockPlaylist", "PlaylistTracks",
+	"UpdatePlaylist", "SetPlaylistTracks",
 }
 
 // Failing is a db.Store that fails one named method and passes the rest
@@ -205,4 +207,60 @@ func (f *failingRepo) ExpiredUploads(ctx context.Context, now time.Time) iter.Se
 		return func(yield func(db.Upload, error) bool) { yield(db.Upload{}, err) }
 	}
 	return f.Repo.ExpiredUploads(ctx, now)
+}
+
+// TrackByFile implements db.Repo.
+func (f *failingRepo) TrackByFile(ctx context.Context, owner string, fileID int64) (db.Track, error) {
+	if err := f.fails("TrackByFile"); err != nil {
+		return db.Track{}, err
+	}
+	return f.Repo.TrackByFile(ctx, owner, fileID)
+}
+
+// CreatePlaylist implements db.Repo.
+func (f *failingRepo) CreatePlaylist(ctx context.Context, p db.Playlist) (db.Playlist, error) {
+	if err := f.fails("CreatePlaylist"); err != nil {
+		return db.Playlist{}, err
+	}
+	return f.Repo.CreatePlaylist(ctx, p)
+}
+
+// PlaylistByID implements db.Repo.
+func (f *failingRepo) PlaylistByID(ctx context.Context, owner string, id int64) (db.Playlist, error) {
+	if err := f.fails("PlaylistByID"); err != nil {
+		return db.Playlist{}, err
+	}
+	return f.Repo.PlaylistByID(ctx, owner, id)
+}
+
+// LockPlaylist implements db.Repo.
+func (f *failingRepo) LockPlaylist(ctx context.Context, owner string, id int64) error {
+	if err := f.fails("LockPlaylist"); err != nil {
+		return err
+	}
+	return f.Repo.LockPlaylist(ctx, owner, id)
+}
+
+// PlaylistTracks implements db.Repo.
+func (f *failingRepo) PlaylistTracks(ctx context.Context, owner string, id int64) ([]db.Track, error) {
+	if err := f.fails("PlaylistTracks"); err != nil {
+		return nil, err
+	}
+	return f.Repo.PlaylistTracks(ctx, owner, id)
+}
+
+// UpdatePlaylist implements db.Repo.
+func (f *failingRepo) UpdatePlaylist(ctx context.Context, p db.Playlist) error {
+	if err := f.fails("UpdatePlaylist"); err != nil {
+		return err
+	}
+	return f.Repo.UpdatePlaylist(ctx, p)
+}
+
+// SetPlaylistTracks implements db.Repo.
+func (f *failingRepo) SetPlaylistTracks(ctx context.Context, owner string, id int64, fileIDs []int64, changed time.Time) error {
+	if err := f.fails("SetPlaylistTracks"); err != nil {
+		return err
+	}
+	return f.Repo.SetPlaylistTracks(ctx, owner, id, fileIDs, changed)
 }

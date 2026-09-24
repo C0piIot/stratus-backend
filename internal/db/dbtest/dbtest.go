@@ -46,6 +46,11 @@ func Run(t *testing.T, newStore func(t *testing.T) db.Store) {
 		RunAnnotations(t, func(t *testing.T) db.Repo { return newStore(t) })
 	})
 
+	t.Run("playlists", func(t *testing.T) {
+		t.Parallel()
+		RunPlaylists(t, func(t *testing.T) db.Repo { return newStore(t) })
+	})
+
 	t.Run("uploads", func(t *testing.T) {
 		t.Parallel()
 		RunUploads(t, func(t *testing.T) db.Repo { return newStore(t) })
