@@ -12,7 +12,8 @@ import (
 )
 
 // Every write is an upsert followed by a prune: a row is created by whichever
-// of a star or a rating arrives first, and deleted once it holds neither. The
+// of a star, a rating or a play arrives first, and deleted once it holds none
+// of them. The
 // prune is its own statement so that the upsert stays one, and a prune that
 // failed would leave a row answering as nothing was said, which is true.
 //
@@ -25,7 +26,14 @@ const (
 		ON DUPLICATE KEY UPDATE rating = new.rating`
 	trackUnstar = `UPDATE track_annotations SET starred_at = NULL WHERE file_id = ? AND owner_id = ?`
 	trackPrune  = `DELETE FROM track_annotations
-		WHERE file_id = ? AND owner_id = ? AND starred_at IS NULL AND rating = 0`
+		WHERE file_id = ? AND owner_id = ? AND starred_at IS NULL AND rating = 0 AND play_count = 0`
+	// GREATEST is NULL if either side is, here unlike PostgreSQL, so the first
+	// play is the COALESCE.
+	trackPlay = `INSERT INTO track_annotations (file_id, owner_id, starred_at, rating, play_count, played_at)
+		VALUES (?, ?, NULL, 0, 1, ?) AS new
+		ON DUPLICATE KEY UPDATE
+			play_count = track_annotations.play_count + 1,
+			played_at = GREATEST(COALESCE(track_annotations.played_at, new.played_at), new.played_at)`
 
 	tagStar = `INSERT INTO tag_annotations (owner_id, key_hash, kind, artist, album, starred_at, rating)
 		VALUES (?, ?, ?, ?, ?, ?, 0) AS new
@@ -105,6 +113,17 @@ func (r *repo) SetRating(ctx context.Context, owner string, s db.Subject, rating
 	return r.prune(ctx, owner, s)
 }
 
+// RecordPlay implements db.Annotations.
+func (r *repo) RecordPlay(ctx context.Context, owner string, fileID int64, at time.Time) error {
+	if err := db.TrackSubject(fileID).Validate(); err != nil {
+		return err
+	}
+	if _, err := r.q.ExecContext(ctx, trackPlay, fileID, owner, at.UnixMilli()); err != nil {
+		return fmt.Errorf("record a play of %d: %w", fileID, mapErr(err))
+	}
+	return nil
+}
+
 func (r *repo) prune(ctx context.Context, owner string, s db.Subject) error {
 	if _, err := r.q.ExecContext(ctx, pick(s, trackPrune, tagPrune), keyArgs(owner, s)...); err != nil {
 		return fmt.Errorf("prune %+v: %w", s, mapErr(err))
@@ -119,19 +138,24 @@ func (r *repo) prune(ctx context.Context, owner string, s db.Subject) error {
 func (r *repo) AnnotationsOf(ctx context.Context, owner string, subjects []db.Subject) (map[db.Subject]db.Annotation, error) {
 	out := make(map[db.Subject]db.Annotation)
 
-	var trackArgs, tagArgs []any
-	var tags int
+	var trackArgs, tagArgs, albumArgs []any
+	var tags, albums int
 	for _, s := range subjects {
-		if s.Kind == db.SubjectTrack {
+		switch s.Kind {
+		case db.SubjectTrack:
 			trackArgs = append(trackArgs, s.FileID)
-		} else {
+		case db.SubjectAlbum:
+			albumArgs = append(albumArgs, s.Artist, s.Album)
+			albums++
+			fallthrough
+		default:
 			tagArgs = append(tagArgs, tagHash(s))
 			tags++
 		}
 	}
 
 	if len(trackArgs) > 0 {
-		query := `SELECT file_id, starred_at, rating FROM track_annotations
+		query := `SELECT file_id, starred_at, rating, play_count, played_at FROM track_annotations
 			WHERE owner_id = ? AND file_id IN (?` + strings.Repeat(", ?", len(trackArgs)-1) + `)`
 		rows, err := sqlutil.Collect(ctx, r.q, scanTrackAnnotation, query, append([]any{owner}, trackArgs...)...)
 		if err != nil {
@@ -153,6 +177,29 @@ func (r *repo) AnnotationsOf(ctx context.Context, owner string, subjects []db.Su
 			out[row.subject] = row.annotation
 		}
 	}
+
+	// An album's plays are its tracks', added up here rather than kept on the
+	// album's own row, which would be a second count to keep in step. Merged
+	// into whatever the tag row said.
+	if albums > 0 {
+		match := `(m.album_artist = ? AND m.album = ?)`
+		query := `SELECT m.album_artist, m.album, SUM(t.play_count), MAX(t.played_at)
+			FROM media m JOIN files f ON f.id = m.file_id
+			JOIN track_annotations t ON t.file_id = f.id AND t.owner_id = f.owner_id
+			WHERE f.owner_id = ? AND m.kind = ? AND t.play_count > 0
+			  AND (` + match + strings.Repeat(" OR "+match, albums-1) + `)
+			GROUP BY m.album_artist, m.album`
+		args := append([]any{owner, string(db.KindAudio)}, albumArgs...)
+		rows, err := sqlutil.Collect(ctx, r.q, scanAlbumPlays, query, args...)
+		if err != nil {
+			return nil, fmt.Errorf("read album plays: %w", mapErr(err))
+		}
+		for _, row := range rows {
+			a := out[row.subject]
+			a.PlayCount, a.Played = row.annotation.PlayCount, row.annotation.Played
+			out[row.subject] = a
+		}
+	}
 	return out, nil
 }
 
@@ -163,15 +210,30 @@ type annotationRow struct {
 
 func scanTrackAnnotation(rows *sql.Rows) (annotationRow, error) {
 	var id int64
-	var starred sql.NullInt64
+	var starred, played sql.NullInt64
 	var row annotationRow
-	if err := rows.Scan(&id, &starred, &row.annotation.Rating); err != nil {
+	if err := rows.Scan(&id, &starred, &row.annotation.Rating, &row.annotation.PlayCount, &played); err != nil {
 		return annotationRow{}, err
 	}
 	row.subject = db.TrackSubject(id)
 	if starred.Valid {
 		row.annotation.Starred = time.UnixMilli(starred.Int64).UTC()
 	}
+	if played.Valid {
+		row.annotation.Played = time.UnixMilli(played.Int64).UTC()
+	}
+	return row, nil
+}
+
+func scanAlbumPlays(rows *sql.Rows) (annotationRow, error) {
+	var artist, album string
+	var played int64
+	var row annotationRow
+	if err := rows.Scan(&artist, &album, &row.annotation.PlayCount, &played); err != nil {
+		return annotationRow{}, err
+	}
+	row.subject = db.AlbumSubject(artist, album)
+	row.annotation.Played = time.UnixMilli(played).UTC()
 	return row, nil
 }
 
@@ -193,6 +255,12 @@ func scanTagAnnotation(rows *sql.Rows) (annotationRow, error) {
 // album, so it multiplies nothing the aggregate counts.
 const albumAnnotated = ` JOIN tag_annotations a ON a.owner_id = f.owner_id AND a.kind = 'album'
 	AND a.artist = m.album_artist AND a.album = m.album`
+
+// albumPlayed joins each track of an album aggregate to its plays. A LEFT JOIN,
+// at most one row per track: an album is listed whole, with the tracks nobody
+// has played in its song count, and filtered in HAVING on what the ones played
+// add up to.
+const albumPlayed = ` LEFT JOIN track_annotations t ON t.file_id = f.id AND t.owner_id = f.owner_id`
 
 // Starred implements db.Annotations.
 //

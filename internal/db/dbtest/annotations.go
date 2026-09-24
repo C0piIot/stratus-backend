@@ -31,6 +31,13 @@ func RunAnnotations(t *testing.T, newRepo func(t *testing.T) db.Repo) {
 		{"starred lists what is still in the library, newest first", annotationsStarredOrder},
 		{"the starred and highest listings filter and order", annotationsAlbumLists},
 		{"reading no subjects is not a query", annotationsOfNothing},
+		{"a play is counted and the latest one kept", playsCount},
+		{"a play is not forgotten with a star or a rating", playsOutliveTheRest},
+		{"a play goes with its file", playsCascade},
+		{"a missing track cannot be played", playsMissingTrack},
+		{"an album's plays are its tracks'", playsAddUpToTheAlbum},
+		{"the frequent and recent listings filter and order", playsAlbumLists},
+		{"owners do not see each other's plays", playsOwnersAreSeparate},
 	}
 
 	for _, tc := range cases {
@@ -330,4 +337,174 @@ func starred(t *testing.T, s db.Repo, ownerID string) db.StarredItems {
 		t.Fatalf("Starred: %v", err)
 	}
 	return got
+}
+
+func play(t *testing.T, s db.Repo, f db.File, at time.Time) {
+	t.Helper()
+	if err := s.RecordPlay(t.Context(), owner, f.ID, at); err != nil {
+		t.Fatalf("RecordPlay(%d): %v", f.ID, err)
+	}
+}
+
+func playsCount(t *testing.T, s db.Repo) {
+	f := track(t, s, owner, "music/a.flac", song("Autechre", "Autechre", "Tri Repetae", "Rotar", 1))
+	subj := db.TrackSubject(f.ID)
+
+	play(t, s, f, starredAt)
+	play(t, s, f, starredAt.Add(time.Hour))
+	// Reported late, as a client syncing an offline session does: it counts,
+	// and the track is no less recent for it.
+	play(t, s, f, starredAt.Add(-time.Hour))
+
+	got := annotationsOf(t, s, owner, subj)[subj]
+	if got.PlayCount != 3 || !got.Played.Equal(starredAt.Add(time.Hour)) {
+		t.Errorf("after three plays = %+v, want 3 and the latest time", got)
+	}
+	if !got.Starred.IsZero() || got.Rating != 0 {
+		t.Errorf("a play starred or rated the track: %+v", got)
+	}
+}
+
+// playsOutliveTheRest is the prune: a row that loses its star and its rating
+// still holds its plays, and must not be deleted for having neither.
+func playsOutliveTheRest(t *testing.T, s db.Repo) {
+	f := track(t, s, owner, "music/a.flac", song("Autechre", "Autechre", "Tri Repetae", "Rotar", 1))
+	subj := db.TrackSubject(f.ID)
+
+	star(t, s, subj, starredAt)
+	rate(t, s, subj, 4)
+	play(t, s, f, starredAt)
+	if err := s.Unstar(t.Context(), owner, subj); err != nil {
+		t.Fatal(err)
+	}
+	rate(t, s, subj, 0)
+
+	if got := annotationsOf(t, s, owner, subj)[subj]; got.PlayCount != 1 {
+		t.Errorf("after the star and the rating went = %+v, want the play kept", got)
+	}
+}
+
+func playsCascade(t *testing.T, s db.Repo) {
+	f := track(t, s, owner, "music/a.flac", song("Autechre", "Autechre", "Tri Repetae", "Rotar", 1))
+	play(t, s, f, starredAt)
+
+	if err := s.DeleteFile(t.Context(), owner, "music/a.flac"); err != nil {
+		t.Fatal(err)
+	}
+	if got := annotationsOf(t, s, owner, db.TrackSubject(f.ID)); len(got) != 0 {
+		t.Errorf("after the file was deleted AnnotationsOf = %v, want nothing", got)
+	}
+}
+
+func playsMissingTrack(t *testing.T, s db.Repo) {
+	if err := s.RecordPlay(t.Context(), owner, 424242, starredAt); !errors.Is(err, db.ErrNotFound) {
+		t.Errorf("RecordPlay of a file that is not there = %v, want ErrNotFound", err)
+	}
+	if err := s.RecordPlay(t.Context(), owner, 0, starredAt); err == nil {
+		t.Error("RecordPlay(0) = nil, want a refusal")
+	}
+}
+
+func playsAddUpToTheAlbum(t *testing.T, s db.Repo) {
+	a := track(t, s, owner, "music/a.flac", song("Autechre", "Autechre", "Tri Repetae", "Rotar", 1))
+	b := track(t, s, owner, "music/b.flac", song("Autechre", "Autechre", "Tri Repetae", "Stud", 2))
+	track(t, s, owner, "music/c.flac", song("Autechre", "Autechre", "Tri Repetae", "Eutow", 3))
+	album := db.AlbumSubject("Autechre", "Tri Repetae")
+	star(t, s, album, starredAt)
+
+	play(t, s, a, starredAt)
+	play(t, s, a, starredAt.Add(time.Minute))
+	play(t, s, b, starredAt.Add(time.Hour))
+
+	got := annotationsOf(t, s, owner, album, db.ArtistSubject("Autechre"))
+	if a := got[album]; a.PlayCount != 3 || !a.Played.Equal(starredAt.Add(time.Hour)) || !a.Starred.Equal(starredAt) {
+		t.Errorf("the album = %+v, want its star, three plays and the latest time", a)
+	}
+	if a, ok := got[db.ArtistSubject("Autechre")]; ok {
+		t.Errorf("the artist = %+v, want nothing: an artist has no plays", a)
+	}
+
+	// Played and never starred is still answered.
+	other := track(t, s, owner, "music/d.flac", song("Burial", "Burial", "Untrue", "Archangel", 1))
+	play(t, s, other, starredAt)
+	untrue := db.AlbumSubject("Burial", "Untrue")
+	if got := annotationsOf(t, s, owner, untrue)[untrue]; got.PlayCount != 1 {
+		t.Errorf("an album played and not starred = %+v, want one play", got)
+	}
+}
+
+func playsAlbumLists(t *testing.T, s db.Repo) {
+	catalogue(t, s,
+		record{artist: "Zomby", album: "Aaron", year: 2011, genre: "Electronic"},
+		record{artist: "Autechre", album: "Zeta", year: 1994, genre: "Electronic"},
+		record{artist: "Móveis", album: "Meia", year: 2003, genre: "Rock"},
+		record{artist: "Burial", album: "Untrue", year: 2007, genre: "Electronic"},
+	)
+	// A second track on Aaron nobody plays, which must still be in its count.
+	track(t, s, owner, "music/aaron-2.flac", song("Zomby", "Zomby", "Aaron", "Second", 2))
+
+	tracks := func(album string) db.File {
+		t.Helper()
+		got, err := s.AlbumList(t.Context(), owner, db.AlbumFilter{Order: db.AlbumsByName, Page: db.Page{Limit: 10}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, a := range got {
+			if a.Name == album {
+				list, err := s.Tracks(t.Context(), owner, a.Artist, a.Name)
+				if err != nil {
+					t.Fatal(err)
+				}
+				return list[0].File
+			}
+		}
+		t.Fatalf("no album %q", album)
+		return db.File{}
+	}
+	aaron, zeta, meia := tracks("Aaron"), tracks("Zeta"), tracks("Meia")
+	play(t, s, aaron, starredAt)
+	play(t, s, zeta, starredAt.Add(time.Hour))
+	play(t, s, zeta, starredAt.Add(2*time.Hour))
+	play(t, s, meia, starredAt.Add(3*time.Hour))
+	play(t, s, meia, starredAt.Add(-time.Hour))
+
+	page := db.Page{Limit: 10}
+	tests := []struct {
+		f    db.AlbumFilter
+		want []string
+	}{
+		// Ties on the count fall back to the artist, as every order does.
+		{db.AlbumFilter{Order: db.AlbumsFrequent, Page: page}, []string{"Zeta", "Meia", "Aaron"}},
+		{db.AlbumFilter{Order: db.AlbumsRecent, Page: page}, []string{"Meia", "Zeta", "Aaron"}},
+		{db.AlbumFilter{Order: db.AlbumsRecent, Page: db.Page{Limit: 1, Offset: 1}}, []string{"Zeta"}},
+		{db.AlbumFilter{Order: db.AlbumsFrequent, Genre: "Rock", Page: page}, []string{"Meia"}},
+	}
+	for _, tt := range tests {
+		got, err := s.AlbumList(t.Context(), owner, tt.f)
+		if err != nil {
+			t.Fatalf("AlbumList(%+v): %v", tt.f, err)
+		}
+		if names := albumNames(got); !equal(names, tt.want) {
+			t.Errorf("AlbumList(%+v) = %v, want %v", tt.f, names, tt.want)
+		}
+		for _, a := range got {
+			if a.Name == "Aaron" && a.SongCount != 2 {
+				t.Errorf("Aaron counts %d songs in %s, want 2: the unplayed track is still on it", a.SongCount, tt.f.Order)
+			}
+		}
+	}
+}
+
+func playsOwnersAreSeparate(t *testing.T, s db.Repo) {
+	f := track(t, s, owner, "music/a.flac", song("Autechre", "Autechre", "Tri Repetae", "Rotar", 1))
+	play(t, s, f, starredAt)
+
+	got := annotationsOf(t, s, "someone-else", db.TrackSubject(f.ID), db.AlbumSubject("Autechre", "Tri Repetae"))
+	if len(got) != 0 {
+		t.Errorf("another owner reads %v, want nothing", got)
+	}
+	recent, err := s.AlbumList(t.Context(), "someone-else", db.AlbumFilter{Order: db.AlbumsRecent, Page: db.Page{Limit: 10}})
+	if err != nil || len(recent) != 0 {
+		t.Errorf("another owner's recent = %v, %v, want nothing", albumNames(recent), err)
+	}
 }

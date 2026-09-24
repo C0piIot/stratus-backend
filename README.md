@@ -365,11 +365,12 @@ with an accent on it.
 conditional requests and seeking come from the same code that serves a video
 over WebDAV.
 
-**Stars and ratings are kept**: `star`, `unstar` and `setRating` on songs,
-albums and artists, `getStarred2` and `getStarred` to read them back, and the
-"starred" and "top rated" album lists ordered by them. Every listing carries the
-star and the rating on each row, so a client that caches rows sees them without
-asking twice. Two things behave in a way worth knowing:
+**Stars, ratings and plays are kept**: `star`, `unstar` and `setRating` on
+songs, albums and artists, `getStarred2` and `getStarred` to read them back,
+and `scrobble` to count a play. All ten album lists answer, "starred", "top
+rated", "most played" and "recently played" included. Every listing carries the
+star, the rating, the play count and the last play on each row, so a client that
+caches rows sees them without asking twice. What is worth knowing:
 
 - **A song's star follows the file.** Renaming or overwriting it keeps the
   star; deleting it takes the star with it.
@@ -378,6 +379,11 @@ asking twice. Two things behave in a way worth knowing:
   different album as far as the server can tell, and the star stays with the old
   name -- listed again if the old tags ever come back. Folders cannot be
   starred.
+- **Only `scrobble` counts a play.** Streaming a track does not, as the
+  specification says, and "now playing" (`submission=false`) is accepted and
+  not kept. An album's plays are its tracks' added up, so they follow the file
+  like a song's star does. A play reported late -- a phone catching up after a
+  flight -- still counts and never makes a track look less recent.
 
 What is not there yet, and it is better to know before installing a client:
 
@@ -388,14 +394,10 @@ What is not there yet, and it is better to know before installing a client:
   base64-encoded inside a comment and are not read yet. Albums always advertise
   a `coverArt` id, and asking for one that is not there is answered as "there is
   none", which is what a client draws a placeholder for.
-- **No play counts or playlists.** `scrobble` is not implemented, so nothing
-  counts a play, and `getUser` says there are no playlists rather than letting
-  a client find out.
+- **No playlists.** `getUser` says there are none rather than letting a client
+  find out.
 - **No transcoding.** `maxBitRate` and `format` are ignored and the original is
   served, which is what `format=raw` asks for explicitly.
-- **Two of the ten album lists are empty**, and on purpose: "most played" and
-  "recently played" are ordered by a play count, and nothing records one. The
-  shelf is blank rather than filled with something that is not what it says.
 - **A file is in the library once the indexer has read it**, which is also how
   long it takes to appear in a folder listing. That is the same rule for both
   views, so they cannot disagree.
@@ -890,9 +892,8 @@ Working now:
 - OpenSubsonic: browsing by tag and by folder, search, the album lists a home
   screen is made of, and streaming -- over both of the protocol's
   authentication schemes and sharing that same limit, with cover art from
-  beside the music or out of the tags, and stars and ratings kept. No play
-  counts, no playlists, no transcoding, and no client has been tried against it
-  yet.
+  beside the music or out of the tags, and stars, ratings and plays kept. No
+  playlists, no transcoding, and no client has been tried against it yet.
 - EXIF, audio tags and video probing, indexed in the background and started by
   the upload itself, with a page saying how far it has got.
 - A web UI: sign in, walk the tree, download a file, upload one, make a folder,
@@ -902,7 +903,7 @@ Working now:
   the outside by 97 smoke checks.
 
 Not there yet: CalDAV and sharing --
-and on the music side, play counts and playlists. Work
+and on the music side, playlists. Work
 and the decisions behind it are tracked on the
 [Stratus project board](https://github.com/users/C0piIot/projects/2), where
 `Priority` says when and the `decision` label says what still needs a call.

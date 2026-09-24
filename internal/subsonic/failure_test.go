@@ -122,6 +122,13 @@ func (b breaking) SetRating(ctx context.Context, owner string, s db.Subject, rat
 	return b.music.SetRating(ctx, owner, s, rating)
 }
 
+func (b breaking) RecordPlay(ctx context.Context, owner string, fileID int64, at time.Time) error {
+	if err := b.err("RecordPlay"); err != nil {
+		return err
+	}
+	return b.music.RecordPlay(ctx, owner, fileID, at)
+}
+
 func (b breaking) AnnotationsOf(ctx context.Context, owner string, subjects []db.Subject) (map[db.Subject]db.Annotation, error) {
 	if err := b.err("AnnotationsOf"); err != nil {
 		return nil, err
@@ -234,6 +241,8 @@ func TestABrokenBackendIsNotANotFound(t *testing.T) {
 		{name: "finding the artist to star", call: "Albums", method: "star", extra: []string{"artistId", artistIDOf("Björk")}},
 		{name: "unstarring", call: "Unstar", method: "unstar", id: theTrack},
 		{name: "rating", call: "SetRating", method: "setRating", id: theTrack, extra: []string{"rating", "3"}},
+		{name: "scrobbling", call: "RecordPlay", method: "scrobble", id: theTrack},
+		{name: "finding the track to scrobble", call: "TrackByFile", method: "scrobble", id: theTrack},
 		{
 			name: "finding the folder a cover is in", call: "Tracks",
 			method: "getCoverArt", id: fixed(albumIDOf("Björk", "Homogenic")), binary: true,

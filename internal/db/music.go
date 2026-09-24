@@ -59,8 +59,7 @@ type Page struct {
 }
 
 // AlbumOrder is how a listing of albums is sorted. There is one for each way a
-// client asks to see a library, and no more: the orders that need a play count
-// are not here, because nothing records one yet (#195).
+// client asks to see a library, and no more.
 type AlbumOrder string
 
 // The orders AlbumList answers.
@@ -83,6 +82,11 @@ const (
 	// first. See Annotations.
 	AlbumsStarred AlbumOrder = "starred"
 	AlbumsHighest AlbumOrder = "highest"
+	// AlbumsFrequent and AlbumsRecent are the same for plays: only the albums
+	// played, most plays first, and most recently played first. An album's
+	// plays are its tracks'.
+	AlbumsFrequent AlbumOrder = "frequent"
+	AlbumsRecent   AlbumOrder = "recent"
 )
 
 // AlbumFilter is a paged listing of albums.

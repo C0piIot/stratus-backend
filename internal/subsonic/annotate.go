@@ -17,12 +17,15 @@ type Library interface {
 }
 
 // annotated is the part of a song, an album and an artist that says what the
-// user thinks of it. Embedded rather than repeated, so the three cannot drift
+// user thinks of it and how much they have played it. Embedded rather than repeated, so the three cannot drift
 // apart in how they spell it, and filled after the payload is built: see
 // annotate.
 type annotated struct {
 	Starred    string `xml:"starred,attr,omitempty" json:"starred,omitempty"`
 	UserRating int    `xml:"userRating,attr,omitempty" json:"userRating,omitempty"`
+	PlayCount  int64  `xml:"playCount,attr,omitempty" json:"playCount,omitempty"`
+	// Played is OpenSubsonic's, not Subsonic's: when it was last played.
+	Played string `xml:"played,attr,omitempty" json:"played,omitempty"`
 }
 
 func (a *annotated) set(v db.Annotation) {
@@ -30,6 +33,10 @@ func (a *annotated) set(v db.Annotation) {
 		a.Starred = stamp(v.Starred)
 	}
 	a.UserRating = v.Rating
+	a.PlayCount = v.PlayCount
+	if !v.Played.IsZero() {
+		a.Played = stamp(v.Played)
+	}
 }
 
 // annotatable is a payload that can carry an annotation. Its id is what says
@@ -323,4 +330,63 @@ func (h *handler) starred(w http.ResponseWriter, r *http.Request, username strin
 	env := h.ok()
 	env.Starred = &list
 	h.write(w, r, env)
+}
+
+// scrobble records plays, and it is the only thing that does: stream counts
+// nothing, because the specification says plays come from here, and a client
+// that seeks or buffers ahead would otherwise count one play many times.
+//
+// A client that played offline sends every id at once with a time for each, in
+// milliseconds. One with no time was played now. submission=false is "now
+// playing", which is accepted and not kept: there is no getNowPlaying for it to
+// feed.
+func (h *handler) scrobble(w http.ResponseWriter, r *http.Request, username string) {
+	q := r.URL.Query()
+
+	ids := q["id"]
+	if len(ids) == 0 {
+		h.fail(w, r, apiError{errMissingParam, "the id parameter is required"})
+		return
+	}
+	times := q["time"]
+	if len(times) > len(ids) {
+		h.fail(w, r, apiError{errMissingParam, "more times than ids"})
+		return
+	}
+
+	type play struct {
+		fileID int64
+		at     time.Time
+	}
+	now := time.Now()
+	plays := make([]play, 0, len(ids))
+	for i, id := range ids {
+		t, apiErr := h.audioTrack(r, username, id)
+		if apiErr != nil {
+			h.fail(w, r, *apiErr)
+			return
+		}
+		at := now
+		if i < len(times) {
+			ms, err := strconv.ParseInt(times[i], 10, 64)
+			if err != nil || ms <= 0 {
+				h.fail(w, r, apiError{errMissingParam, "a time is milliseconds since the epoch"})
+				return
+			}
+			at = time.UnixMilli(ms)
+		}
+		plays = append(plays, play{t.File.ID, at})
+	}
+
+	if q.Get("submission") == "false" {
+		h.write(w, r, h.ok())
+		return
+	}
+	for _, p := range plays {
+		if err := h.lib.RecordPlay(r.Context(), username, p.fileID, p.at); err != nil {
+			h.fail(w, r, h.internal(r, "record a play", err))
+			return
+		}
+	}
+	h.write(w, r, h.ok())
 }

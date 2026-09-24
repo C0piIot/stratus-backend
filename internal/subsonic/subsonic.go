@@ -98,6 +98,7 @@ func Handler(prefix, serverVersion string, v Verifier, lib Library, tree Tree, a
 	mux.HandleFunc("GET /star", h.authed(h.star))
 	mux.HandleFunc("GET /unstar", h.authed(h.unstar))
 	mux.HandleFunc("GET /setRating", h.authed(h.setRating))
+	mux.HandleFunc("GET /scrobble", h.authed(h.scrobble))
 
 	// The bytes. Their errors are XML whatever f said, so they authenticate
 	// through their own wrapper.
@@ -176,8 +177,7 @@ func (h *handler) musicFolders(w http.ResponseWriter, r *http.Request, _ string)
 }
 
 // user reports what this server can actually do. Everything absent is false:
-// nothing counts a play and there are no playlists, so a client is better told
-// now than refused later.
+// there are no playlists, so a client is better told now than refused later.
 func (h *handler) user(w http.ResponseWriter, r *http.Request, username string) {
 	env := h.ok()
 	env.User = &user{

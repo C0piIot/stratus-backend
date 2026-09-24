@@ -253,3 +253,114 @@ func TestSeveralIDsInOneStar(t *testing.T) {
 		t.Errorf("starred songs = %v, want both", got)
 	}
 }
+
+// TestAScrobbleIsCounted is the acceptance of #195: a scrobble counts a play,
+// the song says so, and its album moves onto the two shelves plays order.
+func TestAScrobbleIsCounted(t *testing.T) {
+	t.Parallel()
+	l, hunter, rotar := starredLibrary(t)
+
+	mustOK(t, l, "scrobble", "id", hunter, "time", "1700000000000")
+	mustOK(t, l, "scrobble", "id", hunter, "time", "1700000100000")
+	mustOK(t, l, "scrobble", "id", rotar, "time", "1700000200000")
+
+	s, _ := mustOK(t, l, "getSong", "id", hunter)["song"].(map[string]any)
+	if got := s["playCount"]; got != float64(2) {
+		t.Errorf("playCount = %v, want 2", got)
+	}
+	if got := s["played"]; got != "2023-11-14T22:15:00Z" {
+		t.Errorf("played = %v, want the later of the two", got)
+	}
+
+	frequent, _ := mustOK(t, l, "getAlbumList2", "type", "frequent")["albumList2"].(map[string]any)
+	if got := names(t, frequent["album"], "name"); !same(got, []string{"Homogenic", "Tri Repetae"}) {
+		t.Errorf("frequent = %v, want most played first", got)
+	}
+	if albums, _ := frequent["album"].([]any); len(albums) > 0 {
+		if got := albums[0].(map[string]any)["playCount"]; got != float64(2) {
+			t.Errorf("the most played album's playCount = %v, want its tracks' 2", got)
+		}
+	}
+	recent, _ := mustOK(t, l, "getAlbumList", "type", "recent")["albumList"].(map[string]any)
+	if got := names(t, recent["album"], "title"); !same(got, []string{"Tri Repetae", "Homogenic"}) {
+		t.Errorf("recent = %v, want most recently played first", got)
+	}
+}
+
+// TestAnOfflineSessionIsOneScrobble is how a client that played with no network
+// catches up: every id at once, each with its own time.
+func TestAnOfflineSessionIsOneScrobble(t *testing.T) {
+	t.Parallel()
+	l, hunter, rotar := starredLibrary(t)
+
+	q := url.Values{"c": {"stratus-tests"}, "u": {username}, "p": {password}, "f": {"json"},
+		"id": {hunter, rotar, hunter}, "time": {"1700000000000", "1700000100000"}}
+	if env := response(t, get(t, l, "scrobble", q.Encode())); env["status"] != "ok" {
+		t.Fatalf("scrobble = %v", env["error"])
+	}
+
+	s, _ := mustOK(t, l, "getSong", "id", rotar)["song"].(map[string]any)
+	if got := s["played"]; got != "2023-11-14T22:15:00Z" {
+		t.Errorf("played = %v, want the time sent with it", got)
+	}
+	// The third id had no time, so it was played now, which is later.
+	s, _ = mustOK(t, l, "getSong", "id", hunter)["song"].(map[string]any)
+	if got := s["playCount"]; got != float64(2) {
+		t.Errorf("playCount = %v, want 2", got)
+	}
+	if got, _ := s["played"].(string); got <= "2023-11-14T22:15:00Z" {
+		t.Errorf("played = %v, want now", got)
+	}
+}
+
+// TestOnlyAScrobbleCounts covers the two ways a play could be counted that are
+// not one: "now playing", and the bytes being fetched.
+func TestOnlyAScrobbleCounts(t *testing.T) {
+	t.Parallel()
+	l, hunter, _ := starredLibrary(t)
+
+	mustOK(t, l, "scrobble", "id", hunter, "submission", "false")
+	if rec := get(t, l, "stream", query("id", hunter)); rec.Code != 200 {
+		t.Fatalf("stream = %d", rec.Code)
+	}
+
+	s, _ := mustOK(t, l, "getSong", "id", hunter)["song"].(map[string]any)
+	if got, present := s["playCount"]; present {
+		t.Errorf("playCount = %v after now-playing and a stream, want none", got)
+	}
+}
+
+func TestAScrobbleIsRefusedWhole(t *testing.T) {
+	t.Parallel()
+	l, hunter, _ := starredLibrary(t)
+
+	tests := []struct {
+		name   string
+		params url.Values
+		want   float64
+	}{
+		{"no id", url.Values{}, 10},
+		{"a song that is not there", url.Values{"id": {songIDOf(424242)}}, 70},
+		{"an album", url.Values{"id": {albumIDOf("Björk", "Homogenic")}}, 70},
+		{"a time that is not a time", url.Values{"id": {hunter}, "time": {"yesterday"}}, 10},
+		{"a time before the epoch", url.Values{"id": {hunter}, "time": {"-5"}}, 10},
+		{"more times than ids", url.Values{"id": {hunter}, "time": {"1", "2"}}, 10},
+		{"one good and one bad", url.Values{"id": {hunter, songIDOf(424242)}}, 70},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			q := url.Values{"c": {"stratus-tests"}, "u": {username}, "p": {password}, "f": {"json"}}
+			for k, v := range tt.params {
+				q[k] = v
+			}
+			if code := errorCode(t, get(t, l, "scrobble", q.Encode())); code != tt.want {
+				t.Errorf("code = %v, want %v", code, tt.want)
+			}
+		})
+	}
+
+	s, _ := mustOK(t, l, "getSong", "id", hunter)["song"].(map[string]any)
+	if got, present := s["playCount"]; present {
+		t.Errorf("a refused scrobble counted %v", got)
+	}
+}
