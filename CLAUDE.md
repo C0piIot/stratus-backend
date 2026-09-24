@@ -733,17 +733,28 @@ Restraint here is principle 3, not laziness:
     so the demuxer list mirrors `byExtension` in `internal/media` and a test
     holds the two together — an extension added without its demuxer fails at
     probe time in production rather than at build time.
-  - **`ffmpeg`, 3.9 MB.** Only for what Go cannot decode: HEIC, which needs
-    libheif and therefore cgo, and a frame out of a video. It decodes and
-    scales; the JPEG is written in Go, so it emits a rawvideo frame already
-    reduced rather than a full-size one. AV1 and camera raw are deliberately
-    out, and the audio encoders arrive with transcoding. The transpose, hflip
-    and vflip filters are in it for nothing this project writes: they are what
-    ffmpeg itself reaches for when it straightens a frame the container says was
-    recorded rotated.
+  - **`ffmpeg`, 10.8 MB.** For pictures, only what Go cannot decode: HEIC,
+    which needs libheif and therefore cgo, and a frame out of a video. It
+    decodes and scales; the JPEG is written in Go, so it emits a rawvideo frame
+    already reduced rather than a full-size one. AV1 and camera raw are
+    deliberately out. The transpose, hflip and vflip filters are in it for
+    nothing this project writes: they are what ffmpeg itself reaches for when it
+    straightens a frame the container says was recorded rotated.
+
+    For audio it transcodes (#50): a decoder for every audio
+    extension in `byExtension`, and AAC, FLAC, MP3 and Opus out -- the last two
+    through `libmp3lame` and `libopus`, the only libraries linked that FFmpeg
+    does not ship, and neither makes it GPL.
+
+    **It reads over HTTP and HTTPS**, so a source in a bucket is read by
+    ranges instead of copied first -- an m4a with its `moov` at the end cannot
+    be read from a pipe. OpenSSL is five of the megabytes and was taken
+    knowingly. **FFmpeg does not verify a certificate unless told to**, so
+    whatever points it at `https` passes `-tls_verify 1` and the CA bundle.
 
   Each recipe asserts what it was asked for while it builds, and ffmpeg's also
-  decodes a committed HEIC and checks the byte count of the scaled pixels. That
+  decodes a committed HEIC and checks the byte count of the scaled pixels, and
+  turns a committed FLAC into each audio target, seeking one of them. That
   is the assertion that matters: a codec list can be complete while the binary
   still cannot read the format somebody uploads, because HEIF is read through
   the mov demuxer and no flag name says so.

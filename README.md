@@ -814,8 +814,8 @@ build rather than a note in a document.
 
 ## Container
 
-Multi-stage build, `distroless/static:nonroot` runtime, about 27 MB. The Go
-binary is most of it at 21 MB, beside 1.7 MB of `ffprobe`, 3.9 MB of `ffmpeg`
+Multi-stage build, `distroless/static:nonroot` runtime, about 34 MB. The Go
+binary is most of it at 21 MB, beside 1.7 MB of `ffprobe`, 10.8 MB of `ffmpeg`
 and a base under one megabyte. It grew 4 MB with the web UI: `html/template`
 costs about three of those and the embedded Bootstrap a third of one, with htmx
 a further 50 KB, which is what a page rendered by the standard library and
@@ -828,10 +828,16 @@ FFmpeg ships. Ours carry what Stratus uses and nothing else, which is two
 different lists: `ffprobe` runs `-show_format -show_streams` and never decodes a
 frame, so it needs the demuxers for the formats indexed; `ffmpeg` decodes the
 formats Go cannot — HEIC, which is what a phone records, and a frame out of a
-video — and scales them, leaving the JPEG to be written in Go.
+video — and scales them, leaving the JPEG to be written in Go. It also carries
+what audio transcoding needs: the decoders for every audio format indexed, and
+AAC, FLAC, MP3 and Opus encoders, the last two through `libmp3lame` and
+`libopus`. And it reads over HTTPS, so a track in a bucket can be transcoded
+without being downloaded first; OpenSSL is five of its megabytes, which is the
+price of that.
 
 Each recipe asserts itself while it builds, and `ffmpeg`'s does it by decoding a
-committed HEIC and checking the pixels come out the right size. That is the
+committed HEIC and checking the pixels come out the right size, and by turning a
+committed FLAC into each audio format and seeking into it. That is the
 assertion worth having: every codec list can be right while the binary still
 cannot read the format somebody uploads. `scripts/smoke.sh` then measures both
 binaries against a budget, because a build that quietly stopped being trimmed
