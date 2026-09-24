@@ -738,8 +738,8 @@ TRACK
     bad "the session opens the tree" "missing:${missing:- nothing}, $(head -c 120 <<<"$body")"
   fi
 
-  # Opening a file hands over the bytes, and plain text is the browser's to
-  # open. What could run a script -- HTML, SVG -- is an attachment, and the unit
+  # Opening a file hands over the bytes, inline: what to do with it is the
+  # browser's decision. What could run a script is sandboxed, and the unit
   # tests hold that list; here it is the header reaching the wire.
   headers="$(curl -s -D - -o /dev/null -b "$jar" "http://$davhost/files/notes.txt")"
   downloaded="$(curl -s -b "$jar" "http://$davhost/files/notes.txt")"

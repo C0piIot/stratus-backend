@@ -114,26 +114,31 @@ func TestHumanSize(t *testing.T) {
 	}
 }
 
-// TestDisposition: what the browser may open is what cannot run a script as
-// the owner. An SVG is an image and is still refused, because it can carry one.
-func TestDisposition(t *testing.T) {
+// TestFilePolicy: everything is opened, and what could run a script is opened
+// sandboxed. An SVG is an image and is still sandboxed, because it can carry
+// one; a PDF is not, because Chrome refuses to render one that is.
+func TestFilePolicy(t *testing.T) {
 	t.Parallel()
-	for mimeType, want := range map[string]string{
-		"image/jpeg":                "inline",
-		"image/heic":                "inline",
-		"video/mp4":                 "inline",
-		"audio/flac":                "inline",
-		"application/pdf":           "inline",
-		"text/plain; charset=utf-8": "inline",
-		"image/svg+xml":             "attachment",
-		"text/html":                 "attachment",
-		"text/javascript":           "attachment",
-		"application/xhtml+xml":     "attachment",
-		"application/octet-stream":  "attachment",
-		"":                          "attachment",
+	for mimeType, sandboxed := range map[string]bool{
+		"image/jpeg":                false,
+		"image/heic":                false,
+		"video/mp4":                 false,
+		"audio/flac":                false,
+		"application/pdf":           false,
+		"text/plain; charset=utf-8": false,
+		"image/svg+xml":             true,
+		"text/html":                 true,
+		"text/javascript":           true,
+		"application/xhtml+xml":     true,
+		"application/octet-stream":  true,
+		"":                          true,
 	} {
-		if got := disposition(mimeType); got != want {
-			t.Errorf("disposition(%q) = %q, want %q", mimeType, got, want)
+		got := filePolicy(mimeType)
+		if strings.HasSuffix(got, "; sandbox") != sandboxed {
+			t.Errorf("filePolicy(%q) = %q, sandboxed should be %v", mimeType, got, sandboxed)
+		}
+		if strings.Contains(got, "script-src") {
+			t.Errorf("filePolicy(%q) = %q allows a script", mimeType, got)
 		}
 	}
 }

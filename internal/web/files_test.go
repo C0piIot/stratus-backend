@@ -319,9 +319,9 @@ func TestABackendThatWillNotAnswer(t *testing.T) {
 	}
 }
 
-// TestAnHTMLFileIsNotOpened: a page somebody uploaded would run as the owner on
-// this origin, so it is saved rather than shown, under the pages' own policy.
-func TestAnHTMLFileIsNotOpened(t *testing.T) {
+// TestAnHTMLFileIsOpenedSandboxed: a page somebody uploaded is the browser's to
+// show like any other file, in a sandbox, so it cannot run as the owner.
+func TestAnHTMLFileIsOpenedSandboxed(t *testing.T) {
 	t.Parallel()
 	h, s := browser(t)
 	const page = "<!doctype html><html><body><script src=x.js></script></body></html>"
@@ -330,10 +330,10 @@ func TestAnHTMLFileIsNotOpened(t *testing.T) {
 	}
 
 	head := get(t, h, "/files/page.html", signIn(t, h)).Header()
-	if got := head.Get("Content-Disposition"); got != `attachment; filename=page.html` {
+	if got := head.Get("Content-Disposition"); got != `inline; filename=page.html` {
 		t.Errorf("Content-Disposition = %q", got)
 	}
-	if got := head.Get("Content-Security-Policy"); !strings.Contains(got, "script-src 'self'") {
-		t.Errorf("Content-Security-Policy = %q, want the pages' own", got)
+	if got := head.Get("Content-Security-Policy"); !strings.HasSuffix(got, "; sandbox") {
+		t.Errorf("Content-Security-Policy = %q, want it sandboxed", got)
 	}
 }

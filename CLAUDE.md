@@ -182,21 +182,32 @@ Hard constraints, in the same spirit as the rest of the project:
   groups the ordering had reached, since directories sort before files and a
   page boundary can fall between them.
 
-  **A file is the browser's to open when it cannot carry a script, and an
-  attachment otherwise.** Images, video, audio, PDF and plain text go out
-  `inline`; HTML, SVG, anything else and anything with no recorded type are
-  saved. This origin holds the session cookie, so an uploaded page rendered
-  here would run as the owner -- and the pages' policy does not stop it on its
-  own, because `script-src 'self'` is satisfied by a `.js` uploaded beside the
-  page. The list is `disposition` in `internal/web/files.go`, and it decides
-  on the same stored type the response is sent with under `nosniff`, so the
-  browser cannot read the bytes as something the list never saw.
+  **Every file goes out `inline`, and what to do with it is the browser's
+  decision.** What makes that safe is the policy it is opened under. This
+  origin holds the session cookie, so an uploaded page opened here would run as
+  the owner -- and the pages' policy does not stop it, because `script-src
+  'self'` is satisfied by a `.js` uploaded beside the page. **CSP `sandbox`
+  does**: the document gets an origin that matches nothing, and no scripts,
+  forms or popups. It goes on everything except images, video, audio, plain
+  text and PDF, and the exception exists for PDF, which Chrome refuses to render
+  in a sandboxed document. SVG is an image and is sandboxed anyway, because it
+  can carry a script, and so is a file with no recorded type, since
+  `ServeContent` then works one out from the bytes. The list is `filePolicy` in
+  `internal/web/files.go`, and it reads the same stored type the response is
+  sent with under `nosniff`, so the browser cannot take the bytes for something
+  the list never saw.
 
-  **An inline file carries a policy of its own.** What the browser renders is
-  a document it builds around the bytes -- an `<img>` or `<video>` pointing at
-  the same URL, centred by inline styles -- and the pages' policy blocks those
-  styles and, with no `media-src`, the video. The file policy allows media,
-  images and inline styles and still refuses every script.
+  **The policy is not the pages' one.** What the browser renders is a document
+  it builds around the bytes -- an `<img>` or `<video>` pointing at the same
+  URL, centred by inline styles -- and the pages' policy blocks those styles
+  and, with no `media-src`, the video. The file policy allows media, images and
+  inline styles and refuses every script.
+
+  A viewer page of our own -- the file embedded in a template with the UI
+  around it -- was weighed and is a separate feature, not a replacement: the
+  file's own URL stays reachable and would need this policy regardless, and
+  `<object>` would not have helped, since it loads a same-origin HTML page as
+  the same origin and has no `sandbox` attribute.
 
   The bytes go out through `http.ServeContent` over the seeker `internal/files`
   returns, so ranges, conditional requests and a resumed download are the

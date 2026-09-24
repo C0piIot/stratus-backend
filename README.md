@@ -433,11 +433,11 @@ rclone or DAVx5 is overkill, and it consumes the same internals the protocol
 handlers do — it will never grow a private JSON API of its own.
 
 **One URL per directory, and the same one per file**: `/files/photos/2026` is a
-page, `/files/photos/2026/img.jpg` is the picture. Opening a photograph, a
-video, a track, a PDF or a text file leaves it to the browser, which shows or
-plays it; anything that could carry a script — HTML, SVG, and whatever has no
-recorded type — is downloaded instead, because this origin serves the UI and a
-page opened here would run as whoever is signed in. Files go through
+page, `/files/photos/2026/img.jpg` is the picture. Opening a file leaves it to
+the browser, which shows it, plays it or saves it. Anything that could carry a
+script — an HTML page, an SVG — is opened in a sandbox with no scripts and no
+access to the session, because this origin serves the UI and a page opened here
+would otherwise run as whoever is signed in. Files go through
 `http.ServeContent`, so ranges, conditional requests and resuming a half-finished
 download behave exactly as they do on the streaming surface.
 
@@ -815,9 +815,7 @@ everybody, forever. `scripts/demo/SHA256SUMS` pins the bytes and
 
 What it shows is the file tree with thumbnails, the photographs, the video and
 the music opened by the browser itself, and the whole music library in a
-Subsonic client. Anything that could carry a script -- an HTML page, an SVG --
-is saved rather than opened, because the UI and the file share an origin and a
-page opened there would run as whoever is signed in.
+Subsonic client.
 
 `.golangci.yml` uses `depguard` to enforce the architecture rules from
 [`CLAUDE.md`](CLAUDE.md), so a driver type leaking out of its package is a failed

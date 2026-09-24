@@ -153,12 +153,11 @@ func (h *handler) download(w http.ResponseWriter, r *http.Request, user string, 
 	}
 	defer func() { _ = body.Close() }()
 
-	disp := disposition(f.MIMEType)
+	// Inline: what to do with a file is the browser's decision. The filename
+	// is still named, so saving it keeps the name it was stored under.
 	w.Header().Set("Content-Disposition",
-		mime.FormatMediaType(disp, map[string]string{"filename": path.Base(f.Path)}))
-	if disp == "inline" {
-		w.Header().Set("Content-Security-Policy", fileContentSecurityPolicy)
-	}
+		mime.FormatMediaType("inline", map[string]string{"filename": path.Base(f.Path)}))
+	w.Header().Set("Content-Security-Policy", filePolicy(f.MIMEType))
 	if f.MIMEType != "" {
 		w.Header().Set("Content-Type", f.MIMEType)
 	}
@@ -422,25 +421,28 @@ func humanSize(n int64) string {
 	return strconv.FormatFloat(float64(n)/float64(div), 'f', 1, 64) + " " + string("KMGTPE"[exp]) + "B"
 }
 
-// disposition lets the browser open what cannot carry a script and hands
-// everything else over as an attachment.
+// filePolicy is the content security policy a file is opened under, and the
+// reason every file can be opened at all.
 //
-// This origin serves the UI and holds the session cookie, so an uploaded HTML
-// page or SVG rendered here would run as the owner. The content security policy
-// does not stop that on its own: script-src 'self' is satisfied by a .js file
-// uploaded beside the page. The list is of types that are passive by
-// construction, and a type nobody recorded is not one of them.
-func disposition(mimeType string) string {
-	mediaType, _, err := mime.ParseMediaType(mimeType)
-	if err != nil {
-		return "attachment"
-	}
-	switch top, _, _ := strings.Cut(mediaType, "/"); {
+// This origin holds the session cookie, so an uploaded HTML page or SVG opened
+// here would run as the owner -- and the pages' own policy would not stop it,
+// because script-src 'self' is satisfied by a .js uploaded beside the page.
+// sandbox is what does: the document gets an origin of its own that matches
+// nothing, and no scripts, forms or popups.
+//
+// Every type gets it except the ones that cannot carry a script, and the
+// exception exists for PDF: Chrome will not render one in a sandboxed
+// document. A type nobody recorded is sandboxed, since ServeContent then works
+// one out from the bytes and it can come out as text/html.
+func filePolicy(mimeType string) string {
+	mediaType, _, _ := mime.ParseMediaType(mimeType)
+	top, _, _ := strings.Cut(mediaType, "/")
+	switch {
 	case mediaType == "image/svg+xml":
-		return "attachment"
+		// An image that can carry a script: sandboxed, below.
 	case top == "image", top == "video", top == "audio",
 		mediaType == "application/pdf", mediaType == "text/plain":
-		return "inline"
+		return fileContentSecurityPolicy
 	}
-	return "attachment"
+	return fileContentSecurityPolicy + "; sandbox"
 }
