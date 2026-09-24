@@ -23,6 +23,10 @@ func (h *handler) artists(w http.ResponseWriter, r *http.Request, username strin
 	for _, a := range list {
 		refs = append(refs, artistRefOf(a))
 	}
+	if apiErr := h.annotate(r, username, each(refs)); apiErr != nil {
+		h.fail(w, r, *apiErr)
+		return
+	}
 
 	env := h.ok()
 	env.Artists = &artistsList{Indexes: indexArtists(refs)}
@@ -62,6 +66,10 @@ func (h *handler) artist(w http.ResponseWriter, r *http.Request, username string
 	}
 	for _, a := range albums {
 		detail.Albums = append(detail.Albums, albumOf(a))
+	}
+	if apiErr := h.annotate(r, username, []annotatable{&detail}, each(detail.Albums)); apiErr != nil {
+		h.fail(w, r, *apiErr)
+		return
 	}
 
 	env := h.ok()
@@ -115,6 +123,10 @@ func (h *handler) album(w http.ResponseWriter, r *http.Request, username string)
 	for _, t := range tracks {
 		detail.Songs = append(detail.Songs, songOf(t))
 	}
+	if apiErr := h.annotate(r, username, []annotatable{&detail.albumRef}, each(detail.Songs)); apiErr != nil {
+		h.fail(w, r, *apiErr)
+		return
+	}
 
 	env := h.ok()
 	env.Album = &detail
@@ -135,6 +147,10 @@ func (h *handler) song(w http.ResponseWriter, r *http.Request, username string) 
 	}
 
 	c := songOf(t)
+	if apiErr := h.annotate(r, username, []annotatable{&c}); apiErr != nil {
+		h.fail(w, r, *apiErr)
+		return
+	}
 	env := h.ok()
 	env.Song = &c
 	h.write(w, r, env)
@@ -179,6 +195,11 @@ func (h *handler) indexes(w http.ResponseWriter, r *http.Request, username strin
 		if t.File.MTime.After(newest) {
 			newest = t.File.MTime
 		}
+	}
+
+	if apiErr := h.annotate(r, username, each(kids)); apiErr != nil {
+		h.fail(w, r, *apiErr)
+		return
 	}
 
 	list := &indexes{Indexes: indexArtists(refs), Children: kids}
@@ -248,6 +269,10 @@ func (h *handler) musicDirectory(w http.ResponseWriter, r *http.Request, usernam
 	}
 	for _, t := range songs {
 		answer.Children = append(answer.Children, songOf(t))
+	}
+	if apiErr := h.annotate(r, username, each(answer.Children)); apiErr != nil {
+		h.fail(w, r, *apiErr)
+		return
 	}
 
 	env := h.ok()

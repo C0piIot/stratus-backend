@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	_ "github.com/go-sql-driver/mysql" // registers the "mysql" driver for the maintenance connection
 
@@ -112,5 +113,36 @@ func TestNewRejectsAnUnreachableServer(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "secret") {
 		t.Errorf("the error leaks the password: %v", err)
+	}
+}
+
+// TestAnnotationsOnAClosedStore covers the error paths of stars and ratings the
+// way TestMusicOnAClosedStore covers browsing.
+func TestAnnotationsOnAClosedStore(t *testing.T) {
+	t.Parallel()
+	store := newStore(t)
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	track, album := db.TrackSubject(1), db.AlbumSubject("a", "b")
+	calls := map[string]func() error{
+		"Star":      func() error { return store.Star(t.Context(), "edu", album, time.Now()) },
+		"Unstar":    func() error { return store.Unstar(t.Context(), "edu", album) },
+		"SetRating": func() error { return store.SetRating(t.Context(), "edu", track, 3) },
+		"AnnotationsOf tracks": func() error {
+			_, err := store.AnnotationsOf(t.Context(), "edu", []db.Subject{track})
+			return err
+		},
+		"AnnotationsOf tags": func() error {
+			_, err := store.AnnotationsOf(t.Context(), "edu", []db.Subject{album})
+			return err
+		},
+		"Starred": func() error { _, err := store.Starred(t.Context(), "edu"); return err },
+	}
+	for name, call := range calls {
+		if err := call(); err == nil {
+			t.Errorf("%s against a closed store reported no error", name)
+		}
 	}
 }

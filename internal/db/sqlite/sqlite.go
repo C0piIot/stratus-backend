@@ -527,12 +527,12 @@ func (r *repo) TrackByFile(ctx context.Context, owner string, fileID int64) (db.
 // song count is COUNT(*) over them, so a WHERE that dropped the tracks not
 // matching would leave the album in the answer with the wrong numbers beside it.
 func (r *repo) AlbumList(ctx context.Context, owner string, f db.AlbumFilter) ([]db.Album, error) {
-	order, err := albumOrder(f.Order)
+	join, order, err := albumOrder(f.Order)
 	if err != nil {
 		return nil, err
 	}
 
-	query := albumSelect + `
+	query := albumSelect + join + `
 		WHERE f.owner_id = ? AND m.kind = ? AND m.album <> ''` + albumGroup + `
 		HAVING (? = '' OR SUM(CASE WHEN m.genre = ? THEN 1 ELSE 0 END) > 0)
 		   AND (? = 0 OR MAX(m.year) >= ?)
@@ -550,26 +550,31 @@ func (r *repo) AlbumList(ctx context.Context, owner string, f db.AlbumFilter) ([
 	return out, nil
 }
 
-// albumOrder is the ORDER BY for each way a client asks to see a library. Every
-// one of them ends in the same tie-break, so a page boundary lands in the same
-// place twice -- except the random one, which is a different set by definition.
-func albumOrder(o db.AlbumOrder) (string, error) {
+// albumOrder is the ORDER BY for each way a client asks to see a library, and
+// the join the two that are also filters need. Every one of them ends in the
+// same tie-break, so a page boundary lands in the same place twice -- except the
+// random one, which is a different set by definition.
+func albumOrder(o db.AlbumOrder) (join, order string, err error) {
 	const tie = `, m.album_artist, m.album`
 	switch o {
 	case db.AlbumsByName:
-		return `m.album, m.album_artist`, nil
+		return "", `m.album, m.album_artist`, nil
 	case db.AlbumsByArtist:
-		return `m.album_artist, m.album`, nil
+		return "", `m.album_artist, m.album`, nil
 	case db.AlbumsByAdded:
-		return `MIN(f.mtime) DESC` + tie, nil
+		return "", `MIN(f.mtime) DESC` + tie, nil
 	case db.AlbumsByYear:
-		return `MAX(m.year)` + tie, nil
+		return "", `MAX(m.year)` + tie, nil
 	case db.AlbumsByYearDesc:
-		return `MAX(m.year) DESC` + tie, nil
+		return "", `MAX(m.year) DESC` + tie, nil
 	case db.AlbumsRandom:
-		return `random()`, nil
+		return "", `random()`, nil
+	case db.AlbumsStarred:
+		return albumAnnotated + ` AND a.starred_at IS NOT NULL`, `MAX(a.starred_at) DESC` + tie, nil
+	case db.AlbumsHighest:
+		return albumAnnotated + ` AND a.rating > 0`, `MAX(a.rating) DESC` + tie, nil
 	default:
-		return "", fmt.Errorf("list albums: unknown order %q", o)
+		return "", "", fmt.Errorf("list albums: unknown order %q", o)
 	}
 }
 

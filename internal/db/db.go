@@ -220,6 +220,7 @@ type Repo interface {
 	Files
 	MediaIndex
 	Music
+	Annotations
 	Uploads
 }
 

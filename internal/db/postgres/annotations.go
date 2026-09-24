@@ -1,0 +1,240 @@
+package postgres
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/C0piIot/stratus-backend/internal/db"
+	"github.com/C0piIot/stratus-backend/internal/db/sqlutil"
+)
+
+// Every write is an upsert followed by a prune: a row is created by whichever
+// of a star or a rating arrives first, and deleted once it holds neither. The
+// prune is its own statement so that the upsert stays one, and a prune that
+// failed would leave a row answering as nothing was said, which is true.
+const (
+	trackStar = `INSERT INTO track_annotations (file_id, owner_id, starred_at, rating) VALUES ($1, $2, $3, 0)
+		ON CONFLICT (file_id, owner_id) DO UPDATE SET
+			starred_at = COALESCE(track_annotations.starred_at, excluded.starred_at)`
+	trackRate = `INSERT INTO track_annotations (file_id, owner_id, starred_at, rating) VALUES ($1, $2, NULL, $3)
+		ON CONFLICT (file_id, owner_id) DO UPDATE SET rating = excluded.rating`
+	trackUnstar = `UPDATE track_annotations SET starred_at = NULL WHERE file_id = $1 AND owner_id = $2`
+	trackPrune  = `DELETE FROM track_annotations
+		WHERE file_id = $1 AND owner_id = $2 AND starred_at IS NULL AND rating = 0`
+
+	tagStar = `INSERT INTO tag_annotations (owner_id, kind, artist, album, starred_at, rating) VALUES ($1, $2, $3, $4, $5, 0)
+		ON CONFLICT (owner_id, kind, artist, album) DO UPDATE SET
+			starred_at = COALESCE(tag_annotations.starred_at, excluded.starred_at)`
+	tagRate = `INSERT INTO tag_annotations (owner_id, kind, artist, album, starred_at, rating) VALUES ($1, $2, $3, $4, NULL, $5)
+		ON CONFLICT (owner_id, kind, artist, album) DO UPDATE SET rating = excluded.rating`
+	tagUnstar = `UPDATE tag_annotations SET starred_at = NULL
+		WHERE owner_id = $1 AND kind = $2 AND artist = $3 AND album = $4`
+	tagPrune = `DELETE FROM tag_annotations
+		WHERE owner_id = $1 AND kind = $2 AND artist = $3 AND album = $4 AND starred_at IS NULL AND rating = 0`
+)
+
+// subjectArgs is the key of s in the order every statement above names it.
+func subjectArgs(owner string, s db.Subject) []any {
+	if s.Kind == db.SubjectTrack {
+		return []any{s.FileID, owner}
+	}
+	return []any{owner, string(s.Kind), s.Artist, s.Album}
+}
+
+func pick(s db.Subject, track, tag string) string {
+	if s.Kind == db.SubjectTrack {
+		return track
+	}
+	return tag
+}
+
+// Star implements db.Annotations.
+func (r *repo) Star(ctx context.Context, owner string, s db.Subject, at time.Time) error {
+	if err := s.Validate(); err != nil {
+		return err
+	}
+	args := append(subjectArgs(owner, s), at)
+	if _, err := r.q.ExecContext(ctx, pick(s, trackStar, tagStar), args...); err != nil {
+		return fmt.Errorf("star %+v: %w", s, mapErr(err))
+	}
+	return nil
+}
+
+// Unstar implements db.Annotations.
+func (r *repo) Unstar(ctx context.Context, owner string, s db.Subject) error {
+	if err := s.Validate(); err != nil {
+		return err
+	}
+	if _, err := r.q.ExecContext(ctx, pick(s, trackUnstar, tagUnstar), subjectArgs(owner, s)...); err != nil {
+		return fmt.Errorf("unstar %+v: %w", s, mapErr(err))
+	}
+	return r.prune(ctx, owner, s)
+}
+
+// SetRating implements db.Annotations.
+func (r *repo) SetRating(ctx context.Context, owner string, s db.Subject, rating int) error {
+	if err := s.Validate(); err != nil {
+		return err
+	}
+	if err := db.ValidateRating(rating); err != nil {
+		return err
+	}
+	args := append(subjectArgs(owner, s), rating)
+	if _, err := r.q.ExecContext(ctx, pick(s, trackRate, tagRate), args...); err != nil {
+		return fmt.Errorf("rate %+v: %w", s, mapErr(err))
+	}
+	return r.prune(ctx, owner, s)
+}
+
+func (r *repo) prune(ctx context.Context, owner string, s db.Subject) error {
+	if _, err := r.q.ExecContext(ctx, pick(s, trackPrune, tagPrune), subjectArgs(owner, s)...); err != nil {
+		return fmt.Errorf("prune %+v: %w", s, mapErr(err))
+	}
+	return nil
+}
+
+// AnnotationsOf implements db.Annotations.
+//
+// Built rather than declared, like MediaStates, because the list is as long as
+// what the caller is rendering: at most one query per table.
+func (r *repo) AnnotationsOf(ctx context.Context, owner string, subjects []db.Subject) (map[db.Subject]db.Annotation, error) {
+	out := make(map[db.Subject]db.Annotation)
+
+	var trackArgs, tagArgs []any
+	var tags int
+	for _, s := range subjects {
+		if s.Kind == db.SubjectTrack {
+			trackArgs = append(trackArgs, s.FileID)
+		} else {
+			tagArgs = append(tagArgs, string(s.Kind), s.Artist, s.Album)
+			tags++
+		}
+	}
+
+	if len(trackArgs) > 0 {
+		query := `SELECT file_id, starred_at, rating FROM track_annotations
+			WHERE owner_id = $1 AND file_id IN (` + placeholders(2, len(trackArgs)) + `)`
+		rows, err := sqlutil.Collect(ctx, r.q, scanTrackAnnotation, query, append([]any{owner}, trackArgs...)...)
+		if err != nil {
+			return nil, fmt.Errorf("read track annotations: %w", mapErr(err))
+		}
+		for _, row := range rows {
+			out[row.subject] = row.annotation
+		}
+	}
+
+	if tags > 0 {
+		var match strings.Builder
+		for i := range tags {
+			if i > 0 {
+				match.WriteString(" OR ")
+			}
+			n := 2 + 3*i
+			fmt.Fprintf(&match, "(kind = $%d AND artist = $%d AND album = $%d)", n, n+1, n+2)
+		}
+		query := `SELECT kind, artist, album, starred_at, rating FROM tag_annotations
+			WHERE owner_id = $1 AND (` + match.String() + `)`
+		rows, err := sqlutil.Collect(ctx, r.q, scanTagAnnotation, query, append([]any{owner}, tagArgs...)...)
+		if err != nil {
+			return nil, fmt.Errorf("read tag annotations: %w", mapErr(err))
+		}
+		for _, row := range rows {
+			out[row.subject] = row.annotation
+		}
+	}
+	return out, nil
+}
+
+// placeholders is "$from, ..." for n parameters.
+func placeholders(from, n int) string {
+	var b strings.Builder
+	for i := range n {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		b.WriteString("$" + strconv.Itoa(from+i))
+	}
+	return b.String()
+}
+
+type annotationRow struct {
+	subject    db.Subject
+	annotation db.Annotation
+}
+
+func scanTrackAnnotation(rows *sql.Rows) (annotationRow, error) {
+	var id int64
+	var starred sql.NullTime
+	var row annotationRow
+	if err := rows.Scan(&id, &starred, &row.annotation.Rating); err != nil {
+		return annotationRow{}, err
+	}
+	row.subject = db.TrackSubject(id)
+	if starred.Valid {
+		row.annotation.Starred = starred.Time.UTC()
+	}
+	return row, nil
+}
+
+func scanTagAnnotation(rows *sql.Rows) (annotationRow, error) {
+	var kind, artist, album string
+	var starred sql.NullTime
+	var row annotationRow
+	if err := rows.Scan(&kind, &artist, &album, &starred, &row.annotation.Rating); err != nil {
+		return annotationRow{}, err
+	}
+	row.subject = db.Subject{Kind: db.SubjectKind(kind), Artist: artist, Album: album}
+	if starred.Valid {
+		row.annotation.Starred = starred.Time.UTC()
+	}
+	return row, nil
+}
+
+// albumAnnotated joins an album aggregate to its annotation. One row per
+// album, so it multiplies nothing the aggregate counts.
+const albumAnnotated = ` JOIN tag_annotations a ON a.owner_id = f.owner_id AND a.kind = 'album'
+	AND a.artist = m.album_artist AND a.album = m.album`
+
+// Starred implements db.Annotations.
+//
+// Three queries joined to the library rather than read from the annotations
+// alone, so that a star on something no longer there is not listed: it waits,
+// and answers again if the tags come back.
+func (r *repo) Starred(ctx context.Context, owner string) (db.StarredItems, error) {
+	kind := string(db.KindAudio)
+
+	const artists = `SELECT m.album_artist, COUNT(DISTINCT m.album)
+		FROM media m JOIN files f ON f.id = m.file_id
+		JOIN tag_annotations a ON a.owner_id = f.owner_id AND a.kind = 'artist'
+			AND a.artist = m.album_artist AND a.album = '' AND a.starred_at IS NOT NULL
+		WHERE f.owner_id = $1 AND m.kind = $2 AND m.album_artist <> '' AND m.album <> ''
+		GROUP BY m.album_artist
+		ORDER BY MAX(a.starred_at) DESC, m.album_artist`
+
+	const albums = albumSelect + albumAnnotated + ` AND a.starred_at IS NOT NULL
+		WHERE f.owner_id = $1 AND m.kind = $2 AND m.album <> ''` + albumGroup + `
+		ORDER BY MAX(a.starred_at) DESC, m.album_artist, m.album`
+
+	tracks := `SELECT ` + joinedFileColumns + `, ` + joinedMediaColumns + `
+		FROM media m JOIN files f ON f.id = m.file_id
+		JOIN track_annotations t ON t.file_id = f.id AND t.owner_id = f.owner_id AND t.starred_at IS NOT NULL
+		WHERE f.owner_id = $1 AND m.kind = $2
+		ORDER BY t.starred_at DESC, f.path`
+
+	var out db.StarredItems
+	var err error
+	if out.Artists, err = sqlutil.Collect(ctx, r.q, scanArtist, artists, owner, kind); err != nil {
+		return db.StarredItems{}, fmt.Errorf("list starred artists: %w", mapErr(err))
+	}
+	if out.Albums, err = sqlutil.Collect(ctx, r.q, scanAlbum, albums, owner, kind); err != nil {
+		return db.StarredItems{}, fmt.Errorf("list starred albums: %w", mapErr(err))
+	}
+	if out.Tracks, err = sqlutil.Collect(ctx, r.q, scanTrack, tracks, owner, kind); err != nil {
+		return db.StarredItems{}, fmt.Errorf("list starred tracks: %w", mapErr(err))
+	}
+	return out, nil
+}

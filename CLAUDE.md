@@ -554,6 +554,13 @@ Restraint here is principle 3, not laziness:
   protocol's and belong in `internal/subsonic`. A feature package here would be
   a pass-through, and the day it stops being one (derived tables, a play count,
   a playlist) is the day to create it.
+
+  Stars and ratings did not make it that day (#194): they are `db.Annotations`,
+  a second port beside `db.Music`, and the adapter decorates what it is about
+  to send with one `AnnotationsOf` call per response rather than a join in every
+  music query. An album's star is keyed by its tags, like the album itself, so a
+  retag leaves it behind -- the price of having no derived tables, and the case
+  `dbtest` pins.
 - **`photos`.** Photo backup is files plus EXIF indexing; the photo-ness lives in
   `media` and in date queries.
 - **Any job framework.** The indexer is a goroutine started by `app`.

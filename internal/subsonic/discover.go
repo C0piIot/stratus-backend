@@ -64,27 +64,18 @@ type songList struct {
 	Songs []child `xml:"song" json:"song"`
 }
 
-// starred is what a client reads on sync to find the user's favourites. There
-// are none and there is nowhere to keep one (#87), so it answers empty rather
-// than with an error: a client that gets an error here decides the server is
-// broken, and every one of them asks.
-type starred struct {
-	Artists []artistRef `xml:"artist" json:"artist"`
-	Albums  []albumRef  `xml:"album" json:"album"`
-	Songs   []child     `xml:"song" json:"song"`
-}
-
 // albumOrders maps the protocol's ten types onto what the library can answer.
 //
-// The four that are missing are not an oversight: highest, frequent, recent and
-// starred are all ordered by something only a play count or a rating could
-// provide, and nothing records either. They answer an empty list -- see
-// emptyAlbumList for why that rather than an error.
+// The two that are missing are not an oversight: frequent and recent are
+// ordered by a play count, and nothing records one yet (#195). They answer an
+// empty list -- see emptyAlbumList for why that rather than an error.
 var albumOrders = map[string]db.AlbumOrder{
 	"alphabeticalByName":   db.AlbumsByName,
 	"alphabeticalByArtist": db.AlbumsByArtist,
 	"newest":               db.AlbumsByAdded,
 	"random":               db.AlbumsRandom,
+	"starred":              db.AlbumsStarred,
+	"highest":              db.AlbumsHighest,
 	"byGenre":              db.AlbumsByName,
 	"byYear":               db.AlbumsByYear,
 }
@@ -97,10 +88,8 @@ var albumOrders = map[string]db.AlbumOrder{
 // changing. Answering an error instead makes some clients report a connection
 // failure for the whole screen.
 var emptyAlbumList = map[string]bool{
-	"highest":  true,
 	"frequent": true,
 	"recent":   true,
-	"starred":  true,
 }
 
 func (h *handler) albumList2(w http.ResponseWriter, r *http.Request, username string) {
@@ -113,6 +102,10 @@ func (h *handler) albumList2(w http.ResponseWriter, r *http.Request, username st
 	list := albumList2{Albums: make([]albumRef, 0, len(albums))}
 	for _, a := range albums {
 		list.Albums = append(list.Albums, albumOf(a))
+	}
+	if apiErr := h.annotate(r, username, each(list.Albums)); apiErr != nil {
+		h.fail(w, r, *apiErr)
+		return
 	}
 
 	env := h.ok()
@@ -130,6 +123,10 @@ func (h *handler) albumList(w http.ResponseWriter, r *http.Request, username str
 	list := albumList{Albums: make([]child, 0, len(albums))}
 	for _, a := range albums {
 		list.Albums = append(list.Albums, albumChild(a))
+	}
+	if apiErr := h.annotate(r, username, each(list.Albums)); apiErr != nil {
+		h.fail(w, r, *apiErr)
+		return
 	}
 
 	env := h.ok()
@@ -209,6 +206,10 @@ func (h *handler) search3(w http.ResponseWriter, r *http.Request, username strin
 	for _, t := range found.Tracks {
 		result.Songs = append(result.Songs, songOf(t))
 	}
+	if apiErr := h.annotate(r, username, each(result.Artists), each(result.Albums), each(result.Songs)); apiErr != nil {
+		h.fail(w, r, *apiErr)
+		return
+	}
 
 	env := h.ok()
 	env.SearchResult3 = &result
@@ -235,6 +236,10 @@ func (h *handler) search2(w http.ResponseWriter, r *http.Request, username strin
 	}
 	for _, t := range found.Tracks {
 		result.Songs = append(result.Songs, songOf(t))
+	}
+	if apiErr := h.annotate(r, username, each(result.Artists), each(result.Albums), each(result.Songs)); apiErr != nil {
+		h.fail(w, r, *apiErr)
+		return
 	}
 
 	env := h.ok()
@@ -315,8 +320,14 @@ func (h *handler) songsByGenre(w http.ResponseWriter, r *http.Request, username 
 		return
 	}
 
+	list := songs(tracks)
+	if apiErr := h.annotate(r, username, each(list.Songs)); apiErr != nil {
+		h.fail(w, r, *apiErr)
+		return
+	}
+
 	env := h.ok()
-	env.SongsByGenre = songs(tracks)
+	env.SongsByGenre = list
 	h.write(w, r, env)
 }
 
@@ -337,30 +348,15 @@ func (h *handler) randomSongs(w http.ResponseWriter, r *http.Request, username s
 		return
 	}
 
-	env := h.ok()
-	env.RandomSongs = songs(tracks)
-	h.write(w, r, env)
-}
-
-// starred and starred2 answer nothing, present. See the starred type.
-func (h *handler) starred2(w http.ResponseWriter, r *http.Request, _ string) {
-	env := h.ok()
-	env.Starred2 = emptyStarred()
-	h.write(w, r, env)
-}
-
-func (h *handler) starred(w http.ResponseWriter, r *http.Request, _ string) {
-	env := h.ok()
-	env.Starred = emptyStarred()
-	h.write(w, r, env)
-}
-
-func emptyStarred() *starred {
-	return &starred{
-		Artists: []artistRef{},
-		Albums:  []albumRef{},
-		Songs:   []child{},
+	list := songs(tracks)
+	if apiErr := h.annotate(r, username, each(list.Songs)); apiErr != nil {
+		h.fail(w, r, *apiErr)
+		return
 	}
+
+	env := h.ok()
+	env.RandomSongs = list
+	h.write(w, r, env)
 }
 
 func songs(tracks []db.Track) *songList {

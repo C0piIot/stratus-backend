@@ -51,7 +51,7 @@ type envelope struct {
 	Genres        *genres        `xml:"genres,omitempty" json:"genres,omitempty"`
 	SongsByGenre  *songList      `xml:"songsByGenre,omitempty" json:"songsByGenre,omitempty"`
 	RandomSongs   *songList      `xml:"randomSongs,omitempty" json:"randomSongs,omitempty"`
-	Starred2      *starred       `xml:"starred2,omitempty" json:"starred2,omitempty"`
+	Starred2      *starred2      `xml:"starred2,omitempty" json:"starred2,omitempty"`
 	Starred       *starred       `xml:"starred,omitempty" json:"starred,omitempty"`
 
 	// Extensions is the one payload that is a bare array on the response rather

@@ -43,7 +43,7 @@ type handler struct {
 	verifier Verifier
 	// lib is the library by tag and tree is the same library by folder. Both,
 	// because clients are split down the middle on which one they browse.
-	lib  db.Music
+	lib  Library
 	tree Tree
 	art  Art
 	// serverVersion is this build, which OpenSubsonic requires in every
@@ -56,7 +56,7 @@ type handler struct {
 // The prefix is stripped here rather than by the caller, for the reason the
 // WebDAV adapter gives: exactly one place should know the difference between
 // the path a client asks for and the method being called.
-func Handler(prefix, serverVersion string, v Verifier, lib db.Music, tree Tree, art Art) http.Handler {
+func Handler(prefix, serverVersion string, v Verifier, lib Library, tree Tree, art Art) http.Handler {
 	h := &handler{verifier: v, lib: lib, tree: tree, art: art, serverVersion: serverVersion}
 
 	mux := http.NewServeMux()
@@ -91,10 +91,13 @@ func Handler(prefix, serverVersion string, v Verifier, lib db.Music, tree Tree, 
 	mux.HandleFunc("GET /getSongsByGenre", h.authed(h.songsByGenre))
 	mux.HandleFunc("GET /getRandomSongs", h.authed(h.randomSongs))
 
-	// Answered empty rather than refused: there is nowhere to keep a favourite
-	// yet, and every client asks on sync.
+	// What the user has said about the library. Every listing above carries
+	// the same stars and ratings on each row: see annotate.
 	mux.HandleFunc("GET /getStarred2", h.authed(h.starred2))
 	mux.HandleFunc("GET /getStarred", h.authed(h.starred))
+	mux.HandleFunc("GET /star", h.authed(h.star))
+	mux.HandleFunc("GET /unstar", h.authed(h.unstar))
+	mux.HandleFunc("GET /setRating", h.authed(h.setRating))
 
 	// The bytes. Their errors are XML whatever f said, so they authenticate
 	// through their own wrapper.
@@ -173,8 +176,8 @@ func (h *handler) musicFolders(w http.ResponseWriter, r *http.Request, _ string)
 }
 
 // user reports what this server can actually do. Everything absent is false:
-// there is no cover art yet, nothing counts a play, and there are no playlists,
-// so a client is better told now than refused later.
+// nothing counts a play and there are no playlists, so a client is better told
+// now than refused later.
 func (h *handler) user(w http.ResponseWriter, r *http.Request, username string) {
 	env := h.ok()
 	env.User = &user{
