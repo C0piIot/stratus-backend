@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
-# A statically linked ffmpeg carrying only what Stratus decodes, published so
-# the server image can COPY it in one line.
+# A statically linked ffmpeg carrying only what Stratus decodes and encodes,
+# published so the server image can COPY it in one line.
 #
 # Its sibling build/ffprobe/Dockerfile reads files and this one turns them into
 # pixels. Two recipes rather than one: a single configure run would give ffprobe
@@ -24,8 +24,23 @@ SHELL ["/bin/ash", "-o", "pipefail", "-c"]
 # Package versions are not pinned: ALPINE_VERSION is, and pinning inside it
 # would break the build on every 3.24.x patch release for tools whose output is
 # verified by the tests rather than by their version.
+#
+# lame-dev carries a static libmp3lame and openssl-libs-static a static OpenSSL;
+# pkgconf is how configure finds the second one's own link flags.
 # hadolint ignore=DL3018
-RUN apk add --no-cache build-base curl nasm tar xz yasm
+RUN apk add --no-cache build-base curl nasm tar xz yasm pkgconf lame-dev openssl-dev openssl-libs-static
+
+# libopus is built here because Alpine packages it shared only, and a static
+# binary cannot link a .so. Pinned by digest, which is Xiph's own SHA256SUMS.txt.
+ARG OPUS_VERSION=1.5.2
+ARG OPUS_SHA256=65c1d2f78b9f2fb20082c38cbe47c951ad5839345876e46941612ee87f9a7ce1
+WORKDIR /opus
+RUN curl -fsSL -o opus.tar.gz "https://downloads.xiph.org/releases/opus/opus-${OPUS_VERSION}.tar.gz" \
+ && echo "${OPUS_SHA256}  opus.tar.gz" | sha256sum -c - \
+ && tar xzf opus.tar.gz --strip-components=1 \
+ && ./configure --prefix=/usr/local --disable-shared --enable-static \
+      --disable-doc --disable-extra-programs \
+ && make -j"$(nproc)" install
 
 WORKDIR /src
 RUN curl -fsSL "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz" | tar xJ --strip-components=1
@@ -46,19 +61,46 @@ RUN curl -fsSL "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz" | t
 #                       set-top box records; the video inside is h264, or vc1
 #                       and mpeg2video off a disc, and all three are above
 #
-# Only the image and video containers. The audio ones ffprobe enables are not
-# here because nothing decodes audio yet -- that arrives with transcoding -- and
-# neither is image2: JPEG, PNG and the rest are decoded in Go, which is the
-# whole reason this binary is only for the formats Go cannot read.
+# image2 is not here: JPEG, PNG and the rest are decoded in Go, which is the
+# whole reason this binary is only for the pictures Go cannot read.
 #
-# **This binary only decodes and scales.** The JPEG is written in Go, so the
+# **For pictures it only decodes and scales.** The JPEG is written in Go, so the
 # output is a rawvideo frame already reduced to the size asked for -- about
 # 360 KB, against the 48 MB a full-size 12 MP frame would push through the pipe.
 # That is why there is no mjpeg encoder and no image2 muxer here.
 #
-# swscale stays (the scale filter is the whole point) and swresample goes: no
-# audio is decoded yet. It arrives with transcoding, along with an encoder and
-# libmp3lame, and the list here grows with it.
+# **For audio it transcodes** (#50), which is what an OpenSubsonic client asks
+# for on mobile data. The audio demuxers and decoders mirror the audio half of
+# byExtension, the same way the video ones do:
+#
+#   mp3              -> mp3
+#   flac             -> flac
+#   m4a aac          -> aac alac, through mov and the raw aac demuxer
+#   ogg opus         -> vorbis opus
+#   wav              -> pcm, in every width a WAV is written in
+#   wma              -> wmav1 wmav2 wmapro, through asf
+#
+# The encoders are what a client can ask for. aac and flac are FFmpeg's own; mp3
+# and opus are not, because FFmpeg has no mp3 encoder at all and its opus one is
+# marked experimental and refuses to run without -strict. libmp3lame and libopus
+# are the only two libraries this recipe links that FFmpeg does not ship, and
+# neither makes the build GPL.
+#
+# The muxers are the containers those encoders go out in: mp3, adts for a bare
+# AAC stream a player can start before the end, ogg and opus, flac, and ipod for
+# an m4a. swresample stays for them -- a client asking for opus gets 48 kHz
+# whatever the file was.
+#
+# **And it can read over HTTP, TLS included.** A source that is not a local file
+# -- a blob in a bucket -- is read by ranges rather than copied first: an m4a
+# whose moov atom sits at the end cannot be read from a pipe, and a transcode
+# that waited for a whole track to download would start late on every play.
+# OpenSSL rather than a smaller TLS library because it is the one FFmpeg is
+# tested against most; it is what --enable-version3 is for, and the binary is
+# LGPLv3 rather than 2.1. **FFmpeg does not verify a certificate unless it is
+# told to**: a caller
+# pointing it at https passes -tls_verify 1 and the image's CA bundle, and one
+# that does not is trusting the network.
 #
 # transpose, hflip and vflip are not used by any command this project writes.
 # They are what ffmpeg itself inserts when it straightens a frame whose
@@ -76,14 +118,22 @@ RUN ./configure \
       --disable-everything --disable-doc --disable-network --disable-autodetect \
       --disable-shared --enable-static --enable-small \
       --disable-programs --enable-ffmpeg \
-      --disable-avdevice --disable-swresample --disable-postproc \
-      --enable-protocol=file,pipe \
-      --enable-demuxer=mov,matroska,avi,mpegps,mpegts,asf \
+      --disable-avdevice --disable-postproc \
+      --enable-version3 --enable-libmp3lame --enable-libopus --enable-openssl \
+      --pkg-config-flags=--static \
+      --enable-network --enable-protocol=file,pipe,tcp,tls,http,https \
+      --enable-demuxer=mov,matroska,avi,mpegps,mpegts,asf,mp3,flac,ogg,wav,aac \
       --enable-decoder=hevc,h264,vp8,vp9,mpeg2video,mpeg4,msmpeg4v3,vc1,wmv3 \
-      --enable-parser=h264,hevc,mpeg4video,vp8,vp9 \
+      --enable-decoder=mp3,mp3float,flac,aac,alac,vorbis,opus,wmav1,wmav2,wmapro \
+      --enable-decoder=pcm_s16le,pcm_s24le,pcm_s32le,pcm_f32le,pcm_u8 \
+      --enable-parser=h264,hevc,mpeg4video,vp8,vp9,mpegaudio,flac,aac,opus,vorbis \
       --enable-filter=scale,format,null,transpose,hflip,vflip,thumbnail \
+      --enable-filter=aresample,aformat,anull \
       --enable-encoder=rawvideo --enable-muxer=rawvideo \
-      --extra-ldflags=-static \
+      --enable-encoder=aac,flac,libmp3lame,libopus \
+      --enable-muxer=mp3,adts,ogg,opus,flac,ipod \
+      --enable-bsf=aac_adtstoasc \
+      --extra-cflags=-I/usr/local/include --extra-ldflags="-static -L/usr/local/lib" \
  && make -j"$(nproc)" ffmpeg \
  && strip ffmpeg
 
@@ -110,9 +160,23 @@ RUN set -eu; \
       ./ffmpeg -hide_banner -filters 2>/dev/null | grep -qE " ${filter} " \
         || { echo "the ${filter} filter is not in this build"; exit 1; }; \
     done; \
-    ./ffmpeg -hide_banner -muxers 2>/dev/null | grep -qE " rawvideo " \
-      || { echo "the rawvideo muxer is not in this build"; exit 1; }; \
-    for demuxer in "mov,mp4" "matroska,webm" "avi" "mpegts"; do \
+    for decoder in mp3float flac aac alac vorbis opus wmav2 wmapro pcm_s16le pcm_s24le; do \
+      ./ffmpeg -hide_banner -decoders 2>/dev/null | grep -qE "^ A[.A-Z]* +${decoder} " \
+        || { echo "the ${decoder} decoder is not in this build"; exit 1; }; \
+    done; \
+    for encoder in aac flac libmp3lame libopus; do \
+      ./ffmpeg -hide_banner -encoders 2>/dev/null | grep -qE "^ A[.A-Z]* +${encoder} " \
+        || { echo "the ${encoder} encoder is not in this build"; exit 1; }; \
+    done; \
+    for muxer in rawvideo mp3 adts ogg opus flac ipod; do \
+      ./ffmpeg -hide_banner -muxers 2>/dev/null | grep -qE " ${muxer} " \
+        || { echo "the ${muxer} muxer is not in this build"; exit 1; }; \
+    done; \
+    for protocol in http https; do \
+      ./ffmpeg -hide_banner -protocols 2>/dev/null | sed -n '/^Input:/,/^Output:/p' | grep -qx " *${protocol}" \
+        || { echo "the ${protocol} protocol is not in this build"; exit 1; }; \
+    done; \
+    for demuxer in "mov,mp4" "matroska,webm" "avi" "mpegts" "mp3" "flac" "ogg" "wav" "aac"; do \
       ./ffmpeg -hide_banner -demuxers 2>/dev/null | grep -qE " ${demuxer}" \
         || { echo "the ${demuxer} demuxer is not in this build"; exit 1; }; \
     done
@@ -128,6 +192,27 @@ RUN set -eu; \
     bytes="$(./ffmpeg -hide_banner -v error -i tiny.heic -vf scale=32:-1 \
       -f rawvideo -pix_fmt rgba - | wc -c)"; \
     [ "$bytes" -eq 2688 ] || { echo "the HEIC decoded to $bytes bytes, want 2688"; exit 1; }
+
+# And the same for audio: a two-second stereo FLAC at 44.1 kHz, turned into each
+# thing a client can ask for. A list of encoders can be complete while the one a
+# phone asks for still cannot be reached from the file it asked about.
+#
+# The mp3 is also sought: starting a second in has to give about half the bytes,
+# because -ss before -i is how a transcoded track is sought at all (the
+# transcodeOffset extension), and a seek that silently started from zero would
+# be a player jumping back to the beginning every time the bar is dragged.
+COPY testdata/tiny.flac /src/tiny.flac
+RUN set -eu; \
+    size() { ./ffmpeg -hide_banner -v error "$@" - | wc -c; }; \
+    whole="$(size -i tiny.flac -c:a libmp3lame -b:a 128k -f mp3)"; \
+    half="$(size -ss 1 -i tiny.flac -c:a libmp3lame -b:a 128k -f mp3)"; \
+    [ "$whole" -gt 30000 ] || { echo "the mp3 is $whole bytes, want two seconds at 128k"; exit 1; }; \
+    [ "$half" -lt $((whole * 3 / 4)) ] || { echo "seeking a second in gave $half of $whole bytes"; exit 1; }; \
+    for target in libopus:ogg aac:adts flac:flac; do \
+      encoder="${target%:*}"; muxer="${target#*:}"; \
+      bytes="$(size -i tiny.flac -c:a "$encoder" -f "$muxer")"; \
+      [ "$bytes" -gt 1000 ] || { echo "$encoder in $muxer gave $bytes bytes"; exit 1; }; \
+    done
 
 # scratch, so the server image copies a file and inherits nothing.
 FROM scratch

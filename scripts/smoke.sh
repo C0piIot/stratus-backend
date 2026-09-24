@@ -50,8 +50,10 @@ fi
 # packages.
 BIN_SIZE_FAIL=$((25 * 1024 * 1024))
 # ffprobe and ffmpeg together, which are trimmed builds of our own: 1.8 MB and
-# 4.1 MB today against the 128 MB one general-purpose static FFmpeg costs.
-TOOLS_SIZE_FAIL=$((10 * 1024 * 1024))
+# 10.8 MB today against the 128 MB one general-purpose static FFmpeg costs.
+# Raised from 10 MB when ffmpeg learned audio and HTTPS (#50): the encoders and
+# libopus are about 1.5 MB of that and a static OpenSSL is five.
+TOOLS_SIZE_FAIL=$((16 * 1024 * 1024))
 
 BASE_IMAGE="gcr.io/distroless/static:nonroot"
 
