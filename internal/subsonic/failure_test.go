@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"testing"
+	"time"
 
 	"github.com/C0piIot/stratus-backend/internal/db"
 	"github.com/C0piIot/stratus-backend/internal/subsonic"
@@ -22,7 +23,7 @@ import (
 // Closing the database would reach the first call of each handler and hide the
 // rest, so it is a name rather than a broken connection.
 type breaking struct {
-	music db.Music
+	music subsonic.Library
 	tree  subsonic.Tree
 	art   subsonic.Art
 	fail  string
@@ -98,6 +99,41 @@ func (b breaking) Search(ctx context.Context, owner string, f db.SearchFilter) (
 		return db.SearchResult{}, err
 	}
 	return b.music.Search(ctx, owner, f)
+}
+
+func (b breaking) Star(ctx context.Context, owner string, s db.Subject, at time.Time) error {
+	if err := b.err("Star"); err != nil {
+		return err
+	}
+	return b.music.Star(ctx, owner, s, at)
+}
+
+func (b breaking) Unstar(ctx context.Context, owner string, s db.Subject) error {
+	if err := b.err("Unstar"); err != nil {
+		return err
+	}
+	return b.music.Unstar(ctx, owner, s)
+}
+
+func (b breaking) SetRating(ctx context.Context, owner string, s db.Subject, rating int) error {
+	if err := b.err("SetRating"); err != nil {
+		return err
+	}
+	return b.music.SetRating(ctx, owner, s, rating)
+}
+
+func (b breaking) AnnotationsOf(ctx context.Context, owner string, subjects []db.Subject) (map[db.Subject]db.Annotation, error) {
+	if err := b.err("AnnotationsOf"); err != nil {
+		return nil, err
+	}
+	return b.music.AnnotationsOf(ctx, owner, subjects)
+}
+
+func (b breaking) Starred(ctx context.Context, owner string) (db.StarredItems, error) {
+	if err := b.err("Starred"); err != nil {
+		return db.StarredItems{}, err
+	}
+	return b.music.Starred(ctx, owner)
 }
 
 func (b breaking) Stat(ctx context.Context, owner, path string) (db.File, error) {
@@ -177,6 +213,27 @@ func TestABrokenBackendIsNotANotFound(t *testing.T) {
 		{name: "listing genres", call: "Genres", method: "getGenres"},
 		{name: "listing a genre", call: "TrackList", method: "getSongsByGenre", extra: []string{"genre", "Rock"}},
 		{name: "shuffling", call: "TrackList", method: "getRandomSongs"},
+		{name: "reading the stars of an album", call: "AnnotationsOf", method: "getAlbum", id: fixed(albumIDOf("Björk", "Homogenic"))},
+		{name: "reading the stars of the artists", call: "AnnotationsOf", method: "getArtists"},
+		{name: "reading the stars of an artist", call: "AnnotationsOf", method: "getArtist", id: fixed(artistIDOf("Björk"))},
+		{name: "reading the stars of a song", call: "AnnotationsOf", method: "getSong", id: theTrack},
+		{name: "reading the stars at the root", call: "AnnotationsOf", method: "getIndexes"},
+		{name: "reading the stars in a folder", call: "AnnotationsOf", method: "getMusicDirectory", id: fixed(dirIDOf("music/Homogenic"))},
+		{name: "reading the stars of a shelf", call: "AnnotationsOf", method: "getAlbumList2", extra: []string{"type", "newest"}},
+		{name: "reading the stars of an old shelf", call: "AnnotationsOf", method: "getAlbumList", extra: []string{"type", "newest"}},
+		{name: "reading the stars of a search", call: "AnnotationsOf", method: "search3"},
+		{name: "reading the stars of an old search", call: "AnnotationsOf", method: "search2"},
+		{name: "reading the stars of a genre", call: "AnnotationsOf", method: "getSongsByGenre", extra: []string{"genre", "Electronic"}},
+		{name: "reading the stars of a shuffle", call: "AnnotationsOf", method: "getRandomSongs"},
+		{name: "reading the stars of what is starred", call: "AnnotationsOf", method: "getStarred2"},
+		{name: "reading the stars of what is starred, for an old client", call: "AnnotationsOf", method: "getStarred"},
+		{name: "listing what is starred", call: "Starred", method: "getStarred2"},
+		{name: "listing what is starred for an old client", call: "Starred", method: "getStarred"},
+		{name: "starring", call: "Star", method: "star", id: theTrack},
+		{name: "finding the album to star", call: "Tracks", method: "star", extra: []string{"albumId", albumIDOf("Björk", "Homogenic")}},
+		{name: "finding the artist to star", call: "Albums", method: "star", extra: []string{"artistId", artistIDOf("Björk")}},
+		{name: "unstarring", call: "Unstar", method: "unstar", id: theTrack},
+		{name: "rating", call: "SetRating", method: "setRating", id: theTrack, extra: []string{"rating", "3"}},
 		{
 			name: "finding the folder a cover is in", call: "Tracks",
 			method: "getCoverArt", id: fixed(albumIDOf("Björk", "Homogenic")), binary: true,
@@ -196,6 +253,12 @@ func TestABrokenBackendIsNotANotFound(t *testing.T) {
 			// far: without a picture the answer is "there is none" and the call
 			// under test is never made.
 			l.addImage(t, "music/Homogenic/cover.jpg", 100, 100)
+			// A track at the top and a star, so the listings that decorate
+			// them have something to decorate.
+			l.add(t, "loose.flac", song("Loose", "Singles", "Loose", 1))
+			if err := l.meta.Star(t.Context(), username, db.TrackSubject(track.ID), time.Now()); err != nil {
+				t.Fatal(err)
+			}
 
 			b := breaking{music: l.meta, tree: l.files, art: l.art, fail: tt.call}
 			h := subsonic.Handler(prefix, serverVersion, l.verifier, b, b, b)

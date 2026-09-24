@@ -60,14 +60,16 @@ type artistRef struct {
 	ID         string `xml:"id,attr" json:"id"`
 	Name       string `xml:"name,attr" json:"name"`
 	AlbumCount int    `xml:"albumCount,attr,omitempty" json:"albumCount,omitempty"`
+	annotated
 }
 
 // artistDetail is getArtist: one artist and its albums.
 type artistDetail struct {
-	ID         string     `xml:"id,attr" json:"id"`
-	Name       string     `xml:"name,attr" json:"name"`
-	AlbumCount int        `xml:"albumCount,attr" json:"albumCount"`
-	Albums     []albumRef `xml:"album" json:"album"`
+	ID         string `xml:"id,attr" json:"id"`
+	Name       string `xml:"name,attr" json:"name"`
+	AlbumCount int    `xml:"albumCount,attr" json:"albumCount"`
+	annotated
+	Albums []albumRef `xml:"album" json:"album"`
 }
 
 // albumRef is an album without its tracks, which is what a listing shows.
@@ -86,6 +88,7 @@ type albumRef struct {
 	// directory listing per album and a client already draws a placeholder
 	// when the answer is nothing. Every server does the same.
 	CoverArt string `xml:"coverArt,attr,omitempty" json:"coverArt,omitempty"`
+	annotated
 }
 
 // albumDetail is getAlbum: the same album with its tracks.
@@ -132,6 +135,7 @@ type child struct {
 	// Type is "music" for a track. The other values in the schema are for
 	// surfaces this server does not have.
 	Type string `xml:"type,attr,omitempty" json:"type,omitempty"`
+	annotated
 }
 
 // songOf renders a track as a Child.
