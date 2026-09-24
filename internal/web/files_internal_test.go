@@ -113,3 +113,32 @@ func TestHumanSize(t *testing.T) {
 		}
 	}
 }
+
+// TestFilePolicy: everything is opened, and what could run a script is opened
+// sandboxed. An SVG is an image and is still sandboxed, because it can carry
+// one; a PDF is not, because Chrome refuses to render one that is.
+func TestFilePolicy(t *testing.T) {
+	t.Parallel()
+	for mimeType, sandboxed := range map[string]bool{
+		"image/jpeg":                false,
+		"image/heic":                false,
+		"video/mp4":                 false,
+		"audio/flac":                false,
+		"application/pdf":           false,
+		"text/plain; charset=utf-8": false,
+		"image/svg+xml":             true,
+		"text/html":                 true,
+		"text/javascript":           true,
+		"application/xhtml+xml":     true,
+		"application/octet-stream":  true,
+		"":                          true,
+	} {
+		got := filePolicy(mimeType)
+		if strings.HasSuffix(got, "; sandbox") != sandboxed {
+			t.Errorf("filePolicy(%q) = %q, sandboxed should be %v", mimeType, got, sandboxed)
+		}
+		if strings.Contains(got, "script-src") {
+			t.Errorf("filePolicy(%q) = %q allows a script", mimeType, got)
+		}
+	}
+}

@@ -109,10 +109,14 @@
   {{if $.Shared}}
   <td></td>
   {{else}}
+  {{/* An emoji is read aloud by its Unicode name, "link" or "wastebasket", so
+       the label a screen reader gets is the aria-label and not the glyph. */}}
   <td class="text-end text-nowrap">
-    <a class="link-secondary small text-decoration-none me-3" href="{{.Share}}">Share</a>
-    <a class="link-secondary small text-decoration-none me-3" href="{{.Rename}}">Rename</a>
-    <a class="link-danger small text-decoration-none" href="{{.Delete}}">Delete</a>
+    <div class="btn-group btn-group-sm" role="group" aria-label="Actions on {{.Name}}">
+      <a class="btn btn-outline-secondary" href="{{.Share}}" title="Share" aria-label="Share">🔗</a>
+      <a class="btn btn-outline-secondary" href="{{.Rename}}" title="Rename" aria-label="Rename">✏️</a>
+      <a class="btn btn-outline-danger" href="{{.Delete}}" title="Delete" aria-label="Delete">🗑️</a>
+    </div>
   </td>
   {{end}}
 </tr>

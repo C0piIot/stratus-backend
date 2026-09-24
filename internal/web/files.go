@@ -153,12 +153,11 @@ func (h *handler) download(w http.ResponseWriter, r *http.Request, user string, 
 	}
 	defer func() { _ = body.Close() }()
 
-	// An attachment rather than something the browser renders. This origin
-	// serves the UI, and a file somebody uploaded is not the UI's to display in
-	// it -- the content security policy would already stop a script inside one,
-	// and the disposition is what stops the question from arising at all.
+	// Inline: what to do with a file is the browser's decision. The filename
+	// is still named, so saving it keeps the name it was stored under.
 	w.Header().Set("Content-Disposition",
-		mime.FormatMediaType("attachment", map[string]string{"filename": path.Base(f.Path)}))
+		mime.FormatMediaType("inline", map[string]string{"filename": path.Base(f.Path)}))
+	w.Header().Set("Content-Security-Policy", filePolicy(f.MIMEType))
 	if f.MIMEType != "" {
 		w.Header().Set("Content-Type", f.MIMEType)
 	}
@@ -420,4 +419,30 @@ func humanSize(n int64) string {
 		exp++
 	}
 	return strconv.FormatFloat(float64(n)/float64(div), 'f', 1, 64) + " " + string("KMGTPE"[exp]) + "B"
+}
+
+// filePolicy is the content security policy a file is opened under, and the
+// reason every file can be opened at all.
+//
+// This origin holds the session cookie, so an uploaded HTML page or SVG opened
+// here would run as the owner -- and the pages' own policy would not stop it,
+// because script-src 'self' is satisfied by a .js uploaded beside the page.
+// sandbox is what does: the document gets an origin of its own that matches
+// nothing, and no scripts, forms or popups.
+//
+// Every type gets it except the ones that cannot carry a script, and the
+// exception exists for PDF: Chrome will not render one in a sandboxed
+// document. A type nobody recorded is sandboxed, since ServeContent then works
+// one out from the bytes and it can come out as text/html.
+func filePolicy(mimeType string) string {
+	mediaType, _, _ := mime.ParseMediaType(mimeType)
+	top, _, _ := strings.Cut(mediaType, "/")
+	switch {
+	case mediaType == "image/svg+xml":
+		// An image that can carry a script: sandboxed, below.
+	case top == "image", top == "video", top == "audio",
+		mediaType == "application/pdf", mediaType == "text/plain":
+		return fileContentSecurityPolicy
+	}
+	return fileContentSecurityPolicy + "; sandbox"
 }

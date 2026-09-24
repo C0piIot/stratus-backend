@@ -738,18 +738,19 @@ TRACK
     bad "the session opens the tree" "missing:${missing:- nothing}, $(head -c 120 <<<"$body")"
   fi
 
-  # Opening a file hands over the bytes, as an attachment: this origin serves
-  # the UI, and somebody's upload is not the UI's to render inside it.
+  # Opening a file hands over the bytes, inline: what to do with it is the
+  # browser's decision. What could run a script is sandboxed, and the unit
+  # tests hold that list; here it is the header reaching the wire.
   headers="$(curl -s -D - -o /dev/null -b "$jar" "http://$davhost/files/notes.txt")"
   downloaded="$(curl -s -b "$jar" "http://$davhost/files/notes.txt")"
   case "$headers" in
-    *[Cc]ontent-[Dd]isposition*attachment*)
+    *[Cc]ontent-[Dd]isposition:\ inline*)
       if [ "$downloaded" = "smoke" ]; then
         ok "opening a file downloads the stored bytes"
       else
         bad "opening a file downloads the stored bytes" "got '$downloaded'"
       fi ;;
-    *) bad "opening a file downloads it as an attachment" "$(grep -i '^content-' <<<"$headers" | tr -d '\r' | tr '\n' ' ')" ;;
+    *) bad "opening a text file lets the browser show it" "$(grep -i '^content-' <<<"$headers" | tr -d '\r' | tr '\n' ' ')" ;;
   esac
 
   # The picture the Subsonic case put in the tree, this time through the
