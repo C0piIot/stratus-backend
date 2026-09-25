@@ -700,8 +700,13 @@ Restraint here is principle 3, not laziness:
   Names are made unique in id order, case-insensitively -- Finder and Windows
   fold case -- and stripped of what a Windows file name cannot hold. Entries are
   URLs rooted at the server, which is right for a player and wrong for a copy
-  synced to disk; that, and importing an `.m3u8`, is the harder question this
-  one deliberately did not answer.
+  synced to disk.
+
+  **Importing an `.m3u8`, and entries that work in a synced copy, will not be
+  built.** Decided, not deferred: the database is what a playlist is, these
+  files are a view of it, and a second way in would mean paths resolved to ids
+  on the way in and a rule for which side wins when both change -- a sync
+  engine, for a need nobody has had. Edits go through OpenSubsonic.
 - `minio-go` for S3 (much lighter than `aws-sdk-go-v2`). The client, not the
   server: MinIO the server was archived in April 2026, and the conformance
   suite runs against Silo, a maintained fork of it (#116). minio-go is a
