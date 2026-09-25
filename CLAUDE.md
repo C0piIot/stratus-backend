@@ -773,17 +773,36 @@ Restraint here is principle 3, not laziness:
   goes to ffprobe. The two paths write the same column, so a test compares their
   answers against real files whenever there is an ffprobe to compare with.
 
+  **The stream facts are the one exception to the second rule** (#207):
+  profile, level, bit depth, frame rate and the audio track. They are read out
+  of the codec's configuration record -- `avcC`, `hvcC`, `vpcC` or `av1C` in a
+  box, the same records in Matroska's `CodecPrivate` -- and out of the sound
+  track's entry, and what a container does not state is left at zero, which the
+  row calls unknown. Still never guessed; but not a reason to hand the film to
+  ffprobe either, since that means a copy, and a WebM's VP9 routinely has no
+  `CodecPrivate` at all. `TestInPlaceStreamFacts` holds each fixture's answer
+  where there is no ffprobe, which is CI, and the comparison compares wherever
+  both sides know.
+
   **We build both** (`build/ffprobe/Dockerfile` and `build/ffmpeg/Dockerfile`,
   published by `.github/workflows/media-tools.yml`) rather than copying
   general-purpose ones, which are 128 MB each and carry everything FFmpeg ships.
   Two recipes and not one configure run producing both: ffprobe would inherit
   decoders it has no use for and stop being 1.7 MB.
 
-  - **`ffprobe`, 1.7 MB.** Probing is demuxer work and no frame is ever decoded,
-    so the demuxer list mirrors `byExtension` in `internal/media` and a test
-    holds the two together — an extension added without its demuxer fails at
-    probe time in production rather than at build time.
-  - **`ffmpeg`, 12.9 MB on amd64 and 10.8 on arm64.** For pictures, only what Go cannot decode: HEIC,
+  - **`ffprobe`, 1.7 MB and 0.4 more for three decoders.** Probing is demuxer
+    work and no frame is ever decoded, so the demuxer list mirrors
+    `byExtension` in `internal/media` and a test holds the two together — an
+    extension added without its demuxer fails at probe time in production
+    rather than at build time. The decoders are flac, alac and aac, because
+    ffprobe learns a lossless track's depth and an AAC's profile by opening
+    one, and says N/A without it (#207). **A test fed a full ffprobe's output
+    cannot see that**, which is how #197 shipped a FLAC depth production never
+    had: the captured reports now include this build's output, and the
+    recipe asserts a FLAC comes out sixteen bits. `--enable-small` makes it
+    print profiles as numbers, and `profileName` maps them back.
+  - **`ffmpeg`, 12.9 MB on amd64 and 10.8 on arm64.** For pictures, only what
+    Go cannot decode: HEIC,
     which needs libheif and therefore cgo, and a frame out of a video. It
     decodes and scales; the JPEG is written in Go, so it emits a rawvideo frame
     already reduced rather than a full-size one. AV1 and camera raw are

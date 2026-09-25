@@ -286,14 +286,14 @@ func TestTheReaderGivesUpQuietly(t *testing.T) {
 
 	t.Run("a track with no handler", func(t *testing.T) {
 		t.Parallel()
-		if isVideoTrack(boxOf("mdia", boxOf("minf", nil))) {
-			t.Error("a track with no handler was read as video")
+		if handler(boxOf("mdia", boxOf("minf", nil))) != "" {
+			t.Error("a track with no handler was given a handler")
 		}
-		if isVideoTrack(boxOf("mdia", boxOf("hdlr", []byte{0, 0, 0, 0}))) {
-			t.Error("a handler too short to name anything was read as video")
+		if handler(boxOf("mdia", boxOf("hdlr", []byte{0, 0, 0, 0}))) != "" {
+			t.Error("a handler too short to name anything was given a handler")
 		}
-		if isVideoTrack(boxOf("tkhd", nil)) {
-			t.Error("a track with no media was read as video")
+		if handler(boxOf("tkhd", nil)) != "" {
+			t.Error("a track with no media was given a handler")
 		}
 	})
 

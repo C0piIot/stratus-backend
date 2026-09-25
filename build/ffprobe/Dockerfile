@@ -5,9 +5,10 @@
 #
 # The full static build everyone reaches for is 128 MB on amd64, and Stratus
 # never decodes a frame: it runs -show_format -show_streams and reads a
-# duration, a codec name, dimensions and container tags. That is demuxer work.
-# Everything else in that 128 MB -- decoders, encoders, filters, scalers,
-# network protocols -- is weight the image carries and nothing uses.
+# duration, a codec name, dimensions and container tags. That is demuxer work,
+# plus the three audio decoders below. Everything else in that 128 MB --
+# video decoders, encoders, filters, scalers, network protocols -- is weight
+# the image carries and nothing uses.
 ARG ALPINE_VERSION=3.24
 ARG FFMPEG_VERSION=7.1
 
@@ -35,9 +36,22 @@ RUN curl -fsSL "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz" | t
 #   wma wmv         -> asf        ogg opus -> ogg           and one each for
 #                                                           mp3 flac wav aac avi
 #
-# No decoders and no encoders: a codec name comes from the descriptor table
-# that is always compiled in, not from the decoder. The libraries ffprobe does
-# not link are switched off outright, which is most of what is left.
+# No encoders, and three decoders, all for audio. A codec name comes from the
+# descriptor table that is always compiled in, not from the decoder -- but the
+# width of a lossless track and the profile of an AAC one do not (#207): ffprobe
+# learns them by opening a decoder on the track's configuration, and without
+# one it prints N/A. Measured on this build, flac, alac and aac cost 0.4 MB, and
+# without them every FLAC in a library is indexed with no bit depth, which is
+# the number that says whether a client can take it as it is. The video ones
+# are not worth the same trade: they are megabytes each, and the in-place
+# readers answer for MP4 and Matroska without ffprobe at all.
+#
+# --enable-small is also why a profile comes out as a number rather than a
+# name: it drops the name tables. internal/media maps the numbers back, which
+# costs nothing here.
+#
+# The libraries ffprobe does not link are switched off outright, which is most
+# of what is left.
 RUN ./configure \
       --disable-everything --disable-doc --disable-network --disable-autodetect \
       --disable-shared --enable-static --enable-small \
@@ -47,9 +61,19 @@ RUN ./configure \
       --enable-protocol=file \
       --enable-demuxer=mov,matroska,avi,mpegps,mpegts,asf,mp3,flac,ogg,wav,aac \
       --enable-parser=h264,hevc,mpeg4video,vp8,vp9,aac,mpegaudio,flac,vorbis,opus \
+      --enable-decoder=flac,alac,aac \
       --extra-ldflags=-static \
  && make -j"$(nproc)" ffprobe \
  && strip ffprobe
+
+# The decoders are there for what they make ffprobe say, so that is what is
+# asserted: a sixteen-bit FLAC has to come out sixteen bits. Without the flac
+# decoder this prints N/A and nothing else fails.
+COPY testdata/tiny.flac /src/tiny.flac
+RUN set -eu; \
+    depth="$(./ffprobe -v error -select_streams a:0 -show_entries stream=bits_per_raw_sample \
+      -of default=noprint_wrappers=1:nokey=1 tiny.flac)"; \
+    [ "$depth" = "16" ] || { echo "the FLAC probed as $depth bits, want 16"; exit 1; }
 
 # scratch, so the server image copies a file and inherits nothing.
 FROM scratch

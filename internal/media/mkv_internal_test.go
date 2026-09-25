@@ -149,7 +149,7 @@ func TestProbeMatroskaAgreesWithFFprobe(t *testing.T) {
 		t.Skip("no ffprobe on the PATH")
 	}
 
-	for _, name := range []string{matroskaFixture, webmFixture} {
+	for _, name := range []string{matroskaFixture, webmFixture, "ac3.mkv", "opus.webm"} {
 		report, err := runProbe(t.Context(), ffprobe, filepath.Join("testdata", name))
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
@@ -174,6 +174,7 @@ func TestProbeMatroskaAgreesWithFFprobe(t *testing.T) {
 		if !got.TakenAt.Equal(want.TakenAt) {
 			t.Errorf("%s: TakenAt = %v, ffprobe says %v", name, got.TakenAt, want.TakenAt)
 		}
+		agreeOnStream(t, name, got, want)
 	}
 }
 
@@ -288,5 +289,72 @@ func TestMatroskaByHand(t *testing.T) {
 	}
 	if got.DurationMS != 2500 || got.Width != 640 || got.Height != 480 || got.Codec != "vp9" {
 		t.Errorf("got %+v", got)
+	}
+}
+
+// TestInPlaceStreamFacts is what the two in-place readers say about each
+// fixture's picture and sound (#207), written down from what ffprobe 7.1
+// printed for the same files -- so that it holds where there is no ffprobe to
+// compare with, which is the toolchain container and therefore CI. A zero is
+// a field the container does not state and the reader leaves unknown: WebM's
+// VP9 carries no CodecPrivate, so its profile and depth are ffprobe's alone.
+func TestInPlaceStreamFacts(t *testing.T) {
+	t.Parallel()
+	for name, want := range map[string]db.Media{
+		"moov-first.mp4": {CodecProfile: "High", Level: 12, BitDepth: 8, FrameRate: 10_000, Bitrate: 59_368},
+		"aac51.mp4": {CodecProfile: "Main", Level: 10, BitDepth: 8, FrameRate: 10_000, Bitrate: 221_488,
+			AudioCodec: "aac", Channels: 6, SampleRate: 48_000},
+		"main10.mp4": {CodecProfile: "Main 10", Level: 30, BitDepth: 10, FrameRate: 10_000, Bitrate: 172_816,
+			AudioCodec: "aac", Channels: 2, SampleRate: 48_000},
+		"clip.mkv": {CodecProfile: "High 4:4:4 Predictive", Level: 12, BitDepth: 8, FrameRate: 10_000, Bitrate: 58_616},
+		"ac3.mkv": {CodecProfile: "High", Level: 10, BitDepth: 8, FrameRate: 10_000, Bitrate: 416_848,
+			AudioCodec: "ac3", Channels: 6, SampleRate: 48_000},
+		"opus.webm": {FrameRate: 10_000, Bitrate: 142_714, AudioCodec: "opus", Channels: 2, SampleRate: 48_000},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			body := readFixture(t, name)
+			m, err := probeInPlace(bytes.NewReader(body), db.File{Path: name, Size: int64(len(body))})
+			if err != nil {
+				t.Fatalf("probeInPlace: %v", err)
+			}
+			got := db.Media{CodecProfile: m.CodecProfile, Level: m.Level, BitDepth: m.BitDepth, FrameRate: m.FrameRate,
+				Bitrate: m.Bitrate, AudioCodec: m.AudioCodec, Channels: m.Channels, SampleRate: m.SampleRate}
+			if got != want {
+				t.Errorf("got  %+v\nwant %+v", got, want)
+			}
+		})
+	}
+}
+
+// agreeOnStream holds an in-place reader to ffprobe on the fields #207 added,
+// wherever both answered. A zero is not knowing, which either side may do --
+// the reader for a WebM with no CodecPrivate, the image's own ffprobe for a
+// picture's depth, having no video decoders -- and a different number is one
+// of them being wrong.
+func agreeOnStream(t *testing.T, name string, got, want db.Media) {
+	t.Helper()
+	pairs := []struct {
+		field     string
+		got, want any
+		known     bool
+	}{
+		{"profile", got.CodecProfile, want.CodecProfile, got.CodecProfile != "" && want.CodecProfile != ""},
+		{"level", got.Level, want.Level, got.Level != 0 && want.Level != 0},
+		{"depth", got.BitDepth, want.BitDepth, got.BitDepth != 0 && want.BitDepth != 0},
+		{"frame rate", got.FrameRate, want.FrameRate, got.FrameRate != 0 && want.FrameRate != 0},
+		{"audio codec", got.AudioCodec, want.AudioCodec, got.AudioCodec != "" && want.AudioCodec != ""},
+		{"channels", got.Channels, want.Channels, got.Channels != 0 && want.Channels != 0},
+		{"sample rate", got.SampleRate, want.SampleRate, got.SampleRate != 0 && want.SampleRate != 0},
+	}
+	for _, p := range pairs {
+		if p.known && p.got != p.want {
+			t.Errorf("%s: %s = %v, ffprobe says %v", name, p.field, p.got, p.want)
+		}
+	}
+	// Both are the size over the duration; they differ only in how finely each
+	// holds the duration, which is a millisecond here.
+	if diff := got.Bitrate - want.Bitrate; diff*1000 > want.Bitrate || -diff*1000 > want.Bitrate {
+		t.Errorf("%s: bitrate = %d, ffprobe says %d", name, got.Bitrate, want.Bitrate)
 	}
 }

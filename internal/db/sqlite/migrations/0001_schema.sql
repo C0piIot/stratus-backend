@@ -49,15 +49,21 @@ CREATE TABLE media (
     camera              TEXT    NOT NULL DEFAULT '',
     duration_ms         INTEGER NOT NULL DEFAULT 0,
     codec               TEXT    NOT NULL DEFAULT '',
-    -- The audio stream a transcode decision is made from (#197): whether a
-    -- client can take the file as it is, and what a transcode must not exceed.
-    -- Zero is unknown, and bit_depth is zero for a lossy codec, which has none.
-    -- Filled for audio only; a video's are #207.
+    -- What a transcode decision is made from (#197, #207): whether a client
+    -- can take the file as it is, and what a transcode must not exceed. Zero is
+    -- unknown. codec_profile, bit_depth, level and frame_rate describe the
+    -- row's own stream -- the picture, for a video -- and bitrate is the
+    -- stream's for audio and the whole file's for a video. sample_rate,
+    -- channels and audio_codec are the sound, a video's included: its audio
+    -- track is what most often needs a transcode while the picture does not.
     bitrate             INTEGER NOT NULL DEFAULT 0,
     sample_rate         INTEGER NOT NULL DEFAULT 0,
     channels            INTEGER NOT NULL DEFAULT 0,
     bit_depth           INTEGER NOT NULL DEFAULT 0,
     codec_profile       TEXT    NOT NULL DEFAULT '',
+    level               INTEGER NOT NULL DEFAULT 0,
+    frame_rate          INTEGER NOT NULL DEFAULT 0,
+    audio_codec         TEXT    NOT NULL DEFAULT '',
     artist              TEXT    NOT NULL DEFAULT '',
     album               TEXT    NOT NULL DEFAULT '',
     title               TEXT    NOT NULL DEFAULT '',

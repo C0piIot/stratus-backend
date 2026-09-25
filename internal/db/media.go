@@ -69,13 +69,25 @@ type Media struct {
 	// DurationMS and Codec describe audio and video.
 	DurationMS int64
 	Codec      string
-	// Bitrate (bits per second), SampleRate, Channels, BitDepth and
-	// CodecProfile describe an audio stream, and are what a transcode decision
-	// is made from (#197). Zero is unknown. BitDepth is zero for a lossy codec,
-	// which has none; CodecProfile is ffprobe's name for the variant, "LC" or
-	// "HE-AAC", which is what tells two AACs a client may take differently.
+	// The rest of this block is what a transcode decision is made from (#197,
+	// #207). Zero is unknown, and a reader that cannot tell leaves it so.
+	//
+	// CodecProfile, BitDepth, Level and FrameRate describe the row's own stream
+	// -- the picture, for a video. CodecProfile is ffprobe's name for the
+	// variant ("LC", "High", "Main 10"), Level is the number ffprobe prints
+	// (41 for H.264 level 4.1), FrameRate is frames per thousand seconds so
+	// that 29.97 is an integer, and BitDepth is zero for a lossy audio codec,
+	// which has none. Bitrate is bits per second: the stream's for audio, the
+	// whole file's for a video, which is what a network has to carry.
+	//
+	// SampleRate, Channels and AudioCodec describe the sound, a video's
+	// included. AudioCodec is empty on an audio row, whose Codec already says
+	// it: it exists for a video's audio track, which is what most often needs a
+	// transcode while the picture does not.
 	Bitrate, SampleRate, Channels, BitDepth int
 	CodecProfile                            string
+	Level, FrameRate                        int
+	AudioCodec                              string
 
 	// The rest is what a music library needs.
 	Artist, Album, Title, Genre string

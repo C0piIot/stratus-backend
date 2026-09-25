@@ -166,8 +166,9 @@ failed readiness check logs its own reason at error level instead.
 Every file that arrives is read once for what it can say about itself: when a
 photo was taken, its dimensions and orientation, where it was taken, the camera;
 the duration, artist, album and track of a recording, and for music the
-bitrate, sample rate, channels and bit depth of its audio; the codec and
-dimensions of a video. Without it a library is a pile of files — there is no gallery by
+bitrate, sample rate, channels and bit depth of its audio; the codec,
+dimensions, profile, bit depth and frame rate of a video, and the codec and
+channels of its sound. Without it a library is a pile of files — there is no gallery by
 date and no music browsing.
 
 **What a file is comes from its first bytes**, not from its name. A name is
@@ -213,8 +214,12 @@ things follow from it.
 The first is that the formats which say what they are near the beginning are
 read where they lie: an MP4 or QuickTime video through its boxes, a Matroska or
 WebM through its elements. Duration, dimensions, codec, rotation and date all
-live in a header, and the blob store reads ranges, so a four-gigabyte recording
-costs a few hundred kilobytes to index — on a bucket as much as on a disk.
+live in a header, and so do the profile, level, bit depth and frame rate of the
+picture and the codec and channels of the sound — what decides whether a
+player can take a film as it is — and the blob store reads ranges, so a
+four-gigabyte recording costs a few hundred kilobytes to index, on a bucket as
+much as on a disk. What a header does not state is left unknown rather than
+worked out by downloading the film.
 
 The second is that everything else is only copied while it is small. AVI, WMV
 and MPEG-TS state no duration at all: ffprobe works one out from what it can
@@ -857,7 +862,8 @@ served from the binary costs.
 static build is 128 MB and carries every decoder, encoder, filter and scaler
 FFmpeg ships. Ours carry what Stratus uses and nothing else, which is two
 different lists: `ffprobe` runs `-show_format -show_streams` and never decodes a
-frame, so it needs the demuxers for the formats indexed; `ffmpeg` decodes the
+frame, so it needs the demuxers for the formats indexed, plus the FLAC, ALAC and
+AAC decoders without which it cannot say a track's bit depth or AAC profile; `ffmpeg` decodes the
 formats Go cannot — HEIC, which is what a phone records, and a frame out of a
 video — and scales them, leaving the JPEG to be written in Go. It also carries
 what audio transcoding needs: the decoders for every audio format indexed, and
