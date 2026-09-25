@@ -38,13 +38,13 @@ import (
 // Read-only, and it says so: OPTIONS answers class 1 with no LOCK, which is
 // what makes Finder mount it read-only instead of offering writes that would
 // fail. The database is what a playlist is; these files are a view of it, so
-// there is nothing for a write to mean. Importing an .m3u8 is a separate
-// question, and a harder one.
+// there is nothing for a write to mean, and importing one is decided against:
+// see CLAUDE.md.
 //
 // Every entry is a URL rooted at the server -- /dav/music/... -- so a player
 // that opens the playlist from here resolves it against the same host. What
 // that does not serve is a copy synced to a local disk, where /dav/ is not a
-// path; that is the same import-and-export question, not this one.
+// path, and it is not meant to.
 
 // PlaylistSource is what this mount needs from internal/music.
 type PlaylistSource interface {
