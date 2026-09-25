@@ -385,11 +385,32 @@ func TestIDsThatNameNothing(t *testing.T) {
 	}
 }
 
-// TestTheBitRateIsComputed because nothing records one: the extractor reads
-// tags and a duration, and a client shows kilobits per second and sometimes
-// sizes its buffer from them. Bytes times eight over milliseconds is exactly
-// that, which is the only reason this is arithmetic rather than a column.
-func TestTheBitRateIsComputed(t *testing.T) {
+// TestTheBitRateIsTheStreams: what the extractor read, in kilobits, and the
+// stream's facts beside it. Not the file's size over its duration, which
+// counts a cover as sound.
+func TestTheBitRateIsTheStreams(t *testing.T) {
+	t.Parallel()
+	l := newLibrary(t)
+
+	m := song("Björk", "Homogenic", "Hunter", 1)
+	m.DurationMS = 1000
+	m.Bitrate, m.SampleRate, m.Channels, m.BitDepth = 2_304_400, 96_000, 2, 24
+	f := l.addSized(t, "music/hunter.flac", m, 400_000)
+
+	env := response(t, get(t, l, "getSong", query("f", "json", "id", songIDOf(f.ID))))
+	one, _ := env["song"].(map[string]any)
+	for field, want := range map[string]float64{
+		"bitRate": 2304, "samplingRate": 96_000, "channelCount": 2, "bitDepth": 24,
+	} {
+		if got, _ := one[field].(float64); got != want {
+			t.Errorf("%s = %v, want %v", field, one[field], want)
+		}
+	}
+}
+
+// TestTheBitRateFallsBackToTheFile for a row that has no stream bitrate: bytes
+// times eight over milliseconds is kilobits per second, close enough to show.
+func TestTheBitRateFallsBackToTheFile(t *testing.T) {
 	t.Parallel()
 	l := newLibrary(t)
 

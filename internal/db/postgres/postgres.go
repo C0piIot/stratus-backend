@@ -205,7 +205,7 @@ func (r *repo) ListFilesPage(ctx context.Context, owner, dir string, after db.Cu
 	return out, nil
 }
 
-const mediaColumns = `file_id, kind, indexed_at, version, etag, error, retry_at, taken_at, width, height, orientation, latitude, longitude, camera, duration_ms, codec, artist, album, title, track_no, disc_no, year, genre, album_artist`
+const mediaColumns = `file_id, kind, indexed_at, version, etag, error, retry_at, taken_at, width, height, orientation, latitude, longitude, camera, duration_ms, codec, bitrate, sample_rate, channels, bit_depth, codec_profile, artist, album, title, track_no, disc_no, year, genre, album_artist`
 
 // mediaWriteColumns is the read list plus the three folded columns a search
 // matches on. They are written and filtered but never read back: they are how
@@ -235,14 +235,15 @@ func (r *repo) PutMedia(ctx context.Context, m db.Media) error {
 
 	const query = `INSERT INTO media (` + mediaWriteColumns + `)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19,
-			$20, $21, $22, $23, $24, $25, $26, $27)
+			$20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32)
 		ON CONFLICT (file_id) DO UPDATE SET
 			kind = excluded.kind, indexed_at = excluded.indexed_at, version = excluded.version,
 			etag = excluded.etag, error = excluded.error, retry_at = excluded.retry_at,
 			taken_at = excluded.taken_at, width = excluded.width,
 			height = excluded.height, orientation = excluded.orientation,
 			latitude = excluded.latitude, longitude = excluded.longitude, camera = excluded.camera,
-			duration_ms = excluded.duration_ms, codec = excluded.codec, artist = excluded.artist,
+			duration_ms = excluded.duration_ms, codec = excluded.codec,
+			bitrate = excluded.bitrate, sample_rate = excluded.sample_rate, channels = excluded.channels, bit_depth = excluded.bit_depth, codec_profile = excluded.codec_profile, artist = excluded.artist,
 			album = excluded.album, title = excluded.title, track_no = excluded.track_no,
 			disc_no = excluded.disc_no, year = excluded.year, genre = excluded.genre,
 			album_artist = excluded.album_artist, search_song = excluded.search_song,
@@ -252,7 +253,7 @@ func (r *repo) PutMedia(ctx context.Context, m db.Media) error {
 	_, err := r.q.ExecContext(ctx, query,
 		m.FileID, string(m.Kind), m.IndexedAt, m.Version, m.ETag, m.Error, retryAt, takenAt,
 		m.Width, m.Height, m.Orientation, lat, lon, m.Camera,
-		m.DurationMS, m.Codec, m.Artist, m.Album, m.Title,
+		m.DurationMS, m.Codec, m.Bitrate, m.SampleRate, m.Channels, m.BitDepth, m.CodecProfile, m.Artist, m.Album, m.Title,
 		m.TrackNo, m.DiscNo, m.Year, m.Genre,
 		m.AlbumArtist, folded.Song, folded.Album, folded.AlbumArtist,
 	)
@@ -371,7 +372,7 @@ func scanMedia(row *sql.Row) (db.Media, error) {
 
 	err := row.Scan(&m.FileID, &kind, &indexedAt, &m.Version, &m.ETag, &m.Error, &retryAt, &takenAt,
 		&m.Width, &m.Height, &m.Orientation, &lat, &lon, &m.Camera,
-		&m.DurationMS, &m.Codec, &m.Artist, &m.Album, &m.Title,
+		&m.DurationMS, &m.Codec, &m.Bitrate, &m.SampleRate, &m.Channels, &m.BitDepth, &m.CodecProfile, &m.Artist, &m.Album, &m.Title,
 		&m.TrackNo, &m.DiscNo, &m.Year, &m.Genre, &m.AlbumArtist)
 	if err != nil {
 		return db.Media{}, mapErr(err)
@@ -700,7 +701,8 @@ func scanTrack(rows *sql.Rows) (db.Track, error) {
 		&t.File.MTime, &t.File.ETag, &t.File.MIMEType, &t.File.IsDir,
 		&t.Media.FileID, &kind, &t.Media.IndexedAt, &t.Media.Version, &t.Media.ETag, &t.Media.Error, &retryAt, &takenAt,
 		&t.Media.Width, &t.Media.Height, &t.Media.Orientation, &lat, &lon, &t.Media.Camera,
-		&t.Media.DurationMS, &t.Media.Codec, &t.Media.Artist, &t.Media.Album, &t.Media.Title,
+		&t.Media.DurationMS, &t.Media.Codec,
+		&t.Media.Bitrate, &t.Media.SampleRate, &t.Media.Channels, &t.Media.BitDepth, &t.Media.CodecProfile, &t.Media.Artist, &t.Media.Album, &t.Media.Title,
 		&t.Media.TrackNo, &t.Media.DiscNo, &t.Media.Year, &t.Media.Genre, &t.Media.AlbumArtist)
 	if err != nil {
 		return db.Track{}, err
