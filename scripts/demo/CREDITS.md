@@ -32,8 +32,25 @@ so that a Subsonic client has an album to browse; the music is his.
 
 ## Video — CC BY 3.0
 
-`Video/sintel-trailer.mp4` is fifteen seconds of the *Sintel* trailer,
+Every file in `Video/` is fifteen seconds of the *Sintel* trailer,
 © copyright Blender Foundation | https://www.sintel.org, licensed under
 Creative Commons Attribution 3.0: https://creativecommons.org/licenses/by/3.0/
 
-Cut from `sintel_trailer-480p.mp4` and re-encoded to 854×480 h264/aac.
+`Video/sintel-trailer.mp4` was cut from `sintel_trailer-480p.mp4` and
+re-encoded to 854×480 h264/aac. The others are the same fifteen seconds
+re-encoded into the shapes a server meets in a real library, each for what it
+makes the server do:
+
+| file | what it is | what it exercises |
+|---|---|---|
+| `h264-aac-moov-last.mp4` | the same streams, index at the end | a reader that has to find `moov` behind the film |
+| `hevc-main10-1080p.mp4` | HEVC Main 10, 1080p, AAC — cut from `sintel_trailer-1080p.mp4` at 0:20 | a picture older players cannot take |
+| `h264-ac3-5.1.mkv` | H.264, AC-3 5.1 in Matroska | a picture that plays and a sound that does not |
+| `vp9-opus.webm` | VP9, Opus | a header that does not state a profile |
+| `mpeg2-mp2.ts` | MPEG-2, MP2 in MPEG-TS | no duration in the header, and no thumbnail by name |
+| `mpeg4-mp3.avi` | MPEG-4 Part 2, MP3 in AVI | an old container read through a local copy |
+| `portrait.mov` | H.264 stored on its side with a 90° display matrix | a recording a phone made holding it upright |
+
+The 5.1 in the Matroska file is an upmix of the stereo original, made for the
+channel count and not for listening. `portrait.mov` is the centre of the frame,
+cropped to portrait.

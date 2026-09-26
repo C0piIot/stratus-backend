@@ -790,8 +790,8 @@ Restraint here is principle 3, not laziness:
   Two recipes and not one configure run producing both: ffprobe would inherit
   decoders it has no use for and stop being 1.7 MB.
 
-  - **`ffprobe`, 1.7 MB and 0.4 more for three decoders.** Probing is demuxer
-    work and no frame is ever decoded, so the demuxer list mirrors
+  - **`ffprobe`, 2.4 MB on amd64, of which about half a megabyte is three
+    decoders.** Probing is demuxer work and no frame is ever decoded, so the demuxer list mirrors
     `byExtension` in `internal/media` and a test holds the two together — an
     extension added without its demuxer fails at probe time in production
     rather than at build time. The decoders are flac, alac and aac, because
