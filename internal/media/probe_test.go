@@ -349,7 +349,7 @@ func TestPixelDepth(t *testing.T) {
 	for pixFmt, want := range map[string]int{
 		"yuv420p": 8, "yuvj420p": 8, "nv12": 8, "gbrp": 8, "yuv444p": 8,
 		"yuv420p10le": 10, "yuv422p10be": 10, "yuv420p12le": 12, "p010le": 10,
-		"": 0, "unknown": 0,
+		"": 0, "unknown": 0, "p016le": 16,
 	} {
 		if got := pixelDepth(pixFmt); got != want {
 			t.Errorf("pixelDepth(%q) = %d, want %d", pixFmt, got, want)
@@ -373,6 +373,22 @@ func TestProfileName(t *testing.T) {
 		{"aac", "1", "LC"},
 		{"aac", "4", "HE-AAC"},
 		{"aac", "28", "HE-AACv2"},
+		{"h264", "77", "Main"},
+		{"h264", "88", "Extended"},
+		{"h264", "122", "High 4:2:2"},
+		{"h264", "2170", "High 4:2:2 Intra"},
+		{"h264", "244", "High 4:4:4 Predictive"},
+		{"h264", "2292", "High 4:4:4 Intra"},
+		{"h264", "44", "CAVLC 4:4:4"},
+		{"h264", "1", ""},
+		{"hevc", "1", "Main"},
+		{"hevc", "3", "Main Still Picture"},
+		{"hevc", "4", "Rext"},
+		{"hevc", "9", "SCC"},
+		{"hevc", "7", ""},
+		{"av1", "1", "High"},
+		{"av1", "2", "Professional"},
+		{"av1", "5", ""},
 		{"h264", "High", "High"},
 		{"mp3", "unknown", ""},
 		{"mp3", "3", ""},

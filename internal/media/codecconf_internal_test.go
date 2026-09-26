@@ -1,6 +1,12 @@
 package media
 
-import "testing"
+import (
+	"encoding/binary"
+	"math"
+	"testing"
+
+	"github.com/C0piIot/stratus-backend/internal/db"
+)
 
 // The configuration records the fixtures in testdata do not reach, built by
 // hand from their specifications. Each comment spells out the bits, because a
@@ -121,5 +127,235 @@ func TestAC3Channels(t *testing.T) {
 	// is unknown rather than short.
 	if got := eac3Channels([]byte{0, 0, 0x20, 0x0f, 0x02}); got != 0 {
 		t.Errorf("dec3 with a dependent substream = %d channels, want unknown", got)
+	}
+}
+
+// soundTrak builds a sound track holding one sample entry, which is all
+// soundTrack reads.
+func soundTrak(format string, entry []byte) []byte {
+	hdlr := append(make([]byte, 8), []byte("soun")...)
+	stsd := append([]byte{0, 0, 0, 0, 0, 0, 0, 1}, boxOf(format, entry)...)
+	return boxOf("mdia", append(boxOf("hdlr", hdlr),
+		boxOf("minf", boxOf("stbl", boxOf("stsd", stsd)))...))
+}
+
+// audioEntry is the fixed part of an AudioSampleEntry at version 0 -- channel
+// count at 16, rate in the integer half of a 16.16 at 24 -- followed by its
+// child boxes.
+func audioEntry(channels, rate uint16, children ...[]byte) []byte {
+	var fixed [28]byte
+	binary.BigEndian.PutUint16(fixed[16:], channels)
+	binary.BigEndian.PutUint16(fixed[24:], rate)
+	e := fixed[:]
+	for _, c := range children {
+		e = append(e, c...)
+	}
+	return e
+}
+
+// TestSoundTrack is each sound entry an MP4 or a QuickTime file carries, and
+// the box inside it that is the authority on channels where the entry's own
+// count is not.
+func TestSoundTrack(t *testing.T) {
+	t.Parallel()
+
+	// esds: ES_Descriptor with the URL flag and a four-byte URL to step over,
+	// then a DecoderConfigDescriptor naming MP3 (0x6b), with no decoder info.
+	esds := append([]byte{0, 0, 0, 0}, 0x03, 23, 0, 1, 0x40, 4, 'a', 'b', 'c', 'd',
+		0x04, 13, 0x6b, 0x15, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+
+	// A QuickTime version 2 entry: the rate as a float64 at 32 and the
+	// channel count as a uint32 at 40, the old fields left at their defaults.
+	v2 := make([]byte, 64)
+	binary.BigEndian.PutUint16(v2[8:], 2)
+	binary.BigEndian.PutUint64(v2[32:], math.Float64bits(96_000))
+	binary.BigEndian.PutUint32(v2[40:], 2)
+
+	// Version 1 adds sixteen bytes before the children.
+	v1 := audioEntry(2, 44_100)
+	binary.BigEndian.PutUint16(v1[8:], 1)
+	v1 = append(v1, make([]byte, 16)...)
+	v1 = append(v1, boxOf("esds", esds)...)
+
+	for name, c := range map[string]struct {
+		trak []byte
+		want db.Media
+	}{
+		"ac-3 counts from dac3": {
+			soundTrak("ac-3", audioEntry(2, 48_000, boxOf("dac3", []byte{0x10, 0x3c, 0x00}))),
+			db.Media{AudioCodec: "ac3", Channels: 6, SampleRate: 48_000},
+		},
+		"e-ac-3 counts from dec3": {
+			soundTrak("ec-3", audioEntry(2, 48_000, boxOf("dec3", []byte{0, 0, 0x20, 0x0f, 0x00}))),
+			db.Media{AudioCodec: "eac3", Channels: 6, SampleRate: 48_000},
+		},
+		"e-ac-3 with no dec3 is unknown channels": {
+			soundTrak("ec-3", audioEntry(2, 48_000)),
+			db.Media{AudioCodec: "eac3", SampleRate: 48_000},
+		},
+		"opus counts from dOps": {
+			soundTrak("Opus", audioEntry(2, 48_000, boxOf("dOps", []byte{0, 6, 0, 0}))),
+			db.Media{AudioCodec: "opus", Channels: 6, SampleRate: 48_000},
+		},
+		"mp3 inside mp4a, in a version 1 entry": {
+			soundTrak("mp4a", v1),
+			db.Media{AudioCodec: "mp3", Channels: 2, SampleRate: 44_100},
+		},
+		"a version 2 entry": {
+			soundTrak("fLaC", v2),
+			db.Media{AudioCodec: "flac", Channels: 2, SampleRate: 96_000},
+		},
+		"a format this does not name": {
+			soundTrak("sowt", audioEntry(2, 44_100)),
+			db.Media{},
+		},
+		"mp4a with no esds": {
+			soundTrak("mp4a", audioEntry(2, 44_100)),
+			db.Media{},
+		},
+		"an entry too short to hold its fields": {
+			soundTrak("alac", make([]byte, 12)),
+			db.Media{},
+		},
+		"a version 2 entry cut short": {
+			soundTrak("fLaC", v2[:40]),
+			db.Media{},
+		},
+		"no sample table": {
+			boxOf("mdia", nil),
+			db.Media{},
+		},
+	} {
+		var m db.Media
+		soundTrack(c.trak, &m)
+		if m != c.want {
+			t.Errorf("%s: got %+v, want %+v", name, m, c.want)
+		}
+	}
+}
+
+// TestPictureConf is the configuration boxes the fixtures do not carry, as
+// they sit after a VisualSampleEntry's fixed part.
+func TestPictureConf(t *testing.T) {
+	t.Parallel()
+	for name, c := range map[string]struct {
+		children []byte
+		want     db.Media
+	}{
+		"vpcC, a full box": {
+			boxOf("vpcC", []byte{1, 0, 0, 0, 2, 31, 0xa2}),
+			db.Media{CodecProfile: "Profile 2", BitDepth: 10},
+		},
+		"av1C": {
+			boxOf("av1C", []byte{0x81, 0x28, 0x00, 0}),
+			db.Media{CodecProfile: "High", Level: 8, BitDepth: 8},
+		},
+		"a pasp before the record is stepped over": {
+			append(boxOf("pasp", make([]byte, 8)), boxOf("av1C", []byte{0x81, 0x08, 0x40, 0})...),
+			db.Media{CodecProfile: "Main", Level: 8, BitDepth: 10},
+		},
+		"a record that does not parse says nothing": {
+			boxOf("hvcC", []byte{1, 2, 3}),
+			db.Media{},
+		},
+		"no record at all": {
+			boxOf("pasp", make([]byte, 8)),
+			db.Media{},
+		},
+	} {
+		var m db.Media
+		pictureConf(c.children, &m)
+		if m != c.want {
+			t.Errorf("%s: got %+v, want %+v", name, m, c.want)
+		}
+	}
+}
+
+// TestFrameRate reads mdhd at both of its versions, and gives up on a track
+// that does not state what it needs.
+func TestFrameRate(t *testing.T) {
+	t.Parallel()
+
+	stts := boxOf("stts", []byte{0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0x2c, 0, 0, 0x03, 0xe9}) // 300 samples
+	trak := func(mdhd []byte, stts []byte) []byte {
+		return boxOf("mdia", append(boxOf("mdhd", mdhd), boxOf("minf", boxOf("stbl", stts))...))
+	}
+
+	// Version 1: timescale 30000 at 20, duration 300 * 1001 at 24.
+	v1 := make([]byte, 32)
+	v1[0] = 1
+	binary.BigEndian.PutUint32(v1[20:], 30_000)
+	binary.BigEndian.PutUint64(v1[24:], 300*1001)
+	if got := frameRate(trak(v1, stts)); got != 29_970 {
+		t.Errorf("version 1 = %d, want 29970", got)
+	}
+
+	v0 := make([]byte, 20)
+	binary.BigEndian.PutUint32(v0[12:], 30_000)
+	if got := frameRate(trak(v0, stts)); got != 0 {
+		t.Errorf("a zero duration = %d, want unknown", got)
+	}
+	binary.BigEndian.PutUint32(v0[16:], 300*1001)
+	if got := frameRate(trak(v0, nil)); got != 0 {
+		t.Errorf("no stts = %d, want unknown", got)
+	}
+	if got := frameRate(trak(v0, boxOf("stts", []byte{0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 1}))); got != 0 {
+		t.Errorf("an stts shorter than its count = %d, want unknown", got)
+	}
+	if got := frameRate(boxOf("mdia", nil)); got != 0 {
+		t.Errorf("no mdhd = %d, want unknown", got)
+	}
+}
+
+// TestPrivateConf is Matroska's side: the same records, found in CodecPrivate
+// by the codec the track names.
+func TestPrivateConf(t *testing.T) {
+	t.Parallel()
+	for name, c := range map[string]struct {
+		codec   string
+		private []byte
+		want    db.Media
+	}{
+		"av1":                         {"av1", []byte{0x81, 0x08, 0x40, 0}, db.Media{CodecProfile: "Main", Level: 8, BitDepth: 10}},
+		"vp9 with a feature list":     {"vp9", []byte{1, 1, 0, 3, 1, 8}, db.Media{CodecProfile: "Profile 0", BitDepth: 8}},
+		"vp9 with a malformed list":   {"vp9", []byte{1, 2, 0}, db.Media{}},
+		"a codec with no record read": {"mpeg4", []byte{1, 2, 3}, db.Media{}},
+	} {
+		var m db.Media
+		privateConf(c.codec, c.private, &m)
+		if m != c.want {
+			t.Errorf("%s: got %+v, want %+v", name, m, c.want)
+		}
+	}
+
+	for id, want := range map[string]string{
+		"A_AAC": "aac", "A_AAC/MPEG4/LC/SBR": "aac", "A_DTS": "dts", "A_TRUEHD": "truehd", "A_PCM/INT/LIT": "",
+	} {
+		if got := audioCodecOf(id); got != want {
+			t.Errorf("audioCodecOf(%q) = %q, want %q", id, got, want)
+		}
+	}
+}
+
+// TestShortRecords: a record too short to be one is not read as anything.
+func TestShortRecords(t *testing.T) {
+	t.Parallel()
+	if _, ok := hevcConf([]byte{1, 2}); ok {
+		t.Error("a two-byte hvcC was read")
+	}
+	if _, ok := vp9Conf([]byte{1}); ok {
+		t.Error("a one-byte vpcC was read")
+	}
+	if _, ok := av1Conf([]byte{0x80, 0, 0, 0}); ok {
+		t.Error("an av1C with the wrong marker was read")
+	}
+	if got := ac3Channels([]byte{1}); got != 0 {
+		t.Errorf("a one-byte dac3 = %d channels", got)
+	}
+	if got := eac3Channels([]byte{0, 1, 0, 0, 0}); got != 0 {
+		t.Errorf("two independent substreams = %d channels, want unknown", got)
+	}
+	if tag, _, _ := descriptor([]byte{0x03, 0x10, 0}); tag != 0 {
+		t.Error("a descriptor longer than its buffer was read")
 	}
 }
