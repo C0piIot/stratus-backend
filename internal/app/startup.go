@@ -113,6 +113,15 @@ func (a *App) open(ctx context.Context) (deps Deps, err error) {
 	}
 	deps.Thumbs = media.NewThumbs(deps.Storage, deps.Files, ffmpeg, tmp)
 
+	// The same ffmpeg transcodes, reading each file from a listener on the
+	// loopback interface rather than a copy on disk.
+	loopback, lerr := media.NewLoopback(ctx, deps.Files)
+	if lerr != nil {
+		return deps, lerr
+	}
+	deps.Loopback = loopback
+	deps.Transcoder = media.NewTranscoder(ffmpeg, loopback)
+
 	if a.cfg.IndexInterval > 0 {
 		ffprobe, perr := media.LookupFFprobe()
 		if perr != nil {

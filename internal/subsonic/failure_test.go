@@ -325,7 +325,7 @@ func TestABrokenBackendIsNotANotFound(t *testing.T) {
 			}
 
 			b := breaking{music: l.meta, tree: l.files, lists: music.New(l.meta), art: l.art, fail: tt.call}
-			h := subsonic.Handler(prefix, serverVersion, l.verifier, b, b, b, b)
+			h := subsonic.Handler(prefix, serverVersion, l.verifier, b, b, b, b, nil)
 
 			params := append([]string{"f", "json"}, tt.extra...)
 			if tt.id != nil {
@@ -351,7 +351,7 @@ func TestTheRootIsNotStatted(t *testing.T) {
 	l.add(t, "loose.flac", song("Loose", "Singles", "Loose", 1))
 
 	b := breaking{music: l.meta, tree: l.files, lists: music.New(l.meta), art: l.art, fail: "Stat"}
-	h := subsonic.Handler(prefix, serverVersion, l.verifier, b, b, b, b)
+	h := subsonic.Handler(prefix, serverVersion, l.verifier, b, b, b, b, nil)
 
 	env := response(t, get(t, h, "getMusicDirectory", query("f", "json", "id", dirIDOf(""))))
 	if got, _ := env["status"].(string); got != "ok" {

@@ -1077,6 +1077,41 @@ Restraint here is principle 3, not laziness:
   pixels Go cannot produce. FLAC's PICTURE block, ID3v2's APIC frame and MP4's
   covr atom cover a real library; Vorbis and Opus keep theirs base64-encoded in
   a comment and are not read yet.
+- **A track is transcoded when a client asks, by one ffmpeg per playback**
+  (#50). Three pieces, and each is where it is for a reason.
+
+  **The decision is `media.Decide`, and nothing else decides.** The facts of
+  the file on one side (#197), the request on the other, a `Plan` out: the
+  original whenever it already satisfies what was asked, `format=raw` always,
+  and a transcode that never claims more than the file has -- no bitrate above
+  the source's, no lossless file made from a lossy one, no rate or channels
+  that were not there. OpenSubsonic's `stream` is the first caller, its
+  transcoding extension the second and DLNA the third, which is why the policy
+  is not written inside any of them.
+
+  **ffmpeg reads the blob over HTTP from `127.0.0.1`**, and that is what the
+  network protocols in the ffmpeg build are for. A pipe cannot seek, and an
+  m4a with its `moov` at the end cannot be read from one at all; a copy on disk
+  is what #48 spent its time removing. `media.Loopback` serves one file per
+  token through the same `http.ServeContent` the protocol surfaces use, the
+  token lives as long as the transcode (ffmpeg makes several requests to seek),
+  and it listens nowhere but the loopback interface -- so it is not a surface,
+  and it works for a bucket as well as a disk. `-protocol_whitelist http,tcp`
+  keeps a hostile container from sending ffmpeg anywhere else.
+
+  **A transcode cannot be ranged**, because its length is not known until it
+  is over: it goes out with `Accept-Ranges: none`, `timeOffset` is how a
+  client seeks (`-ss` before `-i`, and the `transcodeOffset` extension says
+  so), and `estimateContentLength` is honoured by cutting the body to the
+  length announced.
+
+  **How many run at once comes from the machine**, like the thumbnails: four
+  per CPU, because a transcode encodes faster than anybody listens and spends
+  the track waiting on the client, and 32 MiB each out of the memory past the
+  reserve, against seven measured. When every slot is taken `stream` sends the
+  original, since a larger file that plays beats an error nobody reads -- the
+  errors on that endpoint are XML a player does not parse.
+
 - `golang.org/x/image` for the scaler, which the standard library has no
   equivalent of. JPEG and PNG are decoded and encoded by the stdlib; HEIC and
   video frames need the ffmpeg above, so a format is either read in-process or

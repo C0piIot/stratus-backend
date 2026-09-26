@@ -172,6 +172,18 @@ while read -r f; do
 done <<<"$files"
 ok "every video but the transport stream has a thumbnail"
 
+# A transcode, which is the image's ffmpeg reading the track through the
+# loopback listener: the demo tracks are 128 kbps, so asking for 64 has to
+# start one, and the answer has to be MP3 rather than the file.
+song="$(tr '<' '\n' <<<"$(rest search3 "query=Carefree")" | grep '^song ' | sed -n 's/.*id="\([^"]*\)".*/\1/p' | head -1)"
+[ -n "$song" ] || die "search3 does not find Carefree"
+type="$(curl -s -o /dev/null -w '%{content_type}' \
+	"$BASE/rest/stream.view?c=seed-demo&u=$(encode "$USER")&t=$TOKEN&s=$SALT&id=$(encode "$song")&format=mp3&maxBitRate=64")"
+case "$type" in
+audio/mpeg*) ok "a track transcodes to 64 kbps MP3" ;;
+*) die "stream with maxBitRate=64 answered $type" ;;
+esac
+
 # Range requests are what a player uses to seek, and the video is here for them.
 code="$(curl -s -o /dev/null -w '%{http_code}' -u "$USER:$PASS" -r 0-1023 \
 	"$BASE/dav/$(encode "Video/sintel-trailer.mp4")")"

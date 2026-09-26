@@ -348,6 +348,12 @@ func TestSubsonicIsWired(t *testing.T) {
 	if !strings.Contains(wrong, `code="40"`) {
 		t.Errorf("a wrong password = %s", wrong)
 	}
+
+	// The transcoder reaches the adapter: startup builds one over the ffmpeg
+	// it found, and a client is told it can seek inside a transcode.
+	if ext := answer(t, base+"/rest/getOpenSubsonicExtensions.view"); !strings.Contains(ext, `name="transcodeOffset"`) {
+		t.Errorf("getOpenSubsonicExtensions = %s, want transcodeOffset", ext)
+	}
 }
 
 // TestSubsonicSharesTheRateLimitWithWebDAV is why app.Handler builds one

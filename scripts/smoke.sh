@@ -639,6 +639,40 @@ TRACK
     *)                     bad "OpenSubsonic streams the stored bytes" "id '$song_id' gave '$streamed'" ;;
   esac
 
+  # Transcoding (#50), which is the image's ffmpeg reading the blob over the
+  # loopback listener and writing into the response: a real FLAC, indexed so
+  # that its bitrate is known, asked for as 64 kbps MP3. What comes back has to
+  # be an MP3 -- an ID3 tag or a frame sync, not the fLaC it was -- and a second
+  # in, less of one, which is what transcodeOffset promises.
+  curl -fsS -u "$davuser:$davpass" -X PUT --data-binary "@scripts/testdata/tone.flac" \
+    "http://$davhost/dav/tone.flac" >/dev/null 2>&1
+  tone_id=""
+  for _ in $(seq 1 50); do
+    body="$(curl -fsS "http://$davhost/rest/getIndexes.view?c=smoke&u=$davuser&t=$token&s=$salt" 2>/dev/null || true)"
+    tone_id="$(printf '%s' "$body" | tr '<' '\n' | grep 'title="tone.flac"' | sed -n 's/.*id="\([^"]*\)".*/\1/p' | head -1)"
+    [ -n "$tone_id" ] && break
+    sleep 0.2
+  done
+  transcode="http://$davhost/rest/stream.view?c=smoke&u=$davuser&t=$token&s=$salt&id=$tone_id&format=mp3&maxBitRate=64"
+  type="$(curl -s -o "$bindir/tone.mp3" -w '%{content_type}' "$transcode")"
+  magic="$(head -c 3 "$bindir/tone.mp3" | od -An -tx1 | tr -d ' \n')"
+  whole="$(wc -c <"$bindir/tone.mp3")"
+  half="$(curl -s "$transcode&timeOffset=1" | wc -c)"
+  case "$type:$magic" in
+    audio/mpeg:494433* | audio/mpeg:fff*)
+      if [ "$half" -lt $((whole * 3 / 4)) ]; then
+        ok "OpenSubsonic transcodes a FLAC to MP3, and seeks into it ($whole bytes, $half a second in)"
+      else
+        bad "OpenSubsonic seeks into a transcode" "a second into two gave $half of $whole bytes"
+      fi ;;
+    *) bad "OpenSubsonic transcodes a FLAC to MP3" "id '$tone_id' gave $type, starting $magic" ;;
+  esac
+  extensions="$(curl -fsS "http://$davhost/rest/getOpenSubsonicExtensions.view?f=json" 2>/dev/null || true)"
+  case "$extensions" in
+    *'"transcodeOffset"'*) ok "getOpenSubsonicExtensions advertises transcodeOffset" ;;
+    *)                     bad "getOpenSubsonicExtensions advertises transcodeOffset" "got '$extensions'" ;;
+  esac
+
   # And found by searching, which is the endpoint a client's search box is. The
   # empty query is the one the specification requires: it is how a client
   # downloads a library to browse with no network.

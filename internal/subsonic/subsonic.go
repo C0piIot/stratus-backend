@@ -49,6 +49,9 @@ type handler struct {
 	// the port: see Playlists.
 	lists Playlists
 	art   Art
+	// transcoder is nil where there is none, and then every stream is the
+	// original and nothing is advertised that would say otherwise.
+	transcoder Transcoder
 	// serverVersion is this build, which OpenSubsonic requires in every
 	// envelope so a client can notice an upgrade and ask again what it does.
 	serverVersion string
@@ -59,8 +62,8 @@ type handler struct {
 // The prefix is stripped here rather than by the caller, for the reason the
 // WebDAV adapter gives: exactly one place should know the difference between
 // the path a client asks for and the method being called.
-func Handler(prefix, serverVersion string, v Verifier, lib Library, tree Tree, lists Playlists, art Art) http.Handler {
-	h := &handler{verifier: v, lib: lib, tree: tree, lists: lists, art: art, serverVersion: serverVersion}
+func Handler(prefix, serverVersion string, v Verifier, lib Library, tree Tree, lists Playlists, art Art, tr Transcoder) http.Handler {
+	h := &handler{verifier: v, lib: lib, tree: tree, lists: lists, art: art, transcoder: tr, serverVersion: serverVersion}
 
 	mux := http.NewServeMux()
 
@@ -201,11 +204,20 @@ func (h *handler) user(w http.ResponseWriter, r *http.Request, username string) 
 	h.write(w, r, env)
 }
 
-// extensions answers an empty list: the envelope fields and this endpoint are
-// what OpenSubsonic requires, and every extension beyond them is optional.
+// extensions answers what this server does beyond the base protocol. The
+// envelope fields and this endpoint are what OpenSubsonic requires, and every
+// extension listed is one a client will start relying on the moment it reads
+// it, so each is here only once it works.
+//
+// transcodeOffset is timeOffset honoured for a track: without it a client that
+// transcodes cannot seek, and knows not to offer the bar (#50).
 func (h *handler) extensions(w http.ResponseWriter, r *http.Request) {
 	env := h.ok()
-	env.Extensions = &[]extension{}
+	list := []extension{}
+	if h.transcoder != nil {
+		list = append(list, extension{Name: "transcodeOffset", Versions: []int{1}})
+	}
+	env.Extensions = &list
 	h.write(w, r, env)
 }
 

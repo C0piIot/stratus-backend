@@ -452,8 +452,8 @@ func TestATrackWithNoTitleIsNamedAfterItsFile(t *testing.T) {
 	}
 }
 
-// TestStreamServesTheStoredBytes is the whole point of the surface. Nothing is
-// transcoded, so what comes back is what went in.
+// TestStreamServesTheStoredBytes is the whole point of the surface. A client
+// that asks for nothing in particular gets what went in.
 func TestStreamServesTheStoredBytes(t *testing.T) {
 	t.Parallel()
 	l := newLibrary(t)

@@ -167,3 +167,13 @@ func TestDepsClose(t *testing.T) {
 // the S3 backend has. The embedded interface is nil on purpose: if Deps.Close
 // ever calls through it, this panics rather than passing quietly.
 type notACloser struct{ storage.Storage }
+
+// TestNoTranscoderIsANilInterface: a Deps with no transcoder must reach the
+// adapter as nil, not as a nil pointer inside an interface, or the adapter
+// would advertise transcoding it cannot do.
+func TestNoTranscoderIsANilInterface(t *testing.T) {
+	t.Parallel()
+	if tr := transcoder(Deps{}); tr != nil {
+		t.Errorf("transcoder(Deps{}) = %#v, want nil", tr)
+	}
+}
