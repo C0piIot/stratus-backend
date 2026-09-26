@@ -1273,6 +1273,25 @@ Restraint here is principle 3, not laziness:
   Module names without versions: Dependabot bumps one every week, and a gate
   that failed on each would be turned off by the second month. A bump that drags
   something new in still shows, because the list changes.
+- **Errors reach Sentry by being logged, and by no other route** (#222).
+  `internal/report` is a `slog.Handler` wrapped around the JSON one when
+  `STRATUS_SENTRY_DSN` is set, and it sends every record at error level:
+  the message is the issue's title, the `err` attribute its subtitle, and the
+  stack is whoever logged with slog's frames cut off, because Sentry groups on
+  it. No call site knows Sentry exists -- `depguard` keeps it that way -- so an
+  error logged tomorrow is reported without anybody remembering to.
+
+  A panic becomes such a line in two places, since nothing else would log it
+  as JSON: `recoverPanics` around the whole handler, which then aborts the
+  connection as net/http would have, and `keepRunning` around each background
+  loop, which starts it again a minute later rather than letting one bad file
+  take the process down. Inside a recover the SDK cuts the stack at the panic,
+  so the issue points at the line that panicked.
+
+  **The budget is ours because the free tier has none to set**: the same
+  message and error once an hour, thirty events an hour in all. It is off by
+  default, which for a self-hosted binary is the only acceptable default -- the
+  report carries paths out of somebody's library.
 - Config over convention: sane defaults, everything overridable by env var.
 - Web UI: `html/template`, Bootstrap and htmx vendored and `//go:embed`ed. No
   JavaScript toolchain, no custom CSS. Bootstrap 5.3.8 is in, CSS and its

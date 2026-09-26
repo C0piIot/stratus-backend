@@ -115,3 +115,33 @@ func TestNoCredentialsInTheLog(t *testing.T) {
 		}
 	}
 }
+
+// A panic in a handler has to reach the JSON log, which is what the error
+// report reads, and still end the way net/http ends it.
+func TestRecoverPanicsLogsAndAborts(t *testing.T) {
+	var buf bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+
+	h := recoverPanics(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { panic("boom") }))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/dav/x", nil)
+
+	defer func() {
+		//nolint:errorlint // a panic value
+		if p := recover(); p != http.ErrAbortHandler {
+			t.Errorf("re-panicked with %v, want http.ErrAbortHandler", p)
+		}
+		var line map[string]any
+		if err := json.Unmarshal(bytes.TrimSpace(buf.Bytes()), &line); err != nil {
+			t.Fatalf("the log line is not JSON: %v\n%s", err, buf.String())
+		}
+		if line["level"] != "ERROR" || line["err"] != "boom" || line["path"] != "/dav/x" {
+			t.Errorf("got %v", line)
+		}
+		if !strings.Contains(line["stack"].(string), "TestRecoverPanicsLogsAndAborts") {
+			t.Error("the stack is missing")
+		}
+	}()
+	h.ServeHTTP(httptest.NewRecorder(), req)
+}

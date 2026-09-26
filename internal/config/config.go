@@ -14,6 +14,8 @@ import (
 	"path"
 	"strings"
 	"time"
+
+	"github.com/getsentry/sentry-go"
 )
 
 // Defaults. The container image sets ADDR and DATA_DIR explicitly, so these are
@@ -72,6 +74,10 @@ type Config struct {
 	// internal/auth.
 	Username string
 	Password Secret
+	// SentryDSN is where errors are reported, and empty reports nothing. Held
+	// as a secret although Sentry calls the key public: anybody holding it can
+	// spend the project's quota.
+	SentryDSN Secret
 }
 
 // Load resolves the configuration from getenv, which is os.Getenv in
@@ -148,6 +154,16 @@ func Load(getenv func(string) string) (Config, error) {
 		return Config{}, errors.New("STRATUS_INDEX_INTERVAL: cannot be negative, use 0 to disable")
 	}
 	cfg.IndexInterval = index
+
+	// Checked here rather than when the client is made, so that a DSN pasted
+	// with a character missing stops the process instead of an install
+	// believing it is reporting while every event is refused.
+	if dsn := getenv("STRATUS_SENTRY_DSN"); dsn != "" {
+		if _, err := sentry.NewDsn(dsn); err != nil {
+			return Config{}, errors.New("STRATUS_SENTRY_DSN: not a Sentry DSN, copy it from the project's Client Keys")
+		}
+		cfg.SentryDSN = Secret(dsn)
+	}
 
 	return cfg, nil
 }

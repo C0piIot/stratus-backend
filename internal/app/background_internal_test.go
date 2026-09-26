@@ -61,3 +61,29 @@ func TestCollectorSurvivesAFailedPass(t *testing.T) {
 		t.Error("the collector did not stop with its context")
 	}
 }
+
+// A loop that panics is started again rather than taking the process down, and
+// stops being started once the process is stopping.
+func TestKeepRunningRestartsAfterAPanic(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	runs := 0
+	keepRunning(ctx, "test", time.Millisecond, func() {
+		runs++
+		if runs < 3 {
+			panic("boom")
+		}
+	})
+	if runs != 3 {
+		t.Errorf("ran %d times, want 3: twice panicking and once returning", runs)
+	}
+
+	cancel()
+	runs = 0
+	keepRunning(ctx, "test", time.Hour, func() { runs++; panic("boom") })
+	if runs != 1 {
+		t.Errorf("ran %d times after the context ended, want 1", runs)
+	}
+}

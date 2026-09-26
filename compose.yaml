@@ -28,6 +28,7 @@ services:
       STRATUS_INDEX_INTERVAL: "${STRATUS_INDEX_INTERVAL:-}"
       STRATUS_USERNAME: "${STRATUS_USERNAME:-}"
       STRATUS_PASSWORD: "${STRATUS_PASSWORD:-}"
+      STRATUS_SENTRY_DSN: "${STRATUS_SENTRY_DSN:-}"
 
     # Photos, music and the SQLite database live here. Point this at real storage
     # (e.g. /srv/stratus) once there is something worth keeping.

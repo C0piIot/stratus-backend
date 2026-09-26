@@ -168,8 +168,9 @@ func (a *App) Handler(deps Deps) http.Handler {
 			web.Indexing{Index: deps.Database, Interval: a.cfg.IndexInterval}))
 	}
 	// The log is outside the compression so that the bytes it counts are the
-	// bytes that went out rather than the ones the handler wrote.
-	return logRequests(compress(mux))
+	// bytes that went out rather than the ones the handler wrote, and the
+	// recover outside both so that a panic in either is caught too.
+	return recoverPanics(logRequests(compress(mux)))
 }
 
 // Server applies the timeout policy. Separate from Run so the policy itself can
@@ -208,7 +209,7 @@ func (a *App) Run(ctx context.Context) error {
 		background.Add(1)
 		go func() {
 			defer background.Done()
-			a.collectPeriodically(ctx, deps)
+			keepRunning(ctx, "collecting orphan blobs", restartPause, func() { a.collectPeriodically(ctx, deps) })
 		}()
 	} else {
 		slog.Warn("orphan blob collection disabled", "reason", "STRATUS_GC_INTERVAL is zero")
@@ -218,7 +219,7 @@ func (a *App) Run(ctx context.Context) error {
 		background.Add(1)
 		go func() {
 			defer background.Done()
-			a.indexPeriodically(ctx, deps)
+			keepRunning(ctx, "indexing media", restartPause, func() { a.indexPeriodically(ctx, deps) })
 		}()
 	} else {
 		slog.Warn("media indexing disabled", "reason", "STRATUS_INDEX_INTERVAL is zero")

@@ -1301,6 +1301,8 @@ refuses "an unreachable database refuses to start" -e STRATUS_DB_DSN=postgres://
 # The one that reads as harmless and is not: a level nobody can parse used to
 # start the server at info, and whoever set it debugged blind.
 refuses "an unparseable log level refuses to start" -e STRATUS_LOG_LEVEL=debgu
+# Otherwise it starts, believes it is reporting, and every event is refused.
+refuses "a Sentry DSN with no project refuses to start" -e STRATUS_SENTRY_DSN=https://key@sentry.invalid/
 
 # ---------------------------------------------------------------------------
 section "Compose healthcheck"

@@ -72,6 +72,16 @@ linters:
           deny:
             - pkg: github.com/minio/minio-go
               desc: only internal/storage/s3 may import the S3 client
+        # Reporting is a log handler, so nothing else has a reason to call
+        # Sentry; config only checks that a DSN parses.
+        error-reporting:
+          list-mode: lax
+          files:
+            - "!**/internal/report/**"
+            - "!**/internal/config/**"
+          deny:
+            - pkg: github.com/getsentry/sentry-go
+              desc: errors reach Sentry by being logged at error level, through internal/report
         # Architecture boundaries from CLAUDE.md. The packages below mostly do
         # not exist yet: the rules are in place so the first violation fails the
         # build the day it is written, rather than being found in a review.

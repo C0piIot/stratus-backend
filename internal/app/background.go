@@ -9,7 +9,9 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
+	"runtime/debug"
 	"time"
 
 	"github.com/C0piIot/stratus-backend/internal/files"
@@ -132,4 +134,37 @@ func (a *App) collectPeriodically(ctx context.Context, deps Deps) {
 				"scanned", done.Scanned, "deleted", done.Deleted, "bytes", done.Bytes)
 		}
 	}
+}
+
+// restartPause is how long a background loop that panicked waits before it is
+// started again, so that one which panics on every pass does not spin.
+const restartPause = time.Minute
+
+// keepRunning runs fn and starts it again when it panics, until ctx ends or fn
+// returns.
+//
+// Nothing else recovers a panic in a goroutine: without this, one file that
+// trips the indexer would take every surface down with it, and the restart
+// would find the same file and do it again.
+func keepRunning(ctx context.Context, task string, pause time.Duration, fn func()) {
+	for panicked(task, fn) {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(pause):
+		}
+	}
+}
+
+// panicked runs fn and reports whether it panicked, logging the panic if so.
+func panicked(task string, fn func()) (did bool) {
+	defer func() {
+		if p := recover(); p != nil {
+			did = true
+			slog.Error("panic in the background",
+				"task", task, "err", fmt.Sprint(p), "stack", string(debug.Stack()))
+		}
+	}()
+	fn()
+	return false
 }

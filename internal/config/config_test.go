@@ -2,6 +2,7 @@ package config_test
 
 import (
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -225,5 +226,34 @@ func TestLoadGCInterval(t *testing.T) {
 				t.Errorf("GCInterval = %v, want %v", cfg.GCInterval, tt.want)
 			}
 		})
+	}
+}
+
+func TestLoadSentryDSN(t *testing.T) {
+	t.Parallel()
+	const dsn = "https://0123abcd@o1.ingest.us.sentry.io/42"
+
+	cfg, err := config.Load(env(map[string]string{"STRATUS_SENTRY_DSN": dsn}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.SentryDSN.Reveal() != dsn {
+		t.Errorf("SentryDSN = %q", cfg.SentryDSN.Reveal())
+	}
+
+	cfg, err = config.Load(nil)
+	if err != nil || cfg.SentryDSN != "" {
+		t.Errorf("unset: %v, %q; want nothing reported", err, cfg.SentryDSN.Reveal())
+	}
+
+	// A DSN with its project missing would otherwise start a server that
+	// believes it is reporting while every event is refused.
+	const broken = "https://0123abcd@o1.ingest.us.sentry.io/"
+	_, err = config.Load(env(map[string]string{"STRATUS_SENTRY_DSN": broken}))
+	if err == nil {
+		t.Fatal("a DSN with no project was accepted")
+	}
+	if strings.Contains(err.Error(), "0123abcd") {
+		t.Errorf("the error prints the key: %v", err)
 	}
 }

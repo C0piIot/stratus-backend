@@ -161,6 +161,23 @@ one there. `/healthz` and `/readyz` log at debug, because the container asks
 every thirty seconds and three thousand lines a day of nothing is not a log — a
 failed readiness check logs its own reason at error level instead.
 
+### Error reporting
+
+Off unless you set `STRATUS_SENTRY_DSN` to a project's DSN from
+[Sentry](https://sentry.io) — or anything that speaks its protocol, such as a
+self-hosted GlitchTip. Then every line logged at error level is also sent there,
+a panic included: one in a request drops that connection, and one in the
+indexer or the sweep restarts it a minute later, so neither takes the server
+down.
+
+What is sent is the log line and the stack that logged it — which means paths
+and file names from your library go to whoever hosts the project. Nothing is
+sent without the variable, and a DSN that does not parse refuses to start.
+
+The same error is sent once an hour and no more than thirty an hour in all,
+because the free tier has a small monthly quota and no rate limit of its own to
+set; the log still has every occurrence.
+
 ### Media metadata
 
 Every file that arrives is read once for what it can say about itself: when a
