@@ -853,10 +853,10 @@ build rather than a note in a document.
 
 ## Container
 
-Multi-stage build, `distroless/static:nonroot` runtime, 43 MB unpacked and a
+Multi-stage build, `distroless/static:nonroot` runtime, 44 MB unpacked and a
 17 MB download, measured on amd64. The Go binary is most of it at 25 MB, beside
-1.9 MB of `ffprobe`, 12.9 MB of `ffmpeg` (10.8 MB on arm64) and a base under one
-megabyte. It grew 4 MB with the web UI: `html/template`
+2.4 MB of `ffprobe` (2.2 MB on arm64), 12.9 MB of `ffmpeg` (10.8 MB on arm64)
+and a base under one megabyte. It grew 4 MB with the web UI: `html/template`
 costs about three of those and the embedded Bootstrap a third of one, with htmx
 a further 50 KB, which is what a page rendered by the standard library and
 served from the binary costs.
