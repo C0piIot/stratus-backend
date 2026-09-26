@@ -745,6 +745,14 @@ Restraint here is principle 3, not laziness:
   returns the least ordinary, which on the same file is 125 out of 255. That
   filter is in the build for this and nothing else.
 
+  **It runs after the scale, and the decoder runs on one thread**, because the
+  filter holds every frame it weighs. Ahead of the scale that was a hundred
+  full-size frames, and fifteen seconds of 1080p HEVC Main 10 from the demo
+  media peaked at 432 MB -- the 256 MB demo instance had ffmpeg killed by the
+  kernel and answered 404. Behind the scale and single-threaded it is 66 MB,
+  no slower on one core, and the pick on the black-opening film is 127 rather
+  than 125: the filter compares histograms, which reducing barely moves.
+
   What that costs is a duration AVI, WMV and MPEG-TS will not have. It is the
   right trade and it was measured: those three state no duration at all, so
   ffprobe derives one from what it can reach and a partial file answers 7.5

@@ -81,6 +81,13 @@ func runFFmpeg(ctx context.Context, ffmpeg, path string, px int, at time.Duratio
 	}
 	args = append(args,
 		"-hide_banner", "-v", "error",
+		// One decoding thread. A frame-threaded decoder keeps a set of frames
+		// per thread, and on a 1080p HEVC Main 10 that was most of the memory:
+		// the demo instance, 256 MB in all, had ffmpeg killed by the kernel
+		// making one thumbnail. Measured with the filters below: 123 MB with
+		// the default threads, 66 MB with one, and no slower on the single
+		// core it runs on -- thumbnails are parallel already, four at a time.
+		"-threads", "1",
 		"-i", path,
 		"-frames:v", "1",
 		// The width is exactly what was asked for and the height follows the
@@ -89,13 +96,20 @@ func runFFmpeg(ctx context.Context, ffmpeg, path string, px int, at time.Duratio
 		// know how wide it is. A portrait frame therefore comes back taller than
 		// the box and reduce fits it afterwards -- one resize of something
 		// already small, against a size nothing could have inferred.
-		// thumbnail before scale, and it is what keeps a thumbnail from being a
-		// black rectangle: it scores a batch of frames against their own
-		// average and hands back the least ordinary one. Measured on a film
-		// that opens with two seconds of black, the first frame and the frame a
-		// second in both average zero brightness, and this picks one at 125 out
-		// of 255.
-		"-vf", "thumbnail="+strconv.Itoa(framesConsidered)+",scale="+strconv.Itoa(px)+":-1",
+		// thumbnail is what keeps a thumbnail from being a black rectangle: it
+		// scores a batch of frames against their own average and hands back
+		// the least ordinary one. Measured on a film that opens with two
+		// seconds of black, the first frame and the frame a second in both
+		// average zero brightness, and this picks one at 125 out of 255.
+		//
+		// **scale before thumbnail, never after**: the filter holds every frame
+		// it weighs, so ahead of the scale it held a hundred of them at full
+		// size -- 432 MB for fifteen seconds of 1080p HEVC Main 10, which is
+		// what took the demo instance down, and a 4K phone recording would do
+		// the same to a Raspberry Pi. Behind it, the hundred are thumbnails.
+		// The choice barely moves, since the filter compares colour histograms
+		// and a histogram survives being reduced.
+		"-vf", "scale="+strconv.Itoa(px)+":-1,thumbnail="+strconv.Itoa(framesConsidered),
 		// Rotation is deliberately left to ffmpeg, which reads the matrix in the
 		// container and inserts the transpose itself -- that filter is in the
 		// build for no other reason. A phone held upright is the ordinary case,
