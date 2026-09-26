@@ -115,6 +115,12 @@ func Handler(prefix, serverVersion string, v Verifier, lib Library, tree Tree, l
 	// The bytes. Their errors are XML whatever f said, so they authenticate
 	// through their own wrapper.
 	mux.HandleFunc("GET /stream", h.authedBinary(h.stream))
+	// The transcoding extension, only where there is a transcoder: see
+	// transcoding.go. The decision is a POST because its body is the client.
+	if tr != nil {
+		mux.HandleFunc("POST /getTranscodeDecision", h.authed(h.transcodeDecision))
+		mux.HandleFunc("GET /getTranscodeStream", h.authedBinary(h.transcodeStream))
+	}
 	mux.HandleFunc("GET /download", h.authedBinary(h.download))
 	mux.HandleFunc("GET /getCoverArt", h.authedBinary(h.coverArt))
 
@@ -210,12 +216,15 @@ func (h *handler) user(w http.ResponseWriter, r *http.Request, username string) 
 // it, so each is here only once it works.
 //
 // transcodeOffset is timeOffset honoured for a track: without it a client that
-// transcodes cannot seek, and knows not to offer the bar (#50).
+// transcodes cannot seek, and knows not to offer the bar (#50). transcoding is
+// the extension where a client describes itself and the server chooses.
 func (h *handler) extensions(w http.ResponseWriter, r *http.Request) {
 	env := h.ok()
 	list := []extension{}
 	if h.transcoder != nil {
-		list = append(list, extension{Name: "transcodeOffset", Versions: []int{1}})
+		list = append(list,
+			extension{Name: "transcodeOffset", Versions: []int{1}},
+			extension{Name: "transcoding", Versions: []int{1}})
 	}
 	env.Extensions = &list
 	h.write(w, r, env)

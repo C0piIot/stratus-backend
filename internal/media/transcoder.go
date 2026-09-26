@@ -123,6 +123,14 @@ func transcodeArgs(url string, p Plan, offset time.Duration) []string {
 	if p.Channels > 0 {
 		args = append(args, "-ac", strconv.Itoa(p.Channels))
 	}
+	if p.BitDepth == 16 {
+		args = append(args, "-sample_fmt", "s16")
+	}
+	if p.Fragmented {
+		// An empty moov up front and the samples in fragments after it: the
+		// head is never rewritten, so it can go down a pipe.
+		args = append(args, "-movflags", "frag_keyframe+empty_moov+default_base_moof")
+	}
 	return append(args, "-f", p.Muxer, "-")
 }
 

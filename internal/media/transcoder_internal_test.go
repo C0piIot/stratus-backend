@@ -110,6 +110,11 @@ func TestTranscodeArgs(t *testing.T) {
 		t.Errorf("got  %q\nwant %q", got, want)
 	}
 
+	frag := transcodeArgs("u", Plan{Encoder: "aac", Muxer: "ipod", Fragmented: true, BitDepth: 16}, 0)
+	if !slices.Contains(frag, "frag_keyframe+empty_moov+default_base_moof") || !slices.Contains(frag, "s16") {
+		t.Errorf("a fragmented, sixteen-bit plan should say both: %q", frag)
+	}
+
 	lossless := transcodeArgs("u", Plan{Encoder: "flac", Muxer: "flac"}, 0)
 	if slices.Contains(lossless, "-ss") || slices.Contains(lossless, "-b:a") {
 		t.Errorf("no offset and no bitrate should say neither: %q", lossless)
@@ -173,6 +178,24 @@ func TestTranscodeForReal(t *testing.T) {
 	}
 	if n := size("moov-last.m4a", targetPlan("mp3"), 0); n < 1000 {
 		t.Errorf("an m4a with its moov last: %d bytes", n)
+	}
+
+	// An MP4 down a pipe is only possible in fragments; asserted by its boxes,
+	// since a non-fragmented one would fail to write at all or put moov last.
+	mp4Plan := Plan{Format: "aac", Encoder: "aac", Muxer: "ipod", MIME: "audio/mp4", Container: "mp4", Fragmented: true, Bitrate: 128_000}
+	out, err := tr.Transcode(t.Context(), db.File{Path: "tone.flac", BlobKey: "tone.flac"}, mp4Plan, 0)
+	if err != nil {
+		t.Fatalf("fragmented mp4: %v", err)
+	}
+	b, _ := io.ReadAll(out)
+	_ = out.Close()
+	if len(b) < 12 || string(b[4:8]) != "ftyp" || !bytes.Contains(b, []byte("moof")) {
+		t.Errorf("fragmented mp4 = %d bytes starting %q, want ftyp and fragments", len(b), b[:min(len(b), 12)])
+	}
+
+	flac16 := Plan{Format: "flac", Encoder: "flac", Muxer: "flac", MIME: "audio/flac", Container: "flac", BitDepth: 16}
+	if n := size("tone.flac", flac16, 0); n < 1000 {
+		t.Errorf("flac at sixteen bits: %d bytes", n)
 	}
 
 	whole := size("tone.flac", targetPlan("mp3"), 0)

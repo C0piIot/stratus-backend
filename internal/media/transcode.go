@@ -35,16 +35,28 @@ type Plan struct {
 	// Format is the target's name, and Encoder, Muxer and MIME what it means
 	// to ffmpeg and to the client.
 	Format, Encoder, Muxer, MIME string
+	// Container is what the client is told the bytes are in, as it named it.
+	Container string
+	// Fragmented writes an MP4 as it goes rather than rewriting its head at
+	// the end, which is the only MP4 a response can carry.
+	Fragmented bool
 	// Bitrate is bits per second, and zero for a lossless target, which has
 	// none to set.
 	Bitrate              int
 	SampleRate, Channels int
+	// BitDepth is set only to bring a lossless target down to sixteen bits;
+	// zero keeps the source's.
+	BitDepth int
 }
 
 // target is one thing a transcode can produce.
 type target struct {
 	encoder, muxer, mime string
-	lossless             bool
+	// container is what the output is called when nothing else is asked.
+	container string
+	lossless  bool
+	// maxChannels is the most the encoder is given.
+	maxChannels int
 	// fallback is the bitrate when neither the client nor the source says
 	// anything lower, and ceiling the most the encoder is asked for.
 	fallback, ceiling int
@@ -59,7 +71,7 @@ type target struct {
 // once the end is known, and a response cannot be rewound.
 var targets = map[string]target{
 	"mp3": {
-		encoder: "libmp3lame", muxer: "mp3", mime: "audio/mpeg",
+		encoder: "libmp3lame", muxer: "mp3", mime: "audio/mpeg", container: "mp3", maxChannels: 2,
 		fallback: 192_000, ceiling: 320_000,
 		// MPEG-1, MPEG-2 and MPEG-2.5 between them.
 		rates: []int{48_000, 44_100, 32_000, 24_000, 22_050, 16_000, 12_000, 11_025, 8_000},
@@ -67,7 +79,7 @@ var targets = map[string]target{
 	"opus": {
 		// Ogg rather than the bare opus muxer's .opus: the same bytes, and the
 		// MIME type every player that takes Opus over HTTP already knows.
-		encoder: "libopus", muxer: "ogg", mime: "audio/ogg",
+		encoder: "libopus", muxer: "ogg", mime: "audio/ogg", container: "ogg", maxChannels: 8,
 		fallback: 128_000, ceiling: 256_000,
 		// All libopus takes. 44.1 kHz is not one of them, so the ordinary CD
 		// rip goes to 48, which is what an Opus decoder puts out anyway.
@@ -75,13 +87,13 @@ var targets = map[string]target{
 	},
 	"aac": {
 		// ADTS, which is AAC a player can start before it has seen the end.
-		encoder: "aac", muxer: "adts", mime: "audio/aac",
+		encoder: "aac", muxer: "adts", mime: "audio/aac", container: "aac", maxChannels: 8,
 		fallback: 192_000, ceiling: 320_000,
 		// AAC goes to 96 kHz, and a phone on mobile data does not need it to.
 		rates: []int{48_000, 44_100, 32_000, 24_000, 22_050, 16_000, 12_000, 11_025, 8_000},
 	},
 	"flac": {
-		encoder: "flac", muxer: "flac", mime: "audio/flac", lossless: true,
+		encoder: "flac", muxer: "flac", mime: "audio/flac", container: "flac", lossless: true, maxChannels: 8,
 	},
 }
 
@@ -125,7 +137,7 @@ func Decide(m db.Media, req Request) Plan {
 		format, t = defaultFormat, targets[defaultFormat]
 	}
 
-	p := Plan{Format: format, Encoder: t.encoder, Muxer: t.muxer, MIME: t.mime}
+	p := Plan{Format: format, Encoder: t.encoder, Muxer: t.muxer, MIME: t.mime, Container: t.container}
 	if !t.lossless {
 		p.Bitrate = t.fallback
 		if req.MaxBitrate > 0 {
