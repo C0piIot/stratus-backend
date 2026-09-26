@@ -57,8 +57,8 @@ func decodeSlots(cpus int, limit int64) int {
 //
 // GOMAXPROCS has followed a cgroup's CPU limit since Go 1.25, though never
 // below two -- `--cpus 1` still gives two, measured -- and nothing in the
-// runtime does the same for memory, so this reads the two files itself. On that
-// one-CPU container with 256 MB it is the memory that brings it to one.
+// runtime does the same for memory, so this reads the two files itself. On
+// that one-CPU container with 256 MB it is the memory that brings it to one.
 func memoryLimit(root fs.FS) int64 {
 	if b, err := fs.ReadFile(root, "sys/fs/cgroup/memory.max"); err == nil {
 		if n, err := strconv.ParseInt(strings.TrimSpace(string(b)), 10, 64); err == nil && n > 0 {
