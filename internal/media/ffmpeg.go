@@ -86,7 +86,7 @@ func runFFmpeg(ctx context.Context, ffmpeg, path string, px int, at time.Duratio
 		// the demo instance, 256 MB in all, had ffmpeg killed by the kernel
 		// making one thumbnail. Measured with the filters below: 123 MB with
 		// the default threads, 66 MB with one, and no slower on the single
-		// core it runs on -- thumbnails are parallel already, one per CPU.
+		// core it runs on -- thumbnails are parallel already (slots.go).
 		"-threads", "1",
 		"-i", path,
 		"-frames:v", "1",

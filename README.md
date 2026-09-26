@@ -484,8 +484,10 @@ applies the rotation in a HEIC or a video, and the JPEG path reads the EXIF tag
 and turns the picture itself. Only what this build can decode is offered an
 image — camera raw and AVIF are not — so a listing is never a wall of broken
 pictures. They load as
-you scroll, and the server decodes one per CPU at a time, because opening a
-folder of five hundred photographs should not ask for five hundred at once.
+you scroll, and the server decodes a few at a time — one per CPU, and fewer if
+the memory is short, which it works out from the container's limit and says in
+the log at startup — because opening a folder of five hundred photographs
+should not ask for five hundred at once.
 
 **A folder arrives a hundred rows at a time.** The listing is paged by a cursor
 rather than by a page number, so opening a folder costs the same whether it

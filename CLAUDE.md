@@ -1020,9 +1020,15 @@ Restraint here is principle 3, not laziness:
   costs nothing but generating five hundred at once is somebody's problem. It is
   answered from both ends -- the browser loads them lazily, and a semaphore
   bounds how many are decoded at a time, because a twelve-megapixel JPEG costs
-  about fifty megabytes while it is being read. The bound is one per CPU,
-  from `GOMAXPROCS`, which follows a container's CPU limit: decoding is
-  CPU-bound, so a second decode on the same core only adds its memory. Whether a file can have one is
+  about fifty megabytes while it is being read. The bound is worked out from
+  the machine (`internal/media/slots.go`): one decode per CPU, because
+  decoding is CPU-bound and a second on the same core only adds its memory,
+  and no more than 128 MiB each out of what is left past a 128 MiB reserve.
+  The CPUs are `GOMAXPROCS`, which follows a cgroup's CPU limit but never goes
+  below two; the memory is the cgroup's `memory.max`, or `MemTotal` where
+  there is no cgroup limit, which is Fly's microVM. Measured: 256 MB and one
+  CPU gives one, 384 MB and two gives two, and the number is logged at
+  startup. Whether a file can have one is
   `media.CanThumbnail`, computed rather than stored: it is a property of the
   build, and the day the ffmpeg path lands every HEIC changes its answer without
   a byte moving.
