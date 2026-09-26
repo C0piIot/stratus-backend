@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -353,5 +354,15 @@ func TestRunFFmpegWithNoBinary(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "ffmpeg") {
 		t.Errorf("err = %v, want it to name what is missing", err)
+	}
+}
+
+// TestThumbnailsAreDecodedOnePerCPU: the semaphore follows GOMAXPROCS, which
+// is what a container's CPU limit sets.
+func TestThumbnailsAreDecodedOnePerCPU(t *testing.T) {
+	t.Parallel()
+	th := NewThumbs(nil, nil, "", "")
+	if got, want := cap(th.decoding), runtime.GOMAXPROCS(0); got != want {
+		t.Errorf("%d decodes at once, want one per CPU: %d", got, want)
 	}
 }

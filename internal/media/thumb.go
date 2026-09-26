@@ -11,6 +11,7 @@ import (
 	"io"
 	"log/slog"
 	"path"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -99,14 +100,23 @@ const maxSpool = 64 << 20
 // raw needs the embedded preview, which is a different technique.
 var ErrNoThumbnail = errors.New("media: no thumbnail for this file")
 
-// generating bounds how many thumbnails are decoded at once.
+// generating bounds how many thumbnails are decoded at once: one per CPU the
+// process may use.
 //
 // A photo grid asks for everything it can see the first time a folder is
 // opened, and decoding a twelve-megapixel JPEG costs about fifty megabytes
-// while it happens. Twenty at once on the smallest machine anybody runs this on
-// is the difference between a slow page and an OOM kill. The browser's lazy
-// loading keeps the number small; this keeps it bounded.
-const generating = 4
+// while it happens -- a 1080p HEVC frame through ffmpeg, about seventy. Twenty
+// at once on the smallest machine anybody runs this on is the difference
+// between a slow page and an OOM kill. The browser's lazy loading keeps the
+// number small; this keeps it bounded.
+//
+// It was four, which on the 256 MB demo instance with its one CPU meant four
+// ffmpegs sharing a core and nearly all of its memory. Decoding is CPU-bound
+// and ffmpeg runs on one thread (ffmpeg.go), so a second decode per core buys
+// no throughput and costs a decode's memory. GOMAXPROCS is the number because
+// it already knows the container: since Go 1.25 it follows a cgroup CPU limit,
+// so `--cpus 2` gives two, and a one-CPU machine gets one at a time.
+func generating() int { return max(1, runtime.GOMAXPROCS(0)) }
 
 // Thumbs makes thumbnails and remembers them.
 type Thumbs struct {
@@ -128,7 +138,7 @@ type Thumbs struct {
 func NewThumbs(blobs storage.Storage, service *files.Service, ffmpeg, tmpDir string) *Thumbs {
 	return &Thumbs{
 		blobs: blobs, files: service, ffmpeg: ffmpeg, tmpDir: tmpDir,
-		decoding: make(chan struct{}, generating),
+		decoding: make(chan struct{}, generating()),
 	}
 }
 

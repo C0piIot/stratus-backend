@@ -1009,7 +1009,8 @@ Restraint here is principle 3, not laziness:
   What that costs, and it is the same cost as a version bump on the other side:
   the library is regenerated. Lazily, so nobody waits for all of it, but paced
   by whoever is browsing rather than by one worker -- a grid of a hundred
-  photographs after an upgrade remakes a hundred thumbnails, four at a time.
+  photographs after an upgrade remakes a hundred thumbnails, one per CPU at a
+  time.
   The day the reason to raise it is "the scaler is five per cent better" is the
   day to not raise it.
 
@@ -1019,7 +1020,9 @@ Restraint here is principle 3, not laziness:
   costs nothing but generating five hundred at once is somebody's problem. It is
   answered from both ends -- the browser loads them lazily, and a semaphore
   bounds how many are decoded at a time, because a twelve-megapixel JPEG costs
-  about fifty megabytes while it is being read. Whether a file can have one is
+  about fifty megabytes while it is being read. The bound is one per CPU,
+  from `GOMAXPROCS`, which follows a container's CPU limit: decoding is
+  CPU-bound, so a second decode on the same core only adds its memory. Whether a file can have one is
   `media.CanThumbnail`, computed rather than stored: it is a property of the
   build, and the day the ffmpeg path lands every HEIC changes its answer without
   a byte moving.
