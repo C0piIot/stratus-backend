@@ -19,7 +19,7 @@ func TestDecide(t *testing.T) {
 	unread := db.Media{Codec: "flac"}
 
 	mp3Of := func(bitrate, rate, channels int) Plan {
-		return Plan{Format: "mp3", Encoder: "libmp3lame", Muxer: "mp3", MIME: "audio/mpeg",
+		return Plan{Format: "mp3", Encoder: "libmp3lame", Muxer: "mp3", MIME: "audio/mpeg", Container: "mp3",
 			Bitrate: bitrate, SampleRate: rate, Channels: channels}
 	}
 	direct := Plan{Direct: true}
@@ -47,11 +47,11 @@ func TestDecide(t *testing.T) {
 		"a high limit is a ceiling, not a target":  {flac, Request{Format: "mp3", MaxBitrate: 1_000_000}, mp3Of(192_000, 0, 2)},
 
 		"opus of a CD rip is 48 kHz": {flac, Request{Format: "opus", MaxBitrate: 96_000},
-			Plan{Format: "opus", Encoder: "libopus", Muxer: "ogg", MIME: "audio/ogg", Bitrate: 96_000, SampleRate: 48_000, Channels: 2}},
+			Plan{Format: "opus", Encoder: "libopus", Muxer: "ogg", MIME: "audio/ogg", Container: "ogg", Bitrate: 96_000, SampleRate: 48_000, Channels: 2}},
 		"never above the source's own bitrate": {low, Request{Format: "opus", MaxBitrate: 320_000},
-			Plan{Format: "opus", Encoder: "libopus", Muxer: "ogg", MIME: "audio/ogg", Bitrate: 96_000, SampleRate: 48_000, Channels: 1}},
+			Plan{Format: "opus", Encoder: "libopus", Muxer: "ogg", MIME: "audio/ogg", Container: "ogg", Bitrate: 96_000, SampleRate: 48_000, Channels: 1}},
 		"aac of an aac over the limit": {aac, Request{Format: "aac", MaxBitrate: 128_000},
-			Plan{Format: "aac", Encoder: "aac", Muxer: "adts", MIME: "audio/aac", Bitrate: 128_000, Channels: 2}},
+			Plan{Format: "aac", Encoder: "aac", Muxer: "adts", MIME: "audio/aac", Container: "aac", Bitrate: 128_000, Channels: 2}},
 		"flac of a flac is the flac": {hires, Request{Format: "flac"}, direct},
 	} {
 		if got := Decide(c.m, c.req); got != c.want {

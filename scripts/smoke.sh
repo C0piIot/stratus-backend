@@ -667,10 +667,24 @@ TRACK
       fi ;;
     *) bad "OpenSubsonic transcodes a FLAC to MP3" "id '$tone_id' gave $type, starting $magic" ;;
   esac
+  # And the transcoding extension, the way a client that describes itself uses
+  # it: a POST saying it plays MP3 and nothing else, a decision to transcode
+  # with the params to do it by, and the stream those params fetch.
+  decision="$(curl -fsS -X POST -H 'Content-Type: application/json' \
+    --data '{"name":"smoke","platform":"curl","directPlayProfiles":[{"containers":["mp3"],"audioCodecs":["mp3"],"protocols":["http"]}],"transcodingProfiles":[{"container":"mp3","audioCodec":"mp3","protocol":"http"}]}' \
+    "http://$davhost/rest/getTranscodeDecision.view?c=smoke&u=$davuser&t=$token&s=$salt&f=json&mediaType=song&mediaId=$tone_id" 2>/dev/null || true)"
+  params="$(printf '%s' "$decision" | sed -n 's/.*"transcodeParams":"\([^"]*\)".*/\1/p')"
+  type="$(curl -s -o /dev/null -w '%{content_type}' \
+    "http://$davhost/rest/getTranscodeStream.view?c=smoke&u=$davuser&t=$token&s=$salt&mediaType=song&mediaId=$tone_id&transcodeParams=$params")"
+  case "$params:$type" in
+    v1-mp3-*:audio/mpeg*) ok "the transcoding extension decides, and streams what it decided ($params)" ;;
+    *) bad "the transcoding extension decides, and streams what it decided" "params '$params', stream $type, decision $(head -c 200 <<<"$decision")" ;;
+  esac
+
   extensions="$(curl -fsS "http://$davhost/rest/getOpenSubsonicExtensions.view?f=json" 2>/dev/null || true)"
   case "$extensions" in
-    *'"transcodeOffset"'*) ok "getOpenSubsonicExtensions advertises transcodeOffset" ;;
-    *)                     bad "getOpenSubsonicExtensions advertises transcodeOffset" "got '$extensions'" ;;
+    *'"transcodeOffset"'*'"transcoding"'*) ok "getOpenSubsonicExtensions advertises transcodeOffset and transcoding" ;;
+    *) bad "getOpenSubsonicExtensions advertises transcodeOffset and transcoding" "got '$extensions'" ;;
   esac
 
   # And found by searching, which is the endpoint a client's search box is. The

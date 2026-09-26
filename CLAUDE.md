@@ -1105,6 +1105,19 @@ Restraint here is principle 3, not laziness:
   so), and `estimateContentLength` is honoured by cutting the body to the
   length announced.
 
+  **The `transcoding` extension asks the same question another way**, and
+  `media.DecideFor` answers it: a client sends what it plays as it is, the
+  formats it takes a transcode in and limits per codec, and the server
+  chooses. The model is the payload's, field for field, because a DLNA
+  renderer's protocolInfo will come down to the same thing; Subsonic only
+  parses. Where the specification leaves room it does what Navidrome does: a
+  limitation not marked `required` never stops direct play, and a transcode
+  profile that could only be met by raising something is skipped.
+  `transcodeParams` is the Plan written out and **unsigned** -- the stream is
+  authenticated like any call and can name nothing `stream` could not -- and
+  `PlanFromParams` refuses anything the decision could not have produced. An
+  MP4 target goes out fragmented, which is the only MP4 a response can carry.
+
   **How many run at once comes from the machine**, like the thumbnails: four
   per CPU, because a transcode encodes faster than anybody listens and spends
   the track waiting on the client, and 32 MiB each out of the memory past the

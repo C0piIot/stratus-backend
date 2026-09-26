@@ -490,12 +490,13 @@ func TestGetOpenSubsonicExtensionsNeedsNoCredentials(t *testing.T) {
 	if !ok {
 		t.Fatalf("openSubsonicExtensions = %#v, want an array", env["openSubsonicExtensions"])
 	}
-	if len(list) != 1 {
-		t.Fatalf("openSubsonicExtensions = %v, want transcodeOffset alone", list)
+	var got []string
+	for _, e := range list {
+		ext, _ := e.(map[string]any)
+		got = append(got, fmt.Sprintf("%v %v", ext["name"], ext["versions"]))
 	}
-	ext, _ := list[0].(map[string]any)
-	if ext["name"] != "transcodeOffset" || fmt.Sprint(ext["versions"]) != "[1]" {
-		t.Errorf("extension = %v, want transcodeOffset version 1", ext)
+	if want := "[transcodeOffset [1] transcoding [1]]"; fmt.Sprint(got) != want {
+		t.Errorf("openSubsonicExtensions = %v, want %s", got, want)
 	}
 }
 

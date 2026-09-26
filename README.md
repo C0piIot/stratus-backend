@@ -431,6 +431,15 @@ is its own audio stream — `bitRate`, and OpenSubsonic's `samplingRate`,
 `channelCount` and `bitDepth` — so a client can show "FLAC 24/96" and knows
 what it is about to be sent.
 
+**So is the `transcoding` extension**, where a client describes what it plays
+instead of asking for a format: it `POST`s its profiles to
+`getTranscodeDecision`, is told whether the file plays as it is or what it will
+be transcoded into — MP4 included, sent as fragments — and fetches that from
+`getTranscodeStream` with the `transcodeParams` it was given. HLS is not
+offered: a profile that asks only for it is skipped. When every transcode is
+running, that stream answers `503` rather than sending the original, since
+this client has already been told whether the original would do.
+
 What is not there yet, and it is better to know before installing a client:
 
 - **Cover art comes from two places, and Ogg is the one gap.** A `cover.jpg`,
@@ -440,9 +449,6 @@ What is not there yet, and it is better to know before installing a client:
   base64-encoded inside a comment and are not read yet. Albums always advertise
   a `coverArt` id, and asking for one that is not there is answered as "there is
   none", which is what a client draws a placeholder for.
-- **The newer transcoding extension is not there yet** — `getTranscodeDecision`,
-  where a client describes what it can play and the server chooses. A client
-  asking through `stream`, which is every one of them, is answered as below.
 - **A file is in the library once the indexer has read it**, which is also how
   long it takes to appear in a folder listing. That is the same rule for both
   views, so they cannot disagree.

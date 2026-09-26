@@ -56,6 +56,8 @@ type envelope struct {
 	Starred2      *starred2      `xml:"starred2,omitempty" json:"starred2,omitempty"`
 	Starred       *starred       `xml:"starred,omitempty" json:"starred,omitempty"`
 
+	TranscodeDecision *transcodeDecision `xml:"transcodeDecision,omitempty" json:"transcodeDecision,omitempty"`
+
 	// Extensions is the one payload that is a bare array on the response rather
 	// than the container-and-element pair every legacy payload uses. It has to
 	// be present even when empty, so it is a pointer: nil leaves it out, and a
