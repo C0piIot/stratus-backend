@@ -1,0 +1,41 @@
+{{define "content" -}}
+<h1 class="h4 mb-3">Photos</h1>
+{{if .Tiles}}
+<div class="row g-1">
+  {{template "tiles" .}}
+</div>
+{{else}}
+<div class="card">
+  <div class="card-body text-body-secondary">
+    No photos yet. Every image in the library shows up here once it has been
+    read, however it arrived and wherever it was put — see
+    <a href="/status">Status</a> for how far the reading has got.
+  </div>
+</div>
+{{end}}
+{{- end}}
+
+{{/* One page of the grid, and the way to the next. Also what htmx asks for on
+     its own when it extends the grid, so a month's heading is a cell of the
+     same row rather than a row of its own: a fragment appended to a row cannot
+     open a new one. */}}
+{{define "tiles" -}}
+{{range .Tiles}}
+{{if .Heading}}<h2 class="col-12 h6 text-body-secondary mt-3 mb-1">{{.Heading}}</h2>{{end}}
+<div class="col-4 col-sm-3 col-md-2">
+  <a href="{{.Href}}" class="d-block ratio ratio-1x1 bg-body-secondary rounded overflow-hidden"
+     title="{{.Name}}">
+    {{if .Thumb}}<img src="{{.Thumb}}" alt="{{.Name}}" width="300" height="300" loading="lazy"
+      class="object-fit-cover w-100 h-100">
+    {{else}}<span class="d-flex align-items-center justify-content-center small text-body-secondary p-1 text-break">{{.Name}}</span>{{end}}
+  </a>
+</div>
+{{end}}
+{{if .NextPage}}
+{{/* A link a browser with no JavaScript follows, and the trigger htmx swaps
+     out for the next page when it scrolls into view: the same URL either way. */}}
+<div class="col-12 text-center py-3" hx-get="{{.NextPage}}" hx-trigger="revealed" hx-swap="outerHTML">
+  <a href="{{.NextPage}}" class="link-secondary small text-decoration-none">Older photos</a>
+</div>
+{{end}}
+{{- end}}

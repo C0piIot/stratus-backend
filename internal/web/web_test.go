@@ -43,7 +43,7 @@ func newHandler(t *testing.T, v auth.Verifier) http.Handler {
 	}
 	s, thumbs, meta := pieces(t)
 	return web.Handler(version, buildDate, v, auth.NewSessions(creds, auth.DefaultSessionTTL), auth.NewShares(creds),
-		s, thumbs, indexing(meta))
+		s, thumbs, meta, indexing(meta))
 }
 
 // browser is newHandler and the service behind it, for the tests that have to
@@ -53,7 +53,7 @@ func browser(t *testing.T) (http.Handler, *files.Service) {
 	s, thumbs, meta := pieces(t)
 	creds := credentials()
 	return web.Handler(version, buildDate, creds, auth.NewSessions(creds, auth.DefaultSessionTTL), auth.NewShares(creds),
-		s, thumbs, indexing(meta)), s
+		s, thumbs, meta, indexing(meta)), s
 }
 
 // browserOver is browser plus the store behind it, for the tests that have to
@@ -63,7 +63,7 @@ func browserOver(t *testing.T) (http.Handler, *files.Service, db.Store) {
 	s, thumbs, meta := pieces(t)
 	creds := credentials()
 	return web.Handler(version, buildDate, creds, auth.NewSessions(creds, auth.DefaultSessionTTL), auth.NewShares(creds),
-		s, thumbs, indexing(meta)), s, meta
+		s, thumbs, meta, indexing(meta)), s, meta
 }
 
 // handlerIndexing is handlerOver for the tests that care about what the status
@@ -72,7 +72,7 @@ func handlerIndexing(t *testing.T, s *files.Service, blobs storage.Storage, ix w
 	t.Helper()
 	creds := credentials()
 	return web.Handler(version, buildDate, creds, auth.NewSessions(creds, auth.DefaultSessionTTL), auth.NewShares(creds),
-		s, media.NewThumbs(blobs, s, "ffmpeg", t.TempDir()), ix)
+		s, media.NewThumbs(blobs, s, "ffmpeg", t.TempDir()), nil, ix)
 }
 
 // service is the real file layer over real backends in a temporary directory,
@@ -124,7 +124,7 @@ func handlerOver(t *testing.T, s *files.Service, blobs storage.Storage, index db
 	t.Helper()
 	creds := credentials()
 	return web.Handler(version, buildDate, creds, auth.NewSessions(creds, auth.DefaultSessionTTL), auth.NewShares(creds),
-		s, media.NewThumbs(blobs, s, "ffmpeg", t.TempDir()), indexing(index))
+		s, media.NewThumbs(blobs, s, "ffmpeg", t.TempDir()), nil, indexing(index))
 }
 
 // refusing answers every login with one error, for the arms a correct password
@@ -250,7 +250,7 @@ func TestASessionFromAnotherPasswordIsNotOne(t *testing.T) {
 	changed := auth.Credentials{Username: username, Password: "example a different one"}
 	after := web.Handler(version, buildDate, credentials(),
 		auth.NewSessions(changed, auth.DefaultSessionTTL), auth.NewShares(changed),
-		service, thumbs, indexing(meta))
+		service, thumbs, meta, indexing(meta))
 
 	rec := get(t, after, "/files/", before)
 	if rec.Code != http.StatusSeeOther {

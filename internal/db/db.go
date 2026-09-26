@@ -222,6 +222,7 @@ type Repo interface {
 	Music
 	Annotations
 	Playlists
+	Photos
 	Uploads
 }
 

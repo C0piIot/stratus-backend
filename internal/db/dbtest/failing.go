@@ -37,7 +37,7 @@ var repoMethods = []string{
 	"BlobKeys", "PutMedia", "MediaCounts", "MediaStates",
 	"PutUpload", "UploadByID", "DeleteUpload", "ExpiredUploads",
 	"TrackByFile", "CreatePlaylist", "PlaylistByID", "LockPlaylist", "PlaylistTracks",
-	"UpdatePlaylist", "SetPlaylistTracks",
+	"UpdatePlaylist", "SetPlaylistTracks", "PhotoTimeline", "PhotoAround",
 }
 
 // Failing is a db.Store that fails one named method and passes the rest
@@ -263,4 +263,20 @@ func (f *failingRepo) SetPlaylistTracks(ctx context.Context, owner string, id in
 		return err
 	}
 	return f.Repo.SetPlaylistTracks(ctx, owner, id, fileIDs, changed)
+}
+
+// PhotoTimeline implements db.Repo.
+func (f *failingRepo) PhotoTimeline(ctx context.Context, owner string, pf db.PhotoFilter) ([]db.Photo, error) {
+	if err := f.fails("PhotoTimeline"); err != nil {
+		return nil, err
+	}
+	return f.Repo.PhotoTimeline(ctx, owner, pf)
+}
+
+// PhotoAround implements db.Repo.
+func (f *failingRepo) PhotoAround(ctx context.Context, owner string, fileID int64) (db.PhotoAround, error) {
+	if err := f.fails("PhotoAround"); err != nil {
+		return db.PhotoAround{}, err
+	}
+	return f.Repo.PhotoAround(ctx, owner, fileID)
 }

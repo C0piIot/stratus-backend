@@ -40,6 +40,8 @@ const (
 	pageShare  = "share.html"
 	pageShared = "shared.html"
 	pageError  = "error.html"
+	pagePhotos = "photos.html"
+	pagePhoto  = "photo.html"
 )
 
 // Each page is parsed with the layout into a set of its own. One set for all of
@@ -54,6 +56,8 @@ var pages = map[string]*template.Template{
 	pageShare:  parse(pageShare),
 	pageShared: parse(pageShared),
 	pageError:  parse(pageError),
+	pagePhotos: parse(pagePhotos),
+	pagePhoto:  parse(pagePhoto),
 }
 
 func parse(page string) *template.Template {
@@ -118,6 +122,10 @@ type view struct {
 	IsDir  bool
 	Action string
 	Back   string
+	// Tiles is one page of the photo grid, and Photo the one photograph the
+	// viewer shows.
+	Tiles []tile
+	Photo *photoView
 }
 
 // render writes a whole page or none of it. The buffer is the point: a template

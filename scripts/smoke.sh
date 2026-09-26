@@ -1109,6 +1109,31 @@ TRACK
     *unreadable*|*waiting*) bad "the video was read out of its container" "$(tr -d '\n' <<<"$clip" | head -c 120)" ;;
     *)                    ok "the video was read out of its container" ;;
   esac
+  # The gallery reads the index, not the tree: the JPEG this script uploaded
+  # over WebDAV is a photo once it has been read, wherever it was put (#211).
+  gallery=""
+  for _ in $(seq 1 50); do
+    gallery="$(curl -fsS -b "$jar" "http://$davhost/gallery/photos" 2>/dev/null || true)"
+    case "$gallery" in *'href="/gallery/photos/cover.jpg"'*) break ;; esac
+    sleep 0.2
+  done
+  case "$gallery" in
+    *'href="/gallery/photos/cover.jpg"'*'/thumb/cover.jpg?size=300'*) ok "the gallery shows the photo WebDAV uploaded" ;;
+    *) bad "the gallery shows the photo WebDAV uploaded" "$(head -c 120 <<<"$gallery")" ;;
+  esac
+
+  # And the same photo by date over WebDAV, from a mount of its own (#213).
+  month="$(curl -s -u "$davuser:$davpass" -X PROPFIND -H 'Depth: 1' "http://$davhost/photos/" |
+    grep -o '/photos/[0-9]\{4\}/' | grep -v '^/photos/$' | head -1)"
+  month="$(curl -s -u "$davuser:$davpass" -X PROPFIND -H 'Depth: 1' "http://$davhost$month" |
+    grep -o '/photos/[0-9]\{4\}/[0-9][0-9]/' | head -1)"
+  if [ -n "$month" ] && curl -fsS -u "$davuser:$davpass" "http://$davhost${month}cover.jpg" 2>/dev/null |
+    cmp -s - scripts/testdata/cover.jpg; then
+    ok "a photo is the original under /photos/<year>/<month>/"
+  else
+    bad "a photo is the original under /photos/<year>/<month>/" "month '$month'"
+  fi
+
   # The CSRF defence, from outside: a form on somebody else's page carries the
   # cookie and must still be refused.
   code="$(curl -s -o /dev/null -w '%{http_code}' -b "$jar" \
