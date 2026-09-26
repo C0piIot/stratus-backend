@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -50,6 +51,9 @@ type library struct {
 	meta  *sqlite.Store
 	blobs *disk.Store
 	art   *media.Thumbs
+	// transcoder stands in for ffmpeg: it records what it was asked for and
+	// answers with bytes of its own (stream_test.go).
+	transcoder *fakeTranscoder
 	// verifier is kept so a test can build a second handler over the same
 	// credentials -- the failure cases do, with a library that breaks.
 	verifier *auth.Throttle
@@ -87,14 +91,16 @@ func newLibrary(t *testing.T) *library {
 	// would fail saying so rather than quietly not looking.
 	thumbs := media.NewThumbs(blobs, service, "ffmpeg", t.TempDir())
 	verifier := auth.NewThrottle(auth.Credentials{Username: username, Password: password}, auth.DefaultThrottle)
+	transcoder := &fakeTranscoder{}
 	return &library{
-		Handler:  subsonic.Handler(prefix, serverVersion, verifier, meta, service, music.New(meta), thumbs),
-		files:    service,
-		meta:     meta,
-		blobs:    blobs,
-		art:      thumbs,
-		verifier: verifier,
-		arrived:  time.Now().UTC(),
+		Handler:    subsonic.Handler(prefix, serverVersion, verifier, meta, service, music.New(meta), thumbs, transcoder),
+		transcoder: transcoder,
+		files:      service,
+		meta:       meta,
+		blobs:      blobs,
+		art:        thumbs,
+		verifier:   verifier,
+		arrived:    time.Now().UTC(),
 	}
 }
 
@@ -459,7 +465,7 @@ func TestTokenAuthAgainstAVerifierThatCannotAnswerIt(t *testing.T) {
 	t.Parallel()
 
 	throttle := auth.NewThrottle(passwordOnly{}, auth.DefaultThrottle)
-	h := subsonic.Handler(prefix, serverVersion, throttle, nil, nil, nil, nil)
+	h := subsonic.Handler(prefix, serverVersion, throttle, nil, nil, nil, nil, nil)
 
 	q := url.Values{"c": {"tests"}, "u": {username}, "t": {"whatever"}, "s": {"salt"}, "f": {"json"}}
 	if code := errorCode(t, get(t, h, "ping", q.Encode())); code != 41 {
@@ -477,15 +483,30 @@ func TestGetOpenSubsonicExtensionsNeedsNoCredentials(t *testing.T) {
 	if got, _ := env["status"].(string); got != "ok" {
 		t.Fatalf("status = %v, want ok: this endpoint takes no credentials", env["status"])
 	}
-	// Present and empty, which is the protocol's capability signal: absent
-	// means "does not support extensions at all", and that is a different
-	// claim from "supports none".
+	// An array, which is the protocol's capability signal: absent means "does
+	// not support extensions at all", and that is a different claim from
+	// "supports none". Each entry is one a client will rely on.
 	list, ok := env["openSubsonicExtensions"].([]any)
 	if !ok {
 		t.Fatalf("openSubsonicExtensions = %#v, want an array", env["openSubsonicExtensions"])
 	}
-	if len(list) != 0 {
-		t.Errorf("openSubsonicExtensions = %v, want empty until one is implemented", list)
+	if len(list) != 1 {
+		t.Fatalf("openSubsonicExtensions = %v, want transcodeOffset alone", list)
+	}
+	ext, _ := list[0].(map[string]any)
+	if ext["name"] != "transcodeOffset" || fmt.Sprint(ext["versions"]) != "[1]" {
+		t.Errorf("extension = %v, want transcodeOffset version 1", ext)
+	}
+}
+
+// TestNoTranscoderAdvertisesNothing: a server that cannot transcode must not
+// tell a client it can seek inside a transcode.
+func TestNoTranscoderAdvertisesNothing(t *testing.T) {
+	t.Parallel()
+	h := subsonic.Handler(prefix, serverVersion, nil, nil, nil, nil, nil, nil)
+	env := response(t, get(t, h, "getOpenSubsonicExtensions", "f=json"))
+	if list, _ := env["openSubsonicExtensions"].([]any); len(list) != 0 {
+		t.Errorf("openSubsonicExtensions = %v, want none without a transcoder", list)
 	}
 }
 
@@ -584,7 +605,7 @@ func TestThrottledLoginIsNotARejection(t *testing.T) {
 	// held: it makes the second guess deterministic and instant.
 	creds := auth.Credentials{Username: username, Password: password}
 	throttle := auth.NewThrottle(creds, auth.ThrottleConfig{Every: time.Hour, Burst: 1, MaxWait: 0})
-	h := subsonic.Handler(prefix, serverVersion, throttle, nil, nil, nil, nil)
+	h := subsonic.Handler(prefix, serverVersion, throttle, nil, nil, nil, nil, nil)
 
 	wrong := url.Values{"c": {"tests"}, "u": {username}, "p": {"not it"}, "f": {"json"}}.Encode()
 	if code := errorCode(t, get(t, h, "ping", wrong)); code != 40 {

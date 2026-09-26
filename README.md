@@ -416,6 +416,21 @@ them. Three things are worth knowing:
   that differ only in case, become `Mix.m3u8` and `Mix (2).m3u8`, the older one
   keeping the plain name; characters a file name cannot hold become `_`.
 
+**Tracks are transcoded when a client asks**: `stream` with `format` —
+`mp3`, `opus`, `aac` or `flac` — and `maxBitRate`, which is what a phone on
+mobile data sends. The original goes out whenever it already satisfies the
+request, and always for `format=raw`; a transcode never claims more than the
+file has, so a 128 kbps MP3 asked for at 320 is sent as it is, and a lossy file
+is never turned into FLAC. `timeOffset` seeks inside a transcode — the
+`transcodeOffset` extension, advertised — because a transcode has no length
+until it is over and so cannot answer a range; `estimateContentLength=true`
+gets a length worked out from the bitrate. When as many transcodes are running
+as the machine allows, which the log states at startup, the original is sent
+instead: a larger file that plays is better than silence. What a song reports
+is its own audio stream — `bitRate`, and OpenSubsonic's `samplingRate`,
+`channelCount` and `bitDepth` — so a client can show "FLAC 24/96" and knows
+what it is about to be sent.
+
 What is not there yet, and it is better to know before installing a client:
 
 - **Cover art comes from two places, and Ogg is the one gap.** A `cover.jpg`,
@@ -425,11 +440,9 @@ What is not there yet, and it is better to know before installing a client:
   base64-encoded inside a comment and are not read yet. Albums always advertise
   a `coverArt` id, and asking for one that is not there is answered as "there is
   none", which is what a client draws a placeholder for.
-- **No transcoding.** `maxBitRate` and `format` are ignored and the original is
-  served, which is what `format=raw` asks for explicitly. What a song reports
-  is its own audio stream -- `bitRate`, and OpenSubsonic's `samplingRate`,
-  `channelCount` and `bitDepth` -- so a client can show "FLAC 24/96" and knows
-  what it is about to be sent.
+- **The newer transcoding extension is not there yet** — `getTranscodeDecision`,
+  where a client describes what it can play and the server chooses. A client
+  asking through `stream`, which is every one of them, is answered as below.
 - **A file is in the library once the indexer has read it**, which is also how
   long it takes to appear in a folder listing. That is the same rule for both
   views, so they cannot disagree.
@@ -948,7 +961,8 @@ Working now:
   screen is made of, and streaming -- over both of the protocol's
   authentication schemes and sharing that same limit, with cover art from
   beside the music or out of the tags, and stars, ratings, plays and playlists
-  kept. No transcoding, and no client has been tried against it yet.
+  kept, and tracks transcoded on request. No client has been tried against it
+  yet.
 - EXIF, audio tags and video probing, indexed in the background and started by
   the upload itself, with a page saying how far it has got.
 - A web UI: sign in, walk the tree, open or download a file, upload one, make a folder,

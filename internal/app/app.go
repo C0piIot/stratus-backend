@@ -81,6 +81,11 @@ type Deps struct {
 	// than per surface because it holds the path to ffmpeg and the directory a
 	// blob is put down in for it.
 	Thumbs *media.Thumbs
+	// Transcoder turns a track into what a client asked for (#50), reading it
+	// through Loopback, which is the listener on 127.0.0.1 that hands a blob to
+	// ffmpeg without copying it first.
+	Transcoder *media.Transcoder
+	Loopback   *media.Loopback
 	// Indexer is nil when there is nothing to index into, which today means no
 	// credentials and therefore no files.
 	Indexer *media.Indexer
@@ -96,6 +101,9 @@ func (d Deps) Close() error {
 	}
 	if d.Database != nil {
 		errs = append(errs, d.Database.Close())
+	}
+	if d.Loopback != nil {
+		errs = append(errs, d.Loopback.Close())
 	}
 	return errors.Join(errs...)
 }
@@ -146,7 +154,7 @@ func (a *App) Handler(deps Deps) http.Handler {
 		thumbs := deps.Thumbs
 		playlists := music.New(deps.Database)
 		mux.Handle(subsonicPrefix,
-			subsonic.Handler(subsonicPrefix, a.version, verifier, deps.Database, service, playlists, thumbs))
+			subsonic.Handler(subsonicPrefix, a.version, verifier, deps.Database, service, playlists, thumbs, transcoder(deps)))
 		// The same realm and throttle as /dav/, for the reason tus shares them.
 		mux.Handle(playlistsPrefix, auth.Basic(davRealm, verifier, dav.Playlists(playlistsPrefix, davPrefix, playlists)))
 		mux.Handle(photosPrefix, auth.Basic(davRealm, verifier, dav.Photos(photosPrefix, deps.Database, service)))
@@ -242,4 +250,14 @@ func (a *App) Run(ctx context.Context) error {
 		defer cancel()
 		return srv.Shutdown(shutdownCtx) //nolint:contextcheck // deliberately not the cancelled parent
 	}
+}
+
+// transcoder is deps.Transcoder as the interface Subsonic takes, and a nil
+// interface rather than a nil pointer inside one when there is none: the
+// adapter checks for nil to decide whether to offer transcoding at all.
+func transcoder(deps Deps) subsonic.Transcoder {
+	if deps.Transcoder == nil {
+		return nil
+	}
+	return deps.Transcoder
 }
