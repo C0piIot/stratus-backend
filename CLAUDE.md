@@ -745,6 +745,14 @@ Restraint here is principle 3, not laziness:
   returns the least ordinary, which on the same file is 125 out of 255. That
   filter is in the build for this and nothing else.
 
+  **It runs after the scale, and the decoder runs on one thread**, because the
+  filter holds every frame it weighs. Ahead of the scale that was a hundred
+  full-size frames, and fifteen seconds of 1080p HEVC Main 10 from the demo
+  media peaked at 432 MB -- the 256 MB demo instance had ffmpeg killed by the
+  kernel and answered 404. Behind the scale and single-threaded it is 66 MB,
+  no slower on one core, and the pick on the black-opening film is 127 rather
+  than 125: the filter compares histograms, which reducing barely moves.
+
   What that costs is a duration AVI, WMV and MPEG-TS will not have. It is the
   right trade and it was measured: those three state no duration at all, so
   ffprobe derives one from what it can reach and a partial file answers 7.5
@@ -1001,7 +1009,8 @@ Restraint here is principle 3, not laziness:
   What that costs, and it is the same cost as a version bump on the other side:
   the library is regenerated. Lazily, so nobody waits for all of it, but paced
   by whoever is browsing rather than by one worker -- a grid of a hundred
-  photographs after an upgrade remakes a hundred thumbnails, four at a time.
+  photographs after an upgrade remakes a hundred thumbnails, one per CPU at a
+  time.
   The day the reason to raise it is "the scaler is five per cent better" is the
   day to not raise it.
 
@@ -1011,7 +1020,15 @@ Restraint here is principle 3, not laziness:
   costs nothing but generating five hundred at once is somebody's problem. It is
   answered from both ends -- the browser loads them lazily, and a semaphore
   bounds how many are decoded at a time, because a twelve-megapixel JPEG costs
-  about fifty megabytes while it is being read. Whether a file can have one is
+  about fifty megabytes while it is being read. The bound is worked out from
+  the machine (`internal/media/slots.go`): one decode per CPU, because
+  decoding is CPU-bound and a second on the same core only adds its memory,
+  and no more than 128 MiB each out of what is left past a 128 MiB reserve.
+  The CPUs are `GOMAXPROCS`, which follows a cgroup's CPU limit but never goes
+  below two; the memory is the cgroup's `memory.max`, or `MemTotal` where
+  there is no cgroup limit, which is Fly's microVM. Measured: 256 MB and one
+  CPU gives one, 384 MB and two gives two, and the number is logged at
+  startup. Whether a file can have one is
   `media.CanThumbnail`, computed rather than stored: it is a property of the
   build, and the day the ffmpeg path lands every HEIC changes its answer without
   a byte moving.

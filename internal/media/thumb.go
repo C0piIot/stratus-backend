@@ -10,7 +10,9 @@ import (
 	_ "image/png" // registered so a PNG cover decodes
 	"io"
 	"log/slog"
+	"os"
 	"path"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -99,15 +101,6 @@ const maxSpool = 64 << 20
 // raw needs the embedded preview, which is a different technique.
 var ErrNoThumbnail = errors.New("media: no thumbnail for this file")
 
-// generating bounds how many thumbnails are decoded at once.
-//
-// A photo grid asks for everything it can see the first time a folder is
-// opened, and decoding a twelve-megapixel JPEG costs about fifty megabytes
-// while it happens. Twenty at once on the smallest machine anybody runs this on
-// is the difference between a slow page and an OOM kill. The browser's lazy
-// loading keeps the number small; this keeps it bounded.
-const generating = 4
-
 // Thumbs makes thumbnails and remembers them.
 type Thumbs struct {
 	blobs storage.Storage
@@ -117,8 +110,9 @@ type Thumbs struct {
 	// the storage port does not offer.
 	ffmpeg string
 	tmpDir string
-	// decoding is the semaphore generating describes. Buffered rather than a
-	// sync primitive so that waiting for it can be cancelled with the request.
+	// decoding is the semaphore generating sizes (slots.go). Buffered rather
+	// than a sync primitive so that waiting for it can be cancelled with the
+	// request.
 	decoding chan struct{}
 }
 
@@ -126,9 +120,13 @@ type Thumbs struct {
 // derived object has no database row -- the blob-plus-row invariant internal
 // files exists to hold does not apply to something regenerable.
 func NewThumbs(blobs storage.Storage, service *files.Service, ffmpeg, tmpDir string) *Thumbs {
+	slots := generating()
+	// Said once at startup, because it is worked out from the machine and a
+	// number nobody set is a number nobody would otherwise know.
+	slog.Info("thumbnails", "at_once", slots, "cpus", runtime.GOMAXPROCS(0), "memory_limit", memoryLimit(os.DirFS("/")))
 	return &Thumbs{
 		blobs: blobs, files: service, ffmpeg: ffmpeg, tmpDir: tmpDir,
-		decoding: make(chan struct{}, generating),
+		decoding: make(chan struct{}, slots),
 	}
 }
 
