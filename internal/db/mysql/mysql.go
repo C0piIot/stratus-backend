@@ -309,7 +309,7 @@ func (r *repo) ListFilesPage(ctx context.Context, owner, dir string, after db.Cu
 	return out, nil
 }
 
-const mediaColumns = `file_id, kind, indexed_at, version, etag, error, retry_at, taken_at, width, height, orientation, latitude, longitude, camera, duration_ms, codec, bitrate, sample_rate, channels, bit_depth, codec_profile, artist, album, title, track_no, disc_no, year, genre, album_artist`
+const mediaColumns = `file_id, kind, indexed_at, version, etag, error, retry_at, taken_at, width, height, orientation, latitude, longitude, camera, duration_ms, codec, bitrate, sample_rate, channels, bit_depth, codec_profile, level, frame_rate, audio_codec, artist, album, title, track_no, disc_no, year, genre, album_artist`
 
 // mediaWriteColumns is the read list plus the three folded columns a search
 // matches on. They are written and filtered but never read back: they are how
@@ -338,7 +338,7 @@ func (r *repo) PutMedia(ctx context.Context, m db.Media) error {
 	}
 
 	const query = `INSERT INTO media (` + mediaWriteColumns + `)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		AS new
 		ON DUPLICATE KEY UPDATE
 			kind = new.kind, indexed_at = new.indexed_at, version = new.version,
@@ -347,7 +347,8 @@ func (r *repo) PutMedia(ctx context.Context, m db.Media) error {
 			height = new.height, orientation = new.orientation,
 			latitude = new.latitude, longitude = new.longitude, camera = new.camera,
 			duration_ms = new.duration_ms, codec = new.codec,
-			bitrate = new.bitrate, sample_rate = new.sample_rate, channels = new.channels, bit_depth = new.bit_depth, codec_profile = new.codec_profile, artist = new.artist,
+			bitrate = new.bitrate, sample_rate = new.sample_rate, channels = new.channels, bit_depth = new.bit_depth, codec_profile = new.codec_profile,
+			level = new.level, frame_rate = new.frame_rate, audio_codec = new.audio_codec, artist = new.artist,
 			album = new.album, title = new.title, track_no = new.track_no,
 			disc_no = new.disc_no, year = new.year, genre = new.genre,
 			album_artist = new.album_artist, search_song = new.search_song,
@@ -357,7 +358,7 @@ func (r *repo) PutMedia(ctx context.Context, m db.Media) error {
 	_, err := r.q.ExecContext(ctx, query,
 		m.FileID, string(m.Kind), m.IndexedAt.UnixMilli(), m.Version, m.ETag, m.Error, retryAt, takenAt,
 		m.Width, m.Height, m.Orientation, lat, lon, m.Camera,
-		m.DurationMS, m.Codec, m.Bitrate, m.SampleRate, m.Channels, m.BitDepth, m.CodecProfile, m.Artist, m.Album, m.Title,
+		m.DurationMS, m.Codec, m.Bitrate, m.SampleRate, m.Channels, m.BitDepth, m.CodecProfile, m.Level, m.FrameRate, m.AudioCodec, m.Artist, m.Album, m.Title,
 		m.TrackNo, m.DiscNo, m.Year, m.Genre,
 		m.AlbumArtist, folded.Song, folded.Album, folded.AlbumArtist,
 	)
@@ -471,7 +472,7 @@ func scanMedia(row *sql.Row) (db.Media, error) {
 
 	err := row.Scan(&m.FileID, &kind, &indexedAt, &m.Version, &m.ETag, &m.Error, &retryAt, &takenAt,
 		&m.Width, &m.Height, &m.Orientation, &lat, &lon, &m.Camera,
-		&m.DurationMS, &m.Codec, &m.Bitrate, &m.SampleRate, &m.Channels, &m.BitDepth, &m.CodecProfile, &m.Artist, &m.Album, &m.Title,
+		&m.DurationMS, &m.Codec, &m.Bitrate, &m.SampleRate, &m.Channels, &m.BitDepth, &m.CodecProfile, &m.Level, &m.FrameRate, &m.AudioCodec, &m.Artist, &m.Album, &m.Title,
 		&m.TrackNo, &m.DiscNo, &m.Year, &m.Genre, &m.AlbumArtist)
 	if err != nil {
 		return db.Media{}, mapErr(err)
@@ -810,7 +811,8 @@ func scanTrack(rows *sql.Rows) (db.Track, error) {
 		&t.Media.FileID, &kind, &indexedAt, &t.Media.Version, &t.Media.ETag, &t.Media.Error, &retryAt, &takenAt,
 		&t.Media.Width, &t.Media.Height, &t.Media.Orientation, &lat, &lon, &t.Media.Camera,
 		&t.Media.DurationMS, &t.Media.Codec,
-		&t.Media.Bitrate, &t.Media.SampleRate, &t.Media.Channels, &t.Media.BitDepth, &t.Media.CodecProfile, &t.Media.Artist, &t.Media.Album, &t.Media.Title,
+		&t.Media.Bitrate, &t.Media.SampleRate, &t.Media.Channels, &t.Media.BitDepth, &t.Media.CodecProfile,
+		&t.Media.Level, &t.Media.FrameRate, &t.Media.AudioCodec, &t.Media.Artist, &t.Media.Album, &t.Media.Title,
 		&t.Media.TrackNo, &t.Media.DiscNo, &t.Media.Year, &t.Media.Genre, &t.Media.AlbumArtist)
 	if err != nil {
 		return db.Track{}, err

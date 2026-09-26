@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"iter"
+	"math"
 	"path"
 	"strings"
 	"time"
@@ -97,21 +98,40 @@ func probeVideo(r io.ReadSeeker, size int64) (db.Media, error) {
 	}
 
 	m := db.Media{Kind: db.KindVideo, DurationMS: duration, TakenAt: taken}
+	// The whole file over its duration, which is how ffprobe states a
+	// container's bitrate and what a network has to carry.
+	m.Bitrate = int(size * 8 * 1000 / duration)
+
+	var picture, sound bool
 	for name, body := range atoms(moov) {
 		if name != "trak" {
 			continue
 		}
-		if !isVideoTrack(body) {
-			continue
+		switch handler(body) {
+		case "vide":
+			if picture {
+				continue
+			}
+			if !videoTrack(body, &m) {
+				return db.Media{}, errNotRead
+			}
+			picture = true
+		case "soun":
+			// The first one, as ffprobe's first audio stream is. What this
+			// cannot name stays unknown rather than sending the whole film to
+			// ffprobe: a copy is what this reader exists to avoid.
+			if !sound {
+				soundTrack(body, &m)
+				sound = true
+			}
 		}
-		if !videoTrack(body, &m) {
-			return db.Media{}, errNotRead
-		}
-		return m, nil
 	}
-	// Sound with an .mp4 name, or a file with no track at all. Neither is this
-	// reader's to answer for.
-	return db.Media{}, errNotRead
+	if !picture {
+		// Sound with an .mp4 name, or a file with no track at all. Neither is
+		// this reader's to answer for.
+		return db.Media{}, errNotRead
+	}
+	return m, nil
 }
 
 // readMoov returns the movie box, whole.
@@ -200,18 +220,14 @@ func movieTime(seconds uint64) time.Time {
 	return time.Unix(int64(seconds-epoch1904), 0).UTC() //nolint:gosec // checked above
 }
 
-// isVideoTrack reads the handler out of a track. A recording carries sound as
-// well, and its tkhd has the dimensions of nothing.
-func isVideoTrack(trak []byte) bool {
-	mdia, ok := box(trak, "mdia")
-	if !ok {
-		return false
-	}
-	hdlr, ok := box(mdia, "hdlr")
+// handler reads what kind of track this is: "vide" and "soun" are the two
+// this reads. A sound track's tkhd has the dimensions of nothing.
+func handler(trak []byte) string {
+	hdlr, ok := box(trak, "mdia", "hdlr")
 	if !ok || len(hdlr) < 12 {
-		return false
+		return ""
 	}
-	return string(hdlr[8:12]) == "vide"
+	return string(hdlr[8:12])
 }
 
 // videoTrack fills in what a video track knows about itself, and reports
@@ -245,10 +261,258 @@ func videoTrack(trak []byte, m *db.Media) bool {
 		// video.
 		m.Width = int(binary.BigEndian.Uint16(entry[24:26]))
 		m.Height = int(binary.BigEndian.Uint16(entry[26:28]))
-		return m.Width > 0 && m.Height > 0
+		if m.Width <= 0 || m.Height <= 0 {
+			return false
+		}
+		if len(entry) > visualSampleEntry {
+			pictureConf(entry[visualSampleEntry:], m)
+		}
+		m.FrameRate = frameRate(trak)
+		return true
 	}
 	return false
 }
+
+// visualSampleEntry is how long the fixed part of a picture's sample entry
+// is. The boxes after it are the codec's configuration.
+const visualSampleEntry = 78
+
+// pictureConf reads profile, level and depth out of whichever configuration
+// record the entry carries.
+func pictureConf(children []byte, m *db.Media) {
+	for name, body := range atoms(children) {
+		var c streamConf
+		var ok bool
+		switch name {
+		case "avcC":
+			c, ok = avcConf(body)
+		case "hvcC":
+			c, ok = hevcConf(body)
+		case "vpcC":
+			// A full box: version and flags before the record.
+			if len(body) > 4 {
+				c, ok = vp9Conf(body[4:])
+			}
+		case "av1C":
+			c, ok = av1Conf(body)
+		default:
+			continue
+		}
+		if ok {
+			m.CodecProfile, m.Level, m.BitDepth = c.profile, c.level, c.depth
+		}
+		return
+	}
+}
+
+// frameRate is frames per thousand seconds: the samples the track holds over
+// the track's own duration, which is how ffprobe arrives at an average.
+func frameRate(trak []byte) int {
+	mdhd, ok := box(trak, "mdia", "mdhd")
+	if !ok || len(mdhd) < 4 {
+		return 0
+	}
+	var timescale, duration uint64
+	switch {
+	case mdhd[0] == 1 && len(mdhd) >= 32:
+		timescale = uint64(binary.BigEndian.Uint32(mdhd[20:24]))
+		duration = binary.BigEndian.Uint64(mdhd[24:32])
+	case mdhd[0] == 0 && len(mdhd) >= 20:
+		timescale = uint64(binary.BigEndian.Uint32(mdhd[12:16]))
+		duration = uint64(binary.BigEndian.Uint32(mdhd[16:20]))
+	}
+	if timescale == 0 || duration == 0 {
+		return 0
+	}
+
+	stts, ok := box(trak, "mdia", "minf", "stbl", "stts")
+	if !ok || len(stts) < 8 {
+		return 0
+	}
+	entries := int(binary.BigEndian.Uint32(stts[4:8]))
+	var frames uint64
+	for i := range entries {
+		at := 8 + i*8
+		if at+8 > len(stts) {
+			return 0
+		}
+		frames += uint64(binary.BigEndian.Uint32(stts[at : at+4]))
+	}
+	return int(frames * timescale * 1000 / duration) //nolint:gosec // bounded by the file's own header
+}
+
+// soundCodecs maps a sound sample entry onto ffprobe's name. mp4a is not
+// here: it is a family, and the descriptor inside says which member.
+var soundCodecs = map[string]string{
+	"ac-3": "ac3",
+	"ec-3": "eac3",
+	"Opus": "opus",
+	"fLaC": "flac",
+	"alac": "alac",
+	".mp3": "mp3",
+}
+
+// soundTrack reads a sound track's codec, channels and rate, leaving unknown
+// whatever its entry does not state in a form this reads.
+func soundTrack(trak []byte, m *db.Media) {
+	stsd, ok := box(trak, "mdia", "minf", "stbl", "stsd")
+	if !ok || len(stsd) < 8 {
+		return
+	}
+	for format, entry := range atoms(stsd[8:]) {
+		if len(entry) < 28 {
+			return
+		}
+		// A QuickTime entry grows with its version, and version 2 moves the
+		// rate and the channel count into fields of its own.
+		children, channels, rate := 28, int(binary.BigEndian.Uint16(entry[16:18])), int(binary.BigEndian.Uint16(entry[24:26]))
+		switch binary.BigEndian.Uint16(entry[8:10]) {
+		case 1:
+			children = 44
+		case 2:
+			if len(entry) < 64 {
+				return
+			}
+			children = 64
+			rate = int(math.Float64frombits(binary.BigEndian.Uint64(entry[32:40])))
+			channels = int(binary.BigEndian.Uint32(entry[40:44]))
+		}
+		var rest []byte
+		if len(entry) > children {
+			rest = entry[children:]
+		}
+
+		codec := soundCodecs[format]
+		switch format {
+		case "mp4a":
+			var asc []byte
+			codec, asc = mp4aCodec(rest)
+			if n := aacChannels(asc); codec == "aac" && n > 0 {
+				channels = n
+			}
+		case "ac-3":
+			if dac3, ok := box(rest, "dac3"); ok {
+				channels = ac3Channels(dac3)
+			}
+		case "ec-3":
+			channels = 0
+			if dec3, ok := box(rest, "dec3"); ok {
+				channels = eac3Channels(dec3)
+			}
+		case "Opus":
+			if dops, ok := box(rest, "dOps"); ok && len(dops) >= 2 {
+				channels = int(dops[1])
+			}
+		}
+		if codec == "" {
+			return
+		}
+		m.AudioCodec, m.Channels, m.SampleRate = codec, channels, rate
+		return
+	}
+}
+
+// mp4aCodec reads an esds box: which codec the objectTypeIndication names,
+// and the decoder's own configuration, which for AAC is where the channels are.
+func mp4aCodec(children []byte) (string, []byte) {
+	esds, ok := box(children, "esds")
+	if !ok || len(esds) < 4 {
+		return "", nil
+	}
+	b := esds[4:]
+
+	tag, body, _ := descriptor(b)
+	if tag != 0x03 || len(body) < 3 {
+		return "", nil
+	}
+	flags := body[2]
+	i := 3
+	if flags&0x80 != 0 {
+		i += 2
+	}
+	if flags&0x40 != 0 {
+		if i >= len(body) {
+			return "", nil
+		}
+		i += 1 + int(body[i])
+	}
+	if flags&0x20 != 0 {
+		i += 2
+	}
+	if i > len(body) {
+		return "", nil
+	}
+	tag, config, _ := descriptor(body[i:])
+	if tag != 0x04 || len(config) < 13 {
+		return "", nil
+	}
+
+	var codec string
+	switch config[0] {
+	case 0x40, 0x66, 0x67, 0x68:
+		codec = "aac"
+	case 0x69, 0x6b:
+		codec = "mp3"
+	}
+	tag, asc, _ := descriptor(config[13:])
+	if tag != 0x05 {
+		asc = nil
+	}
+	return codec, asc
+}
+
+// descriptor reads one MPEG-4 descriptor: a tag, a length in up to four bytes
+// of seven bits each, and that many bytes.
+func descriptor(b []byte) (tag byte, body, rest []byte) {
+	if len(b) < 2 {
+		return 0, nil, nil
+	}
+	tag = b[0]
+	size, i := 0, 1
+	for ; i < len(b) && i <= 4; i++ {
+		size = size<<7 | int(b[i]&0x7f)
+		if b[i]&0x80 == 0 {
+			i++
+			break
+		}
+	}
+	if i+size > len(b) {
+		return 0, nil, nil
+	}
+	return tag, b[i : i+size], b[i+size:]
+}
+
+// ac3Channels reads acmod and lfeon out of a dac3 box.
+func ac3Channels(dac3 []byte) int {
+	if len(dac3) < 3 {
+		return 0
+	}
+	bits := uint32(dac3[0])<<16 | uint32(dac3[1])<<8 | uint32(dac3[2])
+	acmod := (bits >> 11) & 0x07
+	lfe := int((bits >> 10) & 0x01)
+	return acmodChannels[acmod] + lfe
+}
+
+// eac3Channels reads a dec3 box, but only the simple shape of one: a single
+// independent substream with no dependents. Anything richer is unknown.
+func eac3Channels(dec3 []byte) int {
+	if len(dec3) < 5 {
+		return 0
+	}
+	if dec3[1]&0x07 != 0 { // num_ind_sub is one less than the count
+		return 0
+	}
+	bits := uint32(dec3[2])<<16 | uint32(dec3[3])<<8 | uint32(dec3[4])
+	acmod := (bits >> 9) & 0x07
+	lfe := int((bits >> 8) & 0x01)
+	if (bits>>1)&0x0f != 0 { // num_dep_sub
+		return 0
+	}
+	return acmodChannels[acmod] + lfe
+}
+
+// acmodChannels is how many full channels each AC-3 coding mode carries.
+var acmodChannels = [8]int{2, 1, 2, 3, 3, 4, 4, 5}
 
 // trackOrientation reads the display matrix and maps it onto the EXIF
 // orientation values, so that a photograph and a video rotated the same way are

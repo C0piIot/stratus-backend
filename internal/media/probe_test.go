@@ -250,6 +250,12 @@ func TestProbeReportAudioStream(t *testing.T) {
 				"format": {"duration": "2.000000", "bit_rate": "2304200"}}`,
 			want: db.Media{Codec: "pcm_s24le", Bitrate: 2_304_000, SampleRate: 48_000, Channels: 2, BitDepth: 24},
 		},
+		"aac as the image's own ffprobe prints it": {
+			report: `{"streams": [{"codec_type": "audio", "codec_name": "aac", "profile": "1",
+				"sample_rate": "44100", "channels": 2, "bits_per_sample": 0, "bit_rate": "127930"}],
+				"format": {"duration": "2.000000", "bit_rate": "131000"}}`,
+			want: db.Media{Codec: "aac", CodecProfile: "LC", Bitrate: 127_930, SampleRate: 44_100, Channels: 2},
+		},
 		"nothing parseable is unknown": {
 			report: `{"streams": [{"codec_type": "audio", "codec_name": "opus", "profile": "unknown",
 				"sample_rate": "N/A", "bit_rate": "N/A"}], "format": {"bit_rate": "N/A"}}`,
@@ -269,13 +275,126 @@ func TestProbeReportAudioStream(t *testing.T) {
 	}
 }
 
-// TestProbeReportVideoLeavesTheAudioStreamAlone: a video's audio track is #207,
-// and a row that carried it in columns described as the file's own audio
-// would be read as such by the first decision that looked.
-func TestProbeReportVideoLeavesTheAudioStreamAlone(t *testing.T) {
+// TestProbeReportVideoStream is what a direct play, remux or transcode
+// decision needs of a video (#207), read out of what ffprobe 7.1 printed for
+// the fixtures in testdata, trimmed. The quirks are ffprobe's: HEVC and VP9
+// state no bits_per_raw_sample, so the depth comes from the pixel format; VP9
+// has no level; an AC3 has no profile; the bitrate is the file's.
+func TestProbeReportVideoStream(t *testing.T) {
 	t.Parallel()
-	m := parse(t, videoReport).mediaFrom(db.KindVideo)
-	if m.Bitrate != 0 || m.SampleRate != 0 || m.Channels != 0 || m.BitDepth != 0 || m.CodecProfile != "" {
-		t.Errorf("a video row carries audio stream facts: %+v", m)
+	for name, c := range map[string]struct {
+		report string
+		want   db.Media
+	}{
+		"hevc main 10 with aac": {
+			report: `{"streams": [
+				{"codec_type": "video", "codec_name": "hevc", "profile": "Main 10", "level": 30,
+				 "pix_fmt": "yuv420p10le", "avg_frame_rate": "10/1", "width": 64, "height": 64},
+				{"codec_type": "audio", "codec_name": "aac", "profile": "LC", "sample_rate": "48000", "channels": 2}],
+				"format": {"duration": "1.000000", "bit_rate": "172816"}}`,
+			want: db.Media{Codec: "hevc", CodecProfile: "Main 10", Level: 30, BitDepth: 10, FrameRate: 10_000,
+				Bitrate: 172_816, AudioCodec: "aac", Channels: 2, SampleRate: 48_000},
+		},
+		"h264 with ac3 5.1 in matroska": {
+			report: `{"streams": [
+				{"codec_type": "video", "codec_name": "h264", "profile": "High", "level": 10,
+				 "pix_fmt": "yuv420p", "bits_per_raw_sample": "8", "avg_frame_rate": "10/1", "width": 64, "height": 64},
+				{"codec_type": "audio", "codec_name": "ac3", "profile": "unknown", "sample_rate": "48000", "channels": 6}],
+				"format": {"duration": "1.000000", "bit_rate": "416848"}}`,
+			want: db.Media{Codec: "h264", CodecProfile: "High", Level: 10, BitDepth: 8, FrameRate: 10_000,
+				Bitrate: 416_848, AudioCodec: "ac3", Channels: 6, SampleRate: 48_000},
+		},
+		"vp9 with opus, which has no level": {
+			report: `{"streams": [
+				{"codec_type": "video", "codec_name": "vp9", "profile": "Profile 0", "level": -99,
+				 "pix_fmt": "yuv420p", "avg_frame_rate": "10/1", "width": 64, "height": 64},
+				{"codec_type": "audio", "codec_name": "opus", "profile": "unknown", "sample_rate": "48000", "channels": 2}],
+				"format": {"duration": "1.008000", "bit_rate": "142714"}}`,
+			want: db.Media{Codec: "vp9", CodecProfile: "Profile 0", BitDepth: 8, FrameRate: 10_000,
+				Bitrate: 142_714, AudioCodec: "opus", Channels: 2, SampleRate: 48_000},
+		},
+		"h264 as the image's own ffprobe prints it": {
+			report: `{"streams": [
+				{"codec_type": "video", "codec_name": "h264", "profile": "100", "level": 10,
+				 "pix_fmt": "unknown", "avg_frame_rate": "10/1", "width": 64, "height": 64},
+				{"codec_type": "audio", "codec_name": "ac3", "profile": "unknown", "sample_rate": "48000", "channels": 6}],
+				"format": {"duration": "1.000000", "bit_rate": "416848"}}`,
+			want: db.Media{Codec: "h264", CodecProfile: "High", Level: 10, FrameRate: 10_000,
+				Bitrate: 416_848, AudioCodec: "ac3", Channels: 6, SampleRate: 48_000},
+		},
+		"ntsc and no sound": {
+			report: `{"streams": [
+				{"codec_type": "video", "codec_name": "h264", "profile": "Main", "level": 40,
+				 "pix_fmt": "yuv420p", "bits_per_raw_sample": "8", "avg_frame_rate": "30000/1001", "width": 64, "height": 64}],
+				"format": {"duration": "1.000000", "bit_rate": "1000000"}}`,
+			want: db.Media{Codec: "h264", CodecProfile: "Main", Level: 40, BitDepth: 8, FrameRate: 29_970,
+				Bitrate: 1_000_000},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			got := parse(t, c.report).mediaFrom(db.KindVideo)
+			got.Kind, got.DurationMS, got.Width, got.Height = "", 0, 0, 0
+			if got != c.want {
+				t.Errorf("got  %+v\nwant %+v", got, c.want)
+			}
+		})
+	}
+}
+
+// TestPixelDepth: the names ffprobe gives the formats a camera or an encoder
+// actually writes.
+func TestPixelDepth(t *testing.T) {
+	t.Parallel()
+	for pixFmt, want := range map[string]int{
+		"yuv420p": 8, "yuvj420p": 8, "nv12": 8, "gbrp": 8, "yuv444p": 8,
+		"yuv420p10le": 10, "yuv422p10be": 10, "yuv420p12le": 12, "p010le": 10,
+		"": 0, "unknown": 0, "p016le": 16,
+	} {
+		if got := pixelDepth(pixFmt); got != want {
+			t.Errorf("pixelDepth(%q) = %d, want %d", pixFmt, got, want)
+		}
+	}
+}
+
+// TestProfileName: the numbers the image's ffprobe prints, back into the names
+// a full one would.
+func TestProfileName(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct{ codec, printed, want string }{
+		{"h264", "66", "Baseline"},
+		{"h264", "578", "Constrained Baseline"},
+		{"h264", "100", "High"},
+		{"h264", "110", "High 10"},
+		{"h264", "2158", "High 10 Intra"},
+		{"hevc", "2", "Main 10"},
+		{"vp9", "0", "Profile 0"},
+		{"av1", "0", "Main"},
+		{"aac", "1", "LC"},
+		{"aac", "4", "HE-AAC"},
+		{"aac", "28", "HE-AACv2"},
+		{"h264", "77", "Main"},
+		{"h264", "88", "Extended"},
+		{"h264", "122", "High 4:2:2"},
+		{"h264", "2170", "High 4:2:2 Intra"},
+		{"h264", "244", "High 4:4:4 Predictive"},
+		{"h264", "2292", "High 4:4:4 Intra"},
+		{"h264", "44", "CAVLC 4:4:4"},
+		{"h264", "1", ""},
+		{"hevc", "1", "Main"},
+		{"hevc", "3", "Main Still Picture"},
+		{"hevc", "4", "Rext"},
+		{"hevc", "9", "SCC"},
+		{"hevc", "7", ""},
+		{"av1", "1", "High"},
+		{"av1", "2", "Professional"},
+		{"av1", "5", ""},
+		{"h264", "High", "High"},
+		{"mp3", "unknown", ""},
+		{"mp3", "3", ""},
+	} {
+		if got := profileName(c.codec, c.printed); got != c.want {
+			t.Errorf("profileName(%q, %q) = %q, want %q", c.codec, c.printed, got, c.want)
+		}
 	}
 }

@@ -72,6 +72,9 @@ type probeStream struct {
 	CodecType        string            `json:"codec_type"`
 	CodecName        string            `json:"codec_name"`
 	Profile          string            `json:"profile"`
+	Level            int               `json:"level"`
+	PixFmt           string            `json:"pix_fmt"`
+	AvgFrameRate     string            `json:"avg_frame_rate"`
 	Width            int               `json:"width"`
 	Height           int               `json:"height"`
 	Duration         string            `json:"duration"`
@@ -121,6 +124,12 @@ func (p probeReport) mediaFrom(kind db.Kind) db.Media {
 		// Phones record rotated and put the angle in a side matrix. Without
 		// reading it every portrait video plays on its side.
 		m.Orientation = videoOrientation(video)
+		pictureStream(&m, video, p.Format)
+		if audio != nil {
+			m.AudioCodec = audio.CodecName
+			m.Channels = audio.Channels
+			m.SampleRate = atoi(audio.SampleRate)
+		}
 	case kind == db.KindAudio && audio != nil:
 		m.Codec = audio.CodecName
 		if m.DurationMS == 0 {
@@ -166,9 +175,111 @@ func audioStream(m *db.Media, audio *probeStream, format probeFormat) {
 	if m.BitDepth == 0 {
 		m.BitDepth = audio.BitsPerSample
 	}
-	if audio.Profile != "unknown" {
-		m.CodecProfile = audio.Profile
+	m.CodecProfile = profileName(audio.CodecName, audio.Profile)
+}
+
+// pictureStream fills what a transcode decision needs of a video's picture
+// (#207), in the same words the in-place readers use.
+//
+// The depth comes from bits_per_raw_sample where ffprobe states it, and from
+// the pixel format where it does not -- which is HEVC and VP9, that is, the
+// ten-bit cases this is for. The bitrate is the file's: ffprobe's container
+// figure, which is its size over its duration.
+func pictureStream(m *db.Media, video *probeStream, format probeFormat) {
+	m.CodecProfile = profileName(video.CodecName, video.Profile)
+	if video.Level > 0 {
+		m.Level = video.Level
 	}
+	m.BitDepth = atoi(video.BitsPerRawSample)
+	if m.BitDepth == 0 {
+		m.BitDepth = pixelDepth(video.PixFmt)
+	}
+	m.FrameRate = milliRate(video.AvgFrameRate)
+	m.Bitrate = atoi(format.BitRate)
+}
+
+// profileName is ffprobe's name for a profile, whichever way it was printed.
+//
+// A full ffprobe prints the name. Ours prints a number, because --enable-small
+// drops the tables the names are in (build/ffprobe/Dockerfile), so the number
+// is mapped back here -- through the same tables the in-place readers use for
+// H.264 and HEVC, so that the two paths cannot name one profile two ways.
+func profileName(codec, printed string) string {
+	if printed == "" || printed == "unknown" {
+		return ""
+	}
+	n, err := strconv.Atoi(printed)
+	if err != nil {
+		return printed
+	}
+	switch codec {
+	case "h264":
+		// libavcodec folds two constraint flags into the number: 1<<9 is
+		// constrained and 1<<11 is intra, which are constraint_set1 and
+		// constraint_set3 where the record keeps them.
+		var constraints byte
+		if n&(1<<9) != 0 {
+			constraints |= 0x40
+		}
+		if n&(1<<11) != 0 {
+			constraints |= 0x10
+		}
+		return avcProfile(byte(n&0xff), constraints)
+	case "hevc":
+		return hevcProfile(byte(n)) //nolint:gosec // a profile idc, five bits
+	case "vp9":
+		return "Profile " + printed
+	case "av1":
+		switch n {
+		case 0:
+			return "Main"
+		case 1:
+			return "High"
+		case 2:
+			return "Professional"
+		}
+	case "aac":
+		return aacProfiles[n]
+	}
+	return ""
+}
+
+// aacProfiles are libavcodec's numbers for the AAC profiles, which are the
+// audio object type less one, and its names for them.
+var aacProfiles = map[int]string{
+	0: "Main", 1: "LC", 2: "SSR", 3: "LTP", 4: "HE-AAC", 22: "LD", 28: "HE-AACv2", 38: "ELD",
+}
+
+// pixelDepth reads the depth out of a pixel format's name: yuv420p10le is ten
+// bits, and a planar or packed format with no number after its layout is eight.
+func pixelDepth(pixFmt string) int {
+	if pixFmt == "" || pixFmt == "unknown" {
+		return 0
+	}
+	name := strings.TrimSuffix(strings.TrimSuffix(pixFmt, "le"), "be")
+	for _, depth := range []int{16, 14, 12, 10, 9} {
+		if strings.HasSuffix(name, "p"+strconv.Itoa(depth)) {
+			return depth
+		}
+	}
+	if strings.HasPrefix(pixFmt, "p0") && len(name) == 4 { // p010, p012, p016
+		return atoi(name[2:])
+	}
+	return 8
+}
+
+// milliRate turns ffprobe's rational frame rate into frames per thousand
+// seconds, and 0/0 into unknown.
+func milliRate(rational string) int {
+	num, den, ok := strings.Cut(rational, "/")
+	if !ok {
+		return 0
+	}
+	n, d := atoi(num), atoi(den)
+	if n == 0 || d == 0 {
+		return 0
+	}
+	return n * 1000 / d
 }
 
 // atoi reads one of ffprobe's numbers-as-strings, and "N/A" or nothing as zero,

@@ -2,6 +2,7 @@ package media
 
 import (
 	"encoding/binary"
+	"fmt"
 	"io"
 	"iter"
 	"math"
@@ -29,7 +30,7 @@ import (
 // -- and the clusters that hold the frames are stepped over by arithmetic.
 
 // The identifiers this reads. Written out rather than looked up: there are
-// eleven of them and a table would be longer than the switch that uses it.
+// a handful of them and a table would be longer than the switch that uses it.
 const (
 	idEBMLHeader    = 0x1A45DFA3
 	idSegment       = 0x18538067
@@ -41,16 +42,24 @@ const (
 	idTrackEntry    = 0xAE
 	idTrackType     = 0x83
 	idCodecID       = 0x86
+	idCodecPrivate  = 0x63A2
+	idDefaultDur    = 0x23E383
 	idVideo         = 0xE0
+	idAudio         = 0xE1
+	idChannels      = 0x9F
+	idSampling      = 0xB5
 	idPixelWidth    = 0xB0
 	idPixelHeight   = 0xBA
 	idProjection    = 0x7670
 	idCluster       = 0x1F43B675
 )
 
-// trackTypeVideo is what a picture track says it is. Audio is 2, and a film
+// trackTypeVideo and trackTypeAudio are what a track says it is, and a film
 // carries both.
-const trackTypeVideo = 1
+const (
+	trackTypeVideo = 1
+	trackTypeAudio = 2
+)
 
 // defaultTimecodeScale is the nanosecond unit durations are counted in when the
 // file does not say, which is the specification's default and what every muxer
@@ -151,7 +160,7 @@ func probeMatroska(r io.ReadSeeker, size int64) (db.Media, error) {
 			if id == idInfo {
 				haveInfo = segmentInfo(body, &m)
 			} else {
-				haveTrack = videoTrackOf(body, &m)
+				haveTrack = tracksOf(body, &m)
 			}
 
 		default:
@@ -170,6 +179,9 @@ func probeMatroska(r io.ReadSeeker, size int64) (db.Media, error) {
 		return db.Media{}, errNotRead
 	}
 	m.Kind = db.KindVideo
+	// The whole file over its duration, which is how ffprobe states a
+	// container's bitrate.
+	m.Bitrate = int(size * 8 * 1000 / m.DurationMS)
 	return m, nil
 }
 
@@ -202,16 +214,19 @@ func segmentInfo(body []byte, m *db.Media) bool {
 	return m.DurationMS > 0
 }
 
-// videoTrackOf fills in the first picture track and reports whether it was
-// whole.
-func videoTrackOf(tracks []byte, m *db.Media) bool {
+// tracksOf fills in the first picture track and the first sound track, and
+// reports whether the picture was whole. The sound is best effort: what this
+// cannot name stays unknown rather than sending the film to ffprobe.
+func tracksOf(tracks []byte, m *db.Media) bool {
+	var picture, sound bool
 	for id, entry := range elements(tracks) {
 		if id != idTrackEntry {
 			continue
 		}
 
 		var codec string
-		var video []byte
+		var private, video, audio []byte
+		var frame uint64
 		kind := int64(0)
 		for id, data := range elements(entry) {
 			switch id {
@@ -219,24 +234,126 @@ func videoTrackOf(tracks []byte, m *db.Media) bool {
 				kind = int64(uinteger(data)) //nolint:gosec // one byte in every file there is
 			case idCodecID:
 				codec = strings.TrimRight(string(data), "\x00")
+			case idCodecPrivate:
+				private = data
+			case idDefaultDur:
+				frame = uinteger(data)
 			case idVideo:
 				video = data
+			case idAudio:
+				audio = data
 			}
 		}
-		if kind != trackTypeVideo || video == nil {
-			continue
-		}
 
-		name, known := codecIDs[codec]
-		if !known {
-			// Not guessed at, for the reason the MP4 reader gives: the row
-			// would say h264 about something else and nothing downstream could
-			// tell.
-			return false
+		switch {
+		case kind == trackTypeVideo && video != nil && !picture:
+			name, known := codecIDs[codec]
+			if !known {
+				// Not guessed at, for the reason the MP4 reader gives: the row
+				// would say h264 about something else and nothing downstream
+				// could tell.
+				return false
+			}
+			if !videoSettings(video, name, m) {
+				return false
+			}
+			privateConf(name, private, m)
+			if frame > 0 {
+				// DefaultDuration is nanoseconds per frame.
+				m.FrameRate = int(1e12 / frame) //nolint:gosec // bounded by the file's own header
+			}
+			picture = true
+		case kind == trackTypeAudio && !sound:
+			m.AudioCodec = audioCodecOf(codec)
+			if m.AudioCodec != "" {
+				soundSettings(audio, m)
+			}
+			sound = true
 		}
-		return videoSettings(video, name, m)
 	}
-	return false
+	return picture
+}
+
+// privateConf reads profile, level and depth out of a picture track's
+// CodecPrivate, which for H.264, HEVC and AV1 is the same configuration record
+// an MP4 keeps in a box.
+func privateConf(codec string, private []byte, m *db.Media) {
+	var c streamConf
+	var ok bool
+	switch codec {
+	case "h264":
+		c, ok = avcConf(private)
+	case "hevc":
+		c, ok = hevcConf(private)
+	case "av1":
+		c, ok = av1Conf(private)
+	case "vp9":
+		c, ok = vp9Private(private)
+	}
+	if ok {
+		m.CodecProfile, m.Level, m.BitDepth = c.profile, c.level, c.depth
+	}
+}
+
+// vp9Private reads VP9's CodecPrivate, which is not a record but a list of
+// features, each an id, a length and a value -- and which most muxers leave
+// empty. The level is not taken, for the reason vp9Conf gives.
+func vp9Private(b []byte) (streamConf, bool) {
+	var c streamConf
+	profile := -1
+	for i := 0; i+2 <= len(b); {
+		id, n := b[i], int(b[i+1])
+		if i+2+n > len(b) || n != 1 {
+			return streamConf{}, false
+		}
+		switch id {
+		case 1:
+			profile = int(b[i+2])
+		case 3:
+			c.depth = int(b[i+2])
+		}
+		i += 2 + n
+	}
+	if profile < 0 {
+		return streamConf{}, false
+	}
+	c.profile = fmt.Sprintf("Profile %d", profile)
+	return c, true
+}
+
+// audioCodecOf maps a sound track's CodecID onto ffprobe's name. AAC arrives
+// under several, all of which begin the same way.
+func audioCodecOf(id string) string {
+	if strings.HasPrefix(id, "A_AAC") {
+		return "aac"
+	}
+	return audioCodecIDs[id]
+}
+
+var audioCodecIDs = map[string]string{
+	"A_AC3":     "ac3",
+	"A_EAC3":    "eac3",
+	"A_DTS":     "dts",
+	"A_TRUEHD":  "truehd",
+	"A_OPUS":    "opus",
+	"A_VORBIS":  "vorbis",
+	"A_FLAC":    "flac",
+	"A_ALAC":    "alac",
+	"A_MPEG/L3": "mp3",
+	"A_MPEG/L2": "mp2",
+}
+
+// soundSettings reads the channels and the rate out of a track's audio
+// settings.
+func soundSettings(audio []byte, m *db.Media) {
+	for id, data := range elements(audio) {
+		switch id {
+		case idChannels:
+			m.Channels = int(uinteger(data)) //nolint:gosec // bounded by the file's own header
+		case idSampling:
+			m.SampleRate = int(double(data))
+		}
+	}
 }
 
 // videoSettings reads the size out of a track's video settings.
