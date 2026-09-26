@@ -6,11 +6,12 @@
 # along with the image -- so a fresh machine has an empty tree, an indexer with
 # nothing to read and a music library with no artists in it. This fills it in
 # again: five photographs with their EXIF, two tagged tracks with a cover, and
-# fifteen seconds of video.
+# fifteen seconds of video in eight containers and codecs, each there for a
+# different thing a server has to do with a film (scripts/demo/CREDITS.md).
 #
 # The media is a release asset rather than a directory in this repository: the
-# whole clone is 6.6 MB and the bundle is 4.4, which is not a weight to carry in
-# every clone forever. scripts/demo/SHA256SUMS pins the bytes; the attribution
+# whole clone is 6.6 MB and the bundle is 15.6, which is not a weight to carry
+# in every clone forever. scripts/demo/SHA256SUMS pins the bytes; the attribution
 # is in scripts/demo/CREDITS.md and travels inside the tarball as well.
 #
 #   STRATUS_USERNAME=demo STRATUS_PASSWORD=... scripts/seed-demo.sh https://host
@@ -27,7 +28,7 @@ BASE="${BASE%/}"
 USER="${STRATUS_USERNAME:?set STRATUS_USERNAME}"
 PASS="${STRATUS_PASSWORD:?set STRATUS_PASSWORD}"
 
-TAG="demo-media-v1"
+TAG="demo-media-v2"
 BUNDLE="$TAG.tar.gz"
 URL="https://github.com/C0piIot/stratus-backend/releases/download/$TAG/$BUNDLE"
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -61,6 +62,11 @@ content_type() {
 	png) printf 'image/png' ;;
 	mp3) printf 'audio/mpeg' ;;
 	mp4) printf 'video/mp4' ;;
+	mov) printf 'video/quicktime' ;;
+	mkv) printf 'video/x-matroska' ;;
+	webm) printf 'video/webm' ;;
+	ts) printf 'video/mp2t' ;;
+	avi) printf 'video/x-msvideo' ;;
 	md) printf 'text/markdown; charset=utf-8' ;;
 	*) printf 'application/octet-stream' ;;
 	esac
@@ -152,8 +158,21 @@ image/jpeg*) ok "getCoverArt answers a JPEG for the album" ;;
 *) die "getCoverArt answered $type" ;;
 esac
 
-# Range requests are what a player uses to seek, and the video is here for them:
-# the browser downloads it, since the UI serves attachments on purpose.
+# A thumbnail for every video the listing would offer one for, which is every
+# one but the transport stream: .ts is left off that list by name, because it
+# is as often TypeScript as it is a recording. Each is made on first request,
+# so this is the check that the image can decode every codec in the bundle.
+while read -r f; do
+	case "$f" in Video/*.ts) continue ;; Video/*) ;; *) continue ;; esac
+	type="$(curl -s -o /dev/null -w '%{content_type}' -u "$USER:$PASS" "$BASE/thumb/$(encode "$f")?size=96")"
+	case "$type" in
+	image/jpeg*) ;;
+	*) die "no thumbnail for $f: the server answered $type" ;;
+	esac
+done <<<"$files"
+ok "every video but the transport stream has a thumbnail"
+
+# Range requests are what a player uses to seek, and the video is here for them.
 code="$(curl -s -o /dev/null -w '%{http_code}' -u "$USER:$PASS" -r 0-1023 \
 	"$BASE/dav/$(encode "Video/sintel-trailer.mp4")")"
 [ "$code" = "206" ] || die "a range request for the video answered $code"

@@ -826,11 +826,15 @@ is not part of it. Three things follow, and none of them is an accident:
   before the schema the binary expected.
 
 Which is why the deploy ends by seeding it: `scripts/seed-demo.sh` fetches a
-4.4 MB bundle of freely licensed media — five photographs with their EXIF, two
-tagged tracks with a cover, fifteen seconds of video — and puts it in over
-WebDAV, then asks the server what it did with it: the files read back, the
-indexer found the artist, the album has a cover and the video answers a range
-request. It is the only check here that runs against something deployed rather
+15.6 MB bundle of freely licensed media — five photographs with their EXIF, two
+tagged tracks with a cover, and the same fifteen seconds of video in eight
+shapes a library really holds: H.264 with its index at either end, HEVC Main 10
+at 1080p, AC-3 5.1 in Matroska, VP9 and Opus in WebM, MPEG-2 in a transport
+stream, MPEG-4 in AVI and a portrait phone recording
+([`CREDITS.md`](scripts/demo/CREDITS.md) says what each is for) — and puts it in
+over WebDAV, then asks the server what it did with it: the files read back, the
+indexer found the artist, the album has a cover, every video but the transport
+stream has a thumbnail, and a video answers a range request. It is the only check here that runs against something deployed rather
 than against an image on the build machine, and `make demo BASE=…` runs the same
 thing against a local instance.
 
