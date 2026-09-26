@@ -9,6 +9,7 @@ github.com/cespare/xxhash/v2
 github.com/dustin/go-humanize
 github.com/emersion/go-webdav
 github.com/evanoberholster/imagemeta
+github.com/getsentry/sentry-go
 github.com/go-sql-driver/mysql
 github.com/google/uuid
 github.com/jackc/pgpassfile

@@ -5,6 +5,7 @@ go 1.27.0
 require (
 	github.com/emersion/go-webdav v0.7.0
 	github.com/evanoberholster/imagemeta v1.0.0
+	github.com/getsentry/sentry-go v0.49.0
 	github.com/go-sql-driver/mysql v1.10.1
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/minio/minio-go/v7 v7.3.0

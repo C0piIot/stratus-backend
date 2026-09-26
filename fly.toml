@@ -43,6 +43,9 @@ primary_region = "cdg"
   # for the indexer would make the music look missing. Nothing else about this
   # instance is tuned.
   STRATUS_INDEX_INTERVAL = "5s"
+  # Read by the Sentry SDK itself, so the demo's errors can be told apart from
+  # a real install's in the same project. The DSN is a Fly secret.
+  SENTRY_ENVIRONMENT = "demo"
 
 [http_service]
   internal_port = 8080

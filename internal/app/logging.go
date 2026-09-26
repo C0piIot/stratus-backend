@@ -1,8 +1,10 @@
 package app
 
 import (
+	"fmt"
 	"log/slog"
 	"net/http"
+	"runtime/debug"
 	"time"
 )
 
@@ -42,6 +44,32 @@ func logRequests(h http.Handler) http.Handler {
 			"bytes", rec.written,
 			"duration", time.Since(started),
 			"remote", r.RemoteAddr)
+	})
+}
+
+// recoverPanics logs a handler's panic before the connection is dropped.
+//
+// net/http survives one already, but it prints the stack to stderr as plain
+// text, outside the JSON log and so outside the error report too -- which is
+// the only reason a panic would ever be noticed on a server nobody watches.
+func recoverPanics(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			p := recover()
+			if p == nil {
+				return
+			}
+			//nolint:errorlint // a panic value, compared the way net/http compares it
+			if p != http.ErrAbortHandler {
+				slog.Error("panic serving a request",
+					"method", r.Method, "path", r.URL.Path,
+					"err", fmt.Sprint(p), "stack", string(debug.Stack()))
+			}
+			// Dropping the connection is what net/http would have done; with
+			// this value it does it without printing the stack a second time.
+			panic(http.ErrAbortHandler)
+		}()
+		h.ServeHTTP(w, r)
 	})
 }
 

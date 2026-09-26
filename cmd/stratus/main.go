@@ -14,9 +14,11 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/C0piIot/stratus-backend/internal/app"
 	"github.com/C0piIot/stratus-backend/internal/config"
+	"github.com/C0piIot/stratus-backend/internal/report"
 )
 
 // version and buildDate are overridden at build time with
@@ -57,7 +59,20 @@ func main() {
 			os.Exit(1)
 		}
 	default:
-		slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.LogLevel})))
+		var handler slog.Handler = slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.LogLevel})
+		flush := func() {}
+		if cfg.SentryDSN != "" {
+			client, err := report.NewClient(cfg.SentryDSN.Reveal(), version)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "error reporting:", err)
+				os.Exit(1)
+			}
+			handler = report.New(handler, client)
+			// Events go out in the background, so the last ones -- the error
+			// that is stopping the process, above all -- need waiting for.
+			flush = func() { client.Flush(5 * time.Second) }
+		}
+		slog.SetDefault(slog.New(handler))
 
 		// Signals are a process concern, so they are handled here rather than
 		// inside app.Run.
@@ -66,7 +81,9 @@ func main() {
 
 		if err := app.New(cfg, version, buildDate).Run(ctx); err != nil {
 			slog.Error("server stopped", "err", err)
+			flush()
 			os.Exit(1)
 		}
+		flush()
 	}
 }

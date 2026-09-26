@@ -48,7 +48,10 @@ fi
 # decision this budget exists to make visible -- a server-rendered UI from the
 # standard library -- and the remaining increments of it are templates, not
 # packages.
-BIN_SIZE_FAIL=$((25 * 1024 * 1024))
+# Raised from 25 MB with error reporting (#222): sentry-go is 0.6 MB, and main
+# was already at 24.4 on amd64, so it crossed the line by 49 KB. arm64 is a
+# megabyte smaller, which is why a local build does not show it.
+BIN_SIZE_FAIL=$((27 * 1024 * 1024))
 # ffprobe and ffmpeg together, which are trimmed builds of our own: 2.4 MB and
 # 12.9 MB on amd64 today against the 128 MB one general-purpose static FFmpeg costs.
 # Raised from 10 MB when ffmpeg learned audio and HTTPS (#50): the encoders and
@@ -1301,6 +1304,8 @@ refuses "an unreachable database refuses to start" -e STRATUS_DB_DSN=postgres://
 # The one that reads as harmless and is not: a level nobody can parse used to
 # start the server at info, and whoever set it debugged blind.
 refuses "an unparseable log level refuses to start" -e STRATUS_LOG_LEVEL=debgu
+# Otherwise it starts, believes it is reporting, and every event is refused.
+refuses "a Sentry DSN with no project refuses to start" -e STRATUS_SENTRY_DSN=https://key@sentry.invalid/
 
 # ---------------------------------------------------------------------------
 section "Compose healthcheck"
