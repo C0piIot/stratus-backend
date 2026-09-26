@@ -365,6 +365,15 @@ func (r *repo) PutMedia(ctx context.Context, m db.Media) error {
 	if err != nil {
 		return fmt.Errorf("put media for file %d: %w", m.FileID, mapErr(err))
 	}
+
+	// The gallery's ordering, from both tables. A second statement rather than
+	// an expression in the upsert, which could not see the files row in all
+	// three dialects the same way. See 0006_photo_timeline.sql.
+	const sortAt = `UPDATE media SET sort_at = COALESCE(taken_at, (SELECT mtime FROM files WHERE files.id = media.file_id))
+		WHERE file_id = ?`
+	if _, err := r.q.ExecContext(ctx, sortAt, m.FileID); err != nil {
+		return fmt.Errorf("sort media for file %d: %w", m.FileID, mapErr(err))
+	}
 	return nil
 }
 
@@ -798,14 +807,18 @@ func scanAlbum(rows *sql.Rows) (db.Album, error) {
 // scanTrack reads a file row and a media row from one joined result. The two
 // halves are scanned the same way the single-table readers do it, because the
 // conversions are a property of the columns and not of the query.
-func scanTrack(rows *sql.Rows) (db.Track, error) {
+func scanTrack(rows *sql.Rows) (db.Track, error) { return scanTrackWith(rows) }
+
+// scanTrackWith is scanTrack for a query that selects more after the two
+// halves: the extra destinations are scanned in the same call.
+func scanTrackWith(rows *sql.Rows, extra ...any) (db.Track, error) {
 	var t db.Track
 	var mtime, indexedAt int64
 	var kind string
 	var lat, lon sql.NullFloat64
 	var takenAt, retryAt sql.NullInt64
 
-	err := rows.Scan(
+	err := rows.Scan(append([]any{
 		&t.File.ID, &t.File.OwnerID, &t.File.Path, &t.File.BlobKey, &t.File.Size,
 		&mtime, &t.File.ETag, &t.File.MIMEType, &t.File.IsDir,
 		&t.Media.FileID, &kind, &indexedAt, &t.Media.Version, &t.Media.ETag, &t.Media.Error, &retryAt, &takenAt,
@@ -813,7 +826,7 @@ func scanTrack(rows *sql.Rows) (db.Track, error) {
 		&t.Media.DurationMS, &t.Media.Codec,
 		&t.Media.Bitrate, &t.Media.SampleRate, &t.Media.Channels, &t.Media.BitDepth, &t.Media.CodecProfile,
 		&t.Media.Level, &t.Media.FrameRate, &t.Media.AudioCodec, &t.Media.Artist, &t.Media.Album, &t.Media.Title,
-		&t.Media.TrackNo, &t.Media.DiscNo, &t.Media.Year, &t.Media.Genre, &t.Media.AlbumArtist)
+		&t.Media.TrackNo, &t.Media.DiscNo, &t.Media.Year, &t.Media.Genre, &t.Media.AlbumArtist}, extra...)...)
 	if err != nil {
 		return db.Track{}, err
 	}

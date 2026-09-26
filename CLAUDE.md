@@ -230,6 +230,30 @@ Hard constraints, in the same spirit as the rest of the project:
   rows nothing has looked at yet. It reports and does not drive: there is no
   button here that starts, stops or hurries the indexer, because a surface that
   could would be a surface that has to be protected from being pressed twice.
+- **Photos have a gallery at `/gallery/photos`, read from the index and not the
+  tree** (#211): every image, screenshots included, newest first by the
+  camera's date and grouped by month, with a viewer that links the photos
+  either side. Under `/gallery/` because `/photos/` is the WebDAV mount of the
+  same photographs, and videos will sit beside these. Paged by a keyset cursor
+  like the listing, with htmx extending it and a plain link without it; a
+  fragment is told the month the page before it ended in, so a month split
+  across two pages is headed once, while a whole page always heads its first.
+
+  **The order is a column, `media.sort_at`, and it was measured**: the camera's
+  date, or the file's arrival for an image with none. The two halves live in
+  different tables, and ordering by an expression across both is one no index
+  serves -- 677 ms a page over a hundred thousand photos, against 1.7 ms with
+  the column and an index on `(kind, sort_at, file_id)`, and 1.6 ms at page 900.
+  PutMedia writes it and migration 0006 filled what existed. Two more details
+  that were each measured: the cursor is a row comparison, `(sort_at, file_id)
+  < (?, ?)`, because the spelled-out `OR` only seeks on the time and walks a
+  tie -- a burst of photos sharing one second -- from its top; and the months
+  are found by one seek per month rather than a `GROUP BY`, 6 ms against half a
+  second. MySQL does not range-optimise a row comparison, so it gets the
+  expanded form with a bound the index can use.
+
+  The EXIF date carries no zone and the reader keeps the camera's clock as if
+  it were UTC, so a month is taken in UTC and New Year's Eve stays in December.
 - **Renaming and deleting are pages, not buttons in the row.** Each is a GET
   that asks and a POST that does: a rename needs a name typed into something,
   and a delete cannot be undone -- there is no trash bin, so the page in between
@@ -707,6 +731,18 @@ Restraint here is principle 3, not laziness:
   files are a view of it, and a second way in would mean paths resolved to ids
   on the way in and a rule for which side wins when both change -- a sync
   engine, for a need nobody has had. Edits go through OpenSubsonic.
+- **Photos by date are a mount of their own too**, `/photos/<year>/<month>/`
+  (#213), from `internal/dav/photos.go`: read-only, class 1, outside the tree
+  for the reason `/playlists/` is. Unlike the playlists it serves bytes, the
+  originals, so it carries the one trap that one did not: **x/net opens every
+  resource a PROPFIND lists**, to ask for dead properties, and a month of a
+  thousand photographs would be a thousand reads from the blob store to answer
+  a listing. A photo's bytes are opened on its first Read or Seek, and a test
+  counts that a listing opens none -- eager, twenty photos were forty-two reads.
+  A GET opens them before the library sees the request, so a broken blob store
+  is a 500 rather than x/net's 404, and hands the reader over so it is not
+  opened twice. Names that repeat within a month are told apart as playlists
+  are: id order, case-insensitively, ` (2)` before the extension.
 - `minio-go` for S3 (much lighter than `aws-sdk-go-v2`). The client, not the
   server: MinIO the server was archived in April 2026, and the conformance
   suite runs against Silo, a maintained fork of it (#116). minio-go is a

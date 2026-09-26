@@ -21,7 +21,7 @@ protocols your existing apps already understand.
 | HTTP range | audio/video streaming | browsers, VLC, mpv | **works** |
 | CalDAV | calendar | DAVx5, Thunderbird, iOS/macOS | next |
 | OpenSubsonic | music | Symfonium, Substreamer, DSub, Feishin | **works** † |
-| Web UI | sign in, browse, upload, download, rename, delete, library status | any browser | **partly** |
+| Web UI | sign in, browse, upload, download, rename, delete, a photo gallery, library status | any browser | **partly** |
 | CardDAV | contacts | DAVx5, Thunderbird | planned |
 | DLNA / UPnP-AV | TVs, set-top players | | planned |
 
@@ -466,6 +466,21 @@ access to the session, because this origin serves the UI and a page opened here
 would otherwise run as whoever is signed in. Files go through
 `http.ServeContent`, so ranges, conditional requests and resuming a half-finished
 download behave exactly as they do on the streaming surface.
+
+**Photos have a gallery of their own at `/gallery/photos`**: every image in the
+library, newest first by when the camera says it was taken and grouped by month,
+wherever it was filed. An image with no camera date -- a screenshot, a download
+-- is placed by when it arrived, and says so. Opening one shows it large, with
+the ones either side a click away and a link to the original; a HEIC shows in
+every browser, not only Safari, because what is shown is a JPEG made from it. A
+photo appears once the indexer has read it, like a track in the music library.
+
+**The same photos are folders by date over WebDAV, at `/photos/`** --
+`/photos/2024/06/` is June 2024 -- on a read-only mount of its own, for the reason
+`/playlists/` is one: nothing generated can land in your own tree. The files are
+the originals, with ranges. Two photos with the same name in one month, from two
+cameras both counting from `IMG_0001`, become `IMG_0001.JPG` and
+`IMG_0001 (2).JPG`, the older keeping the plain name.
 
 **Uploading replaces**, exactly as a `PUT` over WebDAV does: a file whose name is
 already in that folder is overwritten, and the blob it leaves behind is swept up
@@ -937,10 +952,11 @@ Working now:
 - EXIF, audio tags and video probing, indexed in the background and started by
   the upload itself, with a page saying how far it has got.
 - A web UI: sign in, walk the tree, open or download a file, upload one, make a folder,
-  rename and delete. A signed-cookie session and a CSP that allows nothing but
+  rename and delete, and a gallery of every photo by date -- also served as
+  folders by date over WebDAV. A signed-cookie session and a CSP that allows nothing but
   the binary's own assets.
 - A request log, migrations applied at startup, and a container asserted from
-  the outside by 99 smoke checks.
+  the outside by 101 smoke checks.
 
 Not there yet: CalDAV and sharing. Work
 and the decisions behind it are tracked on the

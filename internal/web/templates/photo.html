@@ -1,0 +1,27 @@
+{{define "content" -}}
+{{with .Photo}}
+<nav class="d-flex justify-content-between align-items-center mb-3" aria-label="Photos either side">
+  <a class="btn btn-sm btn-outline-secondary" href="{{.Back}}">All photos</a>
+  <div class="btn-group btn-group-sm">
+    {{if .Newer}}<a class="btn btn-outline-secondary" href="{{.Newer}}" rel="prev">Newer</a>
+    {{else}}<span class="btn btn-outline-secondary disabled" aria-disabled="true">Newer</span>{{end}}
+    {{if .Older}}<a class="btn btn-outline-secondary" href="{{.Older}}" rel="next">Older</a>
+    {{else}}<span class="btn btn-outline-secondary disabled" aria-disabled="true">Older</span>{{end}}
+  </div>
+</nav>
+
+<figure class="text-center mb-3">
+  {{if .Image}}<img src="{{.Image}}" alt="{{.Name}}" class="img-fluid rounded shadow-sm">
+  {{else}}<div class="card card-body text-body-secondary">There is no picture of this file that a browser can show.</div>{{end}}
+</figure>
+
+<dl class="row small mb-0">
+  <dt class="col-sm-3">Name</dt>
+  <dd class="col-sm-9 text-break"><a href="{{.Original}}">{{.Name}}</a> <span class="text-body-secondary">(the original, downloaded)</span></dd>
+  <dt class="col-sm-3">{{if .Arrived}}Added{{else}}Taken{{end}}</dt>
+  <dd class="col-sm-9">{{.When}}</dd>
+  {{if .Camera}}<dt class="col-sm-3">Camera</dt><dd class="col-sm-9">{{.Camera}}</dd>{{end}}
+  {{if .Dimensions}}<dt class="col-sm-3">Size</dt><dd class="col-sm-9">{{.Dimensions}}</dd>{{end}}
+</dl>
+{{end}}
+{{- end}}

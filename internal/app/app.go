@@ -45,6 +45,11 @@ const tusPrefix = "/tus/"
 // URL it is given.
 const subsonicPrefix = "/rest/"
 
+// photosPrefix is where photos are served by year and month, a read-only
+// mount of its own for the reason playlistsPrefix is one (#213). The web
+// gallery of the same photos is /gallery/photos, so the two cannot collide.
+const photosPrefix = "/photos/"
+
 // playlistsPrefix is where playlists are served as .m3u8 files. A mount of its
 // own and not a folder under davPrefix: that tree is the user's, and a
 // generated file there could collide with a real one (#203).
@@ -144,13 +149,14 @@ func (a *App) Handler(deps Deps) http.Handler {
 			subsonic.Handler(subsonicPrefix, a.version, verifier, deps.Database, service, playlists, thumbs))
 		// The same realm and throttle as /dav/, for the reason tus shares them.
 		mux.Handle(playlistsPrefix, auth.Basic(davRealm, verifier, dav.Playlists(playlistsPrefix, davPrefix, playlists)))
+		mux.Handle(photosPrefix, auth.Basic(davRealm, verifier, dav.Photos(photosPrefix, deps.Database, service)))
 
 		// The browser surface, at the root, so everything the prefixes above did
 		// not claim is a page rather than a bare 404. Same verifier again, and
 		// a session signed with the configured password: see auth.Sessions for
 		// what that buys and what it costs.
 		mux.Handle("/", web.Handler(a.version, a.buildDate, verifier,
-			auth.NewSessions(creds, auth.DefaultSessionTTL), shares, service, thumbs,
+			auth.NewSessions(creds, auth.DefaultSessionTTL), shares, service, thumbs, deps.Database,
 			web.Indexing{Index: deps.Database, Interval: a.cfg.IndexInterval}))
 	}
 	// The log is outside the compression so that the bytes it counts are the

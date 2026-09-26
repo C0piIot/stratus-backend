@@ -75,6 +75,9 @@ type handler struct {
 	// indexing is read, never driven: this surface reports on the indexer and
 	// has no way to start, stop or hurry it.
 	indexing Indexing
+	// photoIndex is what the gallery reads: the index by date rather than the
+	// tree by path.
+	photoIndex db.Photos
 }
 
 // Handler builds the UI. It is mounted at the root, so it is also what answers
@@ -85,11 +88,11 @@ type handler struct {
 // other surface -- a WebDAV or Subsonic client is not a browser and sends no
 // cookie -- and a caller that forgot it would lose the defence silently.
 func Handler(version, buildDate string, v auth.Verifier, s *auth.Sessions, shares *auth.Shares,
-	service *files.Service, thumbs *media.Thumbs, indexing Indexing,
+	service *files.Service, thumbs *media.Thumbs, photos db.Photos, indexing Indexing,
 ) http.Handler {
 	h := &handler{
 		version: version, buildDate: buildDate, verifier: v, sessions: s, shares: shares,
-		files: service, thumbs: thumbs, indexing: indexing,
+		files: service, thumbs: thumbs, photoIndex: photos, indexing: indexing,
 	}
 
 	mux := http.NewServeMux()
@@ -101,6 +104,8 @@ func Handler(version, buildDate string, v auth.Verifier, s *auth.Sessions, share
 	mux.HandleFunc("GET /files/{path...}", h.readable(h.browse))
 	mux.HandleFunc("GET /thumb/{path...}", h.withPicture(h.thumbnail))
 	mux.HandleFunc("GET /status", h.signedIn(h.status))
+	mux.HandleFunc("GET "+galleryPhotos, h.signedIn(h.photos))
+	mux.HandleFunc("GET "+photoPrefix+"{path...}", h.signedIn(h.photo))
 	mux.HandleFunc("POST /files/{path...}", h.signedIn(h.upload))
 	mux.HandleFunc("POST /folders/{path...}", h.signedIn(h.newFolder))
 	mux.HandleFunc("GET /share/{path...}", h.signedIn(h.shareForm))
