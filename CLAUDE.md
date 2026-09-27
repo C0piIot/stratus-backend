@@ -875,8 +875,19 @@ Restraint here is principle 3, not laziness:
 
     For audio it transcodes (#50): a decoder for every audio
     extension in `byExtension`, and AAC, FLAC, MP3 and Opus out -- the last two
-    through `libmp3lame` and `libopus`, the only libraries linked that FFmpeg
-    does not ship, and neither makes it GPL.
+    through `libmp3lame` and `libopus`.
+
+    **It re-encodes a film to H.264** with `libx264`, and brings HDR down to
+    SDR with `zscale` over zimg and `tonemap` (#50). libx264 is GPL, so this
+    binary is **GPLv3** -- `--enable-gpl` beside the `--enable-version3` OpenSSL
+    already needed. Stratus stays MIT: it runs ffmpeg as a program of its own
+    and links none of it, which is aggregation. What GPLv3 asks of whoever
+    distributes the image is the source of that binary, and 6(d) allows it on
+    somebody else's server with clear directions beside the binary: every
+    component is unmodified and pinned (x264 and zimg by commit, since neither
+    publishes a tarball that stays byte for byte the same), and
+    `/licenses/NOTICE` in the image says where each one is, beside the licence
+    texts. Should an upstream drop a pinned version, providing it falls to us.
 
     **It reads over HTTP and HTTPS**, so a source in a bucket is read by
     ranges instead of copied first -- an m4a with its `moov` at the end cannot

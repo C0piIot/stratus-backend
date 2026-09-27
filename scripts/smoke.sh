@@ -55,8 +55,10 @@ BIN_SIZE_FAIL=$((27 * 1024 * 1024))
 # ffprobe and ffmpeg together, which are trimmed builds of our own: 2.4 MB and
 # 13.2 MB on amd64 today against the 128 MB one general-purpose static FFmpeg costs.
 # Raised from 10 MB when ffmpeg learned audio and HTTPS (#50): the encoders and
-# libopus are about 1.5 MB of that and a static OpenSSL is five.
-TOOLS_SIZE_FAIL=$((16 * 1024 * 1024))
+# libopus are about 1.5 MB of that and a static OpenSSL is five. Raised again
+# from 16 when it learned to re-encode a film (#50): libx264 and zimg are 2.2
+# MB on arm64, which put amd64 past the old line.
+TOOLS_SIZE_FAIL=$((20 * 1024 * 1024))
 
 BASE_IMAGE="gcr.io/distroless/static:nonroot"
 

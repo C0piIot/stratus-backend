@@ -28,7 +28,8 @@ SHELL ["/bin/ash", "-o", "pipefail", "-c"]
 # lame-dev carries a static libmp3lame and openssl-libs-static a static OpenSSL;
 # pkgconf is how configure finds the second one's own link flags.
 # hadolint ignore=DL3018
-RUN apk add --no-cache build-base curl nasm tar xz yasm pkgconf lame-dev openssl-dev openssl-libs-static
+RUN apk add --no-cache build-base curl nasm tar xz yasm pkgconf lame-dev openssl-dev openssl-libs-static \
+      git autoconf automake libtool bash linux-headers
 
 # libopus is built here because Alpine packages it shared only, and a static
 # binary cannot link a .so. Pinned by digest, which is Xiph's own SHA256SUMS.txt.
@@ -40,6 +41,33 @@ RUN curl -fsSL -o opus.tar.gz "https://downloads.xiph.org/releases/opus/opus-${O
  && tar xzf opus.tar.gz --strip-components=1 \
  && ./configure --prefix=/usr/local --disable-shared --enable-static \
       --disable-doc --disable-extra-programs \
+ && make -j"$(nproc)" install
+
+# x264 and zimg are built here for the same reason, and pinned by commit rather
+# than by the digest of a tarball: neither publishes release tarballs, and the
+# archives a forge generates on the fly are not promised to stay byte for byte
+# the same. A commit hash is the content, which is the thing being pinned.
+#
+# x264 is the video encoder (#50), and the one library here that is GPL: see the
+# note on --enable-gpl below. The stable branch's head at the time of writing.
+ARG X264_COMMIT=b35605ace3ddf7c1a5d67a2eb553f034aef41d55
+WORKDIR /x264
+RUN git init -q . \
+ && git fetch -q --depth 1 https://code.videolan.org/videolan/x264.git "${X264_COMMIT}" \
+ && git checkout -q FETCH_HEAD \
+ && ./configure --prefix=/usr/local --enable-static --enable-pic --disable-cli --disable-opencl \
+ && make -j"$(nproc)" install
+
+# zimg is what zscale is built on, and zscale is what turns a phone's HDR into
+# the SDR an older player can show without its colours going grey (#50). Its
+# release-3.0.6 tag.
+ARG ZIMG_COMMIT=f819b14e8f39d1282400b0d9543e8ef73c1b2bbd
+WORKDIR /zimg
+RUN git init -q . \
+ && git fetch -q --depth 1 https://github.com/sekrit-twc/zimg.git "${ZIMG_COMMIT}" \
+ && git checkout -q FETCH_HEAD \
+ && ./autogen.sh >/dev/null \
+ && ./configure --prefix=/usr/local --disable-shared --enable-static \
  && make -j"$(nproc)" install
 
 WORKDIR /src
@@ -116,6 +144,16 @@ RUN curl -fsSL "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz" | t
 # and without them that is not a sideways thumbnail, it is a failed one: the
 # filter does not exist, so the command errors out.
 #
+# **And it re-encodes a film to H.264** for a player that cannot decode its
+# picture (#50): libx264, with zscale and tonemap to bring HDR down to SDR. That
+# makes this binary GPLv3 -- --enable-gpl is libx264's condition, and version 3
+# is what OpenSSL's Apache licence already needed. Stratus is MIT and stays so:
+# it runs this binary as a program of its own and links nothing of it. What
+# GPLv3 asks of whoever distributes the binary is its source, and 6(d) lets
+# that be somebody else's server with clear directions beside the binary: every
+# component is unmodified and pinned here, the recipe is this file, and
+# /licenses/NOTICE says where each one is. The licence texts go beside it.
+#
 # thumbnail is used, and it is what stops a thumbnail being a black rectangle.
 # Measured on a film that opens with two seconds of black: the first frame has
 # an average brightness of 0.0 and so does the frame one second in, which is
@@ -127,7 +165,8 @@ RUN ./configure \
       --disable-shared --enable-static --enable-small \
       --disable-programs --enable-ffmpeg \
       --disable-avdevice --disable-postproc \
-      --enable-version3 --enable-libmp3lame --enable-libopus --enable-openssl \
+      --enable-version3 --enable-gpl \
+      --enable-libmp3lame --enable-libopus --enable-openssl --enable-libx264 --enable-libzimg \
       --pkg-config-flags=--static \
       --enable-network --enable-protocol=file,pipe,tcp,tls,http,https \
       --enable-demuxer=mov,matroska,avi,mpegps,mpegts,asf,mp3,flac,ogg,wav,aac \
@@ -138,11 +177,13 @@ RUN ./configure \
       --enable-parser=h264,hevc,mpeg4video,vp8,vp9,mpegaudio,flac,aac,opus,vorbis \
       --enable-filter=scale,format,null,transpose,hflip,vflip,thumbnail \
       --enable-filter=aresample,aformat,anull \
+      --enable-filter=zscale,tonemap,setparams \
       --enable-encoder=rawvideo --enable-muxer=rawvideo \
-      --enable-encoder=aac,flac,libmp3lame,libopus \
+      --enable-encoder=aac,flac,libmp3lame,libopus,libx264 \
       --enable-muxer=mp3,adts,ogg,opus,flac,ipod,mpegts \
       --enable-bsf=aac_adtstoasc,h264_mp4toannexb,hevc_mp4toannexb \
       --extra-cflags=-I/usr/local/include --extra-ldflags="-static -L/usr/local/lib" \
+      --extra-libs="-lstdc++" \
  && make -j"$(nproc)" ffmpeg \
  && strip ffmpeg
 
@@ -165,7 +206,7 @@ RUN set -eu; \
       ./ffmpeg -hide_banner -decoders 2>/dev/null | grep -qE "^ V[.A-Z]* +${decoder} " \
         || { echo "the ${decoder} decoder is not in this build"; exit 1; }; \
     done; \
-    for filter in scale transpose hflip vflip thumbnail; do \
+    for filter in scale transpose hflip vflip thumbnail zscale tonemap; do \
       ./ffmpeg -hide_banner -filters 2>/dev/null | grep -qE " ${filter} " \
         || { echo "the ${filter} filter is not in this build"; exit 1; }; \
     done; \
@@ -173,6 +214,8 @@ RUN set -eu; \
       ./ffmpeg -hide_banner -decoders 2>/dev/null | grep -qE "^ A[.A-Z]* +${decoder} " \
         || { echo "the ${decoder} decoder is not in this build"; exit 1; }; \
     done; \
+    ./ffmpeg -hide_banner -encoders 2>/dev/null | grep -qE "^ V[.A-Z]* +libx264 " \
+      || { echo "the libx264 encoder is not in this build"; exit 1; }; \
     for encoder in aac flac libmp3lame libopus; do \
       ./ffmpeg -hide_banner -encoders 2>/dev/null | grep -qE "^ A[.A-Z]* +${encoder} " \
         || { echo "the ${encoder} encoder is not in this build"; exit 1; }; \
@@ -236,5 +279,40 @@ RUN set -eu; \
     [ "$(head -c 1 segment.ts | od -An -tx1 | tr -d ' ')" = "47" ] || { echo "the segment is not MPEG-TS"; exit 1; }
 
 # scratch, so the server image copies a file and inherits nothing.
+# And a film re-encoded, which is what the libraries above are for: a second of
+# ten-bit HEVC brought down to eight-bit H.264 in MPEG-TS, once as it is and
+# once through the HDR-to-SDR chain for each of PQ and HLG. The fixture says
+# nothing about its colour, so setparams says it -- which is also how the
+# server does it, from what the indexer read, since zscale finds no path from a
+# frame whose colour nobody stated.
+COPY testdata/main10.mp4 /src/main10.mp4
+RUN set -eu; \
+    tonemap="zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv,format=yuv420p"; \
+    for vf in "scale=-2:720,format=yuv420p" \
+      "setparams=color_primaries=bt2020:color_trc=smpte2084:colorspace=bt2020nc:range=tv,$tonemap" \
+      "setparams=color_primaries=bt2020:color_trc=arib-std-b67:colorspace=bt2020nc:range=tv,$tonemap"; do \
+      ./ffmpeg -hide_banner -v error -y -i main10.mp4 -vf "$vf" -c:v libx264 -preset veryfast -an -f mpegts out.ts; \
+      bytes="$(wc -c < out.ts)"; \
+      [ "$bytes" -gt 1000 ] && [ $((bytes % 188)) -eq 0 ] || { echo "re-encoding through $vf gave $bytes bytes"; exit 1; }; \
+      rm out.ts; \
+    done
+
+# The notice GPLv3 6(d) asks for, and the licence texts it points at, out of
+# the source trees themselves. OpenSSL's Apache licence is not in Alpine's
+# package, so it is fetched and pinned like the rest.
+ARG APACHE_SHA256=cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30
+COPY NOTICE /licenses/NOTICE
+RUN set -eu; \
+    sed -i "s|@FFMPEG_VERSION@|${FFMPEG_VERSION}|; s|@X264_COMMIT@|${X264_COMMIT}|; s|@ZIMG_COMMIT@|${ZIMG_COMMIT}|; s|@OPUS_VERSION@|${OPUS_VERSION}|" /licenses/NOTICE; \
+    if grep -q @ /licenses/NOTICE; then echo "the notice was not filled in"; exit 1; fi; \
+    cp /src/COPYING.GPLv3 /licenses/ffmpeg-COPYING.GPLv3; \
+    cp /src/COPYING.LGPLv2.1 /licenses/lame-COPYING.LGPLv2.1; \
+    cp /x264/COPYING /licenses/x264-COPYING; \
+    cp /zimg/COPYING /licenses/zimg-COPYING; \
+    cp /opus/COPYING /licenses/opus-COPYING; \
+    curl -fsSL -o /licenses/openssl-LICENSE-2.0 https://www.apache.org/licenses/LICENSE-2.0.txt; \
+    echo "${APACHE_SHA256}  /licenses/openssl-LICENSE-2.0" | sha256sum -c -
+
 FROM scratch
 COPY --from=build /src/ffmpeg /ffmpeg
+COPY --from=build /licenses /licenses

@@ -1,0 +1,23 @@
+This ffmpeg is licensed under the GNU General Public License, version 3 (see
+ffmpeg-COPYING.GPLv3), because it is built with libx264. Stratus, which runs it
+as a separate program, is MIT licensed and is not a part of it.
+
+Every component is unmodified. The complete corresponding source is:
+
+  the build recipe (configure flags and all):
+    https://github.com/C0piIot/stratus-backend/blob/main/build/ffmpeg/Dockerfile
+  FFmpeg @FFMPEG_VERSION@, GPLv3 as configured:
+    https://ffmpeg.org/releases/ffmpeg-@FFMPEG_VERSION@.tar.xz
+  x264 at commit @X264_COMMIT@, GPLv2 or later (x264-COPYING):
+    https://code.videolan.org/videolan/x264/-/tree/@X264_COMMIT@
+  zimg at commit @ZIMG_COMMIT@, WTFPL (zimg-COPYING):
+    https://github.com/sekrit-twc/zimg/tree/@ZIMG_COMMIT@
+  libopus @OPUS_VERSION@, BSD (opus-COPYING):
+    https://downloads.xiph.org/releases/opus/opus-@OPUS_VERSION@.tar.gz
+  LAME and OpenSSL 3, as packaged by Alpine Linux 3.24, LGPL (lame-COPYING.LGPLv2.1)
+  and Apache 2.0 (openssl-LICENSE-2.0):
+    https://pkgs.alpinelinux.org/package/v3.24/main/x86_64/lame-dev
+    https://pkgs.alpinelinux.org/package/v3.24/main/x86_64/openssl-libs-static
+
+If any of these stops being available there, ask the Stratus maintainers for it
+through https://github.com/C0piIot/stratus-backend/issues.
