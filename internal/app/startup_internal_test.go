@@ -177,3 +177,20 @@ func TestNoTranscoderIsANilInterface(t *testing.T) {
 		t.Errorf("transcoder(Deps{}) = %#v, want nil", tr)
 	}
 }
+
+// TestVideoEncoding: auto is four CPUs or more, and on and off mean what they
+// say whatever the machine.
+func TestVideoEncoding(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		mode string
+		cpus int
+		want bool
+	}{
+		{"auto", 4, true}, {"auto", 2, false}, {"on", 1, true}, {"off", 16, false},
+	} {
+		if got, why := videoEncoding(c.mode, c.cpus); got != c.want || why == "" {
+			t.Errorf("videoEncoding(%q, %d) = %v, %q", c.mode, c.cpus, got, why)
+		}
+	}
+}

@@ -223,3 +223,90 @@ func TestAFilmWithoutAQueryIsTheFile(t *testing.T) {
 		t.Errorf("a playlist for a file with no keyframe index = %d, want 404", rec.Code)
 	}
 }
+
+// fakeEncoder stands in for libx264.
+type fakeEncoder struct {
+	mu    sync.Mutex
+	asked []media.Segment
+}
+
+func (f *fakeEncoder) Segment(_ context.Context, _ db.File, _ media.Encode, s media.Segment) (io.ReadCloser, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.asked = append(f.asked, s)
+	return io.NopCloser(strings.NewReader("encoded " + media.EncodedName(s))), nil
+}
+
+func newEncodingCinema(t *testing.T) (*cinema, *fakeEncoder) {
+	t.Helper()
+	s, thumbs, meta := pieces(t)
+	segs, enc := &fakeSegments{}, &fakeEncoder{}
+	creds := credentials()
+	h := web.Handler(version, buildDate, creds, auth.NewSessions(creds, auth.DefaultSessionTTL), auth.NewShares(creds),
+		s, thumbs, meta, indexing(meta), web.Video{Media: meta, Segments: segs, Encoded: enc})
+	return &cinema{Handler: h, files: s, meta: meta, segments: segs}, enc
+}
+
+// TestAFilmIsOfferedBothWays: HEVC is remuxed for whoever decodes it and
+// re-encoded for whoever does not, and the master playlist lets the player
+// choose by the codecs each declares.
+func TestAFilmIsOfferedBothWays(t *testing.T) {
+	t.Parallel()
+	c, enc := newEncodingCinema(t)
+	hevc := db.Media{Codec: "hevc", CodecProfile: "Main 10", Level: 120, BitDepth: 10, Width: 3840, Height: 2160,
+		DurationMS: 14_000, AudioCodec: "aac", Channels: 2, ColorTransfer: "arib-std-b67"}
+	c.film(t, "iphone.mkv", "gop.mkv", hevc)
+	cookie := signIn(t, c)
+
+	master := get(t, c, "/files/iphone.mkv?hls=index.m3u8", cookie).Body.String()
+	for _, want := range []string{`CODECS="hvc1.2.4.L120.B0,mp4a.40.2"`, "\n?hls=copy.m3u8\n", `CODECS="avc1.640028,mp4a.40.2"`, "RESOLUTION=1920x1080", "\n?hls=h264.m3u8\n"} {
+		if !strings.Contains(master, want) {
+			t.Errorf("the master playlist lacks %q:\n%s", want, master)
+		}
+	}
+
+	encoded := get(t, c, "/files/iphone.mkv?hls=h264.m3u8", cookie).Body.String()
+	if !strings.Contains(encoded, "\n?hls=h0-6000.ts\n") || !strings.Contains(encoded, "\n?hls=h12000-2000.ts\n") {
+		t.Errorf("the re-encoded playlist:\n%s", encoded)
+	}
+	if copyList := get(t, c, "/files/iphone.mkv?hls=copy.m3u8", cookie).Body.String(); !strings.Contains(copyList, "?hls=0-6023-150-0.ts") {
+		t.Errorf("the remux playlist:\n%s", copyList)
+	}
+
+	rec := get(t, c, "/files/iphone.mkv?hls=h6000-6000.ts", cookie)
+	if rec.Code != http.StatusOK || rec.Body.String() != "encoded h6000-6000.ts" || rec.Header().Get("Content-Type") != "video/mp2t" {
+		t.Errorf("an encoded segment = %d %q", rec.Code, rec.Body.String())
+	}
+	if rec := get(t, c, "/files/iphone.mkv?hls=h1-99999.ts", cookie); rec.Code != http.StatusBadRequest {
+		t.Errorf("a nonsense encoded segment = %d", rec.Code)
+	}
+	enc.mu.Lock()
+	defer enc.mu.Unlock()
+	if len(enc.asked) != 1 {
+		t.Errorf("the encoder was asked %d times", len(enc.asked))
+	}
+}
+
+// TestAFilmOnlyReEncodingCanPlay: VP9 cannot be remuxed into a transport
+// stream, so with an encoder it is the H.264 alone -- and the player offers
+// it, where without one it would not.
+func TestAFilmOnlyReEncodingCanPlay(t *testing.T) {
+	t.Parallel()
+	c, _ := newEncodingCinema(t)
+	c.film(t, "vp9.mkv", "gop.mkv", db.Media{Codec: "vp9", Width: 1280, Height: 720, DurationMS: 6000})
+	cookie := signIn(t, c)
+
+	list := get(t, c, "/files/vp9.mkv?hls=index.m3u8", cookie).Body.String()
+	if strings.Contains(list, "STREAM-INF") || !strings.Contains(list, "?hls=h0-6000.ts") {
+		t.Errorf("a film only re-encoding plays should get that playlist alone:\n%s", list)
+	}
+	if rec := get(t, c, "/files/vp9.mkv?hls=copy.m3u8", cookie); rec.Code != http.StatusNotFound {
+		t.Errorf("a remux of VP9 = %d, want 404", rec.Code)
+	}
+	if rec := get(t, c, "/files/vp9.mkv?hls=0-6000-150-0.ts", cookie); rec.Code != http.StatusNotFound {
+		t.Errorf("a remuxed segment of VP9 = %d, want 404", rec.Code)
+	}
+	if page := get(t, c, "/files/vp9.mkv?play", cookie).Body.String(); !strings.Contains(page, "data-hls=") {
+		t.Error("the player does not offer a film it could play re-encoded")
+	}
+}

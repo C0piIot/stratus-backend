@@ -65,6 +65,26 @@ func DerivedKey(parent, name string) string {
 	return DerivedPrefix + parent + "/" + generationPrefix + strconv.Itoa(DerivedGeneration) + "-" + name
 }
 
+// CachePrefix begins the name of a derived object kept only as a cache: made
+// to save work, not because anything asked for it to be kept. The sweep
+// collects one CacheRetention after it was written, even while its parent
+// lives -- a film's re-encoded segments are gigabytes, and a cache that only
+// ever grew would fill the disk with films watched once (#50).
+const CachePrefix = "cache-"
+
+// CacheRetention is how long a cached derived object is kept after it was
+// written. A week: long enough for a film to be finished and watched again,
+// short enough that one watched once does not stay for good.
+const CacheRetention = 7 * 24 * time.Hour
+
+// cached reports whether a derived key is a cache, by the name after its
+// generation.
+func cached(key string) bool {
+	leaf := key[strings.LastIndexByte(key, '/')+1:]
+	_, rest, ok := strings.Cut(leaf, "-")
+	return ok && strings.HasPrefix(rest, CachePrefix)
+}
+
 // generationPrefix marks the number at the front of a derived leaf. A letter
 // and not bare digits, so that it cannot be read as a size.
 const generationPrefix = "g"
@@ -184,6 +204,11 @@ func (s *Service) Collect(ctx context.Context, olderThan time.Duration) (Collect
 			// lived -- which is the objection that kept the key a pure
 			// function of its parent's in the first place (#161).
 			if live && staleGeneration(info.Key) {
+				live = false
+			}
+			// And a cache outlives its welcome a week after it was written,
+			// whatever its parent is doing.
+			if live && cached(info.Key) && time.Since(info.ModTime) > CacheRetention {
 				live = false
 			}
 		default:
