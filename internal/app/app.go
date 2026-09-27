@@ -143,7 +143,7 @@ func (a *App) Handler(deps Deps) http.Handler {
 		// already speaks. See internal/dav/signed.go.
 		shares := auth.NewShares(creds)
 		mux.Handle(davPrefix, dav.SignedLinks(davPrefix, shares,
-			auth.Basic(davRealm, verifier, dav.Handler(davPrefix, service))))
+			auth.Basic(davRealm, verifier, hlsOr(web.HLS(davPrefix, service, films(deps)), dav.Handler(davPrefix, service)))))
 		// The same realm and the same throttle: it is the same credentials, and
 		// a second budget of guesses would be a second way in.
 		mux.Handle(tusPrefix, auth.Basic(davRealm, verifier, tus.Handler(tusPrefix, service)))
@@ -279,4 +279,22 @@ func films(deps Deps) web.Video {
 		v.Encoded = deps.Encoder
 	}
 	return v
+}
+
+// hlsOr sends a read that asks for HLS to hls and everything else to next.
+//
+// It is how a film is streamed as HLS from a WebDAV URL (#50): the app casts
+// from /dav/, since a client should depend on the protocol surface rather
+// than on the web UI's URLs (stratus-app#66), and a Chromecast fetches the
+// playlist and its segments itself with nothing but the share link's
+// signature. Routed here, in the composition root, because neither adapter
+// may import the other; the HLS is the web adapter's, behind WebDAV's gates.
+func hlsOr(hls, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if (r.Method == http.MethodGet || r.Method == http.MethodHead) && r.URL.Query().Has(web.HLSParam) {
+			hls.ServeHTTP(w, r)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
