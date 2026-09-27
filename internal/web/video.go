@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"strings"
+	"time"
 
 	"github.com/C0piIot/stratus-backend/internal/db"
 	"github.com/C0piIot/stratus-backend/internal/media"
@@ -35,8 +37,12 @@ const (
 	playParam = "play"
 	// hlsParam names the playlist or a segment.
 	hlsParam = "hls"
-	// playlistName is the one name hlsParam takes that is not a segment.
+	// playlistName is what a player is given: the one playlist when there is
+	// one way to stream a film, the master over both when there are two.
+	// copyName and encodedName are the two media playlists behind it.
 	playlistName = "index.m3u8"
+	copyName     = "copy.m3u8"
+	encodedName  = "h264.m3u8"
 )
 
 // Video is what films need from the rest of the process: the media row that
@@ -48,6 +54,11 @@ type Video struct {
 	}
 	Segments interface {
 		Segment(ctx context.Context, f db.File, r media.Remux, s media.Segment) (io.ReadCloser, error)
+	}
+	// Encoded re-encodes a film to H.264, and is nil where this machine is
+	// not to (STRATUS_VIDEO_TRANSCODE): then only the remux is offered.
+	Encoded interface {
+		Segment(ctx context.Context, f db.File, e media.Encode, s media.Segment) (io.ReadCloser, error)
 	}
 }
 
@@ -87,7 +98,8 @@ func (h *handler) play(w http.ResponseWriter, r *http.Request, user string, f db
 	// and that can be remuxed, gets the playlist. A row nobody has read yet
 	// is neither, and the file itself is offered.
 	if m, err := h.video.Media.MediaByFile(r.Context(), f.ID); err == nil && !media.PlaysInBrowser(f, m) {
-		if _, err := media.RemuxFor(m); err == nil {
+		_, remuxErr := media.RemuxFor(m)
+		if _, ok := h.encoding(m); remuxErr == nil || ok {
 			film.HLS = shared(href(f.Path)+"?"+hlsParam+"="+playlistName, token)
 		}
 	}
@@ -104,7 +116,17 @@ func (h *handler) play(w http.ResponseWriter, r *http.Request, user string, f db
 	h.render(w, http.StatusOK, pagePlay, v)
 }
 
-// hls answers the playlist or one segment. Its errors are plain statuses: what
+// encoding is a film's re-encode, when this machine makes them and the film
+// both needs one and can have one.
+func (h *handler) encoding(m db.Media) (media.Encode, bool) {
+	if h.video.Encoded == nil || !media.NeedsEncode(m) {
+		return media.Encode{}, false
+	}
+	e, err := media.EncodeFor(m)
+	return e, err == nil
+}
+
+// hls answers a playlist or one segment. Its errors are plain statuses: what
 // reads them is a player, not a person.
 func (h *handler) hls(w http.ResponseWriter, r *http.Request, f db.File, which string) {
 	// Readable from any origin: a Chromecast's receiver is a page on Google's,
@@ -119,22 +141,48 @@ func (h *handler) hls(w http.ResponseWriter, r *http.Request, f db.File, which s
 		http.Error(w, "this film has not been read yet", http.StatusNotFound)
 		return
 	}
-	remux, err := media.RemuxFor(m)
-	if err != nil {
-		http.Error(w, "this film cannot be streamed without re-encoding it", http.StatusNotFound)
-		return
-	}
+	remux, remuxErr := media.RemuxFor(m)
+	enc, encodes := h.encoding(m)
+	token := r.URL.Query().Get(shareParam)
+	uri := func(name string) string { return shared("?"+hlsParam+"="+url.QueryEscape(name), token) }
 
-	if which == playlistName {
-		h.playlist(w, r, f)
-		return
+	switch {
+	case which == playlistName && remuxErr == nil && encodes:
+		// Both, for the player to choose between by the codecs each declares.
+		w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+		_, _ = io.WriteString(w, media.MasterPlaylist([]media.Variant{
+			media.RemuxVariant(m, uri(copyName)), media.EncodeVariant(m, enc, uri(encodedName)),
+		}))
+	case (which == playlistName || which == copyName) && remuxErr == nil:
+		h.playlist(w, r, f, uri)
+	case (which == playlistName || which == encodedName) && encodes:
+		w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+		_, _ = io.WriteString(w, media.EncodedPlaylist(media.EncodedSegments(time.Duration(m.DurationMS)*time.Millisecond), uri))
+	case which == playlistName || which == copyName || which == encodedName:
+		http.Error(w, "this film cannot be streamed here", http.StatusNotFound)
+	case strings.HasPrefix(which, "h") && encodes:
+		seg, err := media.ParseEncoded(which)
+		if err != nil {
+			http.Error(w, "that is not a segment of this film", http.StatusBadRequest)
+			return
+		}
+		out, err := h.video.Encoded.Segment(r.Context(), f, enc, seg)
+		h.segment(w, r, f, which, out, err)
+	case remuxErr == nil:
+		seg, err := media.ParseSegment(which)
+		if err != nil {
+			http.Error(w, "that is not a segment of this film", http.StatusBadRequest)
+			return
+		}
+		out, err := h.video.Segments.Segment(r.Context(), f, remux, seg)
+		h.segment(w, r, f, which, out, err)
+	default:
+		http.Error(w, "this film cannot be streamed here", http.StatusNotFound)
 	}
-	seg, err := media.ParseSegment(which)
-	if err != nil {
-		http.Error(w, "that is not a segment of this film", http.StatusBadRequest)
-		return
-	}
-	out, err := h.video.Segments.Segment(r.Context(), f, remux, seg)
+}
+
+// segment sends what a remux or a re-encode produced, or says why it did not.
+func (h *handler) segment(w http.ResponseWriter, r *http.Request, f db.File, which string, out io.ReadCloser, err error) {
 	switch {
 	case errors.Is(err, media.ErrBusy):
 		w.Header().Set("Retry-After", "2")
@@ -150,7 +198,7 @@ func (h *handler) hls(w http.ResponseWriter, r *http.Request, f db.File, which s
 	_, _ = io.Copy(w, out)
 }
 
-func (h *handler) playlist(w http.ResponseWriter, r *http.Request, f db.File) {
+func (h *handler) playlist(w http.ResponseWriter, r *http.Request, f db.File, uri func(string) string) {
 	body, err := h.files.OpenFile(r.Context(), f)
 	if err != nil {
 		http.Error(w, "the film could not be opened", http.StatusInternalServerError)
@@ -166,10 +214,6 @@ func (h *handler) playlist(w http.ResponseWriter, r *http.Request, f db.File) {
 	// Relative addresses, each carrying the signature the playlist was
 	// fetched with: a player resolves them against the playlist's own URL,
 	// and a Chromecast has no other way to be let in.
-	token := r.URL.Query().Get(shareParam)
-	list := media.Playlist(segments, func(name string) string {
-		return shared("?"+hlsParam+"="+url.QueryEscape(name), token)
-	})
 	w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
-	_, _ = io.WriteString(w, list)
+	_, _ = io.WriteString(w, media.Playlist(segments, uri))
 }

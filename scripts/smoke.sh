@@ -150,18 +150,19 @@ fi
 # ---------------------------------------------------------------------------
 section "Image properties"
 # ---------------------------------------------------------------------------
-# The image must add exactly one layer to the base: the binary and nothing else.
+# The image must add exactly the layers it means to: see the count below.
 # A second layer means a stray COPY or a leaked source tree.
 docker pull -q "$BASE_IMAGE" >/dev/null 2>&1 || true
 base_layers="$(docker image inspect -f '{{len .RootFS.Layers}}' "$BASE_IMAGE" 2>/dev/null || echo 0)"
 img_layers="$(docker image inspect -f '{{len .RootFS.Layers}}' "$REF")"
-# Three layers now: the binary, ffprobe and ffmpeg. The number matters less than
-# the fact that it is counted -- a base swapped for something with a package
-# manager in it would show up here first.
-if [ "$base_layers" -gt 0 ] && [ "$((img_layers - base_layers))" -eq 3 ]; then
-  ok "adds exactly three layers over the base ($base_layers -> $img_layers)"
+# Four layers now: the binary, ffprobe, ffmpeg and ffmpeg's licence notice,
+# which GPLv3 wants beside the binary since it carries libx264 (#50). The
+# number matters less than the fact that it is counted -- a base swapped for
+# something with a package manager in it would show up here first.
+if [ "$base_layers" -gt 0 ] && [ "$((img_layers - base_layers))" -eq 4 ]; then
+  ok "adds exactly four layers over the base ($base_layers -> $img_layers)"
 else
-  bad "adds exactly three layers over the base" "base=$base_layers image=$img_layers"
+  bad "adds exactly four layers over the base" "base=$base_layers image=$img_layers"
 fi
 
 # Both media tools are requirements, so an absence has to fail here rather than
@@ -192,6 +193,20 @@ if [ -z "$shell_found" ]; then
   ok "no shell or coreutils in the image"
 else
   bad "no shell in the image" "found:$shell_found"
+fi
+
+# The notice GPLv3 asks for beside a binary built with libx264, and the texts
+# it points at: the one obligation the image carries that Stratus's own code
+# does not (build/ffmpeg/NOTICE).
+licdir="$(mktmp)"
+licid="$(docker create "$REF")"
+containers+=("$licid")
+if docker cp "$licid:/usr/local/share/licenses/ffmpeg" "$licdir/ffmpeg" >/dev/null 2>&1 &&
+   grep -q "GNU General Public License, version 3" "$licdir/ffmpeg/NOTICE" &&
+   [ -s "$licdir/ffmpeg/ffmpeg-COPYING.GPLv3" ] && [ -s "$licdir/ffmpeg/x264-COPYING" ]; then
+  ok "the image carries ffmpeg's licence notice and texts"
+else
+  bad "the image carries ffmpeg's licence notice and texts" "$(ls "$licdir/ffmpeg" 2>/dev/null | tr '\n' ' ')"
 fi
 
 # ---------------------------------------------------------------------------
@@ -434,7 +449,7 @@ davuser="edu"
 davpass="an example password for the smoke tests"
 run_detached "$davname" -u "$(id -u):$(id -g)" -v "$davdir:/data" \
   -e STRATUS_USERNAME="$davuser" -e STRATUS_PASSWORD="$davpass" \
-  -e STRATUS_INDEX_INTERVAL=10m
+  -e STRATUS_INDEX_INTERVAL=10m -e STRATUS_VIDEO_TRANSCODE=on
 
 if wait_serving "$davname"; then
   davhost="$(docker port "$davname" 8080/tcp | head -1)"
@@ -1004,6 +1019,35 @@ TRACK
   else
     bad "a film is streamed as HLS" "playlist '$(head -c 120 <<<"$playlist")', segment $segbytes bytes starting '$segmagic'"
   fi
+  # And re-encoded (#50): an iPhone's kind of film, ten-bit HEVC in HLG, is
+  # offered twice -- remuxed and as H.264 -- and the H.264 segment is the
+  # image's libx264 bringing it down to eight-bit SDR. The container runs with
+  # STRATUS_VIDEO_TRANSCODE=on, so the answer does not depend on how many CPUs
+  # the runner has.
+  curl -fsS -u "$davuser:$davpass" -X PUT --data-binary "@scripts/testdata/hlg.mp4" \
+    "http://$davhost/dav/hlg.mp4" >/dev/null 2>&1
+  master=""
+  for _ in $(seq 1 50); do
+    master="$(curl -fsS -b "$jar" "http://$davhost/files/hlg.mp4?hls=index.m3u8" 2>/dev/null || true)"
+    case "$master" in *STREAM-INF*) break ;; esac
+    sleep 0.2
+  done
+  encoded="$(curl -fsS -b "$jar" "http://$davhost/files/hlg.mp4?hls=h264.m3u8" 2>/dev/null || true)"
+  hseg="$(grep -m1 '^?hls=h' <<<"$encoded" || true)"
+  hfile="$(mktmp)/h264.ts"
+  curl -fsS -b "$jar" -o "$hfile" "http://$davhost/files/hlg.mp4$hseg" 2>/dev/null || true
+  hbytes="$(stat -c '%s' "$hfile" 2>/dev/null || echo 0)"
+  hmagic="$( (head -c 1 "$hfile" 2>/dev/null || true) | od -An -tx1 | tr -d ' \n')"
+  case "$master" in
+    *'CODECS="hvc1'*'CODECS="avc1'*)
+      if [ -n "$hseg" ] && [ "$hmagic" = "47" ] && [ $((hbytes % 188)) -eq 0 ] && [ "$hbytes" -gt 0 ]; then
+        ok "an HDR film is offered remuxed and re-encoded, and the H.264 segment is made ($hbytes bytes)"
+      else
+        bad "an HDR film's H.264 segment is made" "segment '$hseg', $hbytes bytes starting '$hmagic'"
+      fi ;;
+    *) bad "an HDR film is offered remuxed and re-encoded" "master '$(head -c 200 <<<"$master")'" ;;
+  esac
+
   case "$listing" in
     *'href="/files/film.mkv?play"'*) ok "the listing sends a film to the player" ;;
     *) bad "the listing sends a film to the player" "$(grep -o 'href="/files/film[^"]*"' <<<"$listing")" ;;

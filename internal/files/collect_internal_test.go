@@ -35,3 +35,19 @@ func TestDerivedKeyRefusesANestedName(t *testing.T) {
 	}()
 	DerivedKey("blobs/ab/cd/efgh", "hls/seg001.ts")
 }
+
+// TestCached: what the sweep lets go of a week after it was written, whatever
+// its parent is doing, is the name DerivedKey stamped a generation on and that
+// begins with CachePrefix -- and nothing else.
+func TestCached(t *testing.T) {
+	t.Parallel()
+	for key, want := range map[string]bool{
+		DerivedKey("video/2026/09/27/X.mkv", CachePrefix+"hls-h264-0-6000.ts"): true,
+		DerivedKey("video/2026/09/27/X.mkv", "300.jpg"):                        false,
+		DerivedPrefix + "photo/X.jpg/cache-300.jpg":                            false,
+	} {
+		if got := cached(key); got != want {
+			t.Errorf("cached(%q) = %v, want %v", key, got, want)
+		}
+	}
+}

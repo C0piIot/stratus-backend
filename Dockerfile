@@ -60,6 +60,9 @@ COPY --from=build /out/stratus /usr/local/bin/stratus
 # worse than a server that says what it is missing.
 COPY --from=ffprobe /ffprobe /usr/local/bin/ffprobe
 COPY --from=ffmpeg /ffmpeg /usr/local/bin/ffmpeg
+# The notice GPLv3 asks for beside that binary -- it is built with libx264 --
+# and the licence texts it points at. See build/ffmpeg/NOTICE.
+COPY --from=ffmpeg /licenses /usr/local/share/licenses/ffmpeg
 
 ENV STRATUS_ADDR=":8080" \
     STRATUS_DATA_DIR="/data"

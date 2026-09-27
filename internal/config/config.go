@@ -49,6 +49,16 @@ const (
 	DefaultIndexInterval = time.Hour
 )
 
+// The values STRATUS_VIDEO_TRANSCODE takes. Auto re-encodes only on a machine
+// that can keep up -- libx264 on one or two cores is slower than a film plays,
+// and a player that waits on every segment is worse than one given the
+// original to fail on (see internal/media/encode.go).
+const (
+	VideoTranscodeAuto = "auto"
+	VideoTranscodeOn   = "on"
+	VideoTranscodeOff  = "off"
+)
+
 // Config is the fully resolved configuration for one process.
 type Config struct {
 	// Addr is the listen address, in host:port form.
@@ -68,6 +78,9 @@ type Config struct {
 	// IndexInterval is how often the media indexer looks for work nobody told
 	// it about. Zero disables indexing altogether, notices included.
 	IndexInterval time.Duration
+	// VideoTranscode is whether a film is also offered re-encoded to H.264:
+	// VideoTranscodeAuto, VideoTranscodeOn or VideoTranscodeOff (#50).
+	VideoTranscode string
 	// Username and Password are the single user's credentials, and the
 	// password is held as configured rather than hashed: OpenSubsonic's token
 	// auth is md5(password + salt), which a hash cannot produce. See
@@ -154,6 +167,13 @@ func Load(getenv func(string) string) (Config, error) {
 		return Config{}, errors.New("STRATUS_INDEX_INTERVAL: cannot be negative, use 0 to disable")
 	}
 	cfg.IndexInterval = index
+
+	switch mode := lookup(getenv, "STRATUS_VIDEO_TRANSCODE", VideoTranscodeAuto); mode {
+	case VideoTranscodeAuto, VideoTranscodeOn, VideoTranscodeOff:
+		cfg.VideoTranscode = mode
+	default:
+		return Config{}, errors.New("STRATUS_VIDEO_TRANSCODE: must be auto, on or off")
+	}
 
 	// Checked here rather than when the client is made, so that a DSN pasted
 	// with a character missing stops the process instead of an install

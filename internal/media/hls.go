@@ -172,6 +172,16 @@ func Segments(ix Index) []Segment {
 // A VOD playlist, whole and ended, which is what lets a player show the
 // length and seek anywhere before a segment exists.
 func Playlist(segments []Segment, uri func(name string) string) string {
+	return playlist(segments, Segment.Name, uri)
+}
+
+// EncodedPlaylist is Playlist for a re-encode's segments, which are named
+// differently so that neither can be taken for the other.
+func EncodedPlaylist(segments []Segment, uri func(name string) string) string {
+	return playlist(segments, EncodedName, uri)
+}
+
+func playlist(segments []Segment, name func(Segment) string, uri func(string) string) string {
 	longest := time.Duration(0)
 	for _, s := range segments {
 		longest = max(longest, s.Length)
@@ -180,7 +190,7 @@ func Playlist(segments []Segment, uri func(name string) string) string {
 	b.WriteString("#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-PLAYLIST-TYPE:VOD\n#EXT-X-MEDIA-SEQUENCE:0\n")
 	fmt.Fprintf(&b, "#EXT-X-TARGETDURATION:%d\n", int(math.Ceil(longest.Seconds())))
 	for _, s := range segments {
-		fmt.Fprintf(&b, "#EXTINF:%.3f,\n%s\n", s.Length.Seconds(), uri(s.Name()))
+		fmt.Fprintf(&b, "#EXTINF:%.3f,\n%s\n", s.Length.Seconds(), uri(name(s)))
 	}
 	b.WriteString("#EXT-X-ENDLIST\n")
 	return b.String()

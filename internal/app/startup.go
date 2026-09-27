@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime"
 	"time"
 
 	"github.com/C0piIot/stratus-backend/internal/auth"
@@ -121,6 +122,12 @@ func (a *App) open(ctx context.Context) (deps Deps, err error) {
 	}
 	deps.Loopback = loopback
 	deps.Transcoder = media.NewTranscoder(ffmpeg, loopback)
+	if on, why := videoEncoding(a.cfg.VideoTranscode, runtime.GOMAXPROCS(0)); on {
+		deps.Encoder = media.NewEncoder(deps.Transcoder, deps.Storage)
+		slog.Info("films are also offered re-encoded to H.264", "because", why)
+	} else {
+		slog.Info("films are offered as they are and remuxed, never re-encoded", "because", why)
+	}
 
 	if a.cfg.IndexInterval > 0 {
 		ffprobe, perr := media.LookupFFprobe()
@@ -267,4 +274,24 @@ func EnsureDataDir(dir string) error {
 		return err
 	}
 	return os.Remove(probe)
+}
+
+// videoEncoding decides whether films are re-encoded here, and says why.
+//
+// Auto is four CPUs or more. libx264 on one or two cores makes a segment of
+// 1080p more slowly than it plays, so a player would stall on every one of
+// them -- worse than being handed a remux its device may refuse, which at
+// least fails at once. Four is where veryfast keeps ahead with a core to
+// spare for everything else.
+func videoEncoding(mode string, cpus int) (bool, string) {
+	switch mode {
+	case config.VideoTranscodeOn:
+		return true, "STRATUS_VIDEO_TRANSCODE is on"
+	case config.VideoTranscodeOff:
+		return false, "STRATUS_VIDEO_TRANSCODE is off"
+	}
+	if cpus >= 4 {
+		return true, fmt.Sprintf("auto, and %d CPUs keep ahead of a film", cpus)
+	}
+	return false, fmt.Sprintf("auto, and %d CPUs would fall behind a film", cpus)
 }

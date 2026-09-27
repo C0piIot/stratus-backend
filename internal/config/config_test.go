@@ -257,3 +257,22 @@ func TestLoadSentryDSN(t *testing.T) {
 		t.Errorf("the error prints the key: %v", err)
 	}
 }
+
+func TestLoadVideoTranscode(t *testing.T) {
+	t.Parallel()
+	for value, want := range map[string]string{
+		"": config.VideoTranscodeAuto, "auto": config.VideoTranscodeAuto,
+		"on": config.VideoTranscodeOn, "off": config.VideoTranscodeOff, "yes": "",
+	} {
+		cfg, err := config.Load(env(map[string]string{"STRATUS_VIDEO_TRANSCODE": value}))
+		if want == "" {
+			if err == nil {
+				t.Errorf("%q was accepted", value)
+			}
+			continue
+		}
+		if err != nil || cfg.VideoTranscode != want {
+			t.Errorf("%q: %q, %v; want %q", value, cfg.VideoTranscode, err, want)
+		}
+	}
+}

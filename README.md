@@ -26,13 +26,17 @@ protocols your existing apps already understand.
 | CardDAV | contacts | DAVx5, Thunderbird | planned |
 | DLNA / UPnP-AV | TVs, set-top players | | planned |
 
-§ Remux only: the picture is copied, never re-encoded, into MPEG-TS, and the
-sound made stereo AAC when it is AC-3, DTS or anything else a television will
-not play. That covers the commonest reason a film does not play on a
-Chromecast — Matroska, or its soundtrack — and not a picture the device cannot
-decode: a 10-bit HEVC film is offered as it is, and an old Chromecast still
-refuses it. H.264 and HEVC in MP4, QuickTime, Matroska or WebM; AVI and
-MPEG-TS say nowhere where their keyframes are, and are played as they are.
+§ Two ways, and the player chooses between them by the codecs each declares.
+**Remuxed**: the picture copied into MPEG-TS and the sound made stereo AAC when
+it is AC-3, DTS or anything else a television will not play — which covers
+Matroska and its soundtracks, for H.264 and HEVC in MP4, QuickTime, Matroska or
+WebM. **Re-encoded** to 1080p eight-bit H.264, for a picture the device cannot
+decode: HEVC on an older Chromecast or in Chrome, VP9 or AV1, 4K, and HDR, which
+an iPhone records and which is brought down to SDR — HLG and HDR10 alike;
+Dolby Vision profile 5 is not offered, since its picture cannot be. A
+re-encoded segment is kept for a week, so seeking back or watching again costs
+nothing, and re-encoding is only on where the machine keeps up (see below).
+AVI and MPEG-TS say nowhere where their keyframes are and are only re-encoded.
 
 ‡ The protocol works, the container suite cuts an upload in half and resumes it,
 and a real client does the same from the other side: the Stratus app negotiates
@@ -354,6 +358,15 @@ interval turns the sweep off, and the grace refuses to be `0` at all, since a
 sweep with no grace can take an upload whose row has not landed yet. The
 defaults are the answer for a normal install, which is why they are down here
 and not in the table above.
+
+`STRATUS_VIDEO_TRANSCODE` is whether films are also offered re-encoded to H.264:
+`auto`, the default, is yes on four CPUs or more and no below — libx264 on one
+or two cores makes 1080p more slowly than it plays, and a player stalling on
+every segment is worse than one given a remux to refuse — while `on` and `off`
+mean what they say. The log says at startup which it is and why. Re-encoded
+segments are cached under `derived/` with `cache-` in their name, and the sweep
+collects each a week after it was written, whatever its film is doing: a film
+re-encoded is gigabytes.
 
 The two backends also clean up after themselves when they open: the disk one
 empties its reserved directory of interrupted uploads, and the S3 one aborts

@@ -86,6 +86,9 @@ type Deps struct {
 	// ffmpeg without copying it first.
 	Transcoder *media.Transcoder
 	Loopback   *media.Loopback
+	// Encoder re-encodes films to H.264, and is nil where this machine is not
+	// to: see videoEncoding.
+	Encoder *media.Encoder
 	// Indexer is nil when there is nothing to index into, which today means no
 	// credentials and therefore no files.
 	Indexer *media.Indexer
@@ -269,5 +272,11 @@ func films(deps Deps) web.Video {
 	if deps.Transcoder == nil || deps.Database == nil {
 		return web.Video{}
 	}
-	return web.Video{Media: deps.Database, Segments: deps.Transcoder}
+	v := web.Video{Media: deps.Database, Segments: deps.Transcoder}
+	// A nil interface rather than a nil pointer inside one, for the reason
+	// transcoder gives.
+	if deps.Encoder != nil {
+		v.Encoded = deps.Encoder
+	}
+	return v
 }

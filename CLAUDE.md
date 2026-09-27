@@ -1176,6 +1176,22 @@ Restraint here is principle 3, not laziness:
   its negative decode time, so **every segment is offset by the same ten
   seconds**. TS rather than fMP4 because a TS segment stands alone.
 
+  **A picture a player cannot decode is also offered re-encoded** --
+  `media.Encoder`, 1080p eight-bit H.264 with libx264 -- and `index.m3u8`
+  becomes a master playlist over `copy.m3u8` and `h264.m3u8`, each declaring
+  its CODECS, so the player picks what it decodes: HLS's own negotiation, and
+  nothing here has to know the device. Re-encoded segments are a fixed six
+  seconds, since re-encoding makes its own keyframe and an exact seek decodes
+  forward to it; each is kept as a derived blob named `cache-`, which the sweep
+  collects a week after it was written whatever its parent is doing, because
+  a film re-encoded is gigabytes. **HDR is tone-mapped to SDR**, HLG and PQ,
+  with the colour the indexer read declared by `setparams` -- zscale finds no
+  path from a frame whose colour is unstated -- and Dolby Vision profile 5 is
+  not offered. The box turns with the picture, so an upright phone film stays
+  1080x1920. `STRATUS_VIDEO_TRANSCODE` is auto by default, which is on from
+  four CPUs: below that libx264 falls behind the film, and a stalling player
+  is worse than a remux refused at once.
+
   **HLS is served at the file's own URL**, `?hls=index.m3u8` and a segment's
   name, behind the gate that serves the file -- a session, or a share link's
   signature, which the playlist writes onto every segment's address because a

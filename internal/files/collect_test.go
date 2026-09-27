@@ -190,6 +190,24 @@ func TestCollectKeepsDerivedObjectsAlive(t *testing.T) {
 	}
 }
 
+// TestCollectKeepsAFreshCache: a cached derived object is collected a week
+// after it was written, not the moment its sweep sees it.
+func TestCollectKeepsAFreshCache(t *testing.T) {
+	t.Parallel()
+	s, blobs := service(t)
+	live := write(t, s, "film.mkv", "the original")
+	cache := files.DerivedKey(live.BlobKey, files.CachePrefix+"hls-h264-0-6000.ts")
+	if _, err := blobs.Put(t.Context(), cache, strings.NewReader("a segment"), -1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Collect(t.Context(), 0); err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	if _, err := blobs.Stat(t.Context(), cache); err != nil {
+		t.Errorf("a cache written a moment ago was collected: %v", err)
+	}
+}
+
 // TestCollectSweepsAnOlderGeneration is what makes files.DerivedGeneration mean
 // anything (#161): a picture made by a generator that has moved on is garbage
 // even though the file it was made from is right there.
