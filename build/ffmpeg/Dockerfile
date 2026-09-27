@@ -91,6 +91,14 @@ RUN curl -fsSL "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz" | t
 # an m4a. swresample stays for them -- a client asking for opus gets 48 kHz
 # whatever the file was.
 #
+# **And it remuxes a film into HLS segments** (#50): the picture copied, never
+# re-encoded, into MPEG-TS, and the sound made AAC when it is what a television
+# will not play -- AC-3, E-AC-3, DTS or TrueHD off a disc, MP2 off a broadcast,
+# which is why those five decoders are here and no encoder for any of them. That is the mpegts muxer and the two filters it
+# inserts on its own to turn H.264 and HEVC as MP4 and Matroska store them into
+# the Annex B form a transport stream carries -- without them the muxer refuses
+# the stream rather than writing a broken one.
+#
 # **And it can read over HTTP, TLS included.** A source that is not a local file
 # -- a blob in a bucket -- is read by ranges rather than copied first: an m4a
 # whose moov atom sits at the end cannot be read from a pipe, and a transcode
@@ -125,14 +133,15 @@ RUN ./configure \
       --enable-demuxer=mov,matroska,avi,mpegps,mpegts,asf,mp3,flac,ogg,wav,aac \
       --enable-decoder=hevc,h264,vp8,vp9,mpeg2video,mpeg4,msmpeg4v3,vc1,wmv3 \
       --enable-decoder=mp3,mp3float,flac,aac,alac,vorbis,opus,wmav1,wmav2,wmapro \
+      --enable-decoder=ac3,eac3,dca,truehd,mp2 \
       --enable-decoder=pcm_s16le,pcm_s24le,pcm_s32le,pcm_f32le,pcm_u8 \
       --enable-parser=h264,hevc,mpeg4video,vp8,vp9,mpegaudio,flac,aac,opus,vorbis \
       --enable-filter=scale,format,null,transpose,hflip,vflip,thumbnail \
       --enable-filter=aresample,aformat,anull \
       --enable-encoder=rawvideo --enable-muxer=rawvideo \
       --enable-encoder=aac,flac,libmp3lame,libopus \
-      --enable-muxer=mp3,adts,ogg,opus,flac,ipod \
-      --enable-bsf=aac_adtstoasc \
+      --enable-muxer=mp3,adts,ogg,opus,flac,ipod,mpegts \
+      --enable-bsf=aac_adtstoasc,h264_mp4toannexb,hevc_mp4toannexb \
       --extra-cflags=-I/usr/local/include --extra-ldflags="-static -L/usr/local/lib" \
  && make -j"$(nproc)" ffmpeg \
  && strip ffmpeg
@@ -160,7 +169,7 @@ RUN set -eu; \
       ./ffmpeg -hide_banner -filters 2>/dev/null | grep -qE " ${filter} " \
         || { echo "the ${filter} filter is not in this build"; exit 1; }; \
     done; \
-    for decoder in mp3float flac aac alac vorbis opus wmav2 wmapro pcm_s16le pcm_s24le; do \
+    for decoder in mp3float flac aac alac vorbis opus wmav2 wmapro pcm_s16le pcm_s24le ac3 eac3 dca truehd mp2; do \
       ./ffmpeg -hide_banner -decoders 2>/dev/null | grep -qE "^ A[.A-Z]* +${decoder} " \
         || { echo "the ${decoder} decoder is not in this build"; exit 1; }; \
     done; \
@@ -168,7 +177,7 @@ RUN set -eu; \
       ./ffmpeg -hide_banner -encoders 2>/dev/null | grep -qE "^ A[.A-Z]* +${encoder} " \
         || { echo "the ${encoder} encoder is not in this build"; exit 1; }; \
     done; \
-    for muxer in rawvideo mp3 adts ogg opus flac ipod; do \
+    for muxer in rawvideo mp3 adts ogg opus flac ipod mpegts; do \
       ./ffmpeg -hide_banner -muxers 2>/dev/null | grep -qE " ${muxer} " \
         || { echo "the ${muxer} muxer is not in this build"; exit 1; }; \
     done; \
@@ -213,6 +222,18 @@ RUN set -eu; \
       bytes="$(size -i tiny.flac -c:a "$encoder" -f "$muxer")"; \
       [ "$bytes" -gt 1000 ] || { echo "$encoder in $muxer gave $bytes bytes"; exit 1; }; \
     done
+
+# And a film: two seconds of H.264 with AAC out of Matroska, remuxed into the
+# MPEG-TS an HLS segment is -- 188-byte packets, each opening with 0x47. The
+# bitstream filter is inserted by the muxer itself, which is exactly what goes
+# unnoticed until it is missing.
+COPY testdata/gop.mkv /src/gop.mkv
+RUN set -eu; \
+    ./ffmpeg -hide_banner -v error -ss 2 -i gop.mkv -t 2 -map 0:v:0 -map 0:a:0? -c:v copy -c:a copy \
+      -copyts -muxdelay 0 -muxpreload 0 -f mpegts segment.ts; \
+    bytes="$(wc -c < segment.ts)"; \
+    [ "$bytes" -gt 1000 ] && [ $((bytes % 188)) -eq 0 ] || { echo "the segment is $bytes bytes"; exit 1; }; \
+    [ "$(head -c 1 segment.ts | od -An -tx1 | tr -d ' ')" = "47" ] || { echo "the segment is not MPEG-TS"; exit 1; }
 
 # scratch, so the server image copies a file and inherits nothing.
 FROM scratch
