@@ -156,3 +156,96 @@ func listed(t *testing.T, client *minio.Client, bucket, prefix string) []string 
 	}
 	return out
 }
+
+// TestAppendingNothingWritesNothing: an empty PATCH is legal tus, and must not
+// replace a tail with the same bytes or invent one.
+func TestAppendingNothingWritesNothing(t *testing.T) {
+	t.Parallel()
+	client, bucket := tailBucket(t)
+	store := &Store{client: client, core: minio.Core{Client: client}, bucket: bucket, partSize: minPartSize}
+
+	const key = "notes/empty-patch.txt"
+	id, err := store.StartUpload(t.Context(), key)
+	if err != nil {
+		t.Fatalf("StartUpload: %v", err)
+	}
+	if at, aerr := store.AppendUpload(t.Context(), key, id, 0, strings.NewReader("")); aerr != nil || at != 0 {
+		t.Errorf("AppendUpload of nothing = %d, %v, want 0, nil", at, aerr)
+	}
+	if got := listed(t, client, bucket, tailPrefix); len(got) != 0 {
+		t.Errorf("an empty append left a tail: %v", got)
+	}
+}
+
+// TestATailLargerThanAPartIsRefused: this backend never writes one, so one
+// that is there is somebody else's object or a bug, and reading it as an
+// offset would promise bytes the upload does not have.
+func TestATailLargerThanAPartIsRefused(t *testing.T) {
+	t.Parallel()
+	client, bucket := tailBucket(t)
+	store := &Store{client: client, core: minio.Core{Client: client}, bucket: bucket, partSize: minPartSize}
+
+	const key = "video/odd.mp4"
+	id, err := store.StartUpload(t.Context(), key)
+	if err != nil {
+		t.Fatalf("StartUpload: %v", err)
+	}
+	big := bytes.Repeat([]byte{3}, minPartSize)
+	if _, err := client.PutObject(t.Context(), bucket, tailKey(id, 1), bytes.NewReader(big), int64(len(big)), minio.PutObjectOptions{}); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := store.AppendUpload(t.Context(), key, id, minPartSize, strings.NewReader("x")); err == nil {
+		t.Error("AppendUpload over an oversized tail = nil, want an error")
+	}
+	if _, err := store.CompleteUpload(t.Context(), key, id); err == nil {
+		t.Error("CompleteUpload over an oversized tail = nil, want an error")
+	}
+}
+
+// TestAPartTheBucketRefusesIsNotCounted: the offset after a failed part is
+// what the bucket has, not what was read -- here the upload is aborted from
+// under the append, which is what the stale sweep of another process does.
+func TestAPartTheBucketRefusesIsNotCounted(t *testing.T) {
+	t.Parallel()
+	client, bucket := tailBucket(t)
+	store := &Store{client: client, core: minio.Core{Client: client}, bucket: bucket, partSize: minPartSize}
+
+	const key = "video/pulled.mp4"
+	id, err := store.StartUpload(t.Context(), key)
+	if err != nil {
+		t.Fatalf("StartUpload: %v", err)
+	}
+	body := &abortingReader{
+		r: bytes.NewReader(bytes.Repeat([]byte{4}, minPartSize+1)),
+		abort: func() error {
+			return store.core.AbortMultipartUpload(t.Context(), bucket, key, id)
+		},
+	}
+	at, err := store.AppendUpload(t.Context(), key, id, 0, body)
+	if err == nil {
+		t.Fatal("AppendUpload into an aborted upload = nil, want an error")
+	}
+	if body.err != nil {
+		t.Fatalf("abort: %v", body.err)
+	}
+	if at != 0 {
+		t.Errorf("offset after a refused part = %d, want 0", at)
+	}
+}
+
+// abortingReader runs abort before its first read.
+type abortingReader struct {
+	r     io.Reader
+	abort func() error
+	done  bool
+	err   error
+}
+
+func (a *abortingReader) Read(p []byte) (int, error) {
+	if !a.done {
+		a.done = true
+		a.err = a.abort()
+	}
+	return a.r.Read(p)
+}

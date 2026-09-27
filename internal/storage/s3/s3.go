@@ -590,14 +590,15 @@ func (s *Store) readTail(ctx context.Context, id string, next int, buf []byte) (
 	switch {
 	case isNotFound(err):
 		return 0, nil
-	case errors.Is(err, io.EOF):
-		return n, nil
-	case err != nil:
+	case err != nil && !errors.Is(err, io.EOF):
 		return 0, err
+	case n >= minPartSize:
+		// A tail is under a part by construction, so one this size is not
+		// something this backend wrote, and counting it would promise bytes
+		// the upload may not have.
+		return 0, fmt.Errorf("the tail of part %d is not under a part", next)
 	}
-	// A tail is under a part by construction; one that fills the buffer is not
-	// something this backend wrote.
-	return 0, fmt.Errorf("the tail of part %d is larger than a part", next)
+	return n, nil
 }
 
 // dropTail deletes a tail whose part has landed. Best effort: once the part
