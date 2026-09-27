@@ -375,12 +375,17 @@ listing and billed until something ends them.
 
 Both keep a second place for uploads that arrive over several requests and are
 meant to be resumed, which is the opposite case and is deliberately left alone
-by those sweeps: a directory beside the first one for the disk backend, and a
-spool under the data directory for the S3 one, where the tail of an upload waits
-until it is a whole part. This is where tus keeps an upload between `PATCH`es,
-so what is in there is whatever is in flight, and the twelve-hour expiry above is
-what empties it: abandoning an upload aborts it in the blob store, spool
-included.
+by those sweeps: a directory beside the first one for the disk backend, and the
+multipart upload itself for the S3 one, with the bytes that are not yet a whole
+part as objects under `.stratus-uploads/` in the bucket. This is where tus keeps
+an upload between `PATCH`es, so what is in there is whatever is in flight, and
+the twelve-hour expiry above is what empties it: abandoning an upload aborts it
+in the blob store, tail included.
+
+The S3 backend writes nothing of an upload to the local disk: it holds 16 MiB
+per upload in flight in memory, and the largest object one request can upload
+is 156 GiB, which is S3's ten thousand parts. An install that used an earlier
+version can delete `.uploads/` from its data directory.
 
 ## OpenSubsonic
 

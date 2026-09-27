@@ -13,8 +13,8 @@ import (
 	"io"
 	"iter"
 	"net/url"
-	"os"
-	"path/filepath"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/minio/minio-go/v7"
@@ -38,15 +38,6 @@ type Config struct {
 	Region string
 	// UseTLS talks https. Off is for a self-hosted S3 on a private network.
 	UseTLS bool
-	// SpoolDir is where a resumable upload's tail waits until it is a whole
-	// part. S3 refuses a multipart part under MinPartSize unless it is the
-	// last, and the port promises a caller that its chunks can be any size, so
-	// the difference is held here rather than pushed back at a phone.
-	//
-	// Local and losable on purpose: what it holds is bytes a client can send
-	// again. Losing it fails an upload in flight rather than corrupting one,
-	// because UploadOffset counts what is in it -- see StartUpload.
-	SpoolDir string
 }
 
 // Store is a storage.Storage backed by an S3-compatible bucket.
@@ -54,7 +45,9 @@ type Store struct {
 	client *minio.Client
 	core   minio.Core
 	bucket string
-	spool  string
+	// partSize is defaultPartSize, and a field so a test can see parts form
+	// without sending sixteen megabytes for each.
+	partSize int
 }
 
 var _ storage.Storage = (*Store)(nil)
@@ -72,11 +65,6 @@ func New(ctx context.Context, cfg Config) (*Store, error) {
 		return nil, errors.New("s3: bucket is required")
 	case cfg.AccessKey == "" || cfg.SecretKey == "":
 		return nil, errors.New("s3: access key and secret key are required")
-	case cfg.SpoolDir == "":
-		return nil, errors.New("s3: spool directory is required")
-	}
-	if err := os.MkdirAll(cfg.SpoolDir, 0o750); err != nil {
-		return nil, fmt.Errorf("s3: create the spool directory %s: %w", cfg.SpoolDir, err)
 	}
 
 	client, err := minio.New(cfg.Endpoint, &minio.Options{
@@ -98,7 +86,7 @@ func New(ctx context.Context, cfg Config) (*Store, error) {
 		return nil, fmt.Errorf("s3: bucket %q does not exist on %s", cfg.Bucket, cfg.Endpoint)
 	}
 
-	store := &Store{client: client, core: minio.Core{Client: client}, bucket: cfg.Bucket, spool: cfg.SpoolDir}
+	store := &Store{client: client, core: minio.Core{Client: client}, bucket: cfg.Bucket, partSize: defaultPartSize}
 	if err := store.abortStaleUploads(ctx); err != nil {
 		return nil, err
 	}
@@ -130,6 +118,21 @@ func (s *Store) abortUploadsBefore(ctx context.Context, cutoff time.Time) error 
 		}
 		if err := s.client.RemoveIncompleteUpload(ctx, s.bucket, upload.Key); err != nil {
 			return fmt.Errorf("s3: abort the incomplete upload of %q: %w", upload.Key, err)
+		}
+	}
+
+	// And the tails, which an upload aborted above leaves and which are
+	// billed like anything else. Last written before the cutoff means the
+	// upload has not been touched since, whatever became of it.
+	for oi := range s.client.ListObjects(ctx, s.bucket, minio.ListObjectsOptions{Prefix: tailPrefix, Recursive: true}) {
+		if oi.Err != nil {
+			return fmt.Errorf("s3: list the tails of incomplete uploads: %w", oi.Err)
+		}
+		if oi.LastModified.After(cutoff) {
+			continue
+		}
+		if err := s.client.RemoveObject(ctx, s.bucket, oi.Key, minio.RemoveObjectOptions{}); err != nil {
+			return fmt.Errorf("s3: remove the tail %q: %w", oi.Key, err)
 		}
 	}
 	return nil
@@ -273,6 +276,10 @@ func (s *Store) List(ctx context.Context, prefix string) iter.Seq2[storage.Objec
 				yield(storage.ObjectInfo{}, fmt.Errorf("list %q: %w", prefix, oi.Err))
 				return
 			}
+			// A tail is bytes of an upload in flight, which no listing shows.
+			if strings.HasPrefix(oi.Key, tailPrefix) {
+				continue
+			}
 			if !yield(objectInfo(oi.Key, oi), nil) {
 				return
 			}
@@ -318,11 +325,23 @@ func isNotFound(err error) bool {
 	}
 }
 
-// minPartSize is S3's floor for every part but the last, and it is the whole
-// reason this backend spools. A part under it is accepted when it is uploaded
-// and rejected when the upload is completed, so a client sending small chunks
-// would upload happily for an hour and fail at the end.
+// minPartSize is S3's floor for every part but the last. A part under it is
+// accepted when it is uploaded and rejected when the upload is completed, so a
+// client sending small chunks would upload happily for an hour and fail at the
+// end.
 const minPartSize = 5 << 20
+
+// defaultPartSize is how much of an append is held in memory before it goes
+// to the bucket as a part: the whole of this backend's footprint per upload in
+// flight, and, times S3's ten thousand parts, the largest object a client
+// sending everything in one request can upload -- 156 GiB.
+const defaultPartSize = 16 << 20
+
+// tailPrefix is where the part-to-be of an upload waits between appends. It
+// cannot collide with a key, since storage.ValidateKey rejects a first segment
+// starting with a dot, and it is named for this project because a bucket may
+// be shared and the stale sweep deletes what is under it.
+const tailPrefix = ".stratus-uploads/"
 
 // StartUpload implements storage.Storage.
 func (s *Store) StartUpload(ctx context.Context, key string) (string, error) {
@@ -338,10 +357,18 @@ func (s *Store) StartUpload(ctx context.Context, key string) (string, error) {
 
 // AppendUpload implements storage.Storage.
 //
-// The tail that is not yet a whole part goes to SpoolDir and is counted as
-// accepted, which is what lets the offset this returns be one a client can
-// trust: the alternative, holding it in memory, would report progress that a
-// restart silently took back.
+// Nothing touches the local disk, so an upload can be resumed through any
+// process pointed at the bucket. What arrives is held in memory and goes out as
+// a part each time there is a part's worth. What is left when the request
+// ends -- because it ended, or because the connection went -- is either big
+// enough to be a part, or is written to the bucket as the tail: an object named
+// for the part it will become, and counted in the offset only while that part
+// does not exist. That numbering is what makes promoting a tail safe: the
+// moment the part lands, the tail it came from stops counting, with no second
+// write that could fail in between.
+//
+// Everything this reads is kept unless the bucket refuses it, which is what
+// lets internal/files carry its running hash across a dropped connection.
 func (s *Store) AppendUpload(ctx context.Context, key, id string, offset int64, r io.Reader) (int64, error) {
 	if err := storage.ValidateKey(key); err != nil {
 		return 0, err
@@ -351,69 +378,94 @@ func (s *Store) AppendUpload(ctx context.Context, key, id string, offset int64, 
 	if err != nil {
 		return 0, err
 	}
-	tail, err := s.tail(id)
+	next := len(parts) + 1
+
+	buf := make([]byte, s.partSize)
+	kept, err := s.readTail(ctx, id, next, buf)
 	if err != nil {
 		return 0, fmt.Errorf("s3: the upload of %q: %w", key, err)
 	}
-	at := uploaded + tail
-	if at != offset {
+	if at := uploaded + int64(kept); at != offset {
 		return at, fmt.Errorf("%w: the upload of %q is at %d and not %d", storage.ErrUploadOffset, key, at, offset)
 	}
 
-	// Appended to the spool first and promoted in whole parts, so a failure
-	// anywhere leaves the offset exactly where the spool says it is.
-	f, err := os.OpenFile(s.spoolPath(id), os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600)
-	if err != nil {
-		return at, fmt.Errorf("s3: spool the upload of %q: %w", key, err)
-	}
-	n, err := io.Copy(f, r)
-	if err == nil {
-		err = f.Sync()
-	}
-	if cerr := f.Close(); cerr != nil && err == nil {
-		err = cerr
-	}
-	if err != nil {
-		if got, serr := s.UploadOffset(ctx, key, id); serr == nil {
-			return got, fmt.Errorf("s3: spool the upload of %q: %w", key, err)
+	// held is what is in memory, kept how much of it the bucket already has as
+	// the tail, and the offset at any moment is uploaded + kept.
+	held := kept
+	for {
+		n, rerr := fill(r, buf[held:])
+		held += n
+		if rerr != nil {
+			return s.flush(ctx, key, id, next, uploaded, buf[:held], kept, rerr)
 		}
-		return at, fmt.Errorf("s3: spool the upload of %q: %w", key, err)
+		if err := s.putPart(ctx, key, id, next, buf[:held]); err != nil {
+			return uploaded + int64(kept), err
+		}
+		s.dropTail(ctx, id, next)
+		uploaded += int64(held)
+		held, kept = 0, 0
+		next++
 	}
-
-	if err := s.promote(ctx, key, id, len(parts)); err != nil {
-		// The bytes are in the spool and counted either way, so the offset is
-		// true; the error still goes back, because a promotion that keeps
-		// failing is an upload that will never complete.
-		return at + n, fmt.Errorf("s3: promote the upload of %q: %w", key, err)
-	}
-	return at + n, nil
 }
 
-// promote turns the spool into a part once there is enough of it to be one.
+// flush keeps what an append was holding when its body ended, and reports the
+// reader's error unless that was the end of the body.
 //
-// The whole spool goes in a single part rather than being cut into minimum-size
-// pieces: a part may be up to five gigabytes, and fewer, larger parts is both
-// fewer requests and fewer things to track.
-func (s *Store) promote(ctx context.Context, key, id string, done int) error {
-	size, err := s.tail(id)
-	if err != nil || size < minPartSize {
-		return err
+// Not under the request's context: the likeliest reason to be here is a client
+// that went away, which cancels it, and the bytes it did send are exactly what
+// the next attempt should not have to send again.
+func (s *Store) flush(ctx context.Context, key, id string, next int, uploaded int64, held []byte, kept int, rerr error) (int64, error) {
+	if errors.Is(rerr, io.EOF) {
+		rerr = nil
+	}
+	if len(held) == kept {
+		return uploaded + int64(kept), rerr
 	}
 
-	f, err := os.Open(s.spoolPath(id))
-	if err != nil {
-		return err
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), flushTimeout)
+	defer cancel()
+
+	var err error
+	if len(held) >= minPartSize {
+		if err = s.putPart(ctx, key, id, next, held); err == nil {
+			s.dropTail(ctx, id, next)
+		}
+	} else if _, err = s.client.PutObject(ctx, s.bucket, tailKey(id, next), bytes.NewReader(held), int64(len(held)),
+		minio.PutObjectOptions{}); err != nil {
+		err = fmt.Errorf("s3: keep the tail of %q: %w", key, err)
 	}
-	_, err = s.core.PutObjectPart(ctx, s.bucket, key, id, done+1, f, size,
+	if err != nil {
+		return uploaded + int64(kept), errors.Join(rerr, err)
+	}
+	return uploaded + int64(len(held)), rerr
+}
+
+// flushTimeout bounds the write that outlives its request: a tail is under
+// five megabytes, and a bucket that cannot take that in a minute is not going
+// to.
+const flushTimeout = time.Minute
+
+// fill reads until buf is full, returning io.EOF only for a body that ended
+// cleanly and any other error as the reader gave it.
+func fill(r io.Reader, buf []byte) (int, error) {
+	var n int
+	for n < len(buf) {
+		m, err := r.Read(buf[n:])
+		n += m
+		if err != nil {
+			return n, err
+		}
+	}
+	return n, nil
+}
+
+func (s *Store) putPart(ctx context.Context, key, id string, number int, b []byte) error {
+	_, err := s.core.PutObjectPart(ctx, s.bucket, key, id, number, bytes.NewReader(b), int64(len(b)),
 		minio.PutObjectPartOptions{DisableContentSha256: true})
-	// Best effort, and not folded into the error above: the client closes the
-	// reader it was handed, so this is usually "file already closed" and never
-	// news. What matters is whether the part landed.
-	_ = f.Close()
 	if err != nil {
-		return fmt.Errorf("s3: upload part %d of %q: %w", done+1, key, err)
+		return fmt.Errorf("s3: upload part %d of %q: %w", number, key, mapErr(key, err))
 	}
-	return os.Remove(s.spoolPath(id))
+	return nil
 }
 
 // UploadOffset implements storage.Storage.
@@ -421,11 +473,11 @@ func (s *Store) UploadOffset(ctx context.Context, key, id string) (int64, error)
 	if err := storage.ValidateKey(key); err != nil {
 		return 0, err
 	}
-	_, uploaded, err := s.parts(ctx, key, id)
+	parts, uploaded, err := s.parts(ctx, key, id)
 	if err != nil {
 		return 0, err
 	}
-	tail, err := s.tail(id)
+	tail, err := s.tailSize(ctx, id, len(parts)+1)
 	if err != nil {
 		return 0, fmt.Errorf("s3: the upload of %q: %w", key, err)
 	}
@@ -442,7 +494,8 @@ func (s *Store) CompleteUpload(ctx context.Context, key, id string) (storage.Obj
 	if err != nil {
 		return storage.ObjectInfo{}, err
 	}
-	size, err := s.tail(id)
+	next := len(parts) + 1
+	size, err := s.tailSize(ctx, id, next)
 	if err != nil {
 		return storage.ObjectInfo{}, fmt.Errorf("s3: the upload of %q: %w", key, err)
 	}
@@ -456,16 +509,14 @@ func (s *Store) CompleteUpload(ctx context.Context, key, id string) (storage.Obj
 		}
 		return s.Put(ctx, key, bytes.NewReader(nil), 0)
 	}
-	// Whatever is left in the spool is the last part, and the last part is the
-	// one S3 lets be short.
+	// The tail is the last part, and the last part is the one S3 lets be short.
 	if size > 0 {
-		f, oerr := os.Open(s.spoolPath(id))
-		if oerr != nil {
-			return storage.ObjectInfo{}, fmt.Errorf("s3: the upload of %q: %w", key, oerr)
+		buf := make([]byte, size)
+		if _, err := s.readTail(ctx, id, next, buf); err != nil {
+			return storage.ObjectInfo{}, fmt.Errorf("s3: the upload of %q: %w", key, err)
 		}
-		part, perr := s.core.PutObjectPart(ctx, s.bucket, key, id, len(parts)+1, f, size,
+		part, perr := s.core.PutObjectPart(ctx, s.bucket, key, id, next, bytes.NewReader(buf), size,
 			minio.PutObjectPartOptions{DisableContentSha256: true})
-		_ = f.Close()
 		if perr != nil {
 			return storage.ObjectInfo{}, fmt.Errorf("s3: upload the last part of %q: %w", key, perr)
 		}
@@ -475,7 +526,7 @@ func (s *Store) CompleteUpload(ctx context.Context, key, id string) (storage.Obj
 	if _, err := s.core.CompleteMultipartUpload(ctx, s.bucket, key, id, parts, minio.PutObjectOptions{}); err != nil {
 		return storage.ObjectInfo{}, fmt.Errorf("s3: complete the upload of %q: %w", key, mapErr(key, err))
 	}
-	_ = os.Remove(s.spoolPath(id))
+	s.dropTails(ctx, id)
 	return s.Stat(ctx, key)
 }
 
@@ -484,10 +535,10 @@ func (s *Store) AbortUpload(ctx context.Context, key, id string) error {
 	if err := storage.ValidateKey(key); err != nil {
 		return err
 	}
-	_ = os.Remove(s.spoolPath(id))
 	if err := s.core.AbortMultipartUpload(ctx, s.bucket, key, id); err != nil && !isNotFound(err) {
 		return fmt.Errorf("s3: abort the upload of %q: %w", key, err)
 	}
+	s.dropTails(ctx, id)
 	return nil
 }
 
@@ -513,20 +564,65 @@ func (s *Store) parts(ctx context.Context, key, id string) ([]minio.CompletePart
 	}
 }
 
-// tail is how much is in the spool, and zero when there is none.
-func (s *Store) tail(id string) (int64, error) {
-	info, err := os.Stat(s.spoolPath(id))
-	if errors.Is(err, os.ErrNotExist) {
+// tailSize is how much the tail for part number next holds, and zero when
+// there is none.
+func (s *Store) tailSize(ctx context.Context, id string, next int) (int64, error) {
+	oi, err := s.client.StatObject(ctx, s.bucket, tailKey(id, next), minio.StatObjectOptions{})
+	if isNotFound(err) {
 		return 0, nil
 	}
 	if err != nil {
 		return 0, err
 	}
-	return info.Size(), nil
+	return oi.Size, nil
 }
 
-func (s *Store) spoolPath(id string) string {
-	// The id comes from S3 and can carry anything, so it is not a file name
-	// until it has been made one.
-	return filepath.Join(s.spool, url.PathEscape(id))
+// readTail reads the tail for part number next into the start of buf and
+// reports how much it held, zero when there is none.
+func (s *Store) readTail(ctx context.Context, id string, next int, buf []byte) (int, error) {
+	obj, err := s.client.GetObject(ctx, s.bucket, tailKey(id, next), minio.GetObjectOptions{})
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = obj.Close() }()
+
+	n, err := fill(obj, buf)
+	switch {
+	case isNotFound(err):
+		return 0, nil
+	case err != nil && !errors.Is(err, io.EOF):
+		return 0, err
+	case n >= minPartSize:
+		// A tail is under a part by construction, so one this size is not
+		// something this backend wrote, and counting it would promise bytes
+		// the upload may not have.
+		return 0, fmt.Errorf("the tail of part %d is not under a part", next)
+	}
+	return n, nil
 }
+
+// dropTail deletes a tail whose part has landed. Best effort: once the part
+// exists the tail no longer counts, and the tails of an upload all go when it
+// completes or is aborted.
+func (s *Store) dropTail(ctx context.Context, id string, next int) {
+	_ = s.client.RemoveObject(ctx, s.bucket, tailKey(id, next), minio.RemoveObjectOptions{})
+}
+
+// dropTails deletes every tail an upload left, which is the ones dropTail
+// could not.
+func (s *Store) dropTails(ctx context.Context, id string) {
+	for oi := range s.client.ListObjects(ctx, s.bucket, minio.ListObjectsOptions{Prefix: tailDir(id), Recursive: true}) {
+		if oi.Err != nil {
+			return
+		}
+		_ = s.client.RemoveObject(ctx, s.bucket, oi.Key, minio.RemoveObjectOptions{})
+	}
+}
+
+func tailDir(id string) string {
+	// The id comes from S3 and can carry anything, so it is not a key segment
+	// until it has been made one.
+	return tailPrefix + url.PathEscape(id) + "/"
+}
+
+func tailKey(id string, next int) string { return tailDir(id) + strconv.Itoa(next) }
