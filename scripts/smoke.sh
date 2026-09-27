@@ -1206,6 +1206,29 @@ TRACK
     bad "a shared link works on the WebDAV surface too" "'$dav_link' served '$dav_shared'"
   fi
 
+  # And a film cast the way the app casts one: a share link for the Matroska
+  # film, on /dav/ with ?hls=, fetched with nothing but the signature -- the
+  # playlist, and the segment it names with the same signature on it (#50).
+  film_page="$(curl -fsS -b "$jar" -X POST --data-urlencode 'life=1d' \
+    "http://$davhost/share/film.mkv" 2>/dev/null || true)"
+  film_link="$(grep -o 'value="https\?://[^"]*"' <<<"$film_page" |
+    head -1 | sed -e 's/^value="//' -e 's/"$//' -e 's/&amp;/\&/g')"
+  film_dav="${film_link/\/files\//\/dav\/}"
+  cast_list="$(curl -s "$film_dav&hls=index.m3u8")"
+  cast_seg="$(grep -m1 '^?hls=' <<<"$cast_list" || true)"
+  cast_file="$(mktmp)/cast.ts"
+  curl -s -o "$cast_file" "http://$davhost/dav/film.mkv$cast_seg" || true
+  cast_magic="$( (head -c 1 "$cast_file" 2>/dev/null || true) | od -An -tx1 | tr -d ' \n')"
+  case "$cast_seg" in
+    *'&k='*)
+      if [ "$cast_magic" = "47" ]; then
+        ok "a film casts as HLS from a signed WebDAV link, with no credentials"
+      else
+        bad "a film casts as HLS from a signed WebDAV link" "segment '$cast_seg' started '$cast_magic'"
+      fi ;;
+    *) bad "a film casts as HLS from a signed WebDAV link" "playlist '$(head -c 160 <<<"$cast_list")' from '$film_dav'" ;;
+  esac
+
   # Indexed is not the same as read: an extraction that failed still counts as
   # done, so this is the number that says whether anything went wrong. Exactly
   # one thing did, and on purpose -- the track this script uploaded is a text

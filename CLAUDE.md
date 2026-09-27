@@ -1199,6 +1199,14 @@ Restraint here is principle 3, not laziness:
   segments carry `Access-Control-Allow-Origin: *`, which the receiver
   requires; the gate is the signature, and a wildcard never admits a cookie.
 
+  **And at the film's WebDAV address**, `/dav/<path>?hls=`, for the same
+  reason a share link works there: the app speaks WebDAV and casts from it,
+  and a client should depend on the protocol surface rather than on the web
+  UI's URLs. `web.HLS` is the same handler mounted under that prefix, and
+  `hlsOr` in the composition root sends it a `GET` or `HEAD` that asks for
+  HLS and everything else to WebDAV; it runs behind that mount's gates, a
+  signature or Basic, so it has a user by the time it is reached.
+
   **How many run at once comes from the machine**, like the thumbnails: four
   per CPU, because a transcode encodes faster than anybody listens and spends
   the track waiting on the client, and 32 MiB each out of the memory past the

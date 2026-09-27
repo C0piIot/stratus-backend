@@ -12,6 +12,8 @@ import (
 	"errors"
 	"io"
 	"iter"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -191,6 +193,28 @@ func TestVideoEncoding(t *testing.T) {
 	} {
 		if got, why := videoEncoding(c.mode, c.cpus); got != c.want || why == "" {
 			t.Errorf("videoEncoding(%q, %d) = %v, %q", c.mode, c.cpus, got, why)
+		}
+	}
+}
+
+// TestHLSOr: a read asking for HLS goes to HLS, and every other request --
+// a plain GET, a PROPFIND that happens to carry the parameter -- to WebDAV.
+func TestHLSOr(t *testing.T) {
+	t.Parallel()
+	mark := func(name string) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, name) })
+	}
+	h := hlsOr(mark("hls"), mark("dav"))
+	for _, c := range []struct{ method, target, want string }{
+		{http.MethodGet, "/dav/film.mkv?hls=index.m3u8&k=x", "hls"},
+		{http.MethodHead, "/dav/film.mkv?hls=index.m3u8", "hls"},
+		{http.MethodGet, "/dav/film.mkv?k=x", "dav"},
+		{"PROPFIND", "/dav/film.mkv?hls=index.m3u8", "dav"},
+	} {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), c.method, c.target, nil))
+		if got := rec.Body.String(); got != c.want && c.method != http.MethodHead {
+			t.Errorf("%s %s went to %q, want %q", c.method, c.target, got, c.want)
 		}
 	}
 }

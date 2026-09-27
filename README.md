@@ -531,7 +531,9 @@ Matroska file, AC-3 sound — plays as HLS, remuxed as it is watched: Safari
 natively, and anything else through hls.js, which is loaded for that page and
 that film only. With no JavaScript the player still plays whatever the browser
 plays. The same HLS is what a Chromecast is sent: `?hls=index.m3u8` on the
-file's URL, or on its share link, since a receiver cannot sign in.
+file's URL, or on its share link, since a receiver cannot sign in. It answers
+under `/dav/` too, on the WebDAV address of the film with the same signature,
+which is where `stratus-app` casts from.
 
 **Photos have a gallery of their own at `/gallery/photos`**: every image in the
 library, newest first by when the camera says it was taken and grouped by month,
