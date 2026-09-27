@@ -149,7 +149,7 @@ func TestProbeMatroskaAgreesWithFFprobe(t *testing.T) {
 		t.Skip("no ffprobe on the PATH")
 	}
 
-	for _, name := range []string{matroskaFixture, webmFixture, "ac3.mkv", "opus.webm"} {
+	for _, name := range []string{matroskaFixture, webmFixture, "ac3.mkv", "opus.webm", "pq.mkv"} {
 		report, err := runProbe(t.Context(), ffprobe, filepath.Join("testdata", name))
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
@@ -310,6 +310,10 @@ func TestInPlaceStreamFacts(t *testing.T) {
 		"ac3.mkv": {CodecProfile: "High", Level: 10, BitDepth: 8, FrameRate: 10_000, Bitrate: 416_848,
 			AudioCodec: "ac3", Channels: 6, SampleRate: 48_000},
 		"opus.webm": {FrameRate: 10_000, Bitrate: 142_714, AudioCodec: "opus", Channels: 2, SampleRate: 48_000},
+		"hlg.mp4": {CodecProfile: "Main 10", Level: 30, BitDepth: 10, FrameRate: 10_000, Bitrate: 35_432,
+			ColorPrimaries: "bt2020", ColorTransfer: "arib-std-b67", ColorSpace: "bt2020nc"},
+		"pq.mkv": {CodecProfile: "Main 10", Level: 30, BitDepth: 10, FrameRate: 10_000, Bitrate: 34_032,
+			ColorPrimaries: "bt2020", ColorTransfer: "smpte2084", ColorSpace: "bt2020nc"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -319,7 +323,8 @@ func TestInPlaceStreamFacts(t *testing.T) {
 				t.Fatalf("probeInPlace: %v", err)
 			}
 			got := db.Media{CodecProfile: m.CodecProfile, Level: m.Level, BitDepth: m.BitDepth, FrameRate: m.FrameRate,
-				Bitrate: m.Bitrate, AudioCodec: m.AudioCodec, Channels: m.Channels, SampleRate: m.SampleRate}
+				Bitrate: m.Bitrate, AudioCodec: m.AudioCodec, Channels: m.Channels, SampleRate: m.SampleRate,
+				ColorPrimaries: m.ColorPrimaries, ColorTransfer: m.ColorTransfer, ColorSpace: m.ColorSpace}
 			if got != want {
 				t.Errorf("got  %+v\nwant %+v", got, want)
 			}
@@ -346,6 +351,9 @@ func agreeOnStream(t *testing.T, name string, got, want db.Media) {
 		{"audio codec", got.AudioCodec, want.AudioCodec, got.AudioCodec != "" && want.AudioCodec != ""},
 		{"channels", got.Channels, want.Channels, got.Channels != 0 && want.Channels != 0},
 		{"sample rate", got.SampleRate, want.SampleRate, got.SampleRate != 0 && want.SampleRate != 0},
+		{"primaries", got.ColorPrimaries, want.ColorPrimaries, got.ColorPrimaries != "" && want.ColorPrimaries != ""},
+		{"transfer", got.ColorTransfer, want.ColorTransfer, got.ColorTransfer != "" && want.ColorTransfer != ""},
+		{"matrix", got.ColorSpace, want.ColorSpace, got.ColorSpace != "" && want.ColorSpace != ""},
 	}
 	for _, p := range pairs {
 		if p.known && p.got != p.want {

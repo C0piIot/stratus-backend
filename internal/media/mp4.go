@@ -277,12 +277,13 @@ func videoTrack(trak []byte, m *db.Media) bool {
 // is. The boxes after it are the codec's configuration.
 const visualSampleEntry = 78
 
-// pictureConf reads profile, level and depth out of whichever configuration
-// record the entry carries.
+// pictureConf reads what the boxes after a picture's sample entry say:
+// profile, level and depth out of whichever configuration record it carries,
+// its colour out of colr, and a Dolby Vision profile out of dvcC or dvvC.
 func pictureConf(children []byte, m *db.Media) {
 	for name, body := range atoms(children) {
 		var c streamConf
-		var ok bool
+		ok := false
 		switch name {
 		case "avcC":
 			c, ok = avcConf(body)
@@ -295,13 +296,28 @@ func pictureConf(children []byte, m *db.Media) {
 			}
 		case "av1C":
 			c, ok = av1Conf(body)
-		default:
-			continue
+		case "colr":
+			colrBox(body, m)
+		case "dvcC", "dvvC":
+			m.DoViProfile = doviProfile(body)
 		}
 		if ok {
 			m.CodecProfile, m.Level, m.BitDepth = c.profile, c.level, c.depth
 		}
+	}
+}
+
+// colrBox reads the three code points of a colr box. nclx is ISOBMFF's and
+// nclc QuickTime's, the same but for the range bit nclx adds; an ICC profile
+// says nothing this reads.
+func colrBox(b []byte, m *db.Media) {
+	if len(b) < 10 {
 		return
+	}
+	switch string(b[0:4]) {
+	case "nclx", "nclc":
+		colour(m, int(binary.BigEndian.Uint16(b[4:6])), int(binary.BigEndian.Uint16(b[6:8])),
+			int(binary.BigEndian.Uint16(b[8:10])))
 	}
 }
 

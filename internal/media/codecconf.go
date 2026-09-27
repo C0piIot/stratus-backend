@@ -1,6 +1,10 @@
 package media
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/C0piIot/stratus-backend/internal/db"
+)
 
 // Reading a codec's configuration record: the few bytes a container keeps
 // beside a track so that a decoder can be set up before the first frame.
@@ -209,4 +213,43 @@ func aacChannels(asc []byte) int {
 		return 8
 	}
 	return 0
+}
+
+// The colour of a picture, which containers state in the code points of
+// ISO/IEC 23091-2 -- an MP4 in its colr box, a Matroska track in its Colour
+// element -- and which the row keeps in ffprobe's names, so that the two
+// readers and ffprobe agree. A code with no name here is left unstated rather
+// than guessed at: 2 is the standard's own "unspecified".
+var (
+	primariesNames = map[int]string{
+		1: "bt709", 4: "bt470m", 5: "bt470bg", 6: "smpte170m", 7: "smpte240m", 8: "film",
+		9: "bt2020", 10: "smpte428", 11: "smpte431", 12: "smpte432", 22: "jedec-p22",
+	}
+	transferNames = map[int]string{
+		1: "bt709", 4: "gamma22", 5: "gamma28", 6: "smpte170m", 7: "smpte240m", 8: "linear",
+		9: "log100", 10: "log316", 11: "iec61966-2-4", 12: "bt1361e", 13: "iec61966-2-1",
+		14: "bt2020-10", 15: "bt2020-12", 16: "smpte2084", 17: "smpte428", 18: "arib-std-b67",
+	}
+	matrixNames = map[int]string{
+		0: "gbr", 1: "bt709", 4: "fcc", 5: "bt470bg", 6: "smpte170m", 7: "smpte240m", 8: "ycgco",
+		9: "bt2020nc", 10: "bt2020c", 11: "smpte2085", 12: "chroma-derived-nc", 13: "chroma-derived-c", 14: "ictcp",
+	}
+)
+
+// colour sets a row's colour from the three code points, leaving unknown what
+// has no name.
+func colour(m *db.Media, primaries, transfer, matrix int) {
+	m.ColorPrimaries = primariesNames[primaries]
+	m.ColorTransfer = transferNames[transfer]
+	m.ColorSpace = matrixNames[matrix]
+}
+
+// doviProfile reads the profile out of a Dolby Vision configuration record --
+// the same bytes in an MP4's dvcC or dvvC box and in Matroska's
+// BlockAddIDExtraData: two version bytes, then seven bits of profile.
+func doviProfile(b []byte) int {
+	if len(b) < 3 {
+		return 0
+	}
+	return int(b[2] >> 1)
 }

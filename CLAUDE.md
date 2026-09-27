@@ -837,7 +837,10 @@ Restraint here is principle 3, not laziness:
   answers against real files whenever there is an ffprobe to compare with.
 
   **The stream facts are the one exception to the second rule** (#207):
-  profile, level, bit depth, frame rate and the audio track. They are read out
+  profile, level, bit depth, frame rate, the audio track, and the picture's
+  colour and Dolby Vision profile (#50) -- `colr` and `dvcC`/`dvvC` in a box,
+  `Colour` and a `BlockAdditionMapping` in Matroska, the same ISO/IEC 23091-2
+  code points both ways and named as ffprobe names them. They are read out
   of the codec's configuration record -- `avcC`, `hvcC`, `vpcC` or `av1C` in a
   box, the same records in Matroska's `CodecPrivate` -- and out of the sound
   track's entry, and what a container does not state is left at zero, which the

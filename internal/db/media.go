@@ -89,6 +89,14 @@ type Media struct {
 	Level, FrameRate                        int
 	AudioCodec                              string
 
+	// ColorPrimaries, ColorTransfer and ColorSpace are a picture's colour in
+	// ffprobe's names, empty when unstated: what tells HDR from SDR (#50), PQ
+	// being smpte2084 and HLG arib-std-b67. DoViProfile is the Dolby Vision
+	// profile, zero for none -- profile 5 carries no picture that can be
+	// brought down to SDR, which is why it is kept at all.
+	ColorPrimaries, ColorTransfer, ColorSpace string
+	DoViProfile                               int
+
 	// The rest is what a music library needs.
 	Artist, Album, Title, Genre string
 	TrackNo, DiscNo, Year       int
