@@ -358,10 +358,27 @@ Two rules make that implementable on both. The offset is **a precondition, not
 a seek** -- an append says where it believes the store is and is refused
 otherwise -- so a retried chunk is a conflict rather than duplicated bytes, and
 S3, which cannot fill a hole after the fact, is not asked to. And **the chunk
-size is the backend's problem**: the s3 one spools the tail that is not yet a
-whole part, rather than making a phone learn that S3 refuses a part under 5 MB.
-What that spool holds is counted as accepted, so the offset a client is told is
-one a restart cannot take back.
+size is the backend's problem**: S3 refuses a part under 5 MB, and a phone is
+not made to learn that.
+
+**The s3 one keeps nothing on the local disk** (#28). An append is held in
+memory and goes out as a 16 MiB part each time there is one; what is left when
+the request ends -- cleanly or not -- is a part if it is big enough and
+otherwise a *tail*, an object under `.stratus-uploads/` named for the part it
+will become. The offset is the parts plus the tail for the next part number, so
+the moment a part lands the tail it absorbed stops counting, with no second
+write in between to fail. Everything the offset promises is in the bucket, so a
+restart with no volume takes none of it back and any process pointed at the
+bucket can resume the upload. What it costs is a memory buffer per upload in
+flight, a tail rewritten on every append under a part (at most five times the
+bytes against the bucket, for a client chunking small), and a ceiling of ten
+thousand parts: 156 GiB for a client that sends everything in one request.
+
+The tail is written even when the connection has gone -- under a context of its
+own, since the request's is cancelled -- because **what is read is kept** unless
+the store refuses it. The conformance suite holds every backend to that, and
+`internal/files` depends on it: its running hash is of the bytes it read, and a
+store that dropped some would force a whole object back through it at the end.
 
 Nothing an upload has accepted is visible to `Get`, `Stat` or `List` until it
 completes, which is what keeps it out of reach of the sweep in `internal/files`.
@@ -1259,13 +1276,12 @@ Restraint here is principle 3, not laziness:
   **In memory is right rather than merely cheap.** A lock is a claim with a
   timeout measured in minutes and a restart forgetting one costs a client a
   retry -- the same trade the signed session makes. It is also consistent with
-  a server that assumes a single instance in five other places, none of which
+  a server that assumes a single instance in four other places, none of which
   said so out loud: SQLite is a local file, the indexer would have two
   instances take the same batch, the sweep would have both compute the same
-  garbage, the tus spool for S3 is local so a resumed upload must come back to
-  the same process, and the disk backend empties its reserved directory at
-  startup on the argument that what is in it belongs to a dead process. A lock
-  table would have been the only cluster-ready thing in it. That inventory is
+  garbage, and the disk backend empties its reserved directory at startup on
+  the argument that what is in it belongs to a dead process. A lock table would
+  have been the only cluster-ready thing in it. That inventory is
   an issue of its own, as what #28 has to answer before stateless deployment
   means more than one of anything.
 

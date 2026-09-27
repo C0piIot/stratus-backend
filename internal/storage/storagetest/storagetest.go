@@ -66,6 +66,7 @@ func Run(t *testing.T, newStore func(t *testing.T) storage.Storage) {
 		{"uploads validate their key", uploadsValidateTheirKey},
 		{"a completed upload replaces the object", uploadReplacesAnObject},
 		{"an append that fails partway reports where the store is", appendThatFailsPartway},
+		{"appends under a part add up", smallAppends},
 	}
 
 	for _, tc := range cases {
@@ -825,6 +826,12 @@ func appendThatFailsPartway(t *testing.T, s storage.Storage) {
 	if at != offset {
 		t.Errorf("the failed append reported offset %d and the store is at %d", at, offset)
 	}
+	// What was read is kept. internal/files hashes the bytes as they go by, and
+	// a store that dropped some would throw that hash away on every lost signal
+	// and send the whole video back through it at the end.
+	if offset != int64(len(sent)) {
+		t.Errorf("offset after a broken append = %d, want the %d bytes it read", offset, len(sent))
+	}
 
 	// And the upload carries on from there, which is the whole point.
 	rest := bytes.Repeat([]byte{9}, 1<<10)
@@ -837,5 +844,44 @@ func appendThatFailsPartway(t *testing.T, s storage.Storage) {
 	}
 	if want := offset + int64(len(rest)); info.Size != want {
 		t.Errorf("Size = %d, want %d", info.Size, want)
+	}
+}
+
+// smallAppends is what a client that chunks does: TUSKit and tus-java-client
+// send a few hundred kilobytes to a couple of megabytes a request, under the
+// S3 part floor, so a backend that only counted whole parts would never move.
+func smallAppends(t *testing.T, s storage.Storage) {
+	const key = "video/chunked.mp4"
+	id, err := s.StartUpload(t.Context(), key)
+	if err != nil {
+		t.Fatalf("StartUpload: %v", err)
+	}
+
+	// Seven megabytes, one at a time: a part forms on the way and the rest is
+	// the short last one.
+	var want []byte
+	var at int64
+	for i := range 7 {
+		chunk := bytes.Repeat([]byte{byte(i + 1)}, 1<<20)
+		want = append(want, chunk...)
+		if at, err = s.AppendUpload(t.Context(), key, id, at, bytes.NewReader(chunk)); err != nil {
+			t.Fatalf("AppendUpload %d: %v", i, err)
+		}
+		if at != int64(len(want)) {
+			t.Fatalf("offset after append %d = %d, want %d", i, at, len(want))
+		}
+	}
+	if got := keys(t, s, ""); len(got) != 0 {
+		t.Errorf("an unfinished upload is listed: %v", got)
+	}
+
+	if _, err := s.CompleteUpload(t.Context(), key, id); err != nil {
+		t.Fatalf("CompleteUpload: %v", err)
+	}
+	if got := get(t, s, key, storage.All()); !bytes.Equal(got, want) {
+		t.Errorf("the completed object is %d bytes and not what was appended", len(got))
+	}
+	if got := keys(t, s, ""); !slices.Equal(got, []string{key}) {
+		t.Errorf("keys = %v, want [%q]", got, key)
 	}
 }
