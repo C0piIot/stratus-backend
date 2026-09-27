@@ -1020,3 +1020,9 @@ and the decisions behind it are tracked on the
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+The image also carries a static FFmpeg built with libx264, which makes that
+binary GPLv3; Stratus runs it as a separate program and is not a part of it.
+Every component of it is unmodified, and `/licenses/NOTICE` inside the image
+names the exact source of each — FFmpeg, x264, zimg, libopus, LAME and
+OpenSSL — beside their licence texts.
