@@ -38,6 +38,8 @@
 <script src="{{.Assets}}/bootstrap.bundle.min.js"></script>
 <script src="{{.HTMX}}/htmx.min.js"></script>
 <script src="{{.Script}}" defer></script>
+{{range .PlayerScripts}}<script src="{{.}}" defer></script>
+{{end}}
 </body>
 </html>
 {{- end}}

@@ -165,7 +165,7 @@ func (a *App) Handler(deps Deps) http.Handler {
 		// what that buys and what it costs.
 		mux.Handle("/", web.Handler(a.version, a.buildDate, verifier,
 			auth.NewSessions(creds, auth.DefaultSessionTTL), shares, service, thumbs, deps.Database,
-			web.Indexing{Index: deps.Database, Interval: a.cfg.IndexInterval}))
+			web.Indexing{Index: deps.Database, Interval: a.cfg.IndexInterval}, films(deps)))
 	}
 	// The log is outside the compression so that the bytes it counts are the
 	// bytes that went out rather than the ones the handler wrote, and the
@@ -261,4 +261,13 @@ func transcoder(deps Deps) subsonic.Transcoder {
 		return nil
 	}
 	return deps.Transcoder
+}
+
+// films is what the web UI plays and streams as HLS with: the media rows and
+// the transcoder, or nothing at all when there is no transcoder to remux with.
+func films(deps Deps) web.Video {
+	if deps.Transcoder == nil || deps.Database == nil {
+		return web.Video{}
+	}
+	return web.Video{Media: deps.Database, Segments: deps.Transcoder}
 }

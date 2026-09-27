@@ -260,7 +260,7 @@ func TestABrokenIndexIsNotAnEmptyGallery(t *testing.T) {
 			broken := dbtest.FailOn(t, meta, tc.call)
 			creds := credentials()
 			h := web.Handler(version, buildDate, creds, auth.NewSessions(creds, auth.DefaultSessionTTL), auth.NewShares(creds),
-				files.New(blobs, broken), media.NewThumbs(blobs, s, "ffmpeg", t.TempDir()), broken, indexing(meta))
+				files.New(blobs, broken), media.NewThumbs(blobs, s, "ffmpeg", t.TempDir()), broken, indexing(meta), web.Video{})
 			if rec := get(t, h, tc.target, signIn(t, h)); rec.Code != http.StatusInternalServerError {
 				t.Errorf("%s with %s broken = %d, want 500", tc.target, tc.call, rec.Code)
 			}

@@ -67,7 +67,7 @@ func (h *handler) browse(w http.ResponseWriter, r *http.Request, user string) {
 			return
 		}
 		if !f.IsDir {
-			h.download(w, r, display, f)
+			h.file(w, r, display, f)
 			return
 		}
 	}
@@ -382,9 +382,15 @@ type entry struct {
 func entries(children []db.File, indexing map[int64]string, token string) []entry {
 	out := make([]entry, 0, len(children))
 	for _, c := range children {
+		target := href(c.Path)
+		if !c.IsDir && media.IsVideo(c.Path) {
+			// A film opens in the player, which is a page that still offers
+			// the file itself: see video.go.
+			target += "?" + playParam
+		}
 		e := entry{
 			Name:     path.Base(c.Path),
-			Href:     shared(href(c.Path), token),
+			Href:     shared(target, token),
 			IsDir:    c.IsDir,
 			Modified: c.MTime.Format("2006-01-02 15:04"),
 			Rename:   link(renamePrefix, c.Path),

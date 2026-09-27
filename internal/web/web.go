@@ -27,6 +27,7 @@ import (
 const (
 	assetPrefix = "/static/bootstrap-5.3.8"
 	htmxPrefix  = "/static/htmx-2.0.10"
+	hlsPrefix   = "/static/hls.js-1.7.3"
 	// ownPrefix is where this project's own script lives, and it has no version
 	// in its path because it has no version: the build's goes on as a query, so
 	// the URL still changes when the bytes do and the immutable header stays
@@ -78,6 +79,8 @@ type handler struct {
 	// photoIndex is what the gallery reads: the index by date rather than the
 	// tree by path.
 	photoIndex db.Photos
+	// video is the player and HLS, and a zero one means neither is offered.
+	video Video
 }
 
 // Handler builds the UI. It is mounted at the root, so it is also what answers
@@ -88,11 +91,11 @@ type handler struct {
 // other surface -- a WebDAV or Subsonic client is not a browser and sends no
 // cookie -- and a caller that forgot it would lose the defence silently.
 func Handler(version, buildDate string, v auth.Verifier, s *auth.Sessions, shares *auth.Shares,
-	service *files.Service, thumbs *media.Thumbs, photos db.Photos, indexing Indexing,
+	service *files.Service, thumbs *media.Thumbs, photos db.Photos, indexing Indexing, video Video,
 ) http.Handler {
 	h := &handler{
 		version: version, buildDate: buildDate, verifier: v, sessions: s, shares: shares,
-		files: service, thumbs: thumbs, photoIndex: photos, indexing: indexing,
+		files: service, thumbs: thumbs, photoIndex: photos, indexing: indexing, video: video,
 	}
 
 	mux := http.NewServeMux()

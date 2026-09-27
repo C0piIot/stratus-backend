@@ -53,7 +53,7 @@ fi
 # megabyte smaller, which is why a local build does not show it.
 BIN_SIZE_FAIL=$((27 * 1024 * 1024))
 # ffprobe and ffmpeg together, which are trimmed builds of our own: 2.4 MB and
-# 12.9 MB on amd64 today against the 128 MB one general-purpose static FFmpeg costs.
+# 13.2 MB on amd64 today against the 128 MB one general-purpose static FFmpeg costs.
 # Raised from 10 MB when ffmpeg learned audio and HTTPS (#50): the encoders and
 # libopus are about 1.5 MB of that and a static OpenSSL is five.
 TOOLS_SIZE_FAIL=$((16 * 1024 * 1024))
@@ -980,6 +980,31 @@ TRACK
     *'/thumb/photo.heic'*'/thumb/clip.mp4'*|*'/thumb/clip.mp4'*'/thumb/photo.heic'*)
       ok "the listing offers a picture for both" ;;
     *) bad "the listing offers a picture for both" "$(grep -o '/thumb/[a-z.]*' <<<"$listing" | tr '\n' ' ')" ;;
+  esac
+
+  # A film as HLS (#50): the Matroska file above, once the indexer has read
+  # it, has a playlist built from its own keyframes, and the segment that
+  # playlist names comes out as MPEG-TS -- the image's ffmpeg remuxing over the
+  # loopback listener. The listing sends a film to the player page.
+  playlist=""
+  for _ in $(seq 1 50); do
+    playlist="$(curl -fsS -b "$jar" "http://$davhost/files/film.mkv?hls=index.m3u8" 2>/dev/null || true)"
+    case "$playlist" in '#EXTM3U'*) break ;; esac
+    sleep 0.2
+  done
+  segment="$(grep -m1 '^?hls=' <<<"$playlist" || true)"
+  segfile="$(mktmp)/segment.ts"
+  curl -fsS -b "$jar" -o "$segfile" "http://$davhost/files/film.mkv$segment" 2>/dev/null || true
+  segbytes="$(stat -c '%s' "$segfile" 2>/dev/null || echo 0)"
+  segmagic="$( (head -c 1 "$segfile" 2>/dev/null || true) | od -An -tx1 | tr -d ' \n')"
+  if [ -n "$segment" ] && [ "$segmagic" = "47" ] && [ $((segbytes % 188)) -eq 0 ] && [ "$segbytes" -gt 0 ]; then
+    ok "a film is streamed as HLS: a playlist from its keyframes, a segment of MPEG-TS ($segbytes bytes)"
+  else
+    bad "a film is streamed as HLS" "playlist '$(head -c 120 <<<"$playlist")', segment $segbytes bytes starting '$segmagic'"
+  fi
+  case "$listing" in
+    *'href="/files/film.mkv?play"'*) ok "the listing sends a film to the player" ;;
+    *) bad "the listing sends a film to the player" "$(grep -o 'href="/files/film[^"]*"' <<<"$listing")" ;;
   esac
 
   # The listing is one page of a folder and a cursor to the next, which is what

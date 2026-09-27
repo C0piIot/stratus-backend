@@ -52,6 +52,12 @@ func newTranscoder(ffmpeg string, source *Loopback, slots int) *Transcoder {
 // Closing what it returns stops ffmpeg, and so does ctx ending, which for a
 // request is the client going away.
 func (t *Transcoder) Transcode(ctx context.Context, f db.File, p Plan, offset time.Duration) (io.ReadCloser, error) {
+	return t.run(ctx, f, func(url string) []string { return transcodeArgs(url, p, offset) })
+}
+
+// run starts ffmpeg with the arguments args builds around the loopback URL
+// for f, and is the one place a process is started, bounded and stopped.
+func (t *Transcoder) run(ctx context.Context, f db.File, args func(url string) []string) (io.ReadCloser, error) {
 	select {
 	case t.slots <- struct{}{}:
 	default:
@@ -69,7 +75,7 @@ func (t *Transcoder) Transcode(ctx context.Context, f db.File, p Plan, offset ti
 	// The binary is resolved once at startup and never comes from a request;
 	// every other argument is built here from a Plan.
 	//nolint:gosec // see above
-	cmd := exec.CommandContext(ctx, t.ffmpeg, transcodeArgs(url, p, offset)...)
+	cmd := exec.CommandContext(ctx, t.ffmpeg, args(url)...)
 	stderr := &boundedBuffer{max: 4 << 10}
 	cmd.Stderr = stderr
 	stdout, err := cmd.StdoutPipe()
