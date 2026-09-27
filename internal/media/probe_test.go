@@ -398,3 +398,24 @@ func TestProfileName(t *testing.T) {
 		}
 	}
 }
+
+// TestProbeReportColour: a picture's colour and a Dolby Vision profile, as a
+// full ffprobe prints them for an iPhone's HDR recording. The image's own
+// ffprobe prints unknown for all three, which is left unstated.
+func TestProbeReportColour(t *testing.T) {
+	t.Parallel()
+	m := parse(t, `{"streams": [{"codec_type": "video", "codec_name": "hevc",
+		"color_primaries": "bt2020", "color_transfer": "arib-std-b67", "color_space": "bt2020nc",
+		"side_data_list": [{"side_data_type": "Display Matrix", "rotation": -90},
+			{"side_data_type": "DOVI configuration record", "dv_profile": 8}]}],
+		"format": {"duration": "1.0"}}`).mediaFrom(db.KindVideo)
+	if m.ColorPrimaries != "bt2020" || m.ColorTransfer != "arib-std-b67" || m.ColorSpace != "bt2020nc" || m.DoViProfile != 8 {
+		t.Errorf("got %q %q %q, profile %d", m.ColorPrimaries, m.ColorTransfer, m.ColorSpace, m.DoViProfile)
+	}
+	m = parse(t, `{"streams": [{"codec_type": "video", "codec_name": "hevc",
+		"color_primaries": "unknown", "color_transfer": "unknown", "color_space": "unknown"}],
+		"format": {"duration": "1.0"}}`).mediaFrom(db.KindVideo)
+	if m.ColorPrimaries != "" || m.ColorTransfer != "" || m.ColorSpace != "" || m.DoViProfile != 0 {
+		t.Errorf("unknown was recorded: %+v", m)
+	}
+}

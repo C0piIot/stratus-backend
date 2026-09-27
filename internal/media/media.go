@@ -33,7 +33,10 @@ import (
 // It went to 5 for the stream facts a transcode decision is made from (#197,
 // #207): a row already indexed has a codec and no profile, depth, frame rate
 // or audio track, and would keep none until its bytes changed.
-const Version = 5
+//
+// It went to 6 for a picture's colour and a Dolby Vision profile (#50): what
+// tells a film that has to be brought down to SDR from one that does not.
+const Version = 6
 
 // errTooLargeToRead is what a file gets instead of a local copy when it is
 // larger than maxSpool. It is a refusal rather than a failure, and it is

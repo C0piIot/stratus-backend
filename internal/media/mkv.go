@@ -48,6 +48,13 @@ const (
 	idAudio         = 0xE1
 	idChannels      = 0x9F
 	idSampling      = 0xB5
+	idColour        = 0x55B0
+	idMatrix        = 0x55B1
+	idTransfer      = 0x55BA
+	idPrimaries     = 0x55BB
+	idBlockAddMap   = 0x41E4
+	idBlockAddType  = 0x41E7
+	idBlockAddExtra = 0x41ED
 	idPixelWidth    = 0xB0
 	idPixelHeight   = 0xBA
 	idProjection    = 0x7670
@@ -225,7 +232,7 @@ func tracksOf(tracks []byte, m *db.Media) bool {
 		}
 
 		var codec string
-		var private, video, audio []byte
+		var private, video, audio, dovi []byte
 		var frame uint64
 		kind := int64(0)
 		for id, data := range elements(entry) {
@@ -242,6 +249,8 @@ func tracksOf(tracks []byte, m *db.Media) bool {
 				video = data
 			case idAudio:
 				audio = data
+			case idBlockAddMap:
+				dovi = doviMapping(data, dovi)
 			}
 		}
 
@@ -258,6 +267,9 @@ func tracksOf(tracks []byte, m *db.Media) bool {
 				return false
 			}
 			privateConf(name, private, m)
+			if dovi != nil {
+				m.DoViProfile = doviProfile(dovi)
+			}
 			if frame > 0 {
 				// DefaultDuration is nanoseconds per frame.
 				m.FrameRate = int(1e12 / frame) //nolint:gosec // bounded by the file's own header
@@ -356,6 +368,43 @@ func soundSettings(audio []byte, m *db.Media) {
 	}
 }
 
+// doviMapping is a BlockAdditionMapping's record when it is a Dolby Vision
+// configuration -- dvcC or dvvC as its type -- and what was found before
+// otherwise.
+func doviMapping(mapping, found []byte) []byte {
+	var kind uint64
+	var extra []byte
+	for id, data := range elements(mapping) {
+		switch id {
+		case idBlockAddType:
+			kind = uinteger(data)
+		case idBlockAddExtra:
+			extra = data
+		}
+	}
+	if kind == 0x64766343 || kind == 0x64767643 { // "dvcC", "dvvC"
+		return extra
+	}
+	return found
+}
+
+// colourOf reads a track's Colour element, whose code points are the same
+// ones an MP4's colr box carries.
+func colourOf(colourElement []byte, m *db.Media) {
+	primaries, transfer, matrix := 2, 2, 2
+	for id, data := range elements(colourElement) {
+		switch id {
+		case idPrimaries:
+			primaries = int(uinteger(data)) //nolint:gosec // a code point
+		case idTransfer:
+			transfer = int(uinteger(data)) //nolint:gosec // a code point
+		case idMatrix:
+			matrix = int(uinteger(data)) //nolint:gosec // a code point
+		}
+	}
+	colour(m, primaries, transfer, matrix)
+}
+
 // videoSettings reads the size out of a track's video settings.
 func videoSettings(video []byte, codec string, m *db.Media) bool {
 	var width, height uint64
@@ -365,6 +414,8 @@ func videoSettings(video []byte, codec string, m *db.Media) bool {
 			width = uinteger(data)
 		case idPixelHeight:
 			height = uinteger(data)
+		case idColour:
+			colourOf(data, m)
 		case idProjection:
 			// Where Matroska keeps rotation, among other things. Answering
 			// without reading it would hand back a portrait film as landscape,

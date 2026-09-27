@@ -64,6 +64,13 @@ CREATE TABLE media (
     level               INTEGER NOT NULL DEFAULT 0,
     frame_rate          INTEGER NOT NULL DEFAULT 0,
     audio_codec         TEXT    NOT NULL DEFAULT '',
+    -- A picture's colour as ffprobe names it, which is how HDR is told from SDR
+    -- (#50): PQ is smpte2084 and HLG arib-std-b67. dovi_profile is a Dolby Vision
+    -- profile, zero for none: profile 5 has no picture an SDR player can be given.
+    color_primaries     TEXT    NOT NULL DEFAULT '',
+    color_transfer      TEXT    NOT NULL DEFAULT '',
+    color_space         TEXT    NOT NULL DEFAULT '',
+    dovi_profile        INTEGER NOT NULL DEFAULT 0,
     artist              TEXT    NOT NULL DEFAULT '',
     album               TEXT    NOT NULL DEFAULT '',
     title               TEXT    NOT NULL DEFAULT '',

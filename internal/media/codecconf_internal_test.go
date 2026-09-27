@@ -359,3 +359,45 @@ func TestShortRecords(t *testing.T) {
 		t.Error("a descriptor longer than its buffer was read")
 	}
 }
+
+// TestColourAndDolbyVision: the boxes and elements a phone's HDR recording
+// carries, by hand, beside the fixtures that carry them for real.
+func TestColourAndDolbyVision(t *testing.T) {
+	t.Parallel()
+	var m db.Media
+	// colr nclx: BT.2020, HLG, BT.2020 non-constant, and the range bit.
+	colrBox([]byte{'n', 'c', 'l', 'x', 0, 9, 0, 18, 0, 9, 0}, &m)
+	if m.ColorPrimaries != "bt2020" || m.ColorTransfer != "arib-std-b67" || m.ColorSpace != "bt2020nc" {
+		t.Errorf("nclx = %+v", m)
+	}
+	var q db.Media
+	// QuickTime's nclc, PQ, and an ICC profile that says nothing.
+	colrBox([]byte{'n', 'c', 'l', 'c', 0, 9, 0, 16, 0, 9}, &q)
+	colrBox([]byte{'p', 'r', 'o', 'f', 0, 0, 0, 0, 0, 0}, &q)
+	if q.ColorTransfer != "smpte2084" {
+		t.Errorf("nclc = %+v", q)
+	}
+	var u db.Media
+	colour(&u, 2, 2, 2)
+	if u.ColorPrimaries != "" || u.ColorTransfer != "" || u.ColorSpace != "" {
+		t.Errorf("unspecified was named: %+v", u)
+	}
+
+	// dvcC: version 1.0, then profile 8 in the top seven bits.
+	if got := doviProfile([]byte{1, 0, 8 << 1, 0}); got != 8 {
+		t.Errorf("dvcC profile = %d, want 8", got)
+	}
+	if got := doviProfile([]byte{1}); got != 0 {
+		t.Errorf("a short record = %d", got)
+	}
+
+	// The same record in a Matroska BlockAdditionMapping, typed dvcC.
+	mapping := append(append([]byte{0x41, 0xE7, 0x84}, "dvcC"...), 0x41, 0xED, 0x83, 1, 0, 5<<1)
+	if got := doviProfile(doviMapping(mapping, nil)); got != 5 {
+		t.Errorf("a Matroska dvcC mapping = %d, want 5", got)
+	}
+	other := append(append([]byte{0x41, 0xE7, 0x84}, "mvcC"...), 0x41, 0xED, 0x81, 9)
+	if got := doviMapping(other, nil); got != nil {
+		t.Errorf("a mapping of another type was read: %v", got)
+	}
+}

@@ -126,7 +126,7 @@ func TestProbeVideoAgreesWithFFprobe(t *testing.T) {
 		t.Skip("no ffprobe on the PATH")
 	}
 
-	for _, name := range []string{faststart, phone, rotated, "aac51.mp4", "main10.mp4"} {
+	for _, name := range []string{faststart, phone, rotated, "aac51.mp4", "main10.mp4", "hlg.mp4"} {
 		report, err := runProbe(t.Context(), ffprobe, filepath.Join("testdata", name))
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)

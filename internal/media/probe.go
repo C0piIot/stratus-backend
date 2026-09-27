@@ -75,6 +75,9 @@ type probeStream struct {
 	Level            int               `json:"level"`
 	PixFmt           string            `json:"pix_fmt"`
 	AvgFrameRate     string            `json:"avg_frame_rate"`
+	ColorPrimaries   string            `json:"color_primaries"`
+	ColorTransfer    string            `json:"color_transfer"`
+	ColorSpace       string            `json:"color_space"`
 	Width            int               `json:"width"`
 	Height           int               `json:"height"`
 	Duration         string            `json:"duration"`
@@ -97,6 +100,9 @@ type probeSideData struct {
 	// it "Display Matrix" in one version and "DisplayMatrix" in another --
 	// whereas the field itself only appears on the entry that has one.
 	Rotation float64 `json:"rotation"`
+	// DvProfile is on the "DOVI configuration record" entry, and zero on
+	// every other.
+	DvProfile int `json:"dv_profile"`
 }
 
 type probeFormat struct {
@@ -196,6 +202,23 @@ func pictureStream(m *db.Media, video *probeStream, format probeFormat) {
 	}
 	m.FrameRate = milliRate(video.AvgFrameRate)
 	m.Bitrate = atoi(format.BitRate)
+	m.ColorPrimaries = stated(video.ColorPrimaries)
+	m.ColorTransfer = stated(video.ColorTransfer)
+	m.ColorSpace = stated(video.ColorSpace)
+	for _, sd := range video.SideData {
+		if sd.DvProfile > 0 {
+			m.DoViProfile = sd.DvProfile
+		}
+	}
+}
+
+// stated is one of ffprobe's names, and empty for the one it prints when the
+// file says nothing.
+func stated(name string) string {
+	if name == "unknown" {
+		return ""
+	}
+	return name
 }
 
 // profileName is ffprobe's name for a profile, whichever way it was printed.

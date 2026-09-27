@@ -193,8 +193,8 @@ Every file that arrives is read once for what it can say about itself: when a
 photo was taken, its dimensions and orientation, where it was taken, the camera;
 the duration, artist, album and track of a recording, and for music the
 bitrate, sample rate, channels and bit depth of its audio; the codec,
-dimensions, profile, bit depth and frame rate of a video, and the codec and
-channels of its sound. Without it a library is a pile of files — there is no gallery by
+dimensions, profile, bit depth, frame rate and colour of a video — which is
+how HDR is told from SDR — and the codec and channels of its sound. Without it a library is a pile of files — there is no gallery by
 date and no music browsing.
 
 **What a file is comes from its first bytes**, not from its name. A name is
