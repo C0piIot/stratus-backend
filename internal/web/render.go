@@ -14,13 +14,16 @@ import (
 //go:embed templates
 var templateFS embed.FS
 
-// staticFS holds Bootstrap 5.3.8 and htmx 2.0.10, byte for byte as published:
-// Bootstrap's dist/css/bootstrap.min.css and dist/js/bootstrap.bundle.min.js,
-// which are identical to the copies jsDelivr serves, and htmx's dist/htmx.min.js.
+// staticFS holds Bootstrap 5.3.8, htmx 2.0.10 and hls.js 1.7.3, byte for byte
+// as published: Bootstrap's dist/css/bootstrap.min.css and
+// dist/js/bootstrap.bundle.min.js, which are identical to the copies jsDelivr
+// serves, htmx's dist/htmx.min.js, and hls.js's dist/hls.light.min.js, which is
+// the copy inside the npm tarball whose integrity npm publishes.
 //
 //	sha256 d85327d99c7a3ee1f9b5d0500d1370acea3ad2db39c163c2f51f232baedbdede  bootstrap.min.css
 //	sha256 e4fd49181388c48ec5040bd3fe66f57c29c8e67fcd8502b3354b96ec7ab47cc7  bootstrap.bundle.min.js
 //	sha256 71ea67185bfa8c98c39d31717c6fce5d852370fcdfd129db4543774d3145c0de  htmx.min.js
+//	sha256 0251332c00a216a35d7d6919044d60da82b78beb3bd50ac6c662ae74a2f5474b  hls.light.min.js
 //
 // Vendored rather than linked because a self-hosted cloud has to work with no
 // outbound network, and unedited because a file that has been touched can no
@@ -42,6 +45,7 @@ const (
 	pageError  = "error.html"
 	pagePhotos = "photos.html"
 	pagePhoto  = "photo.html"
+	pagePlay   = "play.html"
 )
 
 // Each page is parsed with the layout into a set of its own. One set for all of
@@ -58,6 +62,7 @@ var pages = map[string]*template.Template{
 	pageError:  parse(pageError),
 	pagePhotos: parse(pagePhotos),
 	pagePhoto:  parse(pagePhoto),
+	pagePlay:   parse(pagePlay),
 }
 
 func parse(page string) *template.Template {
@@ -126,6 +131,10 @@ type view struct {
 	// viewer shows.
 	Tiles []tile
 	Photo *photoView
+	// Film is the player page, and PlayerScripts the two scripts it loads
+	// when it needs HLS: hls.js and this project's own that starts it.
+	Film          *filmView
+	PlayerScripts []string
 }
 
 // render writes a whole page or none of it. The buffer is the point: a template

@@ -1,0 +1,12 @@
+{{define "content" -}}
+<div class="d-flex align-items-baseline gap-3 mb-3">
+  <h1 class="h5 mb-0 text-truncate">{{.Name}}</h1>
+  <a class="small" href="{{.Film.Direct}}">Open the file</a>
+  <a class="small ms-auto" href="{{.Back}}">Back</a>
+</div>
+{{/* The file itself as the src, so the page plays whatever the browser plays
+     with no script at all. data-hls is set only when the film needs it, and
+     play.js is what reads it: see video.go. */}}
+<video class="w-100 bg-black rounded" controls preload="metadata" src="{{.Film.Direct}}"
+  {{- if .Film.HLS}} data-hls="{{.Film.HLS}}"{{end}}></video>
+{{- end}}

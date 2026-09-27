@@ -19,11 +19,20 @@ protocols your existing apps already understand.
 | WebDAV | files, photo backup, sync | rclone, Finder, Nautilus, FolderSync | **works** |
 | tus | resumable upload of large files | tus-js-client, TUSKit, tus-android-client | **works** ‡ |
 | HTTP range | audio/video streaming | browsers, VLC, mpv | **works** |
+| HLS | films a player cannot take as they are, remuxed | Chromecast, Safari, VLC, the web UI's player | **works** § |
 | CalDAV | calendar | DAVx5, Thunderbird, iOS/macOS | next |
 | OpenSubsonic | music | Symfonium, Substreamer, DSub, Feishin | **works** † |
 | Web UI | sign in, browse, upload, download, rename, delete, a photo gallery, library status | any browser | **partly** |
 | CardDAV | contacts | DAVx5, Thunderbird | planned |
 | DLNA / UPnP-AV | TVs, set-top players | | planned |
+
+§ Remux only: the picture is copied, never re-encoded, into MPEG-TS, and the
+sound made stereo AAC when it is AC-3, DTS or anything else a television will
+not play. That covers the commonest reason a film does not play on a
+Chromecast — Matroska, or its soundtrack — and not a picture the device cannot
+decode: a 10-bit HEVC film is offered as it is, and an old Chromecast still
+refuses it. H.264 and HEVC in MP4, QuickTime, Matroska or WebM; AVI and
+MPEG-TS say nowhere where their keyframes are, and are played as they are.
 
 ‡ The protocol works, the container suite cuts an upload in half and resumes it,
 and a real client does the same from the other side: the Stratus app negotiates
@@ -503,6 +512,14 @@ would otherwise run as whoever is signed in. Files go through
 `http.ServeContent`, so ranges, conditional requests and resuming a half-finished
 download behave exactly as they do on the streaming surface.
 
+**A film opens in a player**, which is a page with the film in a `<video>`
+and a link to the file itself. One the browser cannot take as it is — a
+Matroska file, AC-3 sound — plays as HLS, remuxed as it is watched: Safari
+natively, and anything else through hls.js, which is loaded for that page and
+that film only. With no JavaScript the player still plays whatever the browser
+plays. The same HLS is what a Chromecast is sent: `?hls=index.m3u8` on the
+file's URL, or on its share link, since a receiver cannot sign in.
+
 **Photos have a gallery of their own at `/gallery/photos`**: every image in the
 library, newest first by when the camera says it was taken and grouped by month,
 wherever it was filed. An image with no camera date -- a screenshot, a download
@@ -908,7 +925,7 @@ build rather than a note in a document.
 
 Multi-stage build, `distroless/static:nonroot` runtime, 44 MB unpacked and a
 17 MB download, measured on amd64. The Go binary is most of it at 25 MB, beside
-2.4 MB of `ffprobe` (2.2 MB on arm64), 12.9 MB of `ffmpeg` (10.8 MB on arm64)
+2.4 MB of `ffprobe` (2.2 MB on arm64), 13.2 MB of `ffmpeg` (11.1 MB on arm64)
 and a base under one megabyte. It grew 4 MB with the web UI: `html/template`
 costs about three of those and the embedded Bootstrap a third of one, with htmx
 a further 50 KB, which is what a page rendered by the standard library and

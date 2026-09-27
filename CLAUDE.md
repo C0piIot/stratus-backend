@@ -40,6 +40,25 @@ Hard constraints, in the same spirit as the rest of the project:
 
   This is not permission for more. The next feature that wants script gets the
   same paragraph written about it, or it gets a form.
+- **The second script is the film player's, and this is its paragraph** (#50).
+  A film a browser cannot take as it is -- Matroska, AC-3 sound -- plays as the
+  HLS the server remuxes it into, and Chrome and Firefox do not play HLS
+  without help. Safari does, natively, and never loads anything. The help is
+  **hls.js 1.7.3**, the light build, vendored and embedded like htmx and
+  checked against the copy in the npm tarball, and
+  `internal/web/static/stratus/play.js`, which is twenty lines that hand it
+  the playlist.
+
+  What keeps it on the right side of the line is the same as the first: **it
+  degrades by construction.** The player is a `<video>` whose `src` is the
+  file itself, which is what plays with no script -- the page was a download
+  link before and is at worst that now. The two scripts are on the player page
+  only, and only for a film that needs HLS: an MP4 a browser plays gets a video
+  element and nothing else. The page's policy grows `media-src 'self' blob:`,
+  there alone -- `blob:` for the MediaSource hls.js feeds -- and hls.js is
+  started with its worker off, so the policy needs no `worker-src`. It
+  answers nothing in JSON and adds no endpoint: HLS is a protocol every player
+  already speaks, served at the file's own URL (see Tech decisions).
 - **htmx only where it is genuinely required**, vendored and embedded like
   Bootstrap. Default to a plain form and a full page render. One page needs it
   so far: the file listing, which is paged by a cursor and extends itself as
@@ -845,7 +864,7 @@ Restraint here is principle 3, not laziness:
     had: the captured reports now include this build's output, and the
     recipe asserts a FLAC comes out sixteen bits. `--enable-small` makes it
     print profiles as numbers, and `profileName` maps them back.
-  - **`ffmpeg`, 12.9 MB on amd64 and 10.8 on arm64.** For pictures, only what
+  - **`ffmpeg`, 13.2 MB on amd64 and 11.1 on arm64.** For pictures, only what
     Go cannot decode: HEIC,
     which needs libheif and therefore cgo, and a frame out of a video. It
     decodes and scales; the JPEG is written in Go, so it emits a rawvideo frame
@@ -1117,6 +1136,38 @@ Restraint here is principle 3, not laziness:
   authenticated like any call and can name nothing `stream` could not -- and
   `PlanFromParams` refuses anything the decision could not have produced. An
   MP4 target goes out fragmented, which is the only MP4 a response can carry.
+
+  **A film is offered as HLS, remuxed and never re-encoded**, for what a
+  player cannot take as it is. Re-encoding video is the one job a Raspberry Pi
+  cannot do at any useful speed, so the picture is copied into MPEG-TS and only
+  the sound is changed, to stereo AAC, when it is AC-3, DTS or another a
+  television will not decode -- the commonest reason a film does not play,
+  after the Matroska box itself. `media.RemuxFor` takes H.264 and HEVC and
+  refuses the rest, and the caller offers those as they are.
+
+  **Every segment is its own ffmpeg, and there is no session.** A copied
+  segment must open on a keyframe, and every container this reads keeps an
+  index of them (`keyframes.go`: an MP4's sample table with its composition
+  offsets and edit list, as ffmpeg moves them; a Matroska file's Cues, found
+  through the SeekHead), so the VOD playlist is written whole before anything
+  runs, and each segment's name carries everything needed to make it. Seeking,
+  resuming and parallel fetches are just requests, and nothing is written to
+  disk or left behind. Three things make the segments meet exactly, each
+  measured on the fixtures and held by `TestSegmentsAreContiguous`: ffmpeg cuts
+  a copied stream by decode time, so a segment ends on a **frame count** (exact
+  from an MP4's sample numbers, from DefaultDuration in Matroska, and a film
+  with neither is not segmented); it moves a seek back by 3/23 s in a film with
+  B-frames, so the seek is **aimed past the keyframe**, by up to 150 ms and
+  never as far as the next; and the muxer shifts only the first segment for
+  its negative decode time, so **every segment is offset by the same ten
+  seconds**. TS rather than fMP4 because a TS segment stands alone.
+
+  **HLS is served at the file's own URL**, `?hls=index.m3u8` and a segment's
+  name, behind the gate that serves the file -- a session, or a share link's
+  signature, which the playlist writes onto every segment's address because a
+  Chromecast fetches them itself and can send nothing else. Playlist and
+  segments carry `Access-Control-Allow-Origin: *`, which the receiver
+  requires; the gate is the signature, and a wildcard never admits a cookie.
 
   **How many run at once comes from the machine**, like the thumbnails: four
   per CPU, because a transcode encodes faster than anybody listens and spends
