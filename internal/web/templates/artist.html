@@ -1,0 +1,19 @@
+{{define "content" -}}
+<div class="d-flex align-items-baseline gap-3 mb-3">
+  <h1 class="h4 mb-0 text-truncate">{{.Name}}</h1>
+  <a class="small ms-auto" href="{{.Back}}">All artists</a>
+</div>
+<div class="row g-3">
+  {{range .Albums}}
+  <div class="col-6 col-sm-4 col-md-3 col-lg-2">
+    <a href="{{.Href}}" class="d-block text-decoration-none">
+      <div class="ratio ratio-1x1 bg-body-secondary rounded overflow-hidden mb-1">
+        <img src="{{.Cover}}" alt="" width="300" height="300" loading="lazy" class="object-fit-cover w-100 h-100">
+      </div>
+      <div class="small text-truncate text-body">{{.Name}}</div>
+      {{if .Year}}<div class="small text-body-secondary">{{.Year}}</div>{{end}}
+    </a>
+  </div>
+  {{end}}
+</div>
+{{- end}}

@@ -22,7 +22,7 @@ protocols your existing apps already understand.
 | HLS | films a player cannot take as they are, remuxed | Chromecast, Safari, VLC, the web UI's player | **works** § |
 | CalDAV | calendar | DAVx5, Thunderbird, iOS/macOS | next |
 | OpenSubsonic | music | Symfonium, Substreamer, DSub, Feishin | **works** † |
-| Web UI | sign in, browse, upload, download, rename, delete, a photo gallery, library status | any browser | **partly** |
+| Web UI | sign in, browse, upload, download, rename, delete, a photo gallery, a music library, library status | any browser | **partly** |
 | CardDAV | contacts | DAVx5, Thunderbird | planned |
 | DLNA / UPnP-AV | TVs, set-top players | | planned |
 
@@ -549,6 +549,17 @@ the ones either side a click away and a link to the original; a HEIC shows in
 every browser, not only Safari, because what is shown is a JPEG made from it. A
 photo appears once the indexer has read it, like a track in the music library.
 
+**Music has a library of its own at `/music`**: the artists, each one's albums
+with their covers, and an album page where every track is a player of its own.
+Read from the tags rather than the tree, like the gallery, and a track appears
+once the indexer has read it. Stars, ratings and play counts show as a Subsonic
+client left them; they are set from one, not here. A track played to the end in
+the browser counts as a play: the page makes the same `scrobble` call a
+Subsonic client does, to `/rest/`, with the session as its credential. With
+JavaScript off a track still plays and is not counted. Tracks play one at a
+time and do not follow on from each other, and a format the browser cannot
+decode does not play.
+
 **The same photos are folders by date over WebDAV, at `/photos/`** --
 `/photos/2024/06/` is June 2024 -- on a read-only mount of its own, for the reason
 `/playlists/` is one: nothing generated can land in your own tree. The files are
@@ -1037,8 +1048,8 @@ Working now:
 - EXIF, audio tags and video probing, indexed in the background and started by
   the upload itself, with a page saying how far it has got.
 - A web UI: sign in, walk the tree, open or download a file, upload one, make a folder,
-  rename and delete, and a gallery of every photo by date -- also served as
-  folders by date over WebDAV. A signed-cookie session and a CSP that allows nothing but
+  rename and delete, a gallery of every photo by date -- also served as
+  folders by date over WebDAV -- and a music library to browse and play. A signed-cookie session and a CSP that allows nothing but
   the binary's own assets.
 - A request log, migrations applied at startup, and a container asserted from
   the outside by 101 smoke checks.

@@ -35,34 +35,40 @@ var templateFS embed.FS
 var staticFS embed.FS
 
 const (
-	pageLogin  = "login.html"
-	pageFiles  = "files.html"
-	pageRename = "rename.html"
-	pageDelete = "delete.html"
-	pageStatus = "status.html"
-	pageShare  = "share.html"
-	pageShared = "shared.html"
-	pageError  = "error.html"
-	pagePhotos = "photos.html"
-	pagePhoto  = "photo.html"
-	pagePlay   = "play.html"
+	pageLogin   = "login.html"
+	pageFiles   = "files.html"
+	pageRename  = "rename.html"
+	pageDelete  = "delete.html"
+	pageStatus  = "status.html"
+	pageShare   = "share.html"
+	pageShared  = "shared.html"
+	pageError   = "error.html"
+	pagePhotos  = "photos.html"
+	pagePhoto   = "photo.html"
+	pagePlay    = "play.html"
+	pageArtists = "artists.html"
+	pageArtist  = "artist.html"
+	pageAlbum   = "album.html"
 )
 
 // Each page is parsed with the layout into a set of its own. One set for all of
 // them cannot work: every page defines the same "content" template, which is
 // what lets the layout call it.
 var pages = map[string]*template.Template{
-	pageLogin:  parse(pageLogin),
-	pageFiles:  parse(pageFiles),
-	pageRename: parse(pageRename),
-	pageDelete: parse(pageDelete),
-	pageStatus: parse(pageStatus),
-	pageShare:  parse(pageShare),
-	pageShared: parse(pageShared),
-	pageError:  parse(pageError),
-	pagePhotos: parse(pagePhotos),
-	pagePhoto:  parse(pagePhoto),
-	pagePlay:   parse(pagePlay),
+	pageLogin:   parse(pageLogin),
+	pageFiles:   parse(pageFiles),
+	pageRename:  parse(pageRename),
+	pageDelete:  parse(pageDelete),
+	pageStatus:  parse(pageStatus),
+	pageShare:   parse(pageShare),
+	pageShared:  parse(pageShared),
+	pageError:   parse(pageError),
+	pagePhotos:  parse(pagePhotos),
+	pagePhoto:   parse(pagePhoto),
+	pagePlay:    parse(pagePlay),
+	pageArtists: parse(pageArtists),
+	pageArtist:  parse(pageArtist),
+	pageAlbum:   parse(pageAlbum),
 }
 
 func parse(page string) *template.Template {
@@ -135,6 +141,10 @@ type view struct {
 	// when it needs HLS: hls.js and this project's own that starts it.
 	Film          *filmView
 	PlayerScripts []string
+
+	Artists []artistRow
+	Albums  []albumRow
+	Album   *albumView
 }
 
 // render writes a whole page or none of it. The buffer is the point: a template

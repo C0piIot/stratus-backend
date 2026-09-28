@@ -38,6 +38,7 @@ var repoMethods = []string{
 	"PutUpload", "UploadByID", "DeleteUpload", "ExpiredUploads",
 	"TrackByFile", "CreatePlaylist", "PlaylistByID", "LockPlaylist", "PlaylistTracks",
 	"UpdatePlaylist", "SetPlaylistTracks", "PhotoTimeline", "PhotoAround",
+	"Artists", "Albums", "Tracks", "AnnotationsOf",
 }
 
 // Failing is a db.Store that fails one named method and passes the rest
@@ -279,4 +280,36 @@ func (f *failingRepo) PhotoAround(ctx context.Context, owner string, fileID int6
 		return db.PhotoAround{}, err
 	}
 	return f.Repo.PhotoAround(ctx, owner, fileID)
+}
+
+// Artists implements db.Repo.
+func (f *failingRepo) Artists(ctx context.Context, owner string) ([]db.Artist, error) {
+	if err := f.fails("Artists"); err != nil {
+		return nil, err
+	}
+	return f.Repo.Artists(ctx, owner)
+}
+
+// Albums implements db.Repo.
+func (f *failingRepo) Albums(ctx context.Context, owner, artist string) ([]db.Album, error) {
+	if err := f.fails("Albums"); err != nil {
+		return nil, err
+	}
+	return f.Repo.Albums(ctx, owner, artist)
+}
+
+// Tracks implements db.Repo.
+func (f *failingRepo) Tracks(ctx context.Context, owner, artist, album string) ([]db.Track, error) {
+	if err := f.fails("Tracks"); err != nil {
+		return nil, err
+	}
+	return f.Repo.Tracks(ctx, owner, artist, album)
+}
+
+// AnnotationsOf implements db.Repo.
+func (f *failingRepo) AnnotationsOf(ctx context.Context, owner string, subjects []db.Subject) (map[db.Subject]db.Annotation, error) {
+	if err := f.fails("AnnotationsOf"); err != nil {
+		return nil, err
+	}
+	return f.Repo.AnnotationsOf(ctx, owner, subjects)
 }

@@ -68,6 +68,17 @@ Hard constraints, in the same spirit as the rest of the project:
   that the fragment it asks for is the same URL answering with a piece of the
   same HTML. A second endpoint, or one answering in JSON, would be the private
   API principle 2 forbids.
+
+  **An album page uses it to count a play** (#212): each track's `<audio>`
+  carries `hx-get` to OpenSubsonic's own `scrobble` with `hx-trigger="ended"`,
+  authenticated by the session (#234). Not an endpoint of the UI's -- the
+  protocol already had it -- and no script of ours: without JavaScript the
+  track plays and is not counted. The song id is written out in
+  `internal/web/music.go` because adapters do not import each other, and
+  `TestAPlayFromTheWebUICounts` in `internal/app` follows the call to make
+  sure the two agree. Playing the next track when one ends needs a `.play()`,
+  which htmx cannot make with eval off, so it would be a third script and
+  its own paragraph.
 - The UI authenticates with its own session cookie, and HTTP Basic as well.
   **The session is signed, not stored**: the value
   carries who it is for and when it expires, under an HMAC keyed by a derivation
@@ -288,6 +299,16 @@ Hard constraints, in the same spirit as the rest of the project:
 
   The EXIF date carries no zone and the reader keeps the camera's clock as if
   it were UTC, so a month is taken in UTC and New Year's Eve stays in December.
+- **Music has a library at `/music`, read from the tags** (#212): artists,
+  their albums, and an album with an `<audio preload="none">` per track over
+  the file's own `/files/` URL, so ranges are `ServeContent`'s. Built over
+  `db.Music` with one `AnnotationsOf` per page, like the Subsonic adapter, and
+  showing stars, ratings and plays without setting them. Tags are path
+  segments, escaped one each, so AC/DC is one step down. The album page's
+  policy adds `media-src 'self'` there alone. The cover is
+  `/music/<artist>/<album>/cover`, the same folder-then-first-track rule as
+  `getCoverArt` through `media.Thumbs.Cover`; a 404 is the normal answer for
+  half a library, and the page draws the empty square around it.
 - **Renaming and deleting are pages, not buttons in the row.** Each is a GET
   that asks and a POST that does: a rename needs a name typed into something,
   and a delete cannot be undone -- there is no trash bin, so the page in between
