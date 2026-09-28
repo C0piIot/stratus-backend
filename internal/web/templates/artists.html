@@ -1,0 +1,22 @@
+{{define "content" -}}
+<h1 class="h4 mb-3">Music</h1>
+{{if .Artists}}
+<div class="list-group">
+  {{range .Artists}}
+  <a class="list-group-item list-group-item-action d-flex align-items-baseline gap-2" href="{{.Href}}">
+    <span class="text-truncate">{{.Name}}</span>
+    {{if .Starred}}<span class="text-warning" title="Starred">♥</span>{{end}}
+    <span class="ms-auto small text-body-secondary text-nowrap">{{.Albums}} album{{if ne .Albums 1}}s{{end}}</span>
+  </a>
+  {{end}}
+</div>
+{{else}}
+<div class="card">
+  <div class="card-body text-body-secondary">
+    No music yet. Every audio file with tags shows up here once it has been
+    read, wherever it was put — see <a href="/status">Status</a> for how far
+    the reading has got.
+  </div>
+</div>
+{{end}}
+{{- end}}

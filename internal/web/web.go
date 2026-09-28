@@ -12,6 +12,7 @@
 package web
 
 import (
+	"context"
 	"net/http"
 	"strings"
 
@@ -59,6 +60,19 @@ const contentSecurityPolicy = "default-src 'none'; style-src 'self'; script-src 
 const fileContentSecurityPolicy = "default-src 'none'; img-src 'self'; media-src 'self'; " +
 	"style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'"
 
+// Index is what the gallery and the music pages read: the media index by date
+// and by tag, and what the user has said about the music.
+type Index interface {
+	db.Photos
+	Library
+}
+
+// Library is the music half of Index.
+type Library interface {
+	db.Music
+	AnnotationsOf(ctx context.Context, owner string, subjects []db.Subject) (map[db.Subject]db.Annotation, error)
+}
+
 type handler struct {
 	version   string
 	buildDate string
@@ -79,6 +93,8 @@ type handler struct {
 	// photoIndex is what the gallery reads: the index by date rather than the
 	// tree by path.
 	photoIndex db.Photos
+	// library is the same index by tag, for the music pages.
+	library Library
 	// video is the player and HLS, and a zero one means neither is offered.
 	video Video
 }
@@ -91,11 +107,11 @@ type handler struct {
 // other surface -- a WebDAV or Subsonic client is not a browser and sends no
 // cookie -- and a caller that forgot it would lose the defence silently.
 func Handler(version, buildDate string, v auth.Verifier, s *auth.Sessions, shares *auth.Shares,
-	service *files.Service, thumbs *media.Thumbs, photos db.Photos, indexing Indexing, video Video,
+	service *files.Service, thumbs *media.Thumbs, index Index, indexing Indexing, video Video,
 ) http.Handler {
 	h := &handler{
 		version: version, buildDate: buildDate, verifier: v, sessions: s, shares: shares,
-		files: service, thumbs: thumbs, photoIndex: photos, indexing: indexing, video: video,
+		files: service, thumbs: thumbs, photoIndex: index, library: index, indexing: indexing, video: video,
 	}
 
 	mux := http.NewServeMux()
@@ -116,6 +132,10 @@ func Handler(version, buildDate string, v auth.Verifier, s *auth.Sessions, share
 	mux.HandleFunc("GET /status", h.signedIn(h.status))
 	mux.HandleFunc("GET "+galleryPhotos, h.signedIn(h.photos))
 	mux.HandleFunc("GET "+photoPrefix+"{path...}", h.signedIn(h.photo))
+	mux.HandleFunc("GET "+musicPrefix, h.signedIn(h.artists))
+	mux.HandleFunc("GET "+musicPrefix+"/{artist}", h.signedIn(h.artist))
+	mux.HandleFunc("GET "+musicPrefix+"/{artist}/{album}", h.signedIn(h.album))
+	mux.HandleFunc("GET "+musicPrefix+"/{artist}/{album}/cover", h.signedIn(h.cover))
 	mux.HandleFunc("POST /files/{path...}", h.signedIn(h.upload))
 	mux.HandleFunc("POST /folders/{path...}", h.signedIn(h.newFolder))
 	mux.HandleFunc("GET /share/{path...}", h.signedIn(h.shareForm))

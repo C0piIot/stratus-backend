@@ -1,0 +1,40 @@
+{{define "content" -}}
+{{with .Album}}
+<div class="row g-4">
+  <div class="col-sm-5 col-md-4">
+    <div class="ratio ratio-1x1 bg-body-secondary rounded overflow-hidden">
+      <img src="{{.Cover}}" alt="" class="object-fit-cover w-100 h-100">
+    </div>
+  </div>
+  <div class="col">
+    <h1 class="h4 mb-1">{{$.Name}}{{if .Starred}} <span class="text-warning" title="Starred">♥</span>{{end}}</h1>
+    <p class="mb-1"><a href="{{.ArtistHref}}">{{.Artist}}</a></p>
+    <p class="small text-body-secondary mb-3">
+      {{- if .Year}}{{.Year}} · {{end}}{{if .Genre}}{{.Genre}} · {{end}}{{len .Tracks}} track{{if ne (len .Tracks) 1}}s{{end}}
+      {{- if .Duration}} · {{.Duration}}{{end}}
+      {{- if .Rating}} · <span class="text-warning" title="Rating">{{.Rating}}</span>{{end}}
+    </p>
+    <ol class="list-group">
+      {{range .Tracks}}
+      <li class="list-group-item">
+        <div class="d-flex align-items-baseline gap-2 mb-1">
+          <span class="small text-body-secondary">{{if .Number}}{{.Number}}{{end}}</span>
+          <span class="text-truncate">{{.Title}}</span>
+          {{if .Starred}}<span class="text-warning" title="Starred">♥</span>{{end}}
+          {{if .Rating}}<span class="small text-warning" title="Rating">{{.Rating}}</span>{{end}}
+          <span class="ms-auto small text-body-secondary text-nowrap">
+            {{- if .Plays}}{{.Plays}} play{{if ne .Plays 1}}s{{end}} · {{end}}{{.Duration}}</span>
+        </div>
+        {{/* The file itself, so it plays with no script. htmx, when there is
+             any, tells OpenSubsonic the track was played to the end: the same
+             scrobble a Subsonic client sends, with the session as its
+             credential. */}}
+        <audio class="w-100" controls preload="none" src="{{.Src}}"
+          hx-get="{{.Scrobble}}" hx-trigger="ended" hx-swap="none"></audio>
+      </li>
+      {{end}}
+    </ol>
+  </div>
+</div>
+{{end}}
+{{- end}}
