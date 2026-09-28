@@ -169,7 +169,7 @@ func TestCompleteUploadWhenTheTypeCannotBeRead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.AppendUpload(t.Context(), owner, u.ID, 0, bytes.NewReader([]byte("a photo"))); err != nil {
+	if _, err = s.AppendUpload(t.Context(), owner, u.ID, 0, bytes.NewReader([]byte("a photo"))); err != nil {
 		t.Fatal(err)
 	}
 
