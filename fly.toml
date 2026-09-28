@@ -1,26 +1,23 @@
 # Fly.io: the throwaway instance CI keeps on the last green main.
 #
-# Test infrastructure, not a recommended way to run this. Three things make that
-# literal: the smallest machine there is, **no volume** -- the data directory
-# sits on the machine's own disk -- and a password that is the version in the
-# page footer, which is the short sha of the commit deployed and therefore
-# public. Every merge to main is a fresh server with nothing in it, a new
-# password, and every client logged out -- and on the hour, every hour,
-# .github/workflows/demo-reset.yml empties it again without changing what it
-# runs. Do not put anything here that you would miss.
+# Test infrastructure, not a recommended way to run this. The smallest machine
+# there is, the smallest volume Fly sells, and a password that is the version in
+# the page footer, which is the short sha of the commit deployed and therefore
+# public. Every merge to main is a fresh server with nothing in it but the demo
+# media, a new password, and every client logged out -- and on the hour, every
+# hour, .github/workflows/demo-reset.yml empties it again without changing what
+# it runs. Do not put anything here that you would miss.
 #
-# **What empties it is destroying the machine**, which both of those do before
-# they deploy. A deploy on its own replaces the image and leaves the disk under
-# it, and so does stopping the machine and starting it again: all three were
-# believed to wipe, all three were tried, and the database survived. It was two
-# days of the demo answering 500 to every query touching a column added by a
-# schema an existing database never had applied to it.
+# **The data is on a volume** (#238). It used to sit on the machine's own disk,
+# which a cold start throws away: the demo emptied itself in the middle of an
+# hour with nothing destroyed. A volume survives the machine it is mounted on,
+# so **what empties it is destroying the volume**, which scripts/demo-reset.sh
+# does before every deploy and every reset. A deploy on its own replaces the
+# image and leaves the disk, and so does stopping the machine and starting it
+# again -- both were once believed to wipe, and the demo spent two days on a
+# database from before the schema the binary expected.
 #
-# /tmp rather than /data because there is no mount: the image runs as 65532 and
-# cannot create a directory at the root of its filesystem, while /tmp is there
-# and writable. It is the machine's disk either way, not memory.
-#
-#   fly deploy --ha=false                                       # by hand
+#   scripts/demo-reset.sh <app> [image]                         # by hand
 #   make demo BASE=https://<app>.fly.dev                        # the demo media
 #
 # CI deploys this same file with the digest it just published; see ci.yml.
@@ -34,7 +31,7 @@ primary_region = "cdg"
 
 [env]
   STRATUS_ADDR = ":8080"
-  STRATUS_DATA_DIR = "/tmp/stratus"
+  STRATUS_DATA_DIR = "/data"
   # Not a secret, and the seeding step reads it from here so there is one place
   # that says who the user is. Neither is the password: CI stages it on every
   # deploy as the version string this build carries.
@@ -55,17 +52,9 @@ primary_region = "cdg"
   # Nobody is watching it most of the time, so it sleeps and the first request
   # wakes it.
   #
-  # suspend and not stop, which is the difference between the demo having
-  # something in it and not: "stop" threw the seeded media away every time
-  # nobody looked for a few minutes, and the next visitor got an empty tree.
-  # Suspending snapshots the machine instead and restores it as it was.
-  #
-  # Not a guarantee: a snapshot Fly cannot keep falls back to a cold start,
-  # which is empty until the hourly reset seeds it again.
-  #
-  # Neither setting is what wipes the instance. Nothing here is -- see the top
-  # of this file: the reset destroys the machine, because that is the only thing
-  # tried that actually emptied the disk.
+  # suspend rather than stop because it wakes faster. Either keeps the data
+  # now that it is on a volume; before that, "stop" and the occasional cold
+  # start behind a suspend both handed the next visitor an empty tree.
   auto_stop_machines = "suspend"
   auto_start_machines = true
   min_machines_running = 0
@@ -76,6 +65,12 @@ primary_region = "cdg"
     grace_period = "15s"
     method = "GET"
     path = "/healthz"
+
+# 1 GB is the smallest volume there is, and fifteen times the demo media.
+[mounts]
+  source = "stratus_data"
+  destination = "/data"
+  initial_size = "1gb"
 
 [[vm]]
   size = "shared-cpu-1x"

@@ -912,7 +912,7 @@ has not been through all of them. Anywhere `FLY_APP` is unset, including every
 fork, the job does not run.
 
 That instance is deliberately disposable, and deliberately open: the smallest
-machine Fly sells, **no volume**, and **the password is the version string in
+machine and the smallest volume Fly sells, and **the password is the version string in
 the page footer** — the short sha of the commit it is running, which anybody can
 read off this repository. It is the version alone: the build timestamp beside it
 is not part of it. Three things follow, and none of them is an accident:
@@ -922,20 +922,22 @@ is not part of it. Three things follow, and none of them is an accident:
 - **Every deploy changes the password**, so every client and every browser
   session is logged out by the next merge to `main`. Reconfiguring a Subsonic
   client after a merge is the cost of not having a secret to manage.
-- **It sleeps when nobody is looking**, and is suspended rather than stopped so
-  that it comes back holding what it held. This is the setting that decides
-  whether somebody arriving at a quiet moment finds the demo or finds nothing.
+- **It sleeps when nobody is looking**, and comes back holding what it held:
+  the data is on a volume, which a stop or a cold start leaves alone. Before
+  it was, one of those in the middle of an hour emptied the demo with nothing
+  having reset it (#238).
 - **It wipes itself every hour**, and on every deploy. That is what makes an open
   instance not worth abusing: whatever anybody leaves there — including you — is
   gone within the hour, and the demo media is put back.
-  `.github/workflows/demo-reset.yml` destroys the machine and lets a deploy make
-  a new one, without changing a line of what it runs.
+  `scripts/demo-reset.sh`, which both the hourly reset and a deploy run,
+  destroys the machine and its volume, deploys onto a new, empty one without
+  changing a line of what it runs, and checks the tree really is empty before
+  seeding it.
 
-  Destroying it is the point rather than an implementation detail. A deploy
-  replaces the image and leaves the disk under it, and so does stopping the
-  machine and starting it again: both were believed to wipe and neither does,
-  which the demo demonstrated by spending two days serving a database from
-  before the schema the binary expected.
+  Destroying the volume is the point rather than an implementation detail. A
+  deploy replaces the image and leaves the disk under it, and so does stopping
+  the machine and starting it again: the demo once spent two days serving a
+  database from before the schema the binary expected.
 
 Which is why the deploy ends by seeding it: `scripts/seed-demo.sh` fetches a
 15.6 MB bundle of freely licensed media — five photographs with their EXIF, two

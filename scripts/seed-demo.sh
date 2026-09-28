@@ -2,10 +2,10 @@
 #
 # Puts the demo media into an instance, over the same WebDAV any client speaks.
 #
-# The test instance keeps nothing -- no volume, and a deploy replaces its disk
-# along with the image -- so a fresh machine has an empty tree, an indexer with
-# nothing to read and a music library with no artists in it. This fills it in
-# again: five photographs with their EXIF, two tagged tracks with a cover, and
+# The test instance is emptied on every deploy and every hour -- its volume is
+# destroyed and a new one made (scripts/demo-reset.sh) -- so it starts with an
+# empty tree, an indexer with nothing to read and a music library with no
+# artists in it. This fills it in again: five photographs with their EXIF, two tagged tracks with a cover, and
 # fifteen seconds of video in eight containers and codecs, each there for a
 # different thing a server has to do with a film (scripts/demo/CREDITS.md).
 #
