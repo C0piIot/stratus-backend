@@ -252,10 +252,8 @@ func (s *Service) uploadType(ctx context.Context, u db.Upload) string {
 		return u.MIMEType
 	}
 	defer func() { _ = body.Close() }()
-	head, err := io.ReadAll(io.LimitReader(body, sniff.HeadSize))
-	if err != nil {
-		return u.MIMEType
-	}
+	// Whatever arrived before a read failed is still the head of the file.
+	head, _ := io.ReadAll(io.LimitReader(body, sniff.HeadSize))
 	sniffed, _ := sniff.Sniff(head)
 	return contentType(u.MIMEType, sniffed)
 }

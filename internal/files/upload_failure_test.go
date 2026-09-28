@@ -159,6 +159,30 @@ func TestCompleteUploadWhenTheHashHasToBeReadBack(t *testing.T) {
 	}
 }
 
+// TestCompleteUploadWhenTheTypeCannotBeRead completes anyway: the type is a
+// guess made for the client's benefit, and losing it is not worth an upload.
+func TestCompleteUploadWhenTheTypeCannotBeRead(t *testing.T) {
+	t.Parallel()
+	s, blobs, meta := uploadFixture(t)
+
+	u, err := s.BeginUpload(t.Context(), owner, "holiday/IMG_0001.HEIC", -1, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AppendUpload(t.Context(), owner, u.ID, 0, bytes.NewReader([]byte("a photo"))); err != nil {
+		t.Fatal(err)
+	}
+
+	broken := files.New(storagetest.FailOn(t, blobs, "Get"), meta)
+	f, err := broken.CompleteUpload(t.Context(), owner, u.ID)
+	if err != nil {
+		t.Fatalf("CompleteUpload = %v, want it to finish without a type", err)
+	}
+	if f.MIMEType != "" {
+		t.Errorf("MIMEType = %q, want the nothing that was declared", f.MIMEType)
+	}
+}
+
 // TestAbortUploadWhenTheStoreRefuses keeps the row: forgetting it would leave
 // bytes nothing can ever name, which is the one leak this design cannot recover
 // from.
