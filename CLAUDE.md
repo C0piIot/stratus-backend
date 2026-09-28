@@ -1463,4 +1463,5 @@ Restraint here is principle 3, not laziness:
   is exactly what Docker does with a fresh named one -- produces a server that
   refuses to start with a message about `/data` and no obvious cause. Fly reads
   the image's user and mounts accordingly; that is a property of the platform,
-  not of the manifest, so it is answered by deploying rather than by reading.
+  not of the manifest, so it is answered by deploying rather than by reading --
+  which the demo's own volume has now done (#238).
