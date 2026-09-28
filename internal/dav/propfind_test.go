@@ -1,6 +1,7 @@
 package dav_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/xml"
 	"net/http"
@@ -270,6 +271,35 @@ func TestPropfindListsAPhotograph(t *testing.T) {
 	// rather than a second guess from the first 512.
 	if got := props["/dav/camera/IMG_0001.HEIC"]["getcontenttype"]; got == "" {
 		t.Error("a photograph has no content type in the listing")
+	}
+}
+
+// TestPropfindNamesARowWithNoTypeByItsExtension is a file stored before tus
+// uploads were sniffed: its row has no type, and the listing says what the
+// name does rather than application/octet-stream, which no client offers to
+// show.
+func TestPropfindNamesARowWithNoTypeByItsExtension(t *testing.T) {
+	t.Parallel()
+	svc := service(t)
+	h := withUser(dav.Handler(prefix, svc), "edu")
+	do(t, h, "MKCOL", "/dav/camera", "")
+
+	// Nothing a sniff recognises, and nothing declared: the row is left empty.
+	body := []byte{0x00, 0x01, 0x02, 0x03}
+	u, err := svc.BeginUpload(t.Context(), "edu", "camera/IMG_0002.HEIC", int64(len(body)), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.AppendUpload(t.Context(), "edu", u.ID, 0, bytes.NewReader(body)); err != nil {
+		t.Fatal(err)
+	}
+	if f, err := svc.CompleteUpload(t.Context(), "edu", u.ID); err != nil || f.MIMEType != "" {
+		t.Fatalf("CompleteUpload = %q, %v; the case needs a row with no type", f.MIMEType, err)
+	}
+
+	rec := do(t, h, "PROPFIND", "/dav/camera", "", "Depth", "1", "Content-Type", "application/xml")
+	if got := propsOf(t, rec.Body.String())["/dav/camera/IMG_0002.HEIC"]["getcontenttype"]; got != "image/heic" {
+		t.Errorf("getcontenttype = %q, want image/heic", got)
 	}
 }
 

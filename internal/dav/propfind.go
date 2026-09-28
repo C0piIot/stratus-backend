@@ -190,8 +190,9 @@ func (i rowInfo) ContentType(context.Context) (string, error) {
 	if i.row.MIMEType == "" {
 		// Not ErrNotImplemented: that hands the question back to the library,
 		// which answers it by reading, which is the thing that cannot happen
-		// here.
-		return "application/octet-stream", nil
+		// here. The extension rather than nothing, because a tus upload that
+		// declared no type used to be stored without one.
+		return mimeType(i.row.Path), nil
 	}
 	return i.row.MIMEType, nil
 }

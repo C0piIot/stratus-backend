@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/C0piIot/stratus-backend/internal/db"
+	"github.com/C0piIot/stratus-backend/internal/sniff"
 	"github.com/C0piIot/stratus-backend/internal/storage"
 )
 
@@ -160,6 +161,7 @@ func (s *Service) CompleteUpload(ctx context.Context, owner, id string) (db.File
 	if err != nil {
 		return db.File{}, err
 	}
+	mimeType := s.uploadType(ctx, u)
 
 	f := db.File{
 		OwnerID:  owner,
@@ -168,7 +170,7 @@ func (s *Service) CompleteUpload(ctx context.Context, owner, id string) (db.File
 		Size:     info.Size,
 		MTime:    info.ModTime,
 		ETag:     tag,
-		MIMEType: u.MIMEType,
+		MIMEType: mimeType,
 	}
 	err = s.meta.Tx(ctx, func(r db.Repo) error {
 		if perr := s.requireParent(ctx, r, owner, u.Path); perr != nil {
@@ -232,6 +234,30 @@ func (s *Service) CollectUploads(ctx context.Context, now time.Time) (int, error
 		done++
 	}
 	return done, nil
+}
+
+// uploadType is what a PUT would have decided, read from the head of the blob
+// now that there is one.
+//
+// A tus client's filetype is optional, and without this every upload that
+// left it out was application/octet-stream for good: a HEIC from a camera
+// roll that no client would offer to show or to cast. A failed read is not a
+// failed upload, so it keeps what was declared.
+func (s *Service) uploadType(ctx context.Context, u db.Upload) string {
+	if u.MIMEType != "" && u.MIMEType != "application/octet-stream" {
+		return u.MIMEType
+	}
+	body, _, err := s.blobs.Get(ctx, u.BlobKey, storage.Slice(0, sniff.HeadSize))
+	if err != nil {
+		return u.MIMEType
+	}
+	defer func() { _ = body.Close() }()
+	head, err := io.ReadAll(io.LimitReader(body, sniff.HeadSize))
+	if err != nil {
+		return u.MIMEType
+	}
+	sniffed, _ := sniff.Sniff(head)
+	return contentType(u.MIMEType, sniffed)
 }
 
 // uploadETag is the running hash when it survived, and the object read back
