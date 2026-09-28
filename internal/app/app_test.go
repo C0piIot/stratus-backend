@@ -527,3 +527,79 @@ func answer(t *testing.T, target string) string {
 	}
 	return string(body)
 }
+
+// TestTheSessionOpensEveryProtocolFromItsOwnPages is #234's acceptance: the web
+// UI's cookie authenticates /rest/ and /dav/ when the browser says the request
+// is its own, and never when another site started it -- OpenSubsonic deletes a
+// playlist over GET, and SameSite=Lax sends the cookie on any link.
+func TestTheSessionOpensEveryProtocolFromItsOwnPages(t *testing.T) {
+	t.Parallel()
+	const password = "an example password"
+	base, stop := liveServer(t, map[string]string{
+		"STRATUS_USERNAME": "edu",
+		"STRATUS_PASSWORD": password,
+	})
+	defer stop()
+
+	form := url.Values{"username": {"edu"}, "password": {password}}
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, base+"/login", strings.NewReader(form.Encode()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	login, err := http.DefaultTransport.RoundTrip(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = login.Body.Close()
+	var cookie *http.Cookie
+	for _, c := range login.Cookies() {
+		if c.Name == "stratus_session" {
+			cookie = c
+		}
+	}
+	if cookie == nil {
+		t.Fatal("signing in set no session cookie")
+	}
+
+	created := answer(t, base+"/rest/createPlaylist.view?c=stratus-tests&f=json&name=Mix&u=edu&p="+url.QueryEscape(password))
+	if !strings.Contains(created, `"id":"pl-1"`) {
+		t.Fatalf("createPlaylist = %s", created)
+	}
+
+	withCookie := func(method, target, site string) (int, string) {
+		t.Helper()
+		req, err := http.NewRequestWithContext(t.Context(), method, base+target, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.AddCookie(cookie)
+		req.Header.Set("Sec-Fetch-Site", site)
+		req.Header.Set("Depth", "1")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return resp.StatusCode, string(body)
+	}
+
+	const del = "/rest/deletePlaylist.view?c=stratus-web&f=json&id=pl-1"
+	if _, body := withCookie(http.MethodGet, del, "cross-site"); !strings.Contains(body, `"status":"failed"`) {
+		t.Errorf("a cross-site deletePlaylist with the cookie = %s, want refused", body)
+	}
+	if _, body := withCookie(http.MethodGet, del, "same-origin"); !strings.Contains(body, `"status":"ok"`) {
+		t.Errorf("deletePlaylist from the web UI = %s, want ok", body)
+	}
+
+	if code, _ := withCookie("PROPFIND", "/dav/", "same-origin"); code != http.StatusMultiStatus {
+		t.Errorf("PROPFIND /dav/ from the web UI = %d, want 207", code)
+	}
+	if code, _ := withCookie("PROPFIND", "/dav/", "cross-site"); code != http.StatusUnauthorized {
+		t.Errorf("a cross-site PROPFIND with the cookie = %d, want 401", code)
+	}
+}

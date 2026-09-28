@@ -499,7 +499,8 @@ What is not there yet, and it is better to know before installing a client:
 
 Both authentication schemes are accepted: `p` carrying the password, and `t`
 carrying `md5(password + salt)`, which is what the [credentials](#credentials)
-section is about. Failed logins share one limit with WebDAV rather than having
+section is about. With no `u` at all, HTTP Basic or the web UI's session is
+accepted instead. Failed logins share one limit with WebDAV rather than having
 their own: it is the same single password, so alternating surfaces must not
 double an attacker's budget of guesses.
 
@@ -666,7 +667,17 @@ it back.
 
 CSRF is that `SameSite=Lax` plus the standard library's
 `http.CrossOriginProtection`, which refuses a state-changing request the browser
-itself reports as cross-site. Bootstrap and htmx are embedded in the binary
+itself reports as cross-site.
+
+**The session opens every other surface too** — `/dav/`, `/tus/`, `/rest/`,
+`/playlists/`, `/photos/` — so a page can use the protocols instead of an API of
+its own, and HTTP Basic opens the web UI. On those surfaces the cookie counts
+only when the browser says the request came from one of this server's pages or
+from the address bar (`Sec-Fetch-Site: same-origin` or `none`): OpenSubsonic
+deletes a playlist over `GET`, and `SameSite=Lax` would send the cookie on a
+link from anybody's page. Basic a browser has cached is refused the same way
+when it says another site sent it; a client that says nothing, which is every
+client that is not a browser, is judged on its password as before. Bootstrap and htmx are embedded in the binary
 rather than pulled from a CDN, so every page is served under `default-src
 'none'` — `'self'` for styles, scripts and the one request the listing makes for
 its next page — and nothing is fetched from anywhere else at all, which is also

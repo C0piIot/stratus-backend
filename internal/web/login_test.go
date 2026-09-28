@@ -253,3 +253,45 @@ func TestAnExpiredSessionIsNoSession(t *testing.T) {
 		t.Errorf("GET /files/ with an expired session = %d, want 303 to the login form", rec.Code)
 	}
 }
+
+// TestBasicSignsIn (#234): every page takes HTTP Basic as well as a session,
+// the ones that write included.
+func TestBasicSignsIn(t *testing.T) {
+	t.Parallel()
+	h, _ := browser(t)
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/status", nil)
+	req.SetBasicAuth(username, examplePassword)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("GET /status over Basic = %d, want 200", rec.Code)
+	}
+
+	form := url.Values{"name": {"photos"}}
+	req = httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/folders/", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.SetBasicAuth(username, examplePassword)
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusSeeOther {
+		t.Errorf("making a folder over Basic = %d, want 303", rec.Code)
+	}
+}
+
+// TestBasicFromAnotherSiteIsRefused: a browser that cached Basic sends it on a
+// link from anywhere, like a cookie. The pages only read over GET, so this is
+// belt and braces here -- but it is the same rule every surface follows.
+func TestBasicFromAnotherSiteIsRefused(t *testing.T) {
+	t.Parallel()
+	h, _ := browser(t)
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/status", nil)
+	req.SetBasicAuth(username, examplePassword)
+	req.Header.Set("Sec-Fetch-Site", "cross-site")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("cross-site Basic = %d, want 403", rec.Code)
+	}
+}

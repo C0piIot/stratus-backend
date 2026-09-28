@@ -17,42 +17,26 @@ const shareParam = "k"
 // signedIn is the gate in front of every page that is not the login form. A
 // browser with no usable session is sent to it rather than refused, and told
 // where it was going so a bookmark deep in the UI survives signing in.
-func (h *handler) signedIn(page func(http.ResponseWriter, *http.Request, string)) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		user, err := h.session(r)
-		if err != nil {
-			redirectLocal(w, r, "/login?next="+url.QueryEscape(r.URL.RequestURI()))
-			return
-		}
-		page(w, r, user)
-	}
-}
-
-// withPicture is readable plus HTTP Basic, and it wraps exactly one route.
 //
-// A thumbnail is the one thing this surface holds that another surface needs.
-// #136 put a has-preview property in the PROPFIND listing so a client drawing a
-// grid knows which tiles to ask for -- and the client that asks is the app,
-// which authenticates over WebDAV with Basic and could not reach /thumb/ at
-// all. A property that points at nothing is worse than no property.
-//
-// **This is the extension principle 2 warns about, taken knowingly.** There is
-// no standard way to ask a WebDAV server for a preview -- #136 checked, and the
-// only convention with deployment behind it is one vendor's. What keeps this on
-// the right side of the line is that nothing depends on it: a client that does
-// not know this URL renders no thumbnails and works, which is what the app does
-// against any other WebDAV server today.
+// HTTP Basic is the other way in (#234), and the one the app takes to /thumb/:
+// #136 put a has-preview property in the PROPFIND listing, and the client that
+// reads it authenticates over WebDAV. Refused Basic is a status and not the
+// login form -- whoever sends it is a client that already knows what it is
+// doing, and a 401 is what it can act on.
 //
 // The same verifier as the other surfaces, so a wrong password here counts
 // against the same rate limit rather than opening an oracle beside it.
-func (h *handler) withPicture(page func(http.ResponseWriter, *http.Request, string)) http.HandlerFunc {
+func (h *handler) signedIn(page func(http.ResponseWriter, *http.Request, string)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		username, password, ok := r.BasicAuth()
-		if !ok {
-			h.readable(page)(w, r)
+		if user, err := h.session(r); err == nil {
+			page(w, r, user)
 			return
 		}
-		switch err := h.verifier.Verify(r.Context(), username, password); {
+		user, sent, err := auth.BasicUser(r, h.verifier)
+		switch {
+		case !sent:
+			redirectLocal(w, r, "/login?next="+url.QueryEscape(r.URL.RequestURI()))
+			return
 		case errors.Is(err, auth.ErrTooManyAttempts):
 			// 429 and not 401, for the reason auth.Basic gives: the
 			// credentials were never judged, so saying "unauthorized" would be
@@ -60,14 +44,16 @@ func (h *handler) withPicture(page func(http.ResponseWriter, *http.Request, stri
 			w.Header().Set("Retry-After", "2")
 			http.Error(w, "too many attempts", http.StatusTooManyRequests)
 			return
+		case errors.Is(err, auth.ErrCrossSite):
+			http.Error(w, "cross-site request", http.StatusForbidden)
+			return
 		case err != nil:
 			// No challenge header: this is not a surface a browser should be
-			// prompted for, and the client that sends Basic here already knows
-			// what it is doing.
+			// prompted for.
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
-		page(w, r, username)
+		page(w, r, user)
 	}
 }
 
@@ -106,11 +92,7 @@ func (h *handler) readable(page func(http.ResponseWriter, *http.Request, string)
 
 // session returns who the request's cookie was issued to.
 func (h *handler) session(r *http.Request) (string, error) {
-	c, err := r.Cookie(cookieName)
-	if err != nil {
-		return "", auth.ErrSessionInvalid
-	}
-	return h.sessions.Verify(c.Value, time.Now())
+	return h.sessions.FromCookie(r, time.Now())
 }
 
 func (h *handler) loginForm(w http.ResponseWriter, r *http.Request) {

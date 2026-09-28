@@ -30,8 +30,8 @@ type Verifier interface {
 	auth.TokenVerifier
 }
 
-// authenticate checks the credentials on the query string and returns who the
-// caller is.
+// authenticate checks the credentials on the query string, or failing those
+// the ones a browser carries, and returns who the caller is.
 //
 // Credentials in a URL is the protocol's design, not a choice made here: they
 // land in access logs and in Referer headers, and the only mitigation the
@@ -48,7 +48,7 @@ func (h *handler) authenticate(r *http.Request) (string, *apiError) {
 		return "", &apiError{errMissingParam, "the c parameter is required"}
 	}
 	if username == "" {
-		return "", &apiError{errMissingParam, "the u parameter is required"}
+		return h.ambient(r)
 	}
 
 	switch {
@@ -67,6 +67,21 @@ func (h *handler) authenticate(r *http.Request) (string, *apiError) {
 	}
 }
 
+// ambient is the way in for a caller with no credentials on the query string:
+// a signed-in page of the web UI, which auth.Session has already recognised by
+// its cookie, or a client that sends HTTP Basic (#234). Neither is in the
+// specification, and neither costs a client that follows it anything.
+func (h *handler) ambient(r *http.Request) (string, *apiError) {
+	if username, ok := auth.User(r.Context()); ok {
+		return username, nil
+	}
+	username, sent, err := auth.BasicUser(r, h.verifier)
+	if !sent {
+		return "", &apiError{errMissingParam, "the u parameter is required"}
+	}
+	return username, h.classify(err)
+}
+
 // classify turns this project's sentinels into the protocol's codes.
 func (h *handler) classify(err error) *apiError {
 	switch {
@@ -76,6 +91,10 @@ func (h *handler) classify(err error) *apiError {
 		// The specification's own note: the text says LDAP, but the code means
 		// token authentication is unavailable for any reason at all.
 		return &apiError{errNoTokenAuth, "token authentication is not available"}
+	case errors.Is(err, auth.ErrCrossSite):
+		// Not 40 either: nothing was wrong with the credentials, only with the
+		// page that made the browser send them.
+		return &apiError{errNotAuthorized, "not accepted from another site"}
 	case errors.Is(err, auth.ErrTooManyAttempts):
 		// Not 40. The credentials were never judged, so saying they were wrong
 		// would send a client to re-prompt for a password that may be right.

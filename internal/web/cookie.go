@@ -4,12 +4,9 @@ import (
 	"net/http"
 	"strings"
 	"time"
-)
 
-// cookieName is the browser's half of the session. The value is signed rather
-// than looked up, so what is in here is the whole credential -- hence HttpOnly,
-// which keeps it out of reach of any script that ever ends up on the page.
-const cookieName = "stratus_session"
+	"github.com/C0piIot/stratus-backend/internal/auth"
+)
 
 func setSession(w http.ResponseWriter, r *http.Request, value string, expires time.Time) {
 	http.SetCookie(w, cookie(r, value, int(time.Until(expires).Seconds())))
@@ -24,7 +21,10 @@ func clearSession(w http.ResponseWriter, r *http.Request) {
 func cookie(r *http.Request, value string, maxAge int) *http.Cookie {
 	//nolint:gosec // G124 wants Secure unconditionally; see overTLS for why it follows the request instead.
 	return &http.Cookie{
-		Name:   cookieName,
+		// The value is signed rather than looked up, so what is in here is the
+		// whole credential -- hence HttpOnly, which keeps it out of reach of
+		// any script that ever ends up on the page.
+		Name:   auth.SessionCookie,
 		Value:  value,
 		Path:   "/",
 		MaxAge: maxAge,
