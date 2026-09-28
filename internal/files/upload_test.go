@@ -345,3 +345,44 @@ func TestCollectUploads(t *testing.T) {
 		t.Errorf("a live upload was collected: %v", err)
 	}
 }
+
+// TestUploadWithNoDeclaredTypeIsSniffed is a tus client that left filetype out,
+// which the protocol allows: the type is read from the bytes as a PUT's is,
+// rather than left empty and served as application/octet-stream for good.
+func TestUploadWithNoDeclaredTypeIsSniffed(t *testing.T) {
+	t.Parallel()
+	s, _ := service(t)
+	heic := append([]byte("\x00\x00\x00\x18ftypheic\x00\x00\x00\x00mif1heic"), bytes.Repeat([]byte{0}, 64)...)
+
+	for _, declared := range []string{"", "application/octet-stream"} {
+		u, err := s.BeginUpload(t.Context(), owner, "IMG_0001.HEIC", int64(len(heic)), declared)
+		if err != nil {
+			t.Fatalf("BeginUpload: %v", err)
+		}
+		appendAt(t, s, u.ID, 0, heic)
+		f, err := s.CompleteUpload(t.Context(), owner, u.ID)
+		if err != nil {
+			t.Fatalf("CompleteUpload: %v", err)
+		}
+		if f.MIMEType != "image/heic" {
+			t.Errorf("declared %q: MIMEType = %q, want image/heic", declared, f.MIMEType)
+		}
+	}
+}
+
+// TestUploadKeepsTheDeclaredType is the other half of the same rule a PUT
+// follows: a client that named a type is not second-guessed.
+func TestUploadKeepsTheDeclaredType(t *testing.T) {
+	t.Parallel()
+	s, _ := service(t)
+
+	u := begin(t, s, "notes.txt", 5)
+	appendAt(t, s, u.ID, 0, []byte("hello"))
+	f, err := s.CompleteUpload(t.Context(), owner, u.ID)
+	if err != nil {
+		t.Fatalf("CompleteUpload: %v", err)
+	}
+	if f.MIMEType != "video/mp4" {
+		t.Errorf("MIMEType = %q, want the declared video/mp4", f.MIMEType)
+	}
+}
