@@ -105,7 +105,14 @@ func Handler(version, buildDate string, v auth.Verifier, s *auth.Sessions, share
 		redirectLocal(w, r, filesPrefix)
 	})
 	mux.HandleFunc("GET /files/{path...}", h.readable(h.browse))
-	mux.HandleFunc("GET /thumb/{path...}", h.withPicture(h.thumbnail))
+	// The one thing this surface holds that another surface needs: the app
+	// reads has-preview in a PROPFIND listing (#136) and fetches the tile here
+	// with its WebDAV Basic. **This is the extension principle 2 warns about,
+	// taken knowingly.** There is no standard way to ask a WebDAV server for a
+	// preview, and what keeps this on the right side of the line is that
+	// nothing depends on it: a client that does not know this URL renders no
+	// thumbnails and works.
+	mux.HandleFunc("GET /thumb/{path...}", h.readable(h.thumbnail))
 	mux.HandleFunc("GET /status", h.signedIn(h.status))
 	mux.HandleFunc("GET "+galleryPhotos, h.signedIn(h.photos))
 	mux.HandleFunc("GET "+photoPrefix+"{path...}", h.signedIn(h.photo))

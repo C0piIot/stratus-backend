@@ -29,19 +29,23 @@ func Basic(realm string, v Verifier, h http.Handler) http.Handler {
 			return
 		}
 
-		username, password, ok := r.BasicAuth()
-		if !ok {
+		username, sent, err := BasicUser(r, v)
+		switch {
+		case !sent:
 			// No credentials at all, or a header we cannot parse. Both are the
 			// same answer: here is how to authenticate.
 			unauthorized(w, challenge)
 			return
-		}
-		switch err := v.Verify(r.Context(), username, password); {
 		case errors.Is(err, ErrTooManyAttempts):
 			// 429 rather than 401: the credentials were never judged, so
 			// saying "unauthorized" would be a guess.
 			w.Header().Set("Retry-After", "2")
 			http.Error(w, "too many attempts", http.StatusTooManyRequests)
+			return
+		case errors.Is(err, ErrCrossSite):
+			// No challenge: a dialog would only ask again for what the browser
+			// already sent, from a page that has no business sending it.
+			http.Error(w, "cross-site request", http.StatusForbidden)
 			return
 		case err != nil:
 			unauthorized(w, challenge)

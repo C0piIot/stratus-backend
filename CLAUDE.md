@@ -68,8 +68,8 @@ Hard constraints, in the same spirit as the rest of the project:
   that the fragment it asks for is the same URL answering with a piece of the
   same HTML. A second endpoint, or one answering in JSON, would be the private
   API principle 2 forbids.
-- The UI authenticates with its own session cookie, since the protocol surfaces
-  use Basic and token auth. **The session is signed, not stored**: the value
+- The UI authenticates with its own session cookie, and HTTP Basic as well.
+  **The session is signed, not stored**: the value
   carries who it is for and when it expires, under an HMAC keyed by a derivation
   of the configured username and password. It lives in `internal/auth` beside
   the other two credential adapters, so the password does not leave that
@@ -98,9 +98,9 @@ Hard constraints, in the same spirit as the rest of the project:
   -- so a folder link there would open onto nothing.
 
   **Read-only is which gate the route goes through, not a check somebody
-  remembers.** `readable` wraps the routes that read and accepts either a
-  session or a link; `signedIn` wraps the routes that write and accepts only a
-  session. A new writing route is read-only-safe by default, because the wrong
+  remembers.** `readable` wraps the routes that read and accepts a
+  session, Basic or a link; `signedIn` wraps the routes that write and accepts
+  only a session or Basic. A new writing route is read-only-safe by default, because the wrong
   gate is the one that has to be chosen on purpose.
 
   Three details that are easy to get wrong and are all tested: the signature is
@@ -155,10 +155,25 @@ Hard constraints, in the same spirit as the rest of the project:
 
 - CSRF is that cookie's `SameSite=Lax` plus `http.CrossOriginProtection` from
   the standard library, and it is wired **inside `internal/web`** rather than by
-  the composition root. It is meaningless on the other surfaces -- a WebDAV or
-  Subsonic client is not a browser and sends no cookie -- and a caller that
-  forgot it would lose the defence with nothing to show for it. No synchroniser
-  token, so no new form can forget to carry one.
+  the composition root, so a caller that forgot it would not lose the defence
+  with nothing to show for it. No synchroniser token, so no new form can forget
+  to carry one.
+- **The session opens every protocol surface, and Basic opens the UI** (#234),
+  so a page can call `/rest/scrobble` rather than grow an endpoint of its own.
+  `auth.Session` wraps each surface in the composition root and puts the
+  cookie's user on the request for whatever authenticates behind it.
+
+  `CrossOriginProtection` does not cover it there: OpenSubsonic changes state
+  over `GET`, and `SameSite=Lax` sends the cookie on a top-level navigation
+  from any site. So on those surfaces the cookie counts only with
+  `Sec-Fetch-Site` `same-origin` or `none`, and a browser that sends no such
+  header is not believed -- nothing but a browser holds this cookie, and every
+  maintained one sends it. Basic follows the same rule wherever it is taken,
+  because a browser caches it and attaches it like a cookie, with one
+  difference: no header means a client rather than a browser, and it is judged
+  on its password. The UI's own pages keep taking the cookie from a
+  cross-site link, since they only read over `GET` and a link to a folder
+  should open it.
 - Every page is served under `default-src 'none'`, which is what embedding the
   assets rather than linking a CDN is worth: `style-src 'self'`,
   `script-src 'self'` and `connect-src 'self'` are the whole policy, and the UI
@@ -702,8 +717,8 @@ Restraint here is principle 3, not laziness:
   failure.**
 
   And the property needs somewhere to point: `/thumb/` takes HTTP Basic as well
-  as a session, because the client that reads `has-preview` authenticates over
-  WebDAV and could not reach it otherwise. **That is the extension principle 2
+  as a session -- as every page does now -- because the client that reads
+  `has-preview` authenticates over WebDAV and could not reach it otherwise. **That is the extension principle 2
   warns about, taken knowingly**, and what keeps it on the right side of the
   line is that nothing depends on it -- there is no standard way to ask a
   WebDAV server for a preview, so a client that does not know this URL renders

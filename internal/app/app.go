@@ -142,11 +142,15 @@ func (a *App) Handler(deps Deps) http.Handler {
 		// needs a URL a Chromecast can fetch, and this is the surface it
 		// already speaks. See internal/dav/signed.go.
 		shares := auth.NewShares(creds)
-		mux.Handle(davPrefix, dav.SignedLinks(davPrefix, shares,
-			auth.Basic(davRealm, verifier, hlsOr(web.HLS(davPrefix, service, films(deps)), dav.Handler(davPrefix, service)))))
+		// The web UI's session opens every surface, so a page can use the
+		// protocols rather than grow an API of its own: see auth.Session, and
+		// why the cookie counts only on a request the browser calls its own.
+		sessions := auth.NewSessions(creds, auth.DefaultSessionTTL)
+		mux.Handle(davPrefix, dav.SignedLinks(davPrefix, shares, auth.Session(sessions,
+			auth.Basic(davRealm, verifier, hlsOr(web.HLS(davPrefix, service, films(deps)), dav.Handler(davPrefix, service))))))
 		// The same realm and the same throttle: it is the same credentials, and
 		// a second budget of guesses would be a second way in.
-		mux.Handle(tusPrefix, auth.Basic(davRealm, verifier, tus.Handler(tusPrefix, service)))
+		mux.Handle(tusPrefix, auth.Session(sessions, auth.Basic(davRealm, verifier, tus.Handler(tusPrefix, service))))
 		// The same verifier, deliberately. Subsonic authenticates per request
 		// from the query string rather than through auth.Basic, and a second
 		// NewThrottle here would give an attacker a second budget of guesses at
@@ -156,18 +160,18 @@ func (a *App) Handler(deps Deps) http.Handler {
 		// row and never will.
 		thumbs := deps.Thumbs
 		playlists := music.New(deps.Database)
-		mux.Handle(subsonicPrefix,
-			subsonic.Handler(subsonicPrefix, a.version, verifier, deps.Database, service, playlists, thumbs, transcoder(deps)))
+		mux.Handle(subsonicPrefix, auth.Session(sessions,
+			subsonic.Handler(subsonicPrefix, a.version, verifier, deps.Database, service, playlists, thumbs, transcoder(deps))))
 		// The same realm and throttle as /dav/, for the reason tus shares them.
-		mux.Handle(playlistsPrefix, auth.Basic(davRealm, verifier, dav.Playlists(playlistsPrefix, davPrefix, playlists)))
-		mux.Handle(photosPrefix, auth.Basic(davRealm, verifier, dav.Photos(photosPrefix, deps.Database, service)))
+		mux.Handle(playlistsPrefix, auth.Session(sessions,
+			auth.Basic(davRealm, verifier, dav.Playlists(playlistsPrefix, davPrefix, playlists))))
+		mux.Handle(photosPrefix, auth.Session(sessions, auth.Basic(davRealm, verifier, dav.Photos(photosPrefix, deps.Database, service))))
 
 		// The browser surface, at the root, so everything the prefixes above did
 		// not claim is a page rather than a bare 404. Same verifier again, and
-		// a session signed with the configured password: see auth.Sessions for
-		// what that buys and what it costs.
-		mux.Handle("/", web.Handler(a.version, a.buildDate, verifier,
-			auth.NewSessions(creds, auth.DefaultSessionTTL), shares, service, thumbs, deps.Database,
+		// the same sessions: see auth.Sessions for what that buys and what it
+		// costs.
+		mux.Handle("/", web.Handler(a.version, a.buildDate, verifier, sessions, shares, service, thumbs, deps.Database,
 			web.Indexing{Index: deps.Database, Interval: a.cfg.IndexInterval}, films(deps)))
 	}
 	// The log is outside the compression so that the bytes it counts are the
