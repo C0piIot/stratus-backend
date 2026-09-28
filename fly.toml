@@ -24,6 +24,11 @@
 app = "stratus-demo"
 primary_region = "cdg"
 
+# 256 MB is not enough for the first thumbnails after a reset, while the
+# indexer reads the same files: the kernel killed the server mid-request and the
+# proxy answered 502. Swap takes the spike more slowly instead.
+swap_size_mb = 512
+
 [build]
   # What CI publishes on every merge to main: multi-arch and public, so Fly
   # takes it as published.
@@ -52,10 +57,9 @@ primary_region = "cdg"
   # Nobody is watching it most of the time, so it sleeps and the first request
   # wakes it.
   #
-  # suspend rather than stop because it wakes faster. Either keeps the data
-  # now that it is on a volume; before that, "stop" and the occasional cold
-  # start behind a suspend both handed the next visitor an empty tree.
-  auto_stop_machines = "suspend"
+  # stop rather than suspend, because Fly will not suspend a machine with swap.
+  # Either keeps the data now that it is on a volume; a stop only wakes slower.
+  auto_stop_machines = "stop"
   auto_start_machines = true
   min_machines_running = 0
 
