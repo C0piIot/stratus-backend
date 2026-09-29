@@ -2,6 +2,7 @@ package web_test
 
 import (
 	"bytes"
+	"context"
 	"image"
 	"image/color"
 	"image/jpeg"
@@ -60,6 +61,27 @@ func TestThumbnailOfAPhoto(t *testing.T) {
 	again := get(t, h, "/thumb/holiday.jpg?size=96", cookie)
 	if !bytes.Equal(again.Body.Bytes(), rec.Body.Bytes()) {
 		t.Error("the second request answered with different bytes")
+	}
+}
+
+// TestThumbnailForSomebodyWhoLeft is a gallery scrolled past a thumbnail while
+// it was being made: the read underneath fails with the request's own
+// cancellation, and that is not a 500 or an error for anybody to be told about.
+func TestThumbnailForSomebodyWhoLeft(t *testing.T) {
+	t.Parallel()
+	h, s := browser(t)
+	write(t, s, "holiday.jpg", photoJPEG(t))
+	cookie := signIn(t, h)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	req := httptest.NewRequestWithContext(ctx, http.MethodGet, "/thumb/holiday.jpg?size=96", nil)
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code == http.StatusInternalServerError || rec.Body.Len() != 0 {
+		t.Errorf("answered %d with %d bytes for a request nobody was waiting on", rec.Code, rec.Body.Len())
 	}
 }
 

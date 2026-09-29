@@ -31,6 +31,11 @@ func logRequests(h http.Handler) http.Handler {
 		switch {
 		case r.URL.Path == "/healthz", r.URL.Path == "/readyz":
 			level = slog.LevelDebug
+		// A client that went away mid-request leaves the handler an error to
+		// answer with and nobody to answer: a phone losing signal halfway
+		// through a tus PATCH, a gallery scrolled past a thumbnail. Neither is
+		// this server's fault, and at error level each one was a crash report.
+		case r.Context().Err() != nil:
 		case rec.status >= http.StatusInternalServerError:
 			level = slog.LevelError
 		}
