@@ -180,6 +180,10 @@ func (h *handler) download(w http.ResponseWriter, r *http.Request, user string, 
 // fail turns what the layers below return into the page a browser should see.
 func (h *handler) fail(w http.ResponseWriter, r *http.Request, user string, err error) {
 	switch {
+	// Whoever asked has gone, so there is nobody to show a page to and nothing
+	// that went wrong here.
+	case r.Context().Err() != nil && errors.Is(err, r.Context().Err()):
+		return
 	case errors.Is(err, db.ErrNotFound), errors.Is(err, storage.ErrNotFound):
 		h.render(w, http.StatusNotFound, pageError, view{
 			Title: "Not found", User: user,

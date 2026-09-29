@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -94,6 +95,27 @@ func TestServerErrorsLogAsErrors(t *testing.T) {
 	}
 	if line["level"] != "ERROR" {
 		t.Errorf("level = %v, want ERROR", line["level"])
+	}
+}
+
+// TestAClientThatWentAwayIsNotAServerError: the handler still answers 500 for
+// the read that failed underneath it, but nobody was there and nothing here
+// was wrong.
+func TestAClientThatWentAwayIsNotAServerError(t *testing.T) {
+	var buf bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelError})))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	req := httptest.NewRequestWithContext(ctx, http.MethodPatch, "/tus/abc", nil)
+	logRequests(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	})).ServeHTTP(httptest.NewRecorder(), req)
+
+	if buf.Len() != 0 {
+		t.Errorf("a request the client abandoned was logged as an error: %s", buf.String())
 	}
 }
 
