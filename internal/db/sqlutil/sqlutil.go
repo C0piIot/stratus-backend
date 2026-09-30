@@ -61,6 +61,23 @@ func InTx(ctx context.Context, sqlDB *sql.DB, fn func(Querier) error) error {
 	return tx.Commit()
 }
 
+// Affected runs a statement and reports how many rows it changed.
+//
+// Four lines each time -- exec, check, count, check -- written once per
+// statement per driver, which is three copies of the same shape before anybody
+// has written any SQL. It crosses no dialect line: the query and its
+// placeholders are still the caller's, and so is what "nothing changed" means.
+//
+// Errors come back unwrapped, like Collect's, because which driver error means
+// a conflict is the one thing this package must not know.
+func Affected(ctx context.Context, q Querier, query string, args ...any) (int64, error) {
+	result, err := q.ExecContext(ctx, query, args...)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 // Collect runs query and scans every row it returns.
 //
 // The rows are opened, closed and checked here rather than handed back to the

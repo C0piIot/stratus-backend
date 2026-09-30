@@ -1301,25 +1301,59 @@ Restraint here is principle 3, not laziness:
   like a table. It is not a table: `golang.org/x/net/webdav` arrived for
   `PROPFIND` (#136) and brought a `LockSystem` with it.
 
-  **The lock system is an interface the library brought, not a third seam this
-  project invented.** `xnet.LockSystem` is four methods; the composition names
-  `NewMemLS()`, and a table-backed one the day a lock has to outlive a restart
-  is a type satisfying the same four and a line in `dav.Handler`. There is no
-  configuration variable for it today, deliberately: a setting that accepts one
-  value promises a choice that does not exist, which is what principle 3 calls
-  "just in case".
+  **The lock system is an interface, and it is this package's own now.**
+  `xnet.LockSystem` is four methods and was the seam for as long as the locks
+  lived in the process. They are rows (#243), and the interface in
+  `internal/dav/locks.go` is those same four methods with two things the
+  library's could not carry: a `context.Context`, because a lock is a query now
+  and a query belongs to the request that caused it, and a flag on a create
+  saying which of the two kinds of lock is being asked for -- a client's, which
+  outlives this request and this process, or the one a write takes on itself,
+  which is held while the request runs and let go when it ends. In memory the
+  distinction did not exist, because a held node cannot expire and a process
+  that dies takes every lock it knew with it.
 
-  **In memory is right rather than merely cheap.** A lock is a claim with a
-  timeout measured in minutes and a restart forgetting one costs a client a
-  retry -- the same trade the signed session makes. It is also consistent with
-  a server that assumes a single instance in four other places, none of which
-  said so out loud: SQLite is a local file, the indexer would have two
-  instances take the same batch, the sweep would have both compute the same
-  garbage, and the disk backend empties its reserved directory at startup on
-  the argument that what is in it belongs to a dead process. A lock table would
-  have been the only cluster-ready thing in it. That inventory is
-  an issue of its own, as what #28 has to answer before stateless deployment
-  means more than one of anything.
+  There is one implementation and deliberately no second: an in-memory twin
+  kept for the tests would be a second code path that could disagree with the
+  first about what a lock means, which is the mistake `confirmLocks` warns
+  about one layer down. There is no configuration variable for it either, for
+  the same reason there never was: a setting that accepts one value promises a
+  choice that does not exist, which is what principle 3 calls "just in case".
+
+  **In memory was right until the server had to say the same thing twice.** The
+  argument for memLS was that a lock is a claim with a timeout measured in
+  minutes, and a restart forgetting one costs a client a retry -- the same trade
+  the signed session makes. What it left out is that the server advertises class
+  2 to everybody: with two instances on one database, `423 Locked` would be true
+  of one of them and false of the other for the same resource, and a promise
+  that depends on which machine answered is not one (#192).
+
+  **What the table cost is a lease.** memLS marks a node held while a request
+  runs and a held node cannot expire; a row cannot copy the second half, because
+  nothing frees a row whose process died. So a hold carries `held_by` and
+  `held_until`, a request in flight renews it every 40 seconds, and an instance
+  killed mid-`PUT` leaves that one path answering `423` for up to a minute --
+  which is the whole price, stated where a client would otherwise discover it.
+  A client that hangs up mid-write pays the same, and correctly: from the table
+  there is no difference between a request that stopped renewing and a process
+  that stopped running.
+
+  The SQL is portable across the three drivers and indexed. Finding the lock
+  that covers a resource is an `IN` over the ancestors computed in Go, taking
+  one over a collection is a range over `root`, and neither is a `LIKE`. The
+  insert carries its own `NOT EXISTS`, which is the rule the tree invariant
+  follows: asking first and inserting after leaves a window a concurrent `LOCK`
+  fits into, and between two instances that window is a round trip wide. The
+  one thing the insert cannot see is a lock that has timed out but not been
+  swept, since the unique index does not filter on the expiry -- so a refusal
+  sweeps and tries once more, which costs a statement only when the answer was
+  going to be a refusal anyway.
+
+  **What it did not buy** is two correct instances. litmus is unchanged at 29 of
+  33 -- none of the four is about persistence -- and the rest of #192 is
+  untouched: the disk backend still empties its reserved directory at startup,
+  the schema-from-the-future check still runs only at startup, the throttle is
+  still per process and the indexer still probes the same batch N times.
 
   **The `If` header parser is vendored, and that is the expensive part.** RFC
   4918 10.4 is the gnarliest grammar in the specification and x/net keeps its

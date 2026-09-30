@@ -124,22 +124,25 @@ Two suites do not, and both are written down rather than hidden — `props`
 because `PROPPATCH` is refused, and `locks` at 29 of 33 for the reasons in the
 next paragraph.
 
-**Locking is real.** `LOCK` takes an exclusive write lock, and a `PUT`,
-`DELETE`, `MOVE`, `COPY`, `MKCOL` or `PROPPATCH` against something somebody
-else holds is refused with `423 Locked`. A lock on a folder covers everything
-under it, and the client that took it carries on working by submitting its
-token in the `If` header — where an `ETag` condition beside the token is
-checked too, so "only if the bytes are still these" means what it says.
+**Locking is real, and a lock is a row.** `LOCK` takes an exclusive write lock,
+and a `PUT`, `DELETE`, `MOVE`, `COPY`, `MKCOL` or `PROPPATCH` against something
+somebody else holds is refused with `423 Locked`. A lock on a folder covers
+everything under it, and the client that took it carries on working by
+submitting its token in the `If` header — where an `ETag` condition beside the
+token is checked too, so "only if the bytes are still these" means what it says.
+Locks are kept in the database, so restarting the server keeps every one of them
+and two instances on the same database honour each other's.
 
 Three limits, because they are the kind a client discovers at the worst
-moment. **A lock lives in memory**, so restarting the server drops every one of
-them; that is the same trade the signed session makes, and the strong ETag with
-`If-Match` is the defence that survives a restart. **Only exclusive locks**: a
-request for a shared one is answered `501` rather than granted as an exclusive
-lock the client would think it was sharing. And **`LOCK` on a path with nothing
-at it is `404`** rather than creating the empty resource RFC 4918 allows, which
-is what leaves the four litmus tests above: two of them are `PROPPATCH`, one is
-the shared lock and one is that empty resource.
+moment. **A write holds its lock on a lease**, renewed while the request runs:
+a server killed mid-`PUT`, or a client that hangs up during one, leaves that one
+path answering `423` for up to a minute before the lease lapses and it is
+somebody else's to write. **Only exclusive locks**: a request for a shared one
+is answered `501` rather than granted as an exclusive lock the client would
+think it was sharing. And **`LOCK` on a path with nothing at it is `404`**
+rather than creating the empty resource RFC 4918 allows, which is what leaves
+the four litmus tests above: two of them are `PROPPATCH`, one is the shared
+lock and one is that empty resource.
 
 ### Compression
 
@@ -334,6 +337,11 @@ Two rules make it safe rather than dangerous:
   next to a store with objects in it, is far more likely to be a database
   pointed somewhere new than a library somebody emptied. It logs and does
   nothing.
+
+The same pass reclaims **locks that have timed out**. Nothing depends on it
+running — every read of the lock table filters on the expiry — so it frees rows
+rather than enforcing anything, which is what makes it safe on every instance at
+once.
 
 **Generated files live under a `derived/` prefix in the same store**, and the
 sweep understands them: a thumbnail has no row of its own, so it is garbage

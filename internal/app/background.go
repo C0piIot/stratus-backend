@@ -119,6 +119,19 @@ func (a *App) collectPeriodically(ctx context.Context, deps Deps) {
 			slog.Info("collected abandoned uploads", "count", done)
 		}
 
+		// Locks that timed out. Nothing depends on this running -- every read
+		// of the table filters on the expiry -- so it reclaims rows rather
+		// than enforcing anything, which is what makes it safe on every
+		// instance at once.
+		switch done, err := deps.Database.DeleteExpiredLocks(ctx, time.Now()); {
+		case errors.Is(err, context.Canceled):
+			return
+		case err != nil:
+			slog.Error("collecting expired locks", "err", err)
+		case done > 0:
+			slog.Info("collected expired locks", "count", done)
+		}
+
 		switch done, err := service.Collect(ctx, a.cfg.GCGrace); {
 		case errors.Is(err, context.Canceled):
 			return

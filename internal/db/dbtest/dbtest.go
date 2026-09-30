@@ -61,6 +61,11 @@ func Run(t *testing.T, newStore func(t *testing.T) db.Store) {
 		RunUploads(t, func(t *testing.T) db.Repo { return newStore(t) })
 	})
 
+	t.Run("locks", func(t *testing.T) {
+		t.Parallel()
+		RunLocks(t, func(t *testing.T) db.Repo { return newStore(t) })
+	})
+
 	cases := []struct {
 		name string
 		fn   func(t *testing.T, s db.Store)

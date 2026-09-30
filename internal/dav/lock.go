@@ -24,14 +24,12 @@ import (
 //
 // What this file predicted is exactly what it cost to stop lying: "the state is
 // a table and the hard part is the If: header grammar in RFC 4918 section 10.4,
-// not this file." Half right. The state is not a table -- x/net/webdav arrived
-// for PROPFIND (#136) and brought a LockSystem, held for the process in
-// dav.go. The If: header was the hard part, and it is vendored in
-// ifheader.go with the enforcement in locks.go.
-//
-// What stays true: a lock lives in memory, so a restart drops every one of
-// them. That is the same trade the signed session makes, and the ETag is still
-// the defence that survives a restart.
+// not this file." The If: header was the hard part, and it is vendored in
+// ifheader.go with the enforcement in locks.go. The state was not a table for a
+// while -- x/net/webdav arrived for PROPFIND (#136) and brought a LockSystem
+// held for the process -- and it is one now (#243), because a server that
+// advertises class 2 to two instances cannot keep the promise in one of their
+// heads.
 const (
 	// lockTimeout is how long a lock lasts without being refreshed. An hour is
 	// long enough that a client editing a file does not lose it, and short
@@ -110,11 +108,13 @@ func (f *fileSystem) handleLock(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, err := f.locks.Create(f.now(), xnet.LockDetails{
-		Root:      lockName(path),
-		Duration:  lockTimeout,
-		OwnerXML:  info.Owner.Inner,
-		ZeroDepth: depthOf(r) == "0",
+	token, err := f.locks.Create(r.Context(), f.now(), LockDetails{
+		LockDetails: xnet.LockDetails{
+			Root:      lockName(path),
+			Duration:  lockTimeout,
+			OwnerXML:  info.Owner.Inner,
+			ZeroDepth: depthOf(r) == "0",
+		},
 	})
 	if err != nil {
 		http.Error(w, "locked", lockStatus(err))
@@ -145,7 +145,7 @@ func (f *fileSystem) refreshLock(w http.ResponseWriter, r *http.Request) {
 	}
 
 	token := parsed.lists[0].conditions[0].Token
-	details, err := f.locks.Refresh(f.now(), token, lockTimeout)
+	details, err := f.locks.Refresh(r.Context(), f.now(), token, lockTimeout)
 	if err != nil {
 		http.Error(w, "no such lock", lockStatus(err))
 		return
@@ -170,7 +170,7 @@ func (f *fileSystem) handleUnlock(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no lock token", http.StatusBadRequest)
 		return
 	}
-	switch err := f.locks.Unlock(f.now(), token); {
+	switch err := f.locks.Unlock(r.Context(), f.now(), token); {
 	case err == nil:
 	case errors.Is(err, xnet.ErrNoSuchLock):
 		// RFC 4918 9.11.1: 409, and not the 412 the same error means when a

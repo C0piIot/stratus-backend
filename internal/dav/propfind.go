@@ -42,16 +42,17 @@ import (
 
 // propfindHandler answers one PROPFIND, over a filesystem built for that
 // request alone. See readOnlyFS for why it cannot be shared.
-func (f *fileSystem) propfindHandler(owner string) http.Handler {
+func (f *fileSystem) propfindHandler(ctx context.Context, owner string) http.Handler {
 	return &xnet.Handler{
 		Prefix:     f.prefix,
 		FileSystem: &readOnlyFS{files: f.files, owner: owner, listed: map[string]db.File{}},
-		// The process's own rather than one built for this request (#174).
-		// x/net uses it for nothing this route reaches -- supportedlock is a
-		// constant and lockdiscovery is a TODO in its own source -- but a
-		// PROPFIND holding a lock system that knows of no locks is a thing
-		// that is true until it is not.
-		LockSystem: f.locks,
+		// The server's own rather than one built for this request (#174), bound
+		// to this one's context because the locks are rows (#243) and x/net's
+		// interface carries none. x/net uses it for nothing this route reaches
+		// -- supportedlock is a constant and lockdiscovery is a TODO in its own
+		// source -- but a PROPFIND holding a lock system that knows of no locks
+		// is a thing that is true until it is not.
+		LockSystem: boundLocks{locks: f.locks, ctx: ctx},
 	}
 }
 

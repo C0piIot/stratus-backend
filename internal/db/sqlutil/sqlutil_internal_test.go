@@ -29,6 +29,7 @@ type config struct {
 	beginErr    error
 	commitErr   error
 	queryErr    error
+	execErr     error
 	affected    int64
 	affectedErr error
 
@@ -338,6 +339,41 @@ func TestLabelPassesRowsThrough(t *testing.T) {
 
 const probe = "SELECT is_dir"
 
+// TestAffected is the other half of the same plumbing: the statement runs, and
+// how many rows it changed is the answer rather than something to interpret.
+// Both failures below are unreachable inside a driver, which is why they are
+// tested from here.
+func TestAffected(t *testing.T) {
+	t.Parallel()
+
+	t.Run("it counts what changed", func(t *testing.T) {
+		t.Parallel()
+		sqlDB := open(t, &config{affected: 3})
+		switch n, err := Affected(t.Context(), sqlDB, "DELETE FROM locks"); {
+		case err != nil:
+			t.Fatalf("Affected: %v", err)
+		case n != 3:
+			t.Errorf("Affected = %d, want 3", n)
+		}
+	})
+
+	t.Run("the statement fails", func(t *testing.T) {
+		t.Parallel()
+		sqlDB := open(t, &config{execErr: errBoom})
+		if _, err := Affected(t.Context(), sqlDB, "DELETE FROM locks"); !errors.Is(err, errBoom) {
+			t.Errorf("Affected over a failing statement = %v, want the driver's own error", err)
+		}
+	})
+
+	t.Run("the count fails", func(t *testing.T) {
+		t.Parallel()
+		sqlDB := open(t, &config{affectedErr: errBoom})
+		if _, err := Affected(t.Context(), sqlDB, "DELETE FROM locks"); !errors.Is(err, errBoom) {
+			t.Errorf("Affected whose count failed = %v, want the driver's own error", err)
+		}
+	})
+}
+
 func TestCheckAffected(t *testing.T) {
 	t.Parallel()
 
@@ -442,6 +478,9 @@ func (s *fakeStmt) Close() error  { return nil }
 func (s *fakeStmt) NumInput() int { return -1 }
 
 func (s *fakeStmt) Exec([]driver.Value) (driver.Result, error) {
+	if s.cfg.execErr != nil {
+		return nil, s.cfg.execErr
+	}
 	return fakeResult{cfg: s.cfg}, nil
 }
 
