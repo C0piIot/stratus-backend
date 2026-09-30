@@ -65,6 +65,10 @@ const monthBatch = 1000
 // Photos serves the owner's photos under prefix, by year and month.
 func Photos(prefix string, source PhotoSource, blobs Opener) http.Handler {
 	prefix = strings.TrimSuffix(prefix, "/")
+	// x/net's own and not the table the file surface uses (#243): nothing here
+	// writes, so no lock taken on this mount can ever refuse anything, and one
+	// that outlived the process would be state kept for a surface that has
+	// none.
 	locks := xnet.NewMemLS()
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

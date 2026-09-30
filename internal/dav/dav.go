@@ -26,7 +26,6 @@ import (
 	"time"
 
 	"github.com/emersion/go-webdav"
-	xnet "golang.org/x/net/webdav"
 
 	"github.com/C0piIot/stratus-backend/internal/auth"
 	"github.com/C0piIot/stratus-backend/internal/db"
@@ -40,9 +39,9 @@ import (
 // The prefix is stripped here rather than by the caller because the backend
 // speaks in storage paths and the handler speaks in URLs, and exactly one place
 // should know the difference.
-func Handler(prefix string, service *files.Service) http.Handler {
+func Handler(prefix string, service *files.Service, locks db.Locks) http.Handler {
 	prefix = strings.TrimSuffix(prefix, "/")
-	fs := &fileSystem{files: service, prefix: prefix, locks: memoryLocks(), now: time.Now}
+	fs := &fileSystem{files: service, prefix: prefix, locks: DatabaseLocks(locks), now: time.Now}
 	dav := &webdav.Handler{FileSystem: fs}
 	// Everything that writes goes through the lock gate first. See locks.go.
 	guarded := fs.enforceLocks(dav)
@@ -70,7 +69,7 @@ func Handler(prefix string, service *files.Service) http.Handler {
 			// stripped path would cost the hrefs their /dav.
 			restored := r.Clone(r.Context())
 			restored.URL.Path = prefix + r.URL.Path
-			fs.propfindHandler(owner).ServeHTTP(w, restored)
+			fs.propfindHandler(r.Context(), owner).ServeHTTP(w, restored)
 			return
 		}
 
@@ -95,13 +94,12 @@ type fileSystem struct {
 	// still on the Destination header, and it has to be put back on every href
 	// in a multistatus or the client follows a link to nowhere.
 	prefix string
-	// locks is what makes LOCK mean something. One for the process, not one
-	// per request: a lock nobody else can see is not a lock.
-	//
-	// The interface is x/net's rather than one invented here, so the day a
-	// lock has to outlive a restart it is a type satisfying the same four
-	// methods and a line in the composition root. See locks.go.
-	locks xnet.LockSystem
+	// locks is what makes LOCK mean something, and it is the database rather
+	// than this process: a lock nobody else can see is not a lock, and that
+	// includes the instance next door and the same binary after a restart
+	// (#243). See locks.go for the interface and dblocks.go for what is under
+	// it.
+	locks lockSystem
 	// now is the clock the lock system is driven by. Every one of its four
 	// methods takes the time as an argument rather than reading it, which is
 	// the library saying the caller owns the clock -- and it is what lets a

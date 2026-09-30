@@ -22,7 +22,8 @@ func signedServer(t *testing.T) (http.Handler, *auth.Shares) {
 	t.Helper()
 	creds := auth.Credentials{Username: "edu", Password: sharePassword}
 	shares := auth.NewShares(creds)
-	inner := dav.Handler(prefix, service(t))
+	svc, meta := service(t)
+	inner := dav.Handler(prefix, svc, meta)
 	return dav.SignedLinks(prefix, shares,
 		auth.Basic("stratus", auth.NewThrottle(creds, auth.DefaultThrottle), inner)), shares
 }

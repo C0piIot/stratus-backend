@@ -16,47 +16,85 @@ import (
 //
 // LOCK used to answer with a well-formed token that nothing recorded, because
 // Finder will not mount a share read-write against a class 1 server (#3) and
-// there was no lock system to hand it to. There is one now: x/net/webdav
-// arrived for PROPFIND (#136) and brought a LockSystem with it, so the half
-// that needed a table does not need one.
+// there was no lock system to hand it to. There was one for a while --
+// x/net/webdav arrived for PROPFIND (#136) and brought a LockSystem with it,
+// which held what it knew in the process -- and there is a table now (#243),
+// because a promise that depends on which instance answered, and that a
+// restart forgets, is not one. What is under this file is dblocks.go.
 //
-// What is here is the other half -- refusing a write to something somebody
+// What is in it is the other half -- refusing a write to something somebody
 // else has locked -- and it is our own because x/net enforces locks inside its
 // own handlers, and its handlers are not the ones serving PUT here. The
 // grammar it needs is vendored beside this, in ifheader.go.
 
-// memoryLocks is the lock system this server runs with: x/net's own, which
-// holds what it knows in the process and nowhere else.
+// lockSystem is the locking this server enforces: x/net's four methods, with a
+// context and one extra fact about a create.
 //
-// That is the right default rather than a compromise. A lock is a claim with a
-// timeout measured in minutes, and a restart forgetting one costs a client a
-// retry -- the same trade the signed session makes, and consistent with a
-// server that assumes one instance in five other places. A lock table would be
-// the only cluster-ready thing in it.
+// **A context**, because a lock is a row now (#243). x/net's own interface takes
+// none, and an implementation over a database that honoured it literally would
+// send every statement out on a background context with a timeout of its own,
+// untied from the client waiting for the answer. The four methods are otherwise
+// x/net's, so the grammar vendored beside this and the handlers above it did
+// not have to change shape.
 //
-// Nothing above this line depends on it being in memory: xnet.LockSystem is
-// four methods and it is the library's, not a seam invented here, so the day a
-// lock has to outlive a restart is a type satisfying it and a line in the
-// composition root.
-func memoryLocks() xnet.LockSystem { return withOpaqueTokens(xnet.NewMemLS()) }
+// **ForTheRequest on a create**, because a lock system that outlives the
+// process has to tell the two kinds of lock apart. See LockDetails.
+//
+// There is one implementation of this interface and there is deliberately no
+// second one: an in-memory twin kept for the tests would be a second code path
+// that could disagree with the first about what a lock means, which is the
+// mistake confirmLocks warns about one layer down.
+type lockSystem interface {
+	Create(ctx context.Context, now time.Time, details LockDetails) (string, error)
+	Refresh(ctx context.Context, now time.Time, token string, duration time.Duration) (xnet.LockDetails, error)
+	Unlock(ctx context.Context, now time.Time, token string) error
+	Confirm(ctx context.Context, now time.Time, name0, name1 string, conditions ...Condition) (func(), error)
+
+	// Covers reports whether that token names a live lock on name, or on a
+	// collection above it.
+	//
+	// The fifth method, and it is a question rather than one of the four. It
+	// used to be asked as a Confirm followed immediately by its release, which
+	// was the only way to ask x/net's interface -- and against a table that is
+	// two statements and a heartbeat started and stopped, to answer something
+	// one SELECT knows. An If header is a list of these, so it is the
+	// difference between a handful of round trips and one.
+	Covers(ctx context.Context, now time.Time, token, name string) bool
+}
+
+// LockDetails is x/net's, plus which of the two kinds of lock is being asked
+// for.
+//
+// A client's LOCK is a claim meant to survive this request, this process and
+// the next deploy, and it is the client that gives it back. The lock a PUT
+// takes so that somebody else's write is refused belongs to the request: it is
+// held while the request runs, renewed as it goes, and let go when it ends.
+//
+// In memory the distinction did not exist and did not need to, because a held
+// node cannot expire and a process that dies takes every lock it knew with it.
+// In a table both facts stop being true at once.
+type LockDetails struct {
+	xnet.LockDetails
+	// ForTheRequest marks the second kind.
+	ForTheRequest bool
+}
 
 // opaqueTokens gives the lock system's tokens a scheme, which is the whole of
 // what they are missing.
 //
-// memLS numbers them -- "1789906311", then the next integer -- and RFC 4918
-// 6.5 says a lock token is a URI, with the Lock-Token header carrying a
-// Coded-URL. A bare integer is neither, and Finder is the client this surface
-// exists for (#3), so it is not the place to find out who is lenient.
+// RFC 4918 6.5 says a lock token is a URI, with the Lock-Token header carrying
+// a Coded-URL, and Finder is the client this surface exists for (#3), so it is
+// not the place to find out who is lenient. What is under here mints an opaque
+// string; the spelling a client sees is put on and taken off in one place.
 //
 // **Unguessable is not among the requirements, and that is worth writing down
-// because the instinct says otherwise.** The implementation that recorded
-// nothing minted a random token, and copying that here would buy nothing: a
-// client that can take a lock is shown the shape of them, and a client that
-// cannot take one cannot write either -- a share link is read-only and Basic
-// is the gate in front of everything else. What guessing a token would let
-// somebody do, they can already do with the password they had to have.
+// because the instinct says otherwise.** A client that can take a lock is shown
+// the shape of them, and a client that cannot take one cannot write either -- a
+// share link is read-only and Basic is the gate in front of everything else.
+// What guessing a token would let somebody do, they can already do with the
+// password they had to have.
 type opaqueTokens struct {
-	xnet.LockSystem
+	lockSystem
 }
 
 // lockURIScheme is RFC 4918's own, and the one clients recognise. Named for
@@ -65,33 +103,37 @@ type opaqueTokens struct {
 // in the source.
 const lockURIScheme = "opaquelocktoken:"
 
-func withOpaqueTokens(ls xnet.LockSystem) xnet.LockSystem {
-	return &opaqueTokens{LockSystem: ls}
+func withOpaqueTokens(ls lockSystem) lockSystem {
+	return &opaqueTokens{lockSystem: ls}
 }
 
-func (o *opaqueTokens) Create(now time.Time, details xnet.LockDetails) (string, error) {
-	token, err := o.LockSystem.Create(now, details)
+func (o *opaqueTokens) Create(ctx context.Context, now time.Time, details LockDetails) (string, error) {
+	token, err := o.lockSystem.Create(ctx, now, details)
 	if err != nil {
 		return "", err
 	}
 	return lockURIScheme + token, nil
 }
 
-func (o *opaqueTokens) Refresh(now time.Time, token string, duration time.Duration) (xnet.LockDetails, error) {
-	return o.LockSystem.Refresh(now, innerToken(token), duration)
+func (o *opaqueTokens) Refresh(ctx context.Context, now time.Time, token string, duration time.Duration) (xnet.LockDetails, error) {
+	return o.lockSystem.Refresh(ctx, now, innerToken(token), duration)
 }
 
-func (o *opaqueTokens) Unlock(now time.Time, token string) error {
-	return o.LockSystem.Unlock(now, innerToken(token))
+func (o *opaqueTokens) Unlock(ctx context.Context, now time.Time, token string) error {
+	return o.lockSystem.Unlock(ctx, now, innerToken(token))
 }
 
-func (o *opaqueTokens) Confirm(now time.Time, name0, name1 string, conditions ...Condition) (func(), error) {
+func (o *opaqueTokens) Covers(ctx context.Context, now time.Time, token, name string) bool {
+	return o.lockSystem.Covers(ctx, now, innerToken(token), name)
+}
+
+func (o *opaqueTokens) Confirm(ctx context.Context, now time.Time, name0, name1 string, conditions ...Condition) (func(), error) {
 	ours := make([]Condition, len(conditions))
 	for i, c := range conditions {
 		c.Token = innerToken(c.Token)
 		ours[i] = c
 	}
-	return o.LockSystem.Confirm(now, name0, name1, ours...)
+	return o.lockSystem.Confirm(ctx, now, name0, name1, ours...)
 }
 
 // innerToken returns the lock system's own token, or "" for anything that is
@@ -104,6 +146,32 @@ func innerToken(token string) string {
 		return ""
 	}
 	return rest
+}
+
+// boundLocks is the lock system as x/net wants it, tied to one request.
+//
+// x/net's Handler takes a LockSystem whose methods carry no context, and
+// PROPFIND is served by it (see propfind.go). Binding the request's context
+// here is what lets the interface above keep one and this one keep its shape.
+type boundLocks struct {
+	locks lockSystem
+	ctx   context.Context
+}
+
+func (b boundLocks) Create(now time.Time, details xnet.LockDetails) (string, error) {
+	return b.locks.Create(b.ctx, now, LockDetails{LockDetails: details})
+}
+
+func (b boundLocks) Refresh(now time.Time, token string, duration time.Duration) (xnet.LockDetails, error) {
+	return b.locks.Refresh(b.ctx, now, token, duration)
+}
+
+func (b boundLocks) Unlock(now time.Time, token string) error {
+	return b.locks.Unlock(b.ctx, now, token)
+}
+
+func (b boundLocks) Confirm(now time.Time, name0, name1 string, conditions ...Condition) (func(), error) {
+	return b.locks.Confirm(b.ctx, now, name0, name1, conditions...)
 }
 
 // errInvalidIfHeader is a malformed If header, which is the client's mistake
@@ -137,9 +205,10 @@ var lockedMethods = map[string]bool{
 // than 423: the client made a claim about the state and the claim was wrong,
 // which is a different thing from not having asked.
 func (f *fileSystem) confirmLocks(r *http.Request, src, dst string) (release func(), status int, err error) {
+	ctx := r.Context()
 	header := r.Header.Get("If")
 	if header == "" {
-		return f.lockForTheRequest(src, dst)
+		return f.lockForTheRequest(ctx, src, dst)
 	}
 
 	parsed, ok := parseIfHeader(header)
@@ -166,11 +235,11 @@ func (f *fileSystem) confirmLocks(r *http.Request, src, dst string) (release fun
 				continue
 			}
 		}
-		if !f.holds(r.Context(), now, list.conditions, about) {
+		if !f.holds(ctx, now, list.conditions, about) {
 			continue
 		}
 
-		release, cerr := f.claimTouched(now, src, dst, claimable(list.conditions))
+		release, cerr := f.claimTouched(ctx, now, src, dst, claimable(list.conditions))
 		if cerr == nil {
 			return release, 0, nil
 		}
@@ -179,7 +248,7 @@ func (f *fileSystem) confirmLocks(r *http.Request, src, dst string) (release fun
 		}
 		// The list was true and claimed no lock: a condition on the ETag
 		// alone, or a negative one. What is touched still has to be free.
-		if release, _, lerr := f.lockForTheRequest(src, dst); lerr == nil {
+		if release, _, lerr := f.lockForTheRequest(ctx, src, dst); lerr == nil {
 			return release, 0, nil
 		}
 	}
@@ -201,7 +270,7 @@ func (f *fileSystem) holds(ctx context.Context, now time.Time, conditions []Cond
 		var ok bool
 		switch {
 		case c.Token != "":
-			ok = f.tokenCovers(now, c.Token, name)
+			ok = f.tokenCovers(ctx, now, c.Token, name)
 		case c.ETag != "":
 			ok = f.etagIs(ctx, name, c.ETag)
 		default:
@@ -216,14 +285,9 @@ func (f *fileSystem) holds(ctx context.Context, now time.Time, conditions []Cond
 
 // tokenCovers reports whether that token names a lock on name, or on a
 // collection above it. Asked of the lock system, which is the only thing that
-// knows, and released at once: this is a question and not a claim.
-func (f *fileSystem) tokenCovers(now time.Time, token, name string) bool {
-	release, err := f.locks.Confirm(now, name, "", Condition{Token: token})
-	if err != nil {
-		return false
-	}
-	release()
-	return true
+// knows, and asked as a question: nothing is claimed and nothing is held.
+func (f *fileSystem) tokenCovers(ctx context.Context, now time.Time, token, name string) bool {
+	return f.locks.Covers(ctx, now, token, name)
 }
 
 // etagIs compares an entity-tag from an If header with the validator on the
@@ -295,12 +359,12 @@ func covers(name, target string) bool {
 
 // claimTouched is one list of conditions against the one or two resources the
 // request writes to.
-func (f *fileSystem) claimTouched(now time.Time, src, dst string, conditions []Condition) (func(), error) {
+func (f *fileSystem) claimTouched(ctx context.Context, now time.Time, src, dst string, conditions []Condition) (func(), error) {
 	// Both at once first, because one lock on a collection can cover both ends
 	// of a move inside it and the lock system hands a node out once: asking
 	// for the two names separately would confirm the lock and then find it
 	// held by ourselves.
-	release, err := f.locks.Confirm(now, src, dst, conditions...)
+	release, err := f.locks.Confirm(ctx, now, src, dst, conditions...)
 	if err == nil {
 		return release, nil
 	}
@@ -313,11 +377,11 @@ func (f *fileSystem) claimTouched(now time.Time, src, dst string, conditions []C
 	// unlocked path impossible for the client that holds the source -- a rule
 	// no other server has and the RFC does not ask for. What the other end has
 	// to be is not somebody else's, and a brief lock is how that is asked.
-	if release, ok := f.claimOneHoldTheOther(now, src, dst, conditions); ok {
+	if release, ok := f.claimOneHoldTheOther(ctx, now, src, dst, conditions); ok {
 		return release, nil
 	}
 	if src != "" {
-		if release, ok := f.claimOneHoldTheOther(now, dst, src, conditions); ok {
+		if release, ok := f.claimOneHoldTheOther(ctx, now, dst, src, conditions); ok {
 			return release, nil
 		}
 	}
@@ -326,38 +390,38 @@ func (f *fileSystem) claimTouched(now time.Time, src, dst string, conditions []C
 
 // claimOneHoldTheOther confirms one resource against the conditions and takes
 // the other for the length of the request, and reports whether both worked.
-func (f *fileSystem) claimOneHoldTheOther(now time.Time, claimed, free string, conditions []Condition) (func(), bool) {
-	release, err := f.locks.Confirm(now, claimed, "", conditions...)
+func (f *fileSystem) claimOneHoldTheOther(ctx context.Context, now time.Time, claimed, free string, conditions []Condition) (func(), bool) {
+	release, err := f.locks.Confirm(ctx, now, claimed, "", conditions...)
 	if err != nil {
 		return nil, false
 	}
-	token, err := f.holdBriefly(now, free)
+	token, err := f.holdBriefly(ctx, now, free)
 	if err != nil {
 		release()
 		return nil, false
 	}
 	return func() {
-		_ = f.locks.Unlock(now, token)
+		_ = f.locks.Unlock(ctx, now, token)
 		release()
 	}, true
 }
 
 // lockForTheRequest is the no-If case: hold both paths for the length of the
 // request so that somebody else's lock refuses it.
-func (f *fileSystem) lockForTheRequest(src, dst string) (func(), int, error) {
+func (f *fileSystem) lockForTheRequest(ctx context.Context, src, dst string) (func(), int, error) {
 	now := f.now()
 	var srcToken, dstToken string
 	var err error
 
 	if src != "" {
-		if srcToken, err = f.holdBriefly(now, src); err != nil {
+		if srcToken, err = f.holdBriefly(ctx, now, src); err != nil {
 			return nil, lockStatus(err), err
 		}
 	}
 	if dst != "" {
-		if dstToken, err = f.holdBriefly(now, dst); err != nil {
+		if dstToken, err = f.holdBriefly(ctx, now, dst); err != nil {
 			if srcToken != "" {
-				_ = f.locks.Unlock(now, srcToken)
+				_ = f.locks.Unlock(ctx, now, srcToken)
 			}
 			return nil, lockStatus(err), err
 		}
@@ -365,10 +429,10 @@ func (f *fileSystem) lockForTheRequest(src, dst string) (func(), int, error) {
 
 	return func() {
 		if dstToken != "" {
-			_ = f.locks.Unlock(now, dstToken)
+			_ = f.locks.Unlock(ctx, now, dstToken)
 		}
 		if srcToken != "" {
-			_ = f.locks.Unlock(now, srcToken)
+			_ = f.locks.Unlock(ctx, now, srcToken)
 		}
 	}, 0, nil
 }
@@ -391,6 +455,21 @@ func (f *fileSystem) enforceLocks(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
+
+		if _, err := f.owner(r.Context()); err != nil {
+			// No authenticated user, which is a routing mistake and not a lock
+			// question. Handed on so the answer is the 401 the backend gives
+			// every other method, rather than a 403 out of a lock system that
+			// has no owner to look one up for.
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// One name for every lock this request takes or claims, put on before
+		// anything under here asks for one. It is the scope the word "request"
+		// in "for the length of the request" refers to, and this is the only
+		// place that knows where that scope begins and ends. See holderKey.
+		r = r.WithContext(withHolder(r.Context(), newHolder()))
 
 		src, dst, ok := f.lockedPaths(r)
 		if !ok {
@@ -437,17 +516,24 @@ func (f *fileSystem) lockedPaths(r *http.Request) (src, dst string, ok bool) {
 }
 
 // holdBriefly takes a lock that lives only as long as the request.
-func (f *fileSystem) holdBriefly(now time.Time, path string) (string, error) {
-	return f.locks.Create(now, xnet.LockDetails{
-		Root:      path,
-		Duration:  briefLock,
-		ZeroDepth: true,
+func (f *fileSystem) holdBriefly(ctx context.Context, now time.Time, path string) (string, error) {
+	return f.locks.Create(ctx, now, LockDetails{
+		LockDetails: xnet.LockDetails{
+			Root:      path,
+			Duration:  briefLock,
+			ZeroDepth: true,
+		},
+		ForTheRequest: true,
 	})
 }
 
-// briefLock is how long the lock a request takes on its own behalf lasts. It is
-// released when the request ends; the duration is only what would expire if the
-// process died mid-write.
+// briefLock is how long the lock a request takes on its own behalf lasts
+// without being renewed.
+//
+// It is released when the request ends, and renewed while the request runs, so
+// this is only what an instance that died mid-write leaves behind: a minute of
+// 423 on that one path. Long enough that the renewal has several chances to
+// land, short enough that nobody waits on a process that is not coming back.
 const briefLock = time.Minute
 
 // lockStatus maps the lock system's refusals onto the wire, as RFC 4918 9.10.6
