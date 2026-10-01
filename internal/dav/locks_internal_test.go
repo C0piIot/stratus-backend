@@ -161,7 +161,12 @@ func TestAHoldLapsesWhenNobodyRenews(t *testing.T) {
 // itself lives for a minute, and the write renews it for as long as it runs.
 //
 // The clock is real here, unlike everything else in this file, because what is
-// being tested is a goroutine and a ticker. The intervals are shrunk instead.
+// being tested is a goroutine and a ticker. The intervals are shrunk instead --
+// but not as far as they will go. What fails this test is the renewal not
+// running, and a goroutine that is simply not scheduled for one lifetime looks
+// exactly like one that is broken: at sixty milliseconds a lifetime it failed
+// on a loaded CI runner and nowhere else. Ten renewals per lifetime is the
+// margin, so it takes half a second of being ignored to call this a bug.
 func TestARequestInFlightKeepsItsLock(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithCancel(withHolder(asOwner(t), "request-a"))
@@ -169,9 +174,9 @@ func TestARequestInFlightKeepsItsLock(t *testing.T) {
 
 	store := lockStore(t)
 	const (
-		lives  = 60 * time.Millisecond
-		lease  = 120 * time.Millisecond
-		renews = 15 * time.Millisecond
+		lives  = 500 * time.Millisecond
+		lease  = 2 * lives
+		renews = lives / 10
 	)
 	locks := &dbLocks{
 		store:   store,
@@ -188,8 +193,8 @@ func TestARequestInFlightKeepsItsLock(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Well past the point where an unrenewed lock would have gone.
-	time.Sleep(4 * lives)
+	// Twice over the point where an unrenewed lock would have gone.
+	time.Sleep(2 * lives)
 	if !stillLocked(t, store) {
 		t.Fatal("the lock a request was renewing expired underneath it")
 	}
