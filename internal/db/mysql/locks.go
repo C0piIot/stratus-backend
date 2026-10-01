@@ -14,6 +14,20 @@ import (
 
 const lockColumns = `token, owner_id, root, zero_depth, owner_xml, expires_at, held_by, held_until`
 
+// CreateLock implements db.Locks, and overrides the repository's so that a
+// creation made outside a transaction gets one.
+//
+// The guard and the insert have to be the same unit of work or the guard is
+// released before it has guarded anything: a row lock lives until the
+// transaction that took it ends, and with no transaction that is the end of the
+// statement. Inside a caller's Tx the repository's own method runs instead and
+// joins the transaction that is already open, which is what it should do.
+func (s *Store) CreateLock(ctx context.Context, l db.Lock, now time.Time) error {
+	return sqlutil.InTx(ctx, s.db, func(q sqlutil.Querier) error {
+		return (&repo{q: q}).CreateLock(ctx, l, now)
+	})
+}
+
 // CreateLock implements db.Locks.
 //
 // The insert ignores a lock that has timed out; the unique index cannot, so a
@@ -21,6 +35,10 @@ const lockColumns = `token, owner_id, root, zero_depth, owner_xml, expires_at, h
 // what the second half of this is for, and it runs only when the answer was
 // going to be a refusal anyway.
 func (r *repo) CreateLock(ctx context.Context, l db.Lock, now time.Time) error {
+	if err := r.takeTheGuard(ctx, l.OwnerID); err != nil {
+		return err
+	}
+
 	err := r.insertLock(ctx, l, now)
 	if !errors.Is(err, db.ErrConflict) {
 		return err
@@ -33,6 +51,27 @@ func (r *repo) CreateLock(ctx context.Context, l db.Lock, now time.Time) error {
 		return err
 	}
 	return r.insertLock(ctx, l, now)
+}
+
+// takeTheGuard queues this creation behind any other for the same owner.
+//
+// The INSERT below carries its own NOT EXISTS, which cannot race a concurrent
+// insert *into the row it checks* -- but it can race one into a row that covers
+// it, because at READ COMMITTED neither statement sees the other's uncommitted
+// work and no index can express "no ancestor of this exists" (#244). So both
+// creations first take a row only they contend for, and whichever gets it
+// second re-evaluates its NOT EXISTS against a statement that has committed.
+//
+// An upsert rather than an update, so the row is made the first time without a
+// separate path for it. Nothing is stored: the row is the rendezvous.
+func (r *repo) takeTheGuard(ctx context.Context, owner string) error {
+	const query = `INSERT INTO lock_guard (owner_id) VALUES (?) AS new
+		ON DUPLICATE KEY UPDATE owner_id = new.owner_id`
+
+	if _, err := r.q.ExecContext(ctx, query, owner); err != nil {
+		return fmt.Errorf("take the lock guard: %w", mapErr(err))
+	}
+	return nil
 }
 
 // insertLock is the one statement a create is when nothing is in the way.

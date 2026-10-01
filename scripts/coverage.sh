@@ -17,6 +17,14 @@
 # own dependencies, so there is nowhere to inject one that fails. Deleting the
 # log to protect the number would be the metric wagging the code.
 #
+# internal/db/postgres went 94 -> 93 when creating a lock became a transaction
+# (#244). The guard it takes first, and the sweep-and-retry around an expired
+# row still sitting on the unique index, are four statements whose only
+# uncovered half is "the database refused this statement" -- and a working
+# PostgreSQL does not refuse an indexed upsert on request. The suite that could
+# inject one wraps the repository, a layer above these. The other two drivers
+# carry the same code and stayed over their floors; this one had the least room.
+#
 # One consequence worth knowing: if Silo is not running, the S3 conformance
 # suite skips and internal/storage/s3 drops to ~15%, so this script turns a
 # silent skip into a failed build.
@@ -36,7 +44,7 @@ internal/files:92
 internal/media:89
 internal/music:100
 internal/db:63
-internal/db/postgres:94
+internal/db/postgres:93
 internal/db/sqlite:94
 internal/db/mysql:91
 internal/db/sqlutil:95

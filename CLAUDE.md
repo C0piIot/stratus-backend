@@ -574,6 +574,33 @@ and the `PRAGMA foreign_keys=OFF` that needs is silently ignored inside a
 transaction -- which is how `db.Migrate` applies every migration. Until the first
 real deployment it would simply go into `0001_schema.sql`.
 
+**Creating a lock queues on a row that exists only to be queued on** (#244).
+`CreateLock` carries its covering check inside the `INSERT`, which cannot race
+another insert into the row it checks -- but it can race one into a row that
+*covers* it. At `READ COMMITTED` neither statement sees the other's uncommitted
+work, so a `LOCK` on `/a` and the zero-depth lock a `PUT` takes on `/a/b` land
+together, and afterwards neither holder can write: each finds the other's lock
+covering its own and waits an hour for it to time out. The unique index catches
+two locks with the same root and can catch nothing else -- what has to be
+excluded is a relationship between two rows, which no index expresses.
+
+So both creations first take their owner's row in `lock_guard`, and the one that
+gets it second re-evaluates its `NOT EXISTS` against a statement that has
+committed. A table with one column, which is its key; nothing is stored in it.
+
+**Only PostgreSQL was ever exposed, and the guard is in all three anyway.** The
+test fails there and passes on the other two with the guard taken out: InnoDB
+reads the `SELECT` of an `INSERT ... SELECT` with locks under `REPEATABLE READ`,
+and SQLite takes the write lock at `BEGIN`. Both are true and neither is ours to
+rely on -- MySQL's holds only while nobody sets `transaction_isolation` to
+`READ-COMMITTED`, which is an operator's line in a config file. Being correct by
+coincidence is the thing this port is written not to be, and the price is one
+indexed upsert: measured against PostgreSQL over a container network, a
+create-and-release pair went from 1.80 ms to 2.20 ms. A refinement that would
+keep ordinary writes from queueing on each other -- a shared guard for
+zero-depth creations and an exclusive one for the rest -- is written down here
+and not implemented, because 0.4 ms did not earn it.
+
 **Migrating takes the engine's own lock, and it is the one thing in this port
 that could not be a row** (#242). `Migrate` read `MAX(version)` and then applied
 everything above it with nothing in between, so two instances starting together
