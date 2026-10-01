@@ -62,6 +62,17 @@ func TestPathWithSpaces(t *testing.T) {
 // the first thing a self-hoster does when something breaks, and running against
 // a schema written by a newer build has to stop the process rather than corrupt
 // it quietly.
+// TestSQLiteTakesNoMigrationLock pins the nil the other two drivers do not
+// pass (#242). A SQLite database is a file on one machine, so there is no
+// second instance to exclude -- and saying so in a test is what keeps the
+// absence from looking like an oversight the day a third engine arrives.
+func TestSQLiteTakesNoMigrationLock(t *testing.T) {
+	t.Parallel()
+	if _, ok := any(newStore(t)).(db.MigrationLocker); ok {
+		t.Error("the SQLite driver took a migration lock; its Migrate says why it should not")
+	}
+}
+
 func TestMigrateRefusesANewerSchema(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "stratus.db")

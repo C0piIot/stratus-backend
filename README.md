@@ -830,12 +830,20 @@ different database wearing the same name and is not what it is tested against.
 
 Migrations run at startup: a self-hosted binary should not ask you to press a
 button after an upgrade. Rolling *back* to an older image is refused rather than
-attempted, because a schema from the future is not something to guess at.
+attempted, because a schema from the future is not something to guess at. **Two
+processes started against the same database do not race on it**: on PostgreSQL
+and MySQL the first takes the engine's own lock and the second waits its turn
+rather than failing to start. That is one of the things a second instance would
+need and not all of them — the rest of this server still assumes it is the only
+one.
 
 Until the first tagged release the schema is rewritten rather than migrated: the
-history is one initial migration and stays that way while it changes. A database
-made by an earlier `:main` image is therefore refused by that same guard, and the
-answer is to delete it rather than upgrade it.
+initial migration is edited in place as it changes, and only the few additions
+that arrived after it had been deployed anywhere are migrations of their own. So
+a database made by an earlier `:main` image is not something an upgrade can
+repair — the initial migration it already applied is not the one this build
+carries, and nothing can tell, since the version did not move. Delete it rather
+than upgrade it.
 
 SQLite takes no DSN parameters. WAL, `foreign_keys` and `busy_timeout` are
 correctness requirements for a server, not preferences, so they are set for you.

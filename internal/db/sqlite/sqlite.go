@@ -98,7 +98,14 @@ func New(ctx context.Context, path string) (*Store, error) {
 }
 
 // Migrate implements db.Store.
-func (s *Store) Migrate(ctx context.Context) error { return db.Migrate(ctx, s.db, migrations) }
+//
+// No migration lock, which is the nil (#242): the two engines that have one
+// need it because two instances can share a database, and a SQLite database is
+// a file on one machine. Two processes over one file would still race here --
+// each reads MAX(version), each applies the same migration, and the second
+// fails to start -- and that is the same thing as every other reason this
+// driver assumes one process (#192).
+func (s *Store) Migrate(ctx context.Context) error { return db.Migrate(ctx, s.db, migrations, nil) }
 
 // Ping implements db.Store.
 func (s *Store) Ping(ctx context.Context) error { return s.db.PingContext(ctx) }

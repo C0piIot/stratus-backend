@@ -144,7 +144,7 @@ func DSN(raw string) (string, error) {
 }
 
 // Migrate implements db.Store.
-func (s *Store) Migrate(ctx context.Context) error { return db.Migrate(ctx, s.db, migrations) }
+func (s *Store) Migrate(ctx context.Context) error { return db.Migrate(ctx, s.db, migrations, s) }
 
 // Ping implements db.Store.
 func (s *Store) Ping(ctx context.Context) error { return s.db.PingContext(ctx) }
