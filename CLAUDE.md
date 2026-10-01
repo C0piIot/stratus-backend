@@ -574,6 +574,38 @@ and the `PRAGMA foreign_keys=OFF` that needs is silently ignored inside a
 transaction -- which is how `db.Migrate` applies every migration. Until the first
 real deployment it would simply go into `0001_schema.sql`.
 
+**Migrating takes the engine's own lock, and it is the one thing in this port
+that could not be a row** (#242). `Migrate` read `MAX(version)` and then applied
+everything above it with nothing in between, so two instances starting together
+applied the same migration: on PostgreSQL the second failed to start, and on
+MySQL, where DDL is not transactional, it could stop half way and leave the
+schema between two versions. A table cannot guard that -- the table is DDL
+itself, and creating `schema_migrations` is already part of the race, which is
+why the lock is taken before the first statement rather than before the first
+migration. The test that pins it fails three times out of three with the lock
+taken out.
+
+So `MigrationLocker` is an optional interface the two server engines satisfy and
+SQLite does not, rather than a switch inside `migrate.go` -- which is written not
+to know a dialect, down to having no placeholders in it. The two differ in a way
+worth knowing:
+
+- **PostgreSQL** holds `pg_advisory_xact_lock` in a transaction that stays open
+  for the run, and the release is that transaction's rollback. A session lock
+  would need `pg_advisory_unlock`, which is a statement, and a statement that
+  fails would put a connection back in the pool still holding the lock -- the
+  next instance would then block against this one. A rollback cannot end there.
+- **MySQL** has no transaction-scoped named lock, so `GET_LOCK` lives on one
+  connection taken out of the pool and `RELEASE_LOCK` is explicit. When that
+  fails the connection is handed `driver.ErrBadConn` instead of being pooled,
+  because MySQL frees a named lock when the session ends. Its name is
+  **server-wide**, not per schema, so the schema goes into it hashed: a fixed
+  name would make two Stratus databases on one server serialise their migrations
+  against each other.
+
+Both hold one connection out of the pool while the migrations run on others,
+which a pool capped at one would deadlock on. Nothing caps these.
+
 ## Architecture
 
 Ports and adapters at **two** boundaries, and nowhere else. This is principle 3

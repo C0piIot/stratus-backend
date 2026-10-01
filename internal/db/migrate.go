@@ -20,6 +20,22 @@ const versionTable = `CREATE TABLE IF NOT EXISTS schema_migrations (
 	applied_at TIMESTAMP NOT NULL
 )`
 
+// MigrationLocker is the half of a driver that keeps two instances from
+// migrating at the same time.
+//
+// Only the engine can hold this lock. What is being changed is the schema, so a
+// row in a table cannot guard it -- the table would be DDL itself, and creating
+// it is already part of the race. Postgres has advisory locks and MySQL has
+// GET_LOCK; SQLite has neither and needs neither, so its driver passes nil here
+// rather than this file growing a switch on a dialect it is written not to know
+// about (#242).
+type MigrationLocker interface {
+	// LockMigrations blocks until this process holds the lock and returns the
+	// release to call when the run is over -- which means every way it can end,
+	// including a migration that failed half way through.
+	LockMigrations(ctx context.Context) (release func(), err error)
+}
+
 // Migration is one file from a driver's migrations directory.
 type Migration struct {
 	Version int64
@@ -33,11 +49,26 @@ type Migration struct {
 //
 // It is called at startup, which makes it the write probe as well: a database
 // user that cannot create a table fails here rather than on the first upload.
-func Migrate(ctx context.Context, sqlDB *sql.DB, dir fs.FS) error {
+//
+// lock is the engine's own, or nil for a driver that has none and needs none.
+// See MigrationLocker.
+func Migrate(ctx context.Context, sqlDB *sql.DB, dir fs.FS, lock MigrationLocker) error {
 	migrations, err := loadMigrations(dir)
 	if err != nil {
 		return err
 	}
+
+	// Taken before anything is read and not only before anything is applied:
+	// the version table is created with DDL too, and two instances racing on
+	// that statement is the same bug one line earlier.
+	if lock != nil {
+		release, lerr := lock.LockMigrations(ctx)
+		if lerr != nil {
+			return fmt.Errorf("lock migrations: %w", lerr)
+		}
+		defer release()
+	}
+
 	if _, err := sqlDB.ExecContext(ctx, versionTable); err != nil {
 		return fmt.Errorf("create schema_migrations: %w", err)
 	}

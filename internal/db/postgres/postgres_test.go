@@ -88,6 +88,31 @@ func makeDatabase(t *testing.T) string {
 	return u.String()
 }
 
+// TestMigrationsTakeALock is the race two instances starting together would
+// otherwise lose (#242): both read MAX(version), both apply the same migration,
+// and on PostgreSQL one of them fails to start.
+func TestMigrationsTakeALock(t *testing.T) {
+	t.Parallel()
+	dsn := makeDatabase(t)
+	dbtest.RunMigrationLock(t, func(t *testing.T) db.Store { return openStore(t, dsn) })
+}
+
+// openStore is newStore without the migration: what these cases are about is
+// the migration itself.
+func openStore(t *testing.T, dsn string) db.Store {
+	t.Helper()
+	store, err := postgres.New(t.Context(), dsn)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := store.Close(); err != nil {
+			t.Errorf("Close: %v", err)
+		}
+	})
+	return store
+}
+
 func TestNewRejectsAnEmptyDSN(t *testing.T) {
 	t.Parallel()
 	if _, err := postgres.New(t.Context(), ""); err == nil {
@@ -105,6 +130,25 @@ func TestNewRejectsAnUnreachableServer(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "secret") {
 		t.Errorf("the error leaks the password: %v", err)
+	}
+}
+
+// TestLockMigrationsOnAClosedStore is the first thing a startup would hit
+// against a database that is not there: the migration lock is taken before the
+// schema is read, so this is where a dead connection surfaces (#242).
+func TestLockMigrationsOnAClosedStore(t *testing.T) {
+	t.Parallel()
+	store := newStore(t)
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	locker, ok := store.(db.MigrationLocker)
+	if !ok {
+		t.Fatal("this driver no longer takes a migration lock")
+	}
+	if _, err := locker.LockMigrations(t.Context()); err == nil {
+		t.Error("LockMigrations against a closed store reported no error")
 	}
 }
 
