@@ -13,6 +13,7 @@ import (
 	"slices"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/C0piIot/stratus-backend/internal/db"
 )
@@ -76,6 +77,7 @@ func Run(t *testing.T, newStore func(t *testing.T) db.Store) {
 		{"migrating twice changes nothing", migrateIsIdempotent},
 		{"a move rolled back leaves the tree as it was", moveRollsBack},
 		{"two writers at once both get through", concurrentWriters},
+		{"two overlapping locks cannot both land", overlappingLocks},
 	}
 
 	for _, tc := range cases {
@@ -83,6 +85,59 @@ func Run(t *testing.T, newStore func(t *testing.T) db.Store) {
 			t.Parallel()
 			tc.fn(t, newStore(t))
 		})
+	}
+}
+
+// overlappingLocks is the race two instances would otherwise lose (#244): the
+// covering check rides inside the INSERT, which cannot race another insert into
+// the row it checks, but can race one into a row that covers it -- at READ
+// COMMITTED neither statement sees the other's uncommitted work, and no index
+// can express "no ancestor of this exists".
+//
+// It is deterministic rather than a stress loop, which this kind of bug usually
+// is not: holding one creation inside a transaction is exactly the interleaving
+// the race needs, and Tx is how a test asks for it. The second creation must
+// still be waiting while the first is uncommitted, and must refuse once it can
+// see it.
+//
+// The pair is the realistic one: a zero-depth lock is what a write takes on
+// itself, and the collection over it is a client's LOCK.
+func overlappingLocks(t *testing.T, s db.Store) {
+	now := lockClock()
+
+	inside := lockAt("tok-inside", "/album/one.txt", now)
+	inside.ZeroDepth = true
+	over := lockAt("tok-over", "/album", now)
+
+	started, finish := make(chan struct{}), make(chan struct{})
+	held := make(chan error, 1)
+	go func() {
+		held <- s.Tx(t.Context(), func(r db.Repo) error {
+			if err := r.CreateLock(t.Context(), inside, now); err != nil {
+				return err
+			}
+			close(started)
+			<-finish
+			return nil
+		})
+	}()
+	<-started
+
+	swallowed := make(chan error, 1)
+	go func() { swallowed <- s.CreateLock(t.Context(), over, now) }()
+
+	select {
+	case err := <-swallowed:
+		t.Fatalf("a lock over /album was decided while the lock inside it was uncommitted: %v", err)
+	case <-time.After(heldLongEnough):
+	}
+
+	close(finish)
+	if err := <-held; err != nil {
+		t.Fatalf("the creation that was holding the transaction: %v", err)
+	}
+	if err := <-swallowed; !errors.Is(err, db.ErrConflict) {
+		t.Errorf("locking a collection over a lock inside it = %v, want ErrConflict", err)
 	}
 }
 
