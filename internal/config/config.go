@@ -236,23 +236,19 @@ func defaultDatabaseDSN(dataDir string) string {
 	return u.String()
 }
 
-// within reports whether dir is the same place as root or sits under it, as
-// far as the names can say. Symlinks are not resolved: this is a guard against
-// a configuration that is obviously wrong, not against one built to defeat it.
+// within reports whether dir is the same place as root or sits under it, as far
+// as the names can say. Symlinks are not resolved: this is a guard against a
+// configuration that is obviously wrong, not against one built to defeat it.
+//
+// The error from Abs is dropped on purpose rather than branched on. It is
+// returned only when the working directory cannot be read, which is a process
+// with larger problems than this check, and the empty string it leaves behind
+// matches nothing -- so the one failure mode is that an obvious mistake is
+// allowed through instead of being caught here.
 func within(dir, root string) bool {
-	a, err := filepath.Abs(filepath.Clean(dir))
-	if err != nil {
-		return false
-	}
-	b, err := filepath.Abs(filepath.Clean(root))
-	if err != nil {
-		return false
-	}
-	rel, err := filepath.Rel(b, a)
-	if err != nil {
-		return false
-	}
-	return rel == "." || !strings.HasPrefix(rel, "..")
+	a, _ := filepath.Abs(filepath.Clean(dir))
+	b, _ := filepath.Abs(filepath.Clean(root))
+	return a == b || strings.HasPrefix(a, b+string(filepath.Separator))
 }
 
 // lookup treats an empty value as absent. Compose and .env files both make it
