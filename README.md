@@ -539,11 +539,12 @@ would otherwise run as whoever is signed in. Files go through
 `http.ServeContent`, so ranges, conditional requests and resuming a half-finished
 download behave exactly as they do on the streaming surface.
 
-**Every file says what is known about it**: the button beside it opens, under
-the row, what the file row carries -- type, size, when it last changed, its
-validator -- and what the indexer extracted: a photograph's date, camera,
-dimensions and coordinates, a track's duration, codec, bitrate and tags, a
-film's resolution, codecs, frame rate and colour. It is read when the button is
+**Every file says what is known about it**: the button beside it opens a box
+over the listing, titled with the file's name, holding what the file row
+carries -- type, size, when it last changed, its validator -- and what the
+indexer extracted from it: a photograph's date, camera, dimensions and
+coordinates, a track's duration, codec, bitrate and tags, a film's resolution,
+codecs, frame rate and colour. It is read when the button is
 pressed and not before, because a folder is a hundred rows and this is almost
 never opened; the same URL, `/info/<path>`, is a whole page when it is followed
 as a link, which is what a browser with no JavaScript does. A file nothing has

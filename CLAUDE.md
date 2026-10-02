@@ -40,6 +40,22 @@ Hard constraints, in the same spirit as the rest of the project:
 
   This is not permission for more. The next feature that wants script gets the
   same paragraph written about it, or it gets a form.
+- **The third script is the one that opens a dialog, and this is its paragraph**
+  (#249). A file's details are a modal, and there is no declarative way to open
+  one: `<dialog>` becomes modal from `showModal()` and from nothing else.
+  Bootstrap's own modal was the obvious alternative and is not usable here --
+  it shows a box by writing `display: block` into a style attribute on the
+  element and padding onto `<body>`, and `style-src 'self'` drops both, so it
+  would open something the browser never displays. That is the same policy
+  `TestNoTemplateWritesAnInlineStyle` exists to keep, and relaxing it for a
+  dialog would have bought a wider hole than the script costs.
+
+  Ten lines, in `internal/web/static/stratus/dialog.js`, and **it degrades by
+  construction** like the other two: the button is a link to a page that renders
+  the same facts, htmx is what turns that into a fetch, and with no JavaScript
+  neither runs and the link is followed. The dialog it opens needs no stylesheet
+  either -- `vw-100` with Bootstrap's own `modal-dialog` caps a shrink-to-fit
+  box at the width Bootstrap gives its modals.
 - **The second script is the film player's, and this is its paragraph** (#50).
   A film a browser cannot take as it is -- Matroska, AC-3 sound -- plays as the
   HLS the server remuxes it into, and Chrome and Firefox do not play HLS
@@ -69,17 +85,16 @@ Hard constraints, in the same spirit as the rest of the project:
   same HTML. A second endpoint, or one answering in JSON, would be the private
   API principle 2 forbids.
 
-  **A file's details open under its row** (#249): the button in a listing is a
+  **A file's details open in a dialog over the listing** (#249): the button is a
   link to `/info/<path>`, which answers with the whole page, and htmx turns the
   click into a swap of the same markup without the document around it. Lazily,
   and that is the decision: the row behind it is forty columns and a listing is
   a hundred rows, so a page that carried them would make every folder pay for
   what is almost never opened -- the only media query a listing makes is still
-  the batched `MediaStates` behind the "waiting" badge. The trigger is `once`
-  because htmx cancels an anchor's default before it checks that modifier, so a
-  second press neither navigates nor appends a second copy of the row; what
-  closes it again is a `<details>`, which is the browser's own and costs no
-  script and no request.
+  the batched `MediaStates` behind the "waiting" badge. The dialog lands in one
+  holder at the end of the page, so a second look replaces the first rather than
+  stacking on it, and closing it is `<form method="dialog">`, which posts
+  nowhere and needs nothing.
 
   **An album page uses it to count a play** (#212): each track's `<audio>`
   carries `hx-get` to OpenSubsonic's own `scrobble` with `hx-trigger="ended"`,
