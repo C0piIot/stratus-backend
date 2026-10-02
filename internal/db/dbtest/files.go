@@ -40,6 +40,10 @@ func RunFiles(t *testing.T, newFiles func(t *testing.T) db.Files) {
 		{"a cursor still resumes after its row is deleted", listPagedDeletedCursor},
 		{"a page of no rows is refused", listPagedLimit},
 		{"a page sees one owner and one directory", listPagedIsolated},
+		{"a page is ordered by what it was asked for", listPagedOrders},
+		{"every ordering keeps directories first", listPagedOrderGroups},
+		{"an ordering breaks its ties by path", listPagedOrderTies},
+		{"an ordering nothing implements is refused", listPagedOrderUnknown},
 		{"move renames", moveRenames},
 		{"move onto an occupied path conflicts", moveConflict},
 		{"move of a missing file is ErrNotFound", moveMissing},
@@ -171,13 +175,18 @@ func listEmpty(t *testing.T, s db.Files) {
 	}
 }
 
-// page is one call to ListFilesPage, returning the paths and the cursor that
-// resumes after them.
+// page is one call to ListFilesPage in the order every caller had before there
+// was a choice, and pageIn is the same in any other.
 func page(t *testing.T, s db.Files, dir string, after db.Cursor, limit int) ([]string, db.Cursor) {
 	t.Helper()
-	rows, err := s.ListFilesPage(t.Context(), owner, dir, after, limit)
+	return pageIn(t, s, dir, db.FileOrder{}, after, limit)
+}
+
+func pageIn(t *testing.T, s db.Files, dir string, order db.FileOrder, after db.Cursor, limit int) ([]string, db.Cursor) {
+	t.Helper()
+	rows, err := s.ListFilesPage(t.Context(), owner, dir, order, after, limit)
 	if err != nil {
-		t.Fatalf("ListFilesPage(%q, %+v, %d): %v", dir, after, limit, err)
+		t.Fatalf("ListFilesPage(%q, %+v, %+v, %d): %v", dir, order, after, limit, err)
 	}
 	if len(rows) > limit {
 		t.Fatalf("a page of %d rows was asked for and %d came back", limit, len(rows))
@@ -255,6 +264,121 @@ func listPagedGroups(t *testing.T, s db.Files) {
 	}
 }
 
+// sized is a file with a size and a modification time of its own, for the
+// orderings that read something other than the path.
+func sized(path string, size int64, mtime time.Time) db.File {
+	f := file(path)
+	f.Size, f.MTime = size, mtime
+	return f
+}
+
+// listPagedOrders walks a directory in each ordering the port offers, in both
+// directions, a page at a time -- which is where an ordering breaks if the
+// cursor does not carry its value.
+func listPagedOrders(t *testing.T, s db.Files) {
+	day := func(d int) time.Time { return time.Date(2024, 6, d, 12, 0, 0, 0, time.UTC) }
+	put(t, s, sized("dir/big.bin", 900, day(1)))
+	put(t, s, sized("dir/small.txt", 10, day(3)))
+	put(t, s, sized("dir/middle.jpg", 300, day(2)))
+
+	tests := []struct {
+		name  string
+		order db.FileOrder
+		want  []string
+	}{
+		{"by name", db.FileOrder{}, []string{"dir/big.bin", "dir/middle.jpg", "dir/small.txt"}},
+		{"by name, backwards", db.FileOrder{Desc: true}, []string{"dir/small.txt", "dir/middle.jpg", "dir/big.bin"}},
+		{"by size", db.FileOrder{By: db.SortSize}, []string{"dir/small.txt", "dir/middle.jpg", "dir/big.bin"}},
+		{"by size, backwards", db.FileOrder{By: db.SortSize, Desc: true}, []string{"dir/big.bin", "dir/middle.jpg", "dir/small.txt"}},
+		{"by mtime", db.FileOrder{By: db.SortMTime}, []string{"dir/big.bin", "dir/middle.jpg", "dir/small.txt"}},
+		{"by mtime, backwards", db.FileOrder{By: db.SortMTime, Desc: true}, []string{"dir/small.txt", "dir/middle.jpg", "dir/big.bin"}},
+	}
+	for _, tt := range tests {
+		if got, _ := pageIn(t, s, "dir", tt.order, db.Cursor{}, 10); !slices.Equal(got, tt.want) {
+			t.Errorf("%s in one page = %v, want %v", tt.name, got, tt.want)
+		}
+
+		// And the same answer a row at a time, which is the half a cursor that
+		// carried only the path would get wrong.
+		var walked []string
+		after := db.Cursor{}
+		for range len(tt.want) {
+			rows, next := pageIn(t, s, "dir", tt.order, after, 1)
+			walked = append(walked, rows...)
+			after = next
+		}
+		if !slices.Equal(walked, tt.want) {
+			t.Errorf("%s one row at a time = %v, want %v", tt.name, walked, tt.want)
+		}
+	}
+}
+
+// listPagedOrderGroups: collections come first whichever way the ordering
+// points. It is not a preference, and reversing a listing must not send the
+// folders to the bottom of it.
+func listPagedOrderGroups(t *testing.T, s db.Files) {
+	for _, dir := range []string{"tree", "tree/b-dir", "tree/d-dir"} {
+		if _, err := s.CreateDir(t.Context(), owner, dir); err != nil {
+			t.Fatal(err)
+		}
+	}
+	put(t, s, sized("tree/a-file.txt", 10, time.Date(2024, 6, 3, 12, 0, 0, 0, time.UTC)))
+	put(t, s, sized("tree/c-file.txt", 900, time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC)))
+
+	order := db.FileOrder{By: db.SortSize, Desc: true}
+	whole, _ := pageIn(t, s, "tree", order, db.Cursor{}, 10)
+	if len(whole) != 4 || !strings.HasSuffix(whole[0], "-dir") || !strings.HasSuffix(whole[1], "-dir") {
+		t.Fatalf("largest first = %v, want both directories ahead of both files", whole)
+	}
+	if !slices.Equal(whole[2:], []string{"tree/c-file.txt", "tree/a-file.txt"}) {
+		t.Errorf("the files = %v, want the largest first", whole[2:])
+	}
+
+	// And across the seam, which is the page that reads both groups.
+	first, after := pageIn(t, s, "tree", order, db.Cursor{}, 3)
+	if !slices.Equal(first, []string{whole[0], whole[1], "tree/c-file.txt"}) {
+		t.Fatalf("a page across the seam = %v, want it to carry on into the files", first)
+	}
+	if second, _ := pageIn(t, s, "tree", order, after, 3); !slices.Equal(second, []string{"tree/a-file.txt"}) {
+		t.Errorf("after the seam = %v, want the rest of the files", second)
+	}
+}
+
+// listPagedOrderTies: a size or a time is not unique in a folder -- a burst of
+// photographs off one camera shares both -- so the path breaks the tie and
+// makes every ordering total. Without it a page boundary inside a run of equal
+// values would repeat a row or skip one.
+func listPagedOrderTies(t *testing.T, s db.Files) {
+	same := time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC)
+	for _, p := range []string{"dir/c.txt", "dir/a.txt", "dir/b.txt"} {
+		put(t, s, sized(p, 500, same))
+	}
+
+	for _, order := range []db.FileOrder{{By: db.SortSize}, {By: db.SortMTime}} {
+		var walked []string
+		after := db.Cursor{}
+		for range 3 {
+			rows, next := pageIn(t, s, "dir", order, after, 1)
+			walked = append(walked, rows...)
+			after = next
+		}
+		if !slices.Equal(walked, []string{"dir/a.txt", "dir/b.txt", "dir/c.txt"}) {
+			t.Errorf("%+v over equal values = %v, want each row once in path order", order, walked)
+		}
+	}
+}
+
+// listPagedOrderUnknown: a key no driver implements must not quietly become
+// whichever column the switch fell through to.
+func listPagedOrderUnknown(t *testing.T, s db.Files) {
+	put(t, s, file("dir/a.txt"))
+
+	rows, err := s.ListFilesPage(t.Context(), owner, "dir", db.FileOrder{By: db.FileSortKey(99)}, db.Cursor{}, 10)
+	if err == nil {
+		t.Errorf("an ordering nothing implements returned %v, want an error", rows)
+	}
+}
+
 // listPagedDeletedCursor: a cursor is a position in an ordering, not a row. A
 // listing somebody is scrolling through changes underneath them, and the page
 // after a file that has since been deleted is still the rest of the folder.
@@ -282,12 +406,12 @@ func listPagedLimit(t *testing.T, s db.Files) {
 	put(t, s, file("dir/a.txt"))
 
 	for _, limit := range []int{0, -1} {
-		rows, err := s.ListFilesPage(t.Context(), owner, "dir", db.Cursor{}, limit)
+		rows, err := s.ListFilesPage(t.Context(), owner, "dir", db.FileOrder{}, db.Cursor{}, limit)
 		if err == nil {
 			t.Errorf("a page of %d rows returned %v, want an error", limit, rows)
 		}
 	}
-	if _, err := s.ListFilesPage(t.Context(), owner, "../etc", db.Cursor{}, 10); err == nil {
+	if _, err := s.ListFilesPage(t.Context(), owner, "../etc", db.FileOrder{}, db.Cursor{}, 10); err == nil {
 		t.Error("a page of an invalid directory was allowed")
 	}
 }
@@ -310,7 +434,7 @@ func listPagedIsolated(t *testing.T, s db.Files) {
 	if rows, _ := page(t, s, "dir", db.Cursor{}, 10); !slices.Equal(rows, []string{"dir/a.txt", "dir/b.txt"}) {
 		t.Errorf("page = %v, want this owner's direct children only", rows)
 	}
-	rows, err := s.ListFilesPage(t.Context(), other, "dir", db.Cursor{}, 10)
+	rows, err := s.ListFilesPage(t.Context(), other, "dir", db.FileOrder{}, db.Cursor{}, 10)
 	if err != nil {
 		t.Fatal(err)
 	}

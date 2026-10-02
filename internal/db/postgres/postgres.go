@@ -166,41 +166,119 @@ func (r *repo) ListFiles(ctx context.Context, owner, dir string) ([]db.File, err
 	return out, nil
 }
 
+// The statements a page of one group can be: an ordering and a direction each,
+// in a form that starts the group and one that resumes inside it. Written out
+// rather than assembled from a predicate, for the reason the rest of this
+// package gives -- a query here is a const a reader can grep for in the shape
+// the database sees it.
+//
+// A numbered placeholder can be used twice, so the sort value is bound once
+// here and the limit is $5 rather than the $7 the positional dialects need.
+const (
+	listPageOf = `SELECT ` + fileColumns + ` FROM files
+		WHERE owner_id = $1 AND parent_path = $2 AND is_dir = $3`
+
+	listByName       = listPageOf + ` ORDER BY path LIMIT $4`
+	listByNameFrom   = listPageOf + ` AND path > $4 ORDER BY path LIMIT $5`
+	listDownName     = listPageOf + ` ORDER BY path DESC LIMIT $4`
+	listDownNameFrom = listPageOf + ` AND path < $4 ORDER BY path DESC LIMIT $5`
+
+	listBySize       = listPageOf + ` ORDER BY size, path LIMIT $4`
+	listBySizeFrom   = listPageOf + ` AND (size, path) > ($4, $5) ORDER BY size, path LIMIT $6`
+	listDownSize     = listPageOf + ` ORDER BY size DESC, path DESC LIMIT $4`
+	listDownSizeFrom = listPageOf + ` AND (size, path) < ($4, $5) ORDER BY size DESC, path DESC LIMIT $6`
+
+	listByTime       = listPageOf + ` ORDER BY mtime, path LIMIT $4`
+	listByTimeFrom   = listPageOf + ` AND (mtime, path) > ($4, $5) ORDER BY mtime, path LIMIT $6`
+	listDownTime     = listPageOf + ` ORDER BY mtime DESC, path DESC LIMIT $4`
+	listDownTimeFrom = listPageOf + ` AND (mtime, path) < ($4, $5) ORDER BY mtime DESC, path DESC LIMIT $6`
+)
+
+// listPages is those statements by the ordering that asks for them: the first
+// starts a group and the second resumes inside one.
+var listPages = map[db.FileOrder][2]string{
+	{By: db.SortName}:              {listByName, listByNameFrom},
+	{By: db.SortName, Desc: true}:  {listDownName, listDownNameFrom},
+	{By: db.SortSize}:              {listBySize, listBySizeFrom},
+	{By: db.SortSize, Desc: true}:  {listDownSize, listDownSizeFrom},
+	{By: db.SortMTime}:             {listByTime, listByTimeFrom},
+	{By: db.SortMTime, Desc: true}: {listDownTime, listDownTimeFrom},
+}
+
+// listPageArgs binds one of them. mtime is a timestamp in this schema rather
+// than the milliseconds the other two store, so the cursor's time goes in as
+// it is.
+func listPageArgs(order db.FileOrder, owner, dir string, isDir bool, after db.Cursor, limit int) []any {
+	args := []any{owner, dir, isDir}
+	if !after.AtStart() {
+		switch order.By {
+		case db.SortSize:
+			args = append(args, after.Size, after.Path)
+		case db.SortMTime:
+			args = append(args, after.MTime, after.Path)
+		default:
+			args = append(args, after.Path)
+		}
+	}
+	return append(args, limit)
+}
+
 // ListFilesPage implements db.Repo.
-func (r *repo) ListFilesPage(ctx context.Context, owner, dir string, after db.Cursor, limit int) ([]db.File, error) {
+//
+// One statement per group, so two on the page that crosses the seam between the
+// directories and the files and one on every other page. That shape is what
+// makes is_dir an equality here rather than the first column of the ORDER BY,
+// and that is what lets one index serve a key in both directions: reversing the
+// scan reverses the sort value and the path that breaks its ties together,
+// while the group stays where it is. With is_dir inside the ORDER BY, a
+// descending page would have needed an index of its own per key, paid on every
+// write.
+//
+// files_owner_parent is (owner_id, parent_path, is_dir DESC, path), which with
+// is_dir pinned is this ORDER BY exactly, in both directions. Ordering by size
+// or by mtime has an index each of its own, added in 0009.
+//
+// Those two resume on a row comparison rather than the spelled-out OR this
+// query used to carry, for the reason #211 found in the photo timeline: the OR
+// form is not a range the planner can seek on, so it seeks to the group and
+// walks the rest. Measured on a folder of a hundred thousand files, page 900
+// cost 44 ms that way and 0.78 ms this way.
+func (r *repo) ListFilesPage(
+	ctx context.Context, owner, dir string, order db.FileOrder, after db.Cursor, limit int,
+) ([]db.File, error) {
 	if err := db.ValidateDir(dir); err != nil {
 		return nil, err
 	}
 	if err := db.ValidateLimit(limit); err != nil {
 		return nil, err
 	}
-
-	// Two statements rather than one with a predicate pasted into it: the
-	// queries in this package are consts a reader can grep for, and the first
-	// page differs by one clause.
-	//
-	// files_owner_parent is (owner_id, parent_path, is_dir DESC, path), which
-	// is this ORDER BY exactly, so both of these are a seek to where the last
-	// page stopped rather than a sort of the directory.
-	const (
-		fromStart = `SELECT ` + fileColumns + ` FROM files
-			WHERE owner_id = $1 AND parent_path = $2
-			ORDER BY is_dir DESC, path LIMIT $3`
-		fromCursor = `SELECT ` + fileColumns + ` FROM files
-			WHERE owner_id = $1 AND parent_path = $2
-				AND (is_dir < $3 OR (is_dir = $3 AND path > $4))
-			ORDER BY is_dir DESC, path LIMIT $5`
-	)
-
-	query, args := fromStart, []any{owner, dir, limit}
-	if !after.AtStart() {
-		query = fromCursor
-		args = []any{owner, dir, after.IsDir, after.Path, limit}
+	if err := order.Validate(); err != nil {
+		return nil, err
 	}
 
-	out, err := sqlutil.Collect(ctx, r.q, scanFileRow, query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("list %q after %q: %w", dir, after.Path, mapErr(err))
+	out := make([]db.File, 0, limit)
+	for _, group := range after.Groups() {
+		rest := limit - len(out)
+		if rest <= 0 {
+			break
+		}
+		// Only the group the cursor is in resumes. The one behind it has not
+		// been read at all, so it starts at its own beginning.
+		from := after
+		if after.AtStart() || group != after.IsDir {
+			from = db.Cursor{}
+		}
+		query := listPages[order][0]
+		if !from.AtStart() {
+			query = listPages[order][1]
+		}
+
+		rows, err := sqlutil.Collect(ctx, r.q, scanFileRow, query,
+			listPageArgs(order, owner, dir, group, from, rest)...)
+		if err != nil {
+			return nil, fmt.Errorf("list %q after %q: %w", dir, after.Path, mapErr(err))
+		}
+		out = append(out, rows...)
 	}
 	return out, nil
 }

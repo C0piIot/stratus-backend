@@ -287,6 +287,41 @@ Hard constraints, in the same spirit as the rest of the project:
   rows nothing has looked at yet. It reports and does not drive: there is no
   button here that starts, stops or hurries the indexer, because a surface that
   could would be a surface that has to be protected from being pressed twice.
+- **A listing can be ordered and counted, and both are the query's** (#251):
+  the headings order a folder by name, size or mtime in either direction, and
+  three links choose 50, 100 or 500 rows. Neither could be done to a page after
+  it arrived -- a page re-sorted in Go is sorted inside itself and wrong at
+  every boundary -- so `ListFilesPage` grew a `db.FileOrder` and `db.Cursor`
+  grew the sort value beside the path that breaks its ties.
+
+  **Directories stay first, and that is what shapes the query.** It makes
+  `is_dir` an equality rather than the first column of the `ORDER BY`, so a page
+  is one statement per group -- two on the page that crosses the seam, one
+  everywhere else -- and with `is_dir` pinned a single index serves a key in
+  both directions, since scanning it backwards reverses the key and the path
+  together and leaves the group where it was. Inside the `ORDER BY` it would
+  have needed a descending twin per key, paid on every write.
+
+  **Measured, like #211, and the measurement changed the code.** Migration 0009
+  adds `files_owner_parent_size` and `files_owner_parent_mtime` to SQLite and
+  PostgreSQL; MySQL gets neither, because its `parent_path(500)` prefix means
+  nothing after it can satisfy an `ORDER BY` and an index there would be written
+  by every write and read by nothing. On a folder of a hundred thousand files,
+  page 900 cost 44 ms with the spelled-out `OR` the old cursor used and 0.78 ms
+  with a row comparison, `(size, path) > (?, ?)` -- the same thing the photo
+  timeline found, and the reason the two drivers that can seek use the row form
+  while MySQL keeps the expanded one it cannot optimise either way.
+
+  **The URL is the state and the cookie is only a default.** `sort`, `order` and
+  `rows` are query parameters, so an arranged folder is a link somebody can be
+  sent, and `stratus_list` supplies them only when the URL does not. It is a
+  preference and not an authority, so it is unsigned, has no `HttpOnly` to earn,
+  is written only when the URL expressed an opinion, and is never written for a
+  request that arrived on a share link -- a visitor's browser is not the owner's.
+  A value outside the closed set is a 400: `rows` is one of three numbers rather
+  than a number, or it would be a way to ask this server to render a hundred
+  thousand rows and offer a thumbnail for each.
+
 - **What the indexer found is a page of its own, `/info/<path>`** (#249): the
   file row's half -- type, size, modified, validator -- and the extracted half
   by kind, each field dropped when it is unknown rather than printed as a zero,

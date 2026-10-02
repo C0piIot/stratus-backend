@@ -10,6 +10,7 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/C0piIot/stratus-backend/internal/db"
 	"github.com/C0piIot/stratus-backend/internal/media"
@@ -20,14 +21,17 @@ import (
 // file has the same one, because to somebody typing it they are the same thing.
 const filesPrefix = "/files/"
 
-// listPageSize is how much of a directory one page holds. A folder with a
-// hundred thousand photographs in it is an ordinary size for this project, and
-// rendering all of it would be one query, one enormous document and, since
-// #135, an offer of a thumbnail per row.
+// listPageSize is how much of a directory one page holds unless the reader says
+// otherwise. A folder with a hundred thousand photographs in it is an ordinary
+// size for this project, and rendering all of it would be one query, one
+// enormous document and, since #135, an offer of a thumbnail per row.
 //
-// Not configurable: it is a property of what a browser can lay out and of how
-// many pictures it is fair to ask this server for at once, neither of which an
-// operator is better placed to judge than the page is.
+// It stopped being the only value in #251 and stayed the default. What it is a
+// property of has not changed -- what a browser can lay out, and how many
+// pictures it is fair to ask this server for at once -- and that is still not
+// an operator's setting. It is the reader's, in their own browser, out of the
+// three listRows offers, and the largest of those is where the old paragraph
+// still bites: five hundred rows is five hundred thumbnails to offer.
 const listPageSize = 100
 
 // listFragment is the part of the page htmx asks for when it extends a
@@ -72,12 +76,24 @@ func (h *handler) browse(w http.ResponseWriter, r *http.Request, user string) {
 		}
 	}
 
-	after, err := parseCursor(r.URL.Query().Get("after"))
+	state, err := listingOf(r)
+	if err != nil {
+		h.badRequest(w, display, "That is not a way to arrange this folder.")
+		return
+	}
+	// Remembered only once it is known to be a folder, and never for a visitor
+	// with a link: a share is somebody else's browser, and what they do to
+	// somebody else's folder is not a preference of theirs to keep.
+	if token == "" {
+		rememberListing(w, r, state)
+	}
+
+	after, err := parseCursor(state.order().By, r.URL.Query().Get("after"))
 	if err != nil {
 		h.badRequest(w, display, "That is not a place in this folder to carry on from.")
 		return
 	}
-	children, more, err := h.files.ListPage(r.Context(), user, p, after, listPageSize)
+	children, more, err := h.files.ListPage(r.Context(), user, p, state.order(), after, state.Rows)
 	if err != nil {
 		h.fail(w, r, display, err)
 		return
@@ -90,13 +106,15 @@ func (h *handler) browse(w http.ResponseWriter, r *http.Request, user string) {
 		Notice:  uploaded(r.URL.Query().Get("added")),
 		Crumbs:  crumbs(p, token, sharedRoot(r)),
 		Entries: entries(children, h.indexingOf(r, children), token),
+		Columns: columns(href(p), state, token),
+		Rows:    rowChoices(href(p), state, token),
 		// Where this page's two forms post: into the directory being listed.
 		Here:    href(p),
 		Folders: link(folderPrefix, p),
 	}
 	if more {
-		v.NextPage = shared(href(p)+"?after="+
-			url.QueryEscape(encodeCursor(db.After(children[len(children)-1]))), token)
+		v.NextPage = shared(href(p)+"?"+state.query("after",
+			encodeCursor(state.order().By, db.After(children[len(children)-1]))), token)
 	}
 
 	// htmx asked for the rows to append; anything else asked for the page. The
@@ -115,33 +133,67 @@ func (h *handler) browse(w http.ResponseWriter, r *http.Request, user string) {
 // allowed to see. The letter in front of it is the half a path cannot say --
 // which of the two groups the ordering had reached -- and without it a page
 // boundary that falls between the directories and the files could not be
-// resumed.
-func encodeCursor(c db.Cursor) string {
+// resumed. An ordering that reads a column other than the path carries that
+// column's value too, between the two, for exactly the same reason: it is the
+// other half of the key, and a cursor missing it would resume in the wrong
+// place among equal names.
+func encodeCursor(key db.FileSortKey, c db.Cursor) string {
+	kind := "f/"
 	if c.IsDir {
-		return "d/" + c.Path
+		kind = "d/"
 	}
-	return "f/" + c.Path
+	switch key {
+	case db.SortSize:
+		return kind + strconv.FormatInt(c.Size, 10) + "/" + c.Path
+	case db.SortMTime:
+		return kind + strconv.FormatInt(c.MTime.UnixMilli(), 10) + "/" + c.Path
+	default:
+		return kind + c.Path
+	}
 }
 
-func parseCursor(v string) (db.Cursor, error) {
+func parseCursor(key db.FileSortKey, v string) (db.Cursor, error) {
 	if v == "" {
 		return db.Cursor{}, nil
 	}
-	kind, p, ok := strings.Cut(v, "/")
+	kind, rest, ok := strings.Cut(v, "/")
 	if !ok {
 		return db.Cursor{}, fmt.Errorf("cursor %q: no kind", v)
 	}
-	if err := db.ValidatePath(p); err != nil {
-		return db.Cursor{}, err
-	}
+	var c db.Cursor
 	switch kind {
 	case "d":
-		return db.Cursor{IsDir: true, Path: p}, nil
+		c.IsDir = true
 	case "f":
-		return db.Cursor{Path: p}, nil
 	default:
 		return db.Cursor{}, fmt.Errorf("cursor %q: unknown kind %q", v, kind)
 	}
+
+	// A cursor is read in the shape the ordering names, so one made under
+	// another ordering is refused rather than half understood.
+	switch key {
+	case db.SortSize, db.SortMTime:
+		value, p, found := strings.Cut(rest, "/")
+		if !found {
+			return db.Cursor{}, fmt.Errorf("cursor %q: no sort value", v)
+		}
+		n, err := strconv.ParseInt(value, 10, 64)
+		if err != nil {
+			return db.Cursor{}, fmt.Errorf("cursor %q: %w", v, err)
+		}
+		if key == db.SortSize {
+			c.Size = n
+		} else {
+			c.MTime = time.UnixMilli(n).UTC()
+		}
+		rest = p
+	}
+
+	if err := db.ValidatePath(rest); err != nil {
+		return db.Cursor{}, err
+	}
+	c.Path = rest
+	return c, nil
 }
 
 // download streams a file.

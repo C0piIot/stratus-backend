@@ -616,6 +616,24 @@ somebody uploads into it while you are reading. The rest of the folder loads as
 you reach the bottom of it; with JavaScript turned off the same thing is a link
 at the end of the page that goes to the next one.
 
+**A folder can be arranged.** The headings order it by name, by size or by when
+a file last changed, and clicking the one already in use turns it around;
+beside them, three links ask for fifty, a hundred or five hundred rows. Folders
+stay at the top of the listing whichever way it points, because that is what a
+file manager does and not a preference. Both choices live in the URL, so a
+folder arranged a particular way is a link somebody can be sent, and the last
+one is kept in a cookie so the next folder opens the same way — a cookie that
+carries a preference and no authority, and is therefore not signed, not read
+when the URL says otherwise, and not written at all for somebody arriving on a
+share link. Five hundred rows is five hundred thumbnails to offer, which is why
+that is the largest on the list.
+
+Ordering by size or by date is a database index on SQLite and PostgreSQL, so it
+costs what ordering by name costs — a page is a seek, wherever in the folder it
+falls. On MySQL it is a sort of the folder's rows, as every listing there
+already was: a path is `TEXT`, the index on it is a prefix, and nothing after a
+prefix column can satisfy an `ORDER BY`.
+
 **`/status` also says how much room is left.** A self-hosted server on a home
 machine fills up, and the first symptom should not be an upload failing with
 whatever the filesystem said. It is the whole volume's free space — shared with

@@ -121,11 +121,13 @@ func (f *failingRepo) ListFiles(ctx context.Context, owner, dir string) ([]db.Fi
 }
 
 // ListFilesPage implements db.Repo.
-func (f *failingRepo) ListFilesPage(ctx context.Context, owner, dir string, after db.Cursor, limit int) ([]db.File, error) {
+func (f *failingRepo) ListFilesPage(
+	ctx context.Context, owner, dir string, order db.FileOrder, after db.Cursor, limit int,
+) ([]db.File, error) {
 	if err := f.fails("ListFilesPage"); err != nil {
 		return nil, err
 	}
-	return f.Repo.ListFilesPage(ctx, owner, dir, after, limit)
+	return f.Repo.ListFilesPage(ctx, owner, dir, order, after, limit)
 }
 
 // MediaByFile implements db.Repo.
