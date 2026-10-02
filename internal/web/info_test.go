@@ -7,8 +7,10 @@ import (
 	"time"
 
 	"github.com/C0piIot/stratus-backend/internal/db"
+	"github.com/C0piIot/stratus-backend/internal/db/dbtest"
 	"github.com/C0piIot/stratus-backend/internal/files"
 	"github.com/C0piIot/stratus-backend/internal/media"
+	"github.com/C0piIot/stratus-backend/internal/web"
 )
 
 // indexed writes a file and the row an extractor of this build would have left
@@ -242,6 +244,25 @@ func TestTheListingOffersDetailsOnFilesOnly(t *testing.T) {
 
 	if shared := get(t, h, linkTo(t, h, "holiday", "7d")).Body.String(); strings.Contains(shared, "/info/") {
 		t.Errorf("a shared listing offers details:\n%s", shared)
+	}
+}
+
+// TestDetailsSurviveAnIndexThatWillNotAnswer: the same judgement the listing's
+// marks make. Half of this page comes out of the file row, and refusing to
+// render that half because the other one could not be reached is the worse
+// page.
+func TestDetailsSurviveAnIndexThatWillNotAnswer(t *testing.T) {
+	t.Parallel()
+	blobs, meta := backends(t)
+	s := files.New(blobs, meta)
+	h := handlerIndexing(t, s, blobs,
+		web.Indexing{Index: dbtest.FailOn(t, meta, "MediaByFile"), Interval: time.Minute})
+	write(t, s, "notes.txt", "where we went")
+
+	body := details(t, h, "notes.txt", signIn(t, h))
+	has(t, body, "could not be read just now", "text/plain")
+	if strings.Contains(body, dbtest.ErrInjected.Error()) {
+		t.Errorf("the page tells the reader what the database said:\n%s", body)
 	}
 }
 
