@@ -53,9 +53,18 @@ Hard constraints, in the same spirit as the rest of the project:
   Ten lines, in `internal/web/static/stratus/dialog.js`, and **it degrades by
   construction** like the other two: the button is a link to a page that renders
   the same facts, htmx is what turns that into a fetch, and with no JavaScript
-  neither runs and the link is followed. The dialog it opens needs no stylesheet
-  either -- `vw-100` with Bootstrap's own `modal-dialog` caps a shrink-to-fit
-  box at the width Bootstrap gives its modals.
+  neither runs and the link is followed.
+
+  The dialog needs no stylesheet either, but it took a second release to lay out
+  (#254). A `<dialog>` is shrink-to-fit, so its width has to be given to it or
+  the content takes it -- a long name made the box wider than the screen. It is
+  `w-100` and then the container-and-column every other page here uses.
+  Bootstrap's `.modal-dialog` is not usable for it, which is what shipped first:
+  its cap is `max-width:var(--bs-modal-width)` and that variable is declared on
+  `.modal`, so outside one it is invalid and caps nothing, and the
+  `pointer-events:none` it also sets is re-enabled by `.modal-content` and not
+  by a `.card` -- so the close button was dead as well as off the edge.
+  `TestTheDialogIsSizedByItself` is there so it stays that way.
 - **The second script is the film player's, and this is its paragraph** (#50).
   A film a browser cannot take as it is -- Matroska, AC-3 sound -- plays as the
   HLS the server remuxes it into, and Chrome and Firefox do not play HLS

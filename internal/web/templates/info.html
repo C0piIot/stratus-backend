@@ -21,23 +21,38 @@
      Closing it is a form that posts nowhere -- method="dialog" is the browser's
      own -- and so is Escape.
 
-     vw-100 beside modal-dialog is what gives it a width: a dialog is
-     shrink-to-fit, so the first says take the viewport and the second caps that
-     at Bootstrap's own modal width on anything wider than a phone. */}}
+     The width is the dialog's and never the content's. A dialog is
+     shrink-to-fit by default, so a long name or a long ETag would make the box
+     itself wider than the screen: w-100 takes the width the browser allows
+     instead, and the container and column inside it are the same way every
+     other page here is laid out. Bootstrap's own modal-dialog is not usable for
+     that, which cost one release to find out: its width is
+     max-width:var(--bs-modal-width) and that variable is declared on .modal,
+     so outside one it is invalid and caps nothing -- and it also sets
+     pointer-events:none, which .modal-content re-enables and a .card does not,
+     so the close button was dead as well as off the edge.
+
+     overflow-hidden on the heading is what lets a long filename wrap: a flex
+     item only shrinks below its content when its overflow is not visible, and
+     without it the name pushes the close button off the end of the bar. */}}
 {{define "detail" -}}
 {{with .Info}}
-<dialog class="p-0 border-0 bg-transparent" aria-labelledby="file-dialog-title">
-  <div class="vw-100 modal-dialog m-0">
-    <div class="card text-start shadow">
-      <div class="card-header d-flex justify-content-between align-items-center gap-3">
-        <h2 class="h6 mb-0 text-break" id="file-dialog-title">{{.Name}}</h2>
-        <form method="dialog" class="m-0">
-          <button class="btn-close" type="submit" aria-label="Close"></button>
-        </form>
-      </div>
-      <div class="card-body">{{template "facts" .}}</div>
-      <div class="card-footer">
-        <a class="btn btn-sm btn-outline-secondary" href="{{.Href}}">Open the file</a>
+<dialog class="w-100 overflow-auto p-0 border-0 bg-transparent" aria-labelledby="file-dialog-title">
+  <div class="container">
+    <div class="row justify-content-center">
+      <div class="col-12 col-sm-10 col-md-8 col-lg-6">
+        <div class="card text-start shadow">
+          <div class="card-header d-flex justify-content-between align-items-center gap-3">
+            <h2 class="h6 mb-0 text-break overflow-hidden" id="file-dialog-title">{{.Name}}</h2>
+            <form method="dialog" class="m-0 flex-shrink-0">
+              <button class="btn-close" type="submit" aria-label="Close"></button>
+            </form>
+          </div>
+          <div class="card-body">{{template "facts" .}}</div>
+          <div class="card-footer">
+            <a class="btn btn-sm btn-outline-secondary" href="{{.Href}}">Open the file</a>
+          </div>
+        </div>
       </div>
     </div>
   </div>

@@ -229,6 +229,27 @@ func TestTheDialogAndThePageAreTheSameFacts(t *testing.T) {
 	has(t, page, "Canon EOS R6")
 }
 
+// TestTheDialogIsSizedByItself is a bug that shipped: the box was laid out with
+// Bootstrap's .modal-dialog, whose width is max-width:var(--bs-modal-width) and
+// whose variable is declared on .modal -- so outside one it capped nothing, the
+// dialog grew to its content and ran off the screen, and the pointer-events:none
+// it also sets left the close button dead as well as out of reach.
+func TestTheDialogIsSizedByItself(t *testing.T) {
+	t.Parallel()
+	h, s, meta := browserOver(t)
+	indexed(t, s, meta, "holiday.jpg", "pixels", db.Media{Kind: db.KindImage})
+
+	dialog := htmx(t, h, "/info/holiday.jpg", signIn(t, h)).Body.String()
+	// The width comes from the dialog and the grid, the way every page here is
+	// laid out, and not from what is in the box.
+	has(t, dialog, `<dialog class="w-100`, `class="container"`, "col-12 col-sm-10")
+	for _, borrowed := range []string{"modal-dialog", "modal-content"} {
+		if strings.Contains(dialog, borrowed) {
+			t.Errorf("the dialog borrows %s, which only works inside a .modal:\n%s", borrowed, dialog)
+		}
+	}
+}
+
 // TestTheListingHoldsOneDialog: a second look replaces the first rather than
 // stacking another box on it, and the script that opens them is on the page.
 func TestTheListingHoldsOneDialog(t *testing.T) {
