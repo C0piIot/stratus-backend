@@ -2,6 +2,7 @@ package app_test
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"net"
@@ -132,6 +133,55 @@ func TestServerTimeouts(t *testing.T) {
 	}
 	if srv.Handler == nil {
 		t.Error("Handler must be wired")
+	}
+}
+
+// TestRunSweepsAnImportFolder is the wiring end to end: a file sitting in the
+// configured directory before the server starts is in the library by the time
+// it is serving, through the same file layer every surface writes with.
+func TestRunSweepsAnImportFolder(t *testing.T) {
+	t.Parallel()
+	from := filepath.Join(t.TempDir(), "incoming")
+	if err := os.MkdirAll(from, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(from, "notes.txt"), []byte("dropped in"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := runConfig(t, map[string]string{
+		"STRATUS_INCOMING_DIR":      from,
+		"STRATUS_INCOMING_INTERVAL": "10ms",
+		"STRATUS_USERNAME":          "edu",
+		"STRATUS_PASSWORD":          "example correct horse battery staple",
+	})
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() { done <- app.New(cfg, "test", "2026-01-01T09:30:00Z").Run(ctx) }()
+
+	// Waited for rather than timed: two passes have to agree about the size
+	// before anything moves, and how long that takes on a loaded runner is not
+	// something a sleep can guess.
+	dropped := filepath.Join(from, "notes.txt")
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(dropped); errors.Is(err, os.ErrNotExist) {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if _, err := os.Stat(dropped); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the file was not imported off the disk: %v", err)
+	}
+
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Errorf("Run = %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run did not return after the context was cancelled")
 	}
 }
 

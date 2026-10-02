@@ -90,6 +90,8 @@ type handler struct {
 	// indexing is read, never driven: this surface reports on the indexer and
 	// has no way to start, stop or hurry it.
 	indexing Indexing
+	// imports is the same for the import folder, and nil when there is none.
+	imports Imports
 	// photoIndex is what the gallery reads: the index by date rather than the
 	// tree by path.
 	photoIndex db.Photos
@@ -107,11 +109,12 @@ type handler struct {
 // other surface -- a WebDAV or Subsonic client is not a browser and sends no
 // cookie -- and a caller that forgot it would lose the defence silently.
 func Handler(version, buildDate string, v auth.Verifier, s *auth.Sessions, shares *auth.Shares,
-	service *files.Service, thumbs *media.Thumbs, index Index, indexing Indexing, video Video,
+	service *files.Service, thumbs *media.Thumbs, index Index, indexing Indexing, imports Imports, video Video,
 ) http.Handler {
 	h := &handler{
 		version: version, buildDate: buildDate, verifier: v, sessions: s, shares: shares,
-		files: service, thumbs: thumbs, photoIndex: index, library: index, indexing: indexing, video: video,
+		files: service, thumbs: thumbs, photoIndex: index, library: index,
+		indexing: indexing, imports: imports, video: video,
 	}
 
 	mux := http.NewServeMux()

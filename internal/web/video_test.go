@@ -52,7 +52,7 @@ func newCinema(t *testing.T) *cinema {
 	segs := &fakeSegments{}
 	creds := credentials()
 	h := web.Handler(version, buildDate, creds, auth.NewSessions(creds, auth.DefaultSessionTTL), auth.NewShares(creds),
-		s, thumbs, meta, indexing(meta), web.Video{Media: meta, Segments: segs})
+		s, thumbs, meta, indexing(meta), nil, web.Video{Media: meta, Segments: segs})
 	return &cinema{Handler: h, files: s, meta: meta, segments: segs}
 }
 
@@ -244,7 +244,7 @@ func newEncodingCinema(t *testing.T) (*cinema, *fakeEncoder) {
 	segs, enc := &fakeSegments{}, &fakeEncoder{}
 	creds := credentials()
 	h := web.Handler(version, buildDate, creds, auth.NewSessions(creds, auth.DefaultSessionTTL), auth.NewShares(creds),
-		s, thumbs, meta, indexing(meta), web.Video{Media: meta, Segments: segs, Encoded: enc})
+		s, thumbs, meta, indexing(meta), nil, web.Video{Media: meta, Segments: segs, Encoded: enc})
 	return &cinema{Handler: h, files: s, meta: meta, segments: segs}, enc
 }
 

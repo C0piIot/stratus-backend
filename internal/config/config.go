@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"net/url"
 	"path"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -47,6 +48,13 @@ const (
 	// It is also the resolution of the retry clock: a file deferred for an
 	// hour because the store would not answer waits between one and two.
 	DefaultIndexInterval = time.Hour
+
+	// DefaultIncomingInterval is how often an import directory is swept, and
+	// therefore how long a file has to hold its size before it is taken. A
+	// minute: short enough that dropping a file in feels like it worked, long
+	// enough that an ordinary copy has finished by the time the second pass
+	// looks.
+	DefaultIncomingInterval = time.Minute
 )
 
 // The values STRATUS_VIDEO_TRANSCODE takes. Auto re-encodes only on a machine
@@ -78,6 +86,16 @@ type Config struct {
 	// IndexInterval is how often the media indexer looks for work nobody told
 	// it about. Zero disables indexing altogether, notices included.
 	IndexInterval time.Duration
+	// IncomingDir is a directory on this machine's own filesystem whose
+	// contents are moved into the library. Empty, which is the default, is the
+	// feature switched off: there is no sensible default directory, and one
+	// that was guessed would be one somebody's files disappeared into.
+	IncomingDir string
+	// IncomingInterval is how often that directory is swept. It is also how
+	// long a file has to sit at the same size before it counts as finished, so
+	// it is the one number that trades "imported sooner" against "imported
+	// half-written". Zero disables the sweep.
+	IncomingInterval time.Duration
 	// VideoTranscode is whether a film is also offered re-encoded to H.264:
 	// VideoTranscodeAuto, VideoTranscodeOn or VideoTranscodeOff (#50).
 	VideoTranscode string
@@ -159,6 +177,21 @@ func Load(getenv func(string) string) (Config, error) {
 	}
 	cfg.GCGrace = grace
 
+	cfg.IncomingDir = getenv("STRATUS_INCOMING_DIR")
+	incoming, err := time.ParseDuration(lookup(getenv, "STRATUS_INCOMING_INTERVAL", DefaultIncomingInterval.String()))
+	if err != nil {
+		return Config{}, errors.New("STRATUS_INCOMING_INTERVAL: not a duration, try 1m or 0 to disable")
+	}
+	if incoming < 0 {
+		return Config{}, errors.New("STRATUS_INCOMING_INTERVAL: cannot be negative, use 0 to disable")
+	}
+	cfg.IncomingInterval = incoming
+	// Inside the data directory it would sweep the blob store into itself, one
+	// blob at a time, forever. Refused here rather than discovered there.
+	if cfg.IncomingDir != "" && within(cfg.IncomingDir, cfg.DataDir) {
+		return Config{}, errors.New("STRATUS_INCOMING_DIR: cannot be inside STRATUS_DATA_DIR, which is where the blobs are")
+	}
+
 	index, err := time.ParseDuration(lookup(getenv, "STRATUS_INDEX_INTERVAL", DefaultIndexInterval.String()))
 	if err != nil {
 		return Config{}, errors.New("STRATUS_INDEX_INTERVAL: not a duration, try 1m or 0 to disable")
@@ -201,6 +234,21 @@ func defaultStorageDSN(dataDir string) string {
 func defaultDatabaseDSN(dataDir string) string {
 	u := url.URL{Scheme: SchemeSQLite, Path: path.Join(dataDir, DefaultDBFile)}
 	return u.String()
+}
+
+// within reports whether dir is the same place as root or sits under it, as far
+// as the names can say. Symlinks are not resolved: this is a guard against a
+// configuration that is obviously wrong, not against one built to defeat it.
+//
+// The error from Abs is dropped on purpose rather than branched on. It is
+// returned only when the working directory cannot be read, which is a process
+// with larger problems than this check, and the empty string it leaves behind
+// matches nothing -- so the one failure mode is that an obvious mistake is
+// allowed through instead of being caught here.
+func within(dir, root string) bool {
+	a, _ := filepath.Abs(filepath.Clean(dir))
+	b, _ := filepath.Abs(filepath.Clean(root))
+	return a == b || strings.HasPrefix(a, b+string(filepath.Separator))
 }
 
 // lookup treats an empty value as absent. Compose and .env files both make it

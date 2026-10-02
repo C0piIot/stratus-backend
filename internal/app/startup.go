@@ -24,6 +24,7 @@ import (
 	"github.com/C0piIot/stratus-backend/internal/db/postgres"
 	"github.com/C0piIot/stratus-backend/internal/db/sqlite"
 	"github.com/C0piIot/stratus-backend/internal/files"
+	"github.com/C0piIot/stratus-backend/internal/incoming"
 	"github.com/C0piIot/stratus-backend/internal/media"
 	"github.com/C0piIot/stratus-backend/internal/storage"
 	"github.com/C0piIot/stratus-backend/internal/storage/disk"
@@ -136,6 +137,12 @@ func (a *App) open(ctx context.Context) (deps Deps, err error) {
 		}
 		indexer = media.NewIndexer(deps.Files, deps.Database, tmp, ffprobe)
 		deps.Indexer = indexer
+	}
+
+	// The import folder needs somewhere to file things under, which is the
+	// single user: with none configured there is no owner and nothing to do.
+	if a.cfg.IncomingDir != "" && a.cfg.IncomingInterval > 0 && credentials(a.cfg).Configured() {
+		deps.Incoming = incoming.New(a.cfg.IncomingDir, a.cfg.Username, deps.Files)
 	}
 
 	if credentials(a.cfg).Configured() {

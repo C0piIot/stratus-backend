@@ -311,6 +311,29 @@ Hard constraints, in the same spirit as the rest of the project:
   rows nothing has looked at yet. It reports and does not drive: there is no
   button here that starts, stops or hurries the indexer, because a surface that
   could would be a surface that has to be protected from being pressed twice.
+- **An import folder is a feature package, `internal/incoming`** (#257): a
+  directory on the machine's own disk whose contents are moved into the library
+  through `files.Service.Write`, so an imported file is indistinguishable from
+  one that arrived over WebDAV -- same row, same validator, same announcement to
+  the indexer. It is scheduled from `internal/app` like the other two loops,
+  because scheduling is lifecycle and a pass is the feature.
+
+  Three decisions are its own. **A file is finished when two passes agree about
+  its size**: there is nothing better available, since a writer holding a file
+  open at a size it has reached looks exactly like one that has closed it, and
+  fsnotify would say the same thing a minute louder while adding a dependency.
+  **A taken name is renamed and never replaced** -- ` (2)` before the extension,
+  the same rule `/photos/` uses -- because a `PUT` means "replace that" and a
+  folder two machines drop files into does not. **A failure leaves the file on
+  disk** and the pass carries on through the rest of the folder, so one
+  unreadable file cannot hold up a directory; `/status` reports how many are
+  waiting and what the last failure said, which is the only place a stuck file
+  would otherwise be visible.
+
+  `STRATUS_INCOMING_DIR` may not be inside `STRATUS_DATA_DIR`, and that is
+  refused at startup: the disk blob store lives there, so the sweep would import
+  what it had just stored, for ever.
+
 - **`/robots.txt` disallows everything, and every page says `noindex`.** Two
   requests rather than a control, and the second is there for the crawler that
   read the first and came in anyway. What makes them worth having on a server
@@ -762,6 +785,7 @@ internal/db/sqlutil/      plumbing both SQL adapters share, and not one line of 
 internal/db/dbtest/       conformance suite every adapter must pass
 
 internal/files/           cross-protocol file invariants
+internal/incoming/        the import folder on local disk, swept into the library
 internal/music/           playlist edits, in one transaction each
 internal/calendar/        collections, objects, recurrence            -- not yet
 internal/media/           EXIF/tag extraction, thumbnails, ffprobe

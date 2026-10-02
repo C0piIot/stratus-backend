@@ -25,6 +25,12 @@
 # inject one wraps the repository, a layer above these. The other two drivers
 # carry the same code and stayed over their floors; this one had the least room.
 #
+# internal/incoming starts at 86. What is left uncovered is the half of a sweep
+# that needs the filesystem to misbehave: a directory that cannot be read, a
+# relative path that cannot be computed, a hundred names taken in a row. The
+# store's own failures are covered, because the port it takes is three methods
+# and a fake for them is honest.
+#
 # One consequence worth knowing: if Silo is not running, the S3 conformance
 # suite skips and internal/storage/s3 drops to ~15%, so this script turns a
 # silent skip into a failed build.
@@ -41,6 +47,7 @@ internal/auth:100
 internal/config:100
 internal/dav:89
 internal/files:92
+internal/incoming:86
 internal/media:89
 internal/music:100
 internal/db:63

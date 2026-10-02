@@ -12,6 +12,7 @@ import (
 	"github.com/C0piIot/stratus-backend/internal/db"
 	"github.com/C0piIot/stratus-backend/internal/db/dbtest"
 	"github.com/C0piIot/stratus-backend/internal/files"
+	"github.com/C0piIot/stratus-backend/internal/incoming"
 	"github.com/C0piIot/stratus-backend/internal/media"
 	"github.com/C0piIot/stratus-backend/internal/storage"
 	"github.com/C0piIot/stratus-backend/internal/web"
@@ -269,4 +270,39 @@ type silent struct{ storage.Storage }
 
 func (silent) FreeSpace(context.Context) (int64, error) {
 	return 0, errors.New("this store will not say")
+}
+
+// stuck is an import folder with something in it that will not go, for the one
+// thing the status page owes somebody: a file sitting on disk for ever has to
+// be visible, not only in a log.
+type stuck struct {
+	dir   string
+	state incoming.State
+}
+
+func (s stuck) Dir() string           { return s.dir }
+func (s stuck) State() incoming.State { return s.state }
+
+// TestTheImportFolderIsOnTheStatusPage, and only when there is one.
+func TestTheImportFolderIsOnTheStatusPage(t *testing.T) {
+	t.Parallel()
+	blobs, meta := backends(t)
+	s := files.New(blobs, meta)
+
+	none := handlerImports(t, s, blobs, meta, nil)
+	if body := get(t, none, "/status", signIn(t, none)).Body.String(); strings.Contains(body, "Waiting on disk") {
+		t.Errorf("a server with no import folder reports one:\n%s", body)
+	}
+
+	folder := stuck{dir: "/srv/incoming", state: incoming.State{
+		Waiting: 3, Imported: 11, LastRun: time.Now(),
+		LastError: "import \"holiday/photo.jpg\": no room left on device",
+	}}
+	h := handlerImports(t, s, blobs, meta, folder)
+	body := get(t, h, "/status", signIn(t, h)).Body.String()
+	for _, want := range []string{"Waiting on disk", "/srv/incoming", ">3<", ">11<", "no room left on device"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the status page does not say %q:\n%s", want, body)
+		}
+	}
 }
