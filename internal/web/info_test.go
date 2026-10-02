@@ -204,10 +204,10 @@ func TestAnOlderExtractorStillSaysWhatItFound(t *testing.T) {
 	has(t, details(t, h, "old.jpg", signIn(t, h)), "Canon EOS R6", "queued to be read again")
 }
 
-// TestTheRowAndThePageAreTheSameFacts is the condition htmx was let in under:
-// one URL, a piece of the same HTML for the listing and the whole document for
-// a browser that followed the link.
-func TestTheRowAndThePageAreTheSameFacts(t *testing.T) {
+// TestTheDialogAndThePageAreTheSameFacts is the condition htmx was let in
+// under: one URL, a piece of the same HTML for the listing and the whole
+// document for a browser that followed the link.
+func TestTheDialogAndThePageAreTheSameFacts(t *testing.T) {
 	t.Parallel()
 	h, s, meta := browserOver(t)
 	cookie := signIn(t, h)
@@ -215,17 +215,33 @@ func TestTheRowAndThePageAreTheSameFacts(t *testing.T) {
 		Kind: db.KindImage, Camera: "Canon EOS R6",
 	})
 
-	row := htmx(t, h, "/info/holiday.jpg", cookie).Body.String()
-	if !strings.HasPrefix(strings.TrimSpace(row), "<tr") || strings.Contains(row, "<!doctype") {
-		t.Errorf("htmx was given a document rather than a row:\n%s", row)
+	dialog := htmx(t, h, "/info/holiday.jpg", cookie).Body.String()
+	if !strings.HasPrefix(strings.TrimSpace(dialog), "<dialog") || strings.Contains(dialog, "<!doctype") {
+		t.Errorf("htmx was given a document rather than a dialog:\n%s", dialog)
 	}
-	has(t, row, "Canon EOS R6", "<details open")
+	// The name is the whole title, and closing it posts nowhere.
+	has(t, dialog, "Canon EOS R6", `id="file-dialog-title">holiday.jpg<`, `<form method="dialog"`)
 
 	page := details(t, h, "holiday.jpg", cookie)
-	if !strings.Contains(page, "<!doctype html>") || strings.Contains(page, "<tr") {
+	if !strings.Contains(page, "<!doctype html>") || strings.Contains(page, "<dialog") {
 		t.Errorf("the page is not a whole document:\n%s", page)
 	}
 	has(t, page, "Canon EOS R6")
+}
+
+// TestTheListingHoldsOneDialog: a second look replaces the first rather than
+// stacking another box on it, and the script that opens them is on the page.
+func TestTheListingHoldsOneDialog(t *testing.T) {
+	t.Parallel()
+	h, s := browser(t)
+	write(t, s, "notes.txt", "where we went")
+
+	body := get(t, h, "/files/", signIn(t, h)).Body.String()
+	has(t, body, `id="file-dialog"`, `hx-target="#file-dialog"`, `hx-swap="innerHTML"`,
+		"/static/stratus/dialog.js?v=")
+	if strings.Count(body, `id="file-dialog"`) != 1 {
+		t.Errorf("the listing holds more than one place for a dialog:\n%s", body)
+	}
 }
 
 // TestTheListingOffersDetailsOnFilesOnly: a directory is a row and nothing

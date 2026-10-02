@@ -90,9 +90,9 @@ type view struct {
 	// HTMX is where the vendored script lives, beside Assets rather than under
 	// it: two libraries, two versions, two paths.
 	HTMX string
-	// Script is this project's own, with the build on the end so a new one is
-	// a new URL. See internal/web/static/stratus/copy.js.
-	Script string
+	// Scripts are this project's own, with the build on the end so a new one is
+	// a new URL. Two of them, on every page: copy.js and dialog.js.
+	Scripts []string
 	// User is who is signed in, and empty when nobody is.
 	User string
 	// Username is what was typed into the form, so a failed login does not make
@@ -170,7 +170,8 @@ func (h *handler) render(w http.ResponseWriter, status int, page string, v view)
 // client that sends no htmx header gets the page.
 func (h *handler) renderTemplate(w http.ResponseWriter, status int, page, name string, v view) {
 	v.Assets, v.HTMX, v.Version, v.BuildDate = assetPrefix, htmxPrefix, h.version, h.buildDate
-	v.Script = ownPrefix + "/copy.js?v=" + url.QueryEscape(h.version)
+	build := "?v=" + url.QueryEscape(h.version)
+	v.Scripts = []string{ownPrefix + "/copy.js" + build, ownPrefix + "/dialog.js" + build}
 
 	var buf bytes.Buffer
 	if err := pages[page].ExecuteTemplate(&buf, name, v); err != nil {
