@@ -42,6 +42,11 @@ func Run(t *testing.T, newStore func(t *testing.T) db.Store) {
 		RunMusic(t, func(t *testing.T) db.Repo { return newStore(t) })
 	})
 
+	t.Run("find", func(t *testing.T) {
+		t.Parallel()
+		RunFind(t, func(t *testing.T) db.Repo { return newStore(t) })
+	})
+
 	t.Run("annotations", func(t *testing.T) {
 		t.Parallel()
 		RunAnnotations(t, func(t *testing.T) db.Repo { return newStore(t) })

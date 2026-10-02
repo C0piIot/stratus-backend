@@ -226,6 +226,7 @@ type Repo interface {
 	Files
 	MediaIndex
 	Music
+	Finder
 	Annotations
 	Playlists
 	Photos

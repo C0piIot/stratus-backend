@@ -658,6 +658,59 @@ down.
 
 Hard rule: no driver-specific SQL or types leak outside the driver package.
 
+**Searching is the one thing this port does not specify, and that is the
+decision** (#259). `db.Finder` says what a search means -- a whole word of a
+file's or a folder's **name**, or of a track's tags, matched as a phrase when
+there are several, ordered by path so a cursor can resume -- and says nothing
+about how. Each engine answers with what it is good at, including with columns
+and indexes of its own, which is the same licence the schema already takes when
+MySQL carries a `path_hash` nothing else has.
+
+What that gives up is the property #85 bought on purpose: folding in Go so the
+engines cannot disagree. A tokeniser cannot be moved into Go, so the contract
+shrank instead -- **ranking, partial words, substrings and accents are promised
+by nobody**, and `dbtest`'s cases are written to the floor rather than to any
+engine's ceiling. They use words of four letters or more for a reason that costs
+an afternoon to rediscover: MySQL's FULLTEXT index does not hold a token shorter
+than `innodb_ft_min_token_size`, three by default, nor anything on its stopword
+list.
+
+Two things are the same in all three, because they have to be. The column is the
+**name**, which no row stores -- it is what is left of the path after the parent
+-- so that a word in a folder finds the folder and not the thousand photographs
+under it. And the separators a filename is made of are flattened to spaces
+before the engine sees them, because otherwise each tokeniser decides for
+itself: PostgreSQL reads `photo.jpg` as one token and a search for `photo`
+would find nothing at all, while MySQL splits it.
+
+Migration 0010 is where each engine's answer lives, and the numbers are in it:
+
+- **PostgreSQL** generates a `tsvector` on each side and indexes it with GIN,
+  with `phraseto_tsquery` for the match -- `'simple'` and not a language, since
+  a filename is not prose and stemming would file `notes` under `note`.
+- **MySQL** generates the flattened name as a stored column and puts a
+  `FULLTEXT` index on it, and another over the three folded tag columns. That
+  name column is **the one column in this schema that is not binary-collated**:
+  a match uses the column's collation, and `utf8mb4_0900_bin` would make
+  searching case-sensitive, which the contract forbids. Its match is boolean
+  mode with the term quoted as a phrase, so the characters that are operators
+  there are dropped from it.
+- **SQLite** has neither, and does not need one yet: `LIKE` over the generated
+  column, with the planner walking `files_owner_path` in order so a term with
+  hits finds its fifty and stops -- 0.5 ms a page after the first. A term that
+  matches nothing costs 170 ms over a hundred thousand files, which is the
+  number to beat and the reason there is no index on the name: nothing orders by
+  it, so one would be written by every upload and read by nothing. Stored rather
+  than virtual, measured: 408 ms against 172 for the same scan, because a
+  virtual column is seven nested replaces recomputed per row. FTS5 is in the
+  pure-Go driver and is where this goes next, and what it needs first is either
+  triggers -- which `db.Migrate` cannot carry, since it splits statements on
+  semicolons -- or the index maintained from the driver on every write.
+
+`Music.Search` is untouched beside it: that is what OpenSubsonic's `search3`
+answers from, with its own pages and its own meaning of an empty query, and a
+client depends on it.
+
 **The tree invariant is half SQL and half Go, and that asymmetry is a decision.**
 That a directory with anything in it cannot be deleted or moved is a `NOT EXISTS`
 inside each driver's statement, so it is one round trip and cannot race a

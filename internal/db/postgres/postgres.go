@@ -1012,3 +1012,57 @@ func scanUploadRow(rows *sql.Rows) (db.Upload, error) {
 	u.ExpiresAt = expires.UTC()
 	return u, nil
 }
+
+// nameFlat is the term flattened the way search_name is, so that what is
+// compared is the same shape on both sides -- searching photo.jpg has to match
+// a column where the dot is already a space. Spelled out here rather than done
+// in Go because migration 0010 defines it in SQL, and two definitions of one
+// rule is how they come to disagree.
+const nameFlat = `translate($2, '._-()[]', '       ')`
+
+// Find implements db.Repo.
+//
+// A generated tsvector on each side and a GIN index over it, which is this
+// engine's answer and not the port's. phraseto_tsquery and not plainto_: two
+// words typed into a box mean those two words in that order, which is what
+// db.Finder promises and what this expresses exactly.
+//
+// 'simple' rather than a language: a filename is not prose, and English
+// stemming would file notes under note and lose the name somebody typed.
+func (r *repo) Find(ctx context.Context, owner string, f db.FindFilter) (db.FindResult, error) {
+	var out db.FindResult
+	if err := f.Validate(); err != nil {
+		return out, err
+	}
+	if f.Text == "" {
+		return out, nil
+	}
+	term := db.FoldQuery(f.Text)
+
+	const files = `SELECT ` + fileColumns + ` FROM files
+		WHERE owner_id = $1 AND search_name @@ phraseto_tsquery('simple', ` + nameFlat + `)
+		  AND path > $3
+		ORDER BY path LIMIT $4`
+
+	tracks := `SELECT ` + joinedFileColumns + `, ` + joinedMediaColumns + `
+		FROM media m JOIN files f ON f.id = m.file_id
+		WHERE f.owner_id = $1 AND m.kind = $5
+		  AND m.search_tags @@ phraseto_tsquery('simple', ` + nameFlat + `)
+		  AND f.path > $3
+		ORDER BY f.path LIMIT $4`
+
+	var err error
+	if f.Files.Wanted() {
+		if out.Files, err = sqlutil.Collect(ctx, r.q, scanFileRow, files,
+			owner, term, f.Files.After.Path, f.Files.Limit); err != nil {
+			return db.FindResult{}, fmt.Errorf("find files: %w", mapErr(err))
+		}
+	}
+	if f.Tracks.Wanted() {
+		if out.Tracks, err = sqlutil.Collect(ctx, r.q, scanTrack, tracks,
+			owner, term, f.Tracks.After.Path, f.Tracks.Limit, string(db.KindAudio)); err != nil {
+			return db.FindResult{}, fmt.Errorf("find tracks: %w", mapErr(err))
+		}
+	}
+	return out, nil
+}

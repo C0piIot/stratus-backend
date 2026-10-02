@@ -36,7 +36,7 @@ var repoMethods = []string{
 	"PutFile", "CreateDir", "FileByPath", "ListFiles", "ListFilesPage", "MoveFile", "DeleteFile",
 	"BlobKeys", "PutMedia", "MediaByFile", "MediaCounts", "MediaStates",
 	"PutUpload", "UploadByID", "DeleteUpload", "ExpiredUploads",
-	"TrackByFile", "CreatePlaylist", "PlaylistByID", "LockPlaylist", "PlaylistTracks",
+	"Find", "TrackByFile", "CreatePlaylist", "PlaylistByID", "LockPlaylist", "PlaylistTracks",
 	"UpdatePlaylist", "SetPlaylistTracks", "PhotoTimeline", "PhotoAround",
 	"Artists", "Albums", "Tracks", "AnnotationsOf",
 }
@@ -152,6 +152,14 @@ func (f *failingRepo) MediaStates(ctx context.Context, fileIDs []int64) (map[int
 		return nil, err
 	}
 	return f.Repo.MediaStates(ctx, fileIDs)
+}
+
+// Find implements db.Repo.
+func (f *failingRepo) Find(ctx context.Context, owner string, filter db.FindFilter) (db.FindResult, error) {
+	if err := f.fails("Find"); err != nil {
+		return db.FindResult{}, err
+	}
+	return f.Repo.Find(ctx, owner, filter)
 }
 
 // MoveFile implements db.Repo.
