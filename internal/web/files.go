@@ -252,10 +252,10 @@ func baseName(sent string) string {
 	return path.Base(strings.ReplaceAll(sent, `\`, "/"))
 }
 
-// editing resolves what a form is about: the path in the URL and the row it
-// names. The root is not one of them -- nothing in the tree names it, and there
-// is nowhere above it to go back to.
-func (h *handler) editing(w http.ResponseWriter, r *http.Request, user string) (string, db.File, bool) {
+// targetOf resolves what a page about one thing is about: the path in the URL
+// and the row it names. The root is not one of them -- nothing in the tree
+// names it, and there is nowhere above it to go back to.
+func (h *handler) targetOf(w http.ResponseWriter, r *http.Request, user string) (string, db.File, bool) {
 	target, err := toPath(r.PathValue("path"))
 	if err != nil {
 		h.fail(w, r, user, err)
@@ -371,6 +371,10 @@ type entry struct {
 	// would be noise. It says something during a first pass over a library, a
 	// re-index, or an import, which is when somebody is looking.
 	Indexing string
+	// Info is what is known about this file, and empty on a directory, which
+	// has nothing but the row it is. The listing opens it under the row and a
+	// browser with no script follows it to a page.
+	Info string
 	// Where the two things that can be done to it are asked for. Both are
 	// pages: a rename needs a name, and a delete cannot be undone.
 	Rename string
@@ -404,6 +408,7 @@ func entries(children []db.File, indexing map[int64]string, token string) []entr
 		if !c.IsDir {
 			e.Size = humanSize(c.Size)
 			e.Indexing = indexing[c.ID]
+			e.Info = link(infoPrefix, c.Path)
 			if media.CanThumbnail(c.Path, c.Size) {
 				// The thumbnail carries the signature too. Without it a shared
 				// listing is a grid of broken images, which is the half of this

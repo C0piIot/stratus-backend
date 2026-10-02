@@ -41,7 +41,7 @@ var shareLives = []shareLifetime{
 }
 
 func (h *handler) shareForm(w http.ResponseWriter, r *http.Request, user string) {
-	target, f, ok := h.editing(w, r, user)
+	target, f, ok := h.targetOf(w, r, user)
 	if !ok {
 		return
 	}
@@ -58,7 +58,7 @@ func (h *handler) shareForm(w http.ResponseWriter, r *http.Request, user string)
 // Shown rather than redirected to: the link is the answer to the question, and
 // sending the browser to it would open the share instead of handing it over.
 func (h *handler) share(w http.ResponseWriter, r *http.Request, user string) {
-	target, f, ok := h.editing(w, r, user)
+	target, f, ok := h.targetOf(w, r, user)
 	if !ok {
 		return
 	}

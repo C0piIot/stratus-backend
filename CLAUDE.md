@@ -69,6 +69,18 @@ Hard constraints, in the same spirit as the rest of the project:
   same HTML. A second endpoint, or one answering in JSON, would be the private
   API principle 2 forbids.
 
+  **A file's details open under its row** (#249): the button in a listing is a
+  link to `/info/<path>`, which answers with the whole page, and htmx turns the
+  click into a swap of the same markup without the document around it. Lazily,
+  and that is the decision: the row behind it is forty columns and a listing is
+  a hundred rows, so a page that carried them would make every folder pay for
+  what is almost never opened -- the only media query a listing makes is still
+  the batched `MediaStates` behind the "waiting" badge. The trigger is `once`
+  because htmx cancels an anchor's default before it checks that modifier, so a
+  second press neither navigates nor appends a second copy of the row; what
+  closes it again is a `<details>`, which is the browser's own and costs no
+  script and no request.
+
   **An album page uses it to count a play** (#212): each track's `<audio>`
   carries `hx-get` to OpenSubsonic's own `scrobble` with `hx-trigger="ended"`,
   authenticated by the session (#234). Not an endpoint of the UI's -- the
@@ -275,6 +287,17 @@ Hard constraints, in the same spirit as the rest of the project:
   rows nothing has looked at yet. It reports and does not drive: there is no
   button here that starts, stops or hurries the indexer, because a surface that
   could would be a surface that has to be protected from being pressed twice.
+- **What the indexer found is a page of its own, `/info/<path>`** (#249): the
+  file row's half -- type, size, modified, validator -- and the extracted half
+  by kind, each field dropped when it is unknown rather than printed as a zero,
+  since an unknown bitrate and a bitrate of nothing are the same column and must
+  not be the same line. Three things it will not do: show facts whose validator
+  no longer matches the file, because those describe bytes that are gone; hide
+  facts from an older extractor, which describe the bytes that are there and are
+  labelled stale instead; and promise another attempt at a file whose failure
+  was a verdict on the file rather than on our reach (#157). It reads
+  `MediaByFile`, which the port already had -- this page added nothing to it.
+
 - **Photos have a gallery at `/gallery/photos`, read from the index and not the
   tree** (#211): every image, screenshots included, newest first by the
   camera's date and grouped by month, with a viewer that links the photos

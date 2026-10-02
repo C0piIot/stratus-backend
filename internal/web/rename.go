@@ -13,7 +13,7 @@ import (
 const renamePrefix = "/rename/"
 
 func (h *handler) renameForm(w http.ResponseWriter, r *http.Request, user string) {
-	target, f, ok := h.editing(w, r, user)
+	target, f, ok := h.targetOf(w, r, user)
 	if !ok {
 		return
 	}
@@ -28,7 +28,7 @@ func (h *handler) renameForm(w http.ResponseWriter, r *http.Request, user string
 // changes: moving something elsewhere is a different gesture, and a text field
 // that quietly accepted a path would be that gesture in disguise.
 func (h *handler) rename(w http.ResponseWriter, r *http.Request, user string) {
-	target, _, ok := h.editing(w, r, user)
+	target, _, ok := h.targetOf(w, r, user)
 	if !ok {
 		return
 	}

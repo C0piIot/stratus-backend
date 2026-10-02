@@ -110,9 +110,18 @@
   <td></td>
   {{else}}
   {{/* An emoji is read aloud by its Unicode name, "link" or "wastebasket", so
-       the label a screen reader gets is the aria-label and not the glyph. */}}
+       the label a screen reader gets is the aria-label and not the glyph.
+
+       Details open under the row rather than on a page of their own, because
+       looking at one file's is looking at several. The link is the whole of it
+       with no script: the same URL answers with a page. With htmx the click is
+       swapped in once and prevented from navigating either way, so pressing the
+       button again is not a second copy of the row -- what closes it is the
+       disclosure the fragment arrives inside. */}}
   <td class="text-end text-nowrap">
     <div class="btn-group btn-group-sm" role="group" aria-label="Actions on {{.Name}}">
+      {{if .Info}}<a class="btn btn-outline-secondary" href="{{.Info}}" title="Details" aria-label="Details"
+        hx-get="{{.Info}}" hx-target="closest tr" hx-swap="afterend" hx-trigger="click once">ℹ️</a>{{end}}
       <a class="btn btn-outline-secondary" href="{{.Share}}" title="Share" aria-label="Share">🔗</a>
       <a class="btn btn-outline-secondary" href="{{.Rename}}" title="Rename" aria-label="Rename">✏️</a>
       <a class="btn btn-outline-danger" href="{{.Delete}}" title="Delete" aria-label="Delete">🗑️</a>
