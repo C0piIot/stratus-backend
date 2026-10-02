@@ -43,7 +43,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
 
-      - uses: superfly/flyctl-actions/setup-flyctl@v1.4
+      # 1.6 and not v1.6; see the deploy job in ci.yml.
+      - uses: superfly/flyctl-actions/setup-flyctl@1.6
 
       - name: what it is running
         id: running
