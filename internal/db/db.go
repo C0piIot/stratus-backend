@@ -89,15 +89,21 @@ type Files interface {
 	// OFFSET, which would make the database count past everything it skips and
 	// would repeat or drop a row when the tree changes underneath a reader.
 	//
-	// The order is directories first and then by path, which is what a file
-	// manager shows and what the whole-listing caller above gets by sorting
-	// what it was given. Over a page it cannot be done afterwards: the grouping
-	// would hold inside each page and break at every boundary, so it is the
-	// query's job and the cursor carries both halves of the key.
+	// Directories first, always, and inside each group whatever order asks for
+	// -- which is what a file manager shows. Over a page the grouping cannot be
+	// done afterwards: it would hold inside each page and break at every
+	// boundary, so it is the query's job and the cursor carries the whole key.
+	// The zero FileOrder is by path, which is the order this answered in before
+	// there was a choice, and the order ListFiles above still answers in.
+	//
+	// A page is one statement per group it touches, so two on the one page that
+	// crosses the seam and one everywhere else. That is deliberate: it makes
+	// is_dir an equality rather than the first column of the ORDER BY, which is
+	// what lets a single index serve a key in both directions -- see FileOrder.
 	//
 	// A cursor whose row has since been deleted still resumes in the right
 	// place: it is a position in an ordering, not a row that has to exist.
-	ListFilesPage(ctx context.Context, owner, dir string, after Cursor, limit int) ([]File, error)
+	ListFilesPage(ctx context.Context, owner, dir string, order FileOrder, after Cursor, limit int) ([]File, error)
 
 	// MoveFile renames from to to, and everything under it when from is a
 	// directory. It returns ErrNotFound if there is nothing at from, and

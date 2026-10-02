@@ -214,7 +214,7 @@ func TestListPage(t *testing.T) {
 		write(t, s, "album/"+name, "bytes")
 	}
 
-	first, more, err := s.ListPage(t.Context(), owner, "album", db.Cursor{}, 2)
+	first, more, err := s.ListPage(t.Context(), owner, "album", db.FileOrder{}, db.Cursor{}, 2)
 	if err != nil {
 		t.Fatalf("ListPage: %v", err)
 	}
@@ -225,7 +225,7 @@ func TestListPage(t *testing.T) {
 		t.Error("the first page of three rows says it is the last")
 	}
 
-	last, more, err := s.ListPage(t.Context(), owner, "album", db.After(first[1]), 2)
+	last, more, err := s.ListPage(t.Context(), owner, "album", db.FileOrder{}, db.After(first[1]), 2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -236,7 +236,7 @@ func TestListPage(t *testing.T) {
 		t.Error("the last page offers another one")
 	}
 
-	if _, _, err := s.ListPage(t.Context(), owner, "album", db.Cursor{}, 0); err == nil {
+	if _, _, err := s.ListPage(t.Context(), owner, "album", db.FileOrder{}, db.Cursor{}, 0); err == nil {
 		t.Error("a page of no rows was allowed")
 	}
 }

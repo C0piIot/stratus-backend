@@ -46,14 +46,29 @@
 {{end}}
 
 {{if .Entries}}
+{{/* The headings are links and the row counts are links, because a control
+     that submits itself needs a script and this page has none. Each one carries
+     the whole state -- ordering, direction, row count, and the share token when
+     there is one -- so that whichever is clicked, the other two survive it. */}}
+<div class="d-flex justify-content-end align-items-baseline gap-2 small text-body-secondary mb-2">
+  <span>Rows</span>
+  {{range .Rows}}
+  {{if .Active}}<span class="fw-semibold text-body">{{.Label}}</span>
+  {{else}}<a class="link-secondary text-decoration-none" href="{{.Href}}">{{.Label}}</a>{{end}}
+  {{end}}
+</div>
+
 <div class="card">
   <div class="table-responsive">
     <table class="table table-hover align-middle mb-0">
       <thead>
         <tr>
-          <th scope="col">Name</th>
-          <th scope="col" class="text-end">Size</th>
-          <th scope="col" class="text-end d-none d-sm-table-cell">Modified</th>
+          {{range .Columns}}
+          <th scope="col" class="{{.Class}}" aria-sort="{{.Sorted}}">
+            <a class="link-body-emphasis text-decoration-none"
+               href="{{.Href}}">{{.Label}}{{with .Arrow}} {{.}}{{end}}</a>
+          </th>
+          {{end}}
           <th scope="col"><span class="visually-hidden">Actions</span></th>
         </tr>
       </thead>

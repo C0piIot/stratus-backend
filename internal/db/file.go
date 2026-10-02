@@ -42,26 +42,85 @@ type File struct {
 	IsDir bool
 }
 
-// Cursor is where a page of a listing resumes: the last row of the page before
-// it, in the ordering ListFilesPage promises. The zero value is the start of
-// the listing, which no row can name -- a path is never empty.
+// FileSortKey is the column a listing is ordered by inside its group. The zero
+// value is the path, which is the order every caller had before there was a
+// choice.
+type FileSortKey int
+
+// The keys a listing can be ordered by: the path it is filed under, the bytes
+// it holds, and when it last changed.
+const (
+	SortName FileSortKey = iota
+	SortSize
+	SortMTime
+)
+
+// FileOrder is how a caller wants a directory ordered. The zero value is the
+// order ListFilesPage has always answered in, so a caller that does not care
+// passes nothing and gets what it got before.
 //
-// Deliberately not opaque. It is a path the caller already has and is allowed
-// to see, so a surface can put it in a URL without encoding a secret, and IsDir
-// is there because the ordering groups collections first: the pair is the sort
-// key, and a cursor that carried half of it could not resume across the seam
-// between the two groups.
+// What it does not carry is the grouping: collections come first whichever way
+// this points, and that is not a preference. It is what makes one index serve
+// both directions -- is_dir is an equality in the query rather than the first
+// column of the ORDER BY, so reversing the scan reverses the sort key and the
+// tiebreak together and leaves the group where it was. With is_dir inside the
+// ORDER BY, descending would need an index of its own per key.
+type FileOrder struct {
+	By   FileSortKey
+	Desc bool
+}
+
+// Validate refuses a key no driver knows, which would otherwise be whichever
+// column that driver's switch fell through to. Here rather than in each of
+// them, for the reason ValidateLimit is.
+func (o FileOrder) Validate() error {
+	switch o.By {
+	case SortName, SortSize, SortMTime:
+		return nil
+	default:
+		return fmt.Errorf("db: no listing is ordered by %d", o.By)
+	}
+}
+
+// Cursor is where a page of a listing resumes: the last row of the page before
+// it, in the ordering ListFilesPage was asked for. The zero value is the start
+// of the listing, which no row can name -- a path is never empty.
+//
+// Deliberately not opaque. It is the row's own values, which the caller already
+// has and is allowed to see, so a surface can put it in a URL without encoding
+// a secret. It carries the whole sort key of every ordering rather than the one
+// in use: IsDir says which of the two groups the listing had reached, Path is
+// the tiebreak that makes every ordering total, and Size and MTime are the
+// value the ordering that asked for them resumes from. A cursor that carried
+// half of a key could not resume across the seam between the groups, and one
+// that carried only the key in use would be a different type per ordering.
 type Cursor struct {
 	IsDir bool
 	Path  string
+	Size  int64
+	MTime time.Time
 }
 
 // After returns the cursor that resumes a listing after f.
-func After(f File) Cursor { return Cursor{IsDir: f.IsDir, Path: f.Path} }
+func After(f File) Cursor {
+	return Cursor{IsDir: f.IsDir, Path: f.Path, Size: f.Size, MTime: f.MTime}
+}
 
 // AtStart reports whether c is the beginning of a listing rather than a
 // position in one.
 func (c Cursor) AtStart() bool { return c.Path == "" }
+
+// Groups is the is_dir values a page reads and the order it reads them in:
+// both of them from the start or from a cursor still among the directories,
+// and the files alone from one that has passed them. Collections first is a
+// property of the listing rather than a preference, so it is decided here
+// rather than three times over in the drivers.
+func (c Cursor) Groups() []bool {
+	if !c.AtStart() && !c.IsDir {
+		return []bool{false}
+	}
+	return []bool{true, false}
+}
 
 // ValidateLimit refuses a page size the dialects would not agree on. SQLite
 // reads a negative LIMIT as no limit at all and PostgreSQL refuses one, so a

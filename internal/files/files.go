@@ -117,11 +117,11 @@ func (s *Service) List(ctx context.Context, owner, dir string) ([]db.File, error
 // to answer it is to ask for one row more than is wanted and throw it away, and
 // a driver that had to do that would be three drivers doing it. The cursor for
 // the next page is db.After of the last row returned.
-func (s *Service) ListPage(ctx context.Context, owner, dir string, after db.Cursor, limit int) ([]db.File, bool, error) {
+func (s *Service) ListPage(ctx context.Context, owner, dir string, order db.FileOrder, after db.Cursor, limit int) ([]db.File, bool, error) {
 	if err := db.ValidateLimit(limit); err != nil {
 		return nil, false, err
 	}
-	rows, err := s.meta.ListFilesPage(ctx, owner, dir, after, limit+1)
+	rows, err := s.meta.ListFilesPage(ctx, owner, dir, order, after, limit+1)
 	if err != nil {
 		return nil, false, err
 	}

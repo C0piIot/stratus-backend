@@ -111,6 +111,10 @@ type view struct {
 	Here     string
 	Folders  string
 	NextPage string
+	// Columns and Rows are the listing's own controls: one link per ordering,
+	// and one per page size on offer.
+	Columns []column
+	Rows    []rowChoice
 	// Counts and the three fields under it are the status page: how much of the
 	// library has been looked at, and by which extractor.
 	Counts       db.MediaCounts

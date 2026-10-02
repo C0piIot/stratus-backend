@@ -1,0 +1,31 @@
+-- The two orderings a listing can be asked for that path alone cannot serve
+-- (#251): by size and by when a file last changed.
+--
+-- is_dir is in the key and not in the ORDER BY. A page asks for one group at a
+-- time -- directories, then files -- so is_dir is an equality, and with it
+-- pinned the remaining columns are the sort exactly. That is what makes one
+-- index serve both directions: scanned backwards it yields size DESC, path
+-- DESC, which is a descending page, while the group stays where it was. Had
+-- is_dir stayed in the ORDER BY, reversing the scan would have reversed the
+-- grouping too and each of these would have needed a descending twin.
+--
+-- The cursor has to be a row comparison -- (size, path) > (?, ?) -- for either
+-- of these to be a seek, which is the same thing the photo timeline found in
+-- #211 and is worth measuring rather than assuming. On a folder of a hundred
+-- thousand files, page 900 cost 44 ms with the spelled-out OR and 0.78 ms with
+-- the row comparison, against 0.43 ms for the ordering by path that was already
+-- indexed. Without the index at all it is a sort of the whole folder.
+--
+-- MySQL has no copy of this migration. Its parent_path is indexed by a prefix,
+-- because a path is TEXT, and nothing after a prefix column can satisfy an
+-- ORDER BY -- so either of these would be written by every write and read by
+-- nothing. It sorts the group's rows instead, which is what every listing there
+-- already did.
+--
+-- The write cost is two more indexes on the table every upload touches, which
+-- is the trade 0001 declined for a second ordering it did not need. It needs
+-- them now: a folder of a hundred thousand photographs is an ordinary size
+-- here, and ordering one by size is otherwise a sort of every row in it.
+CREATE INDEX files_owner_parent_size ON files (owner_id, parent_path, is_dir, size, path);
+
+CREATE INDEX files_owner_parent_mtime ON files (owner_id, parent_path, is_dir, mtime, path);
