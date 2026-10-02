@@ -552,6 +552,11 @@ read yet says so, one nothing could parse says why and whether it will be tried
 again, and one replaced since it was read shows no metadata at all -- what was
 extracted describes bytes that are gone.
 
+**Nothing here is for a search engine.** `/robots.txt` disallows the whole
+server and every page carries `noindex, nofollow`, which are two requests and
+not a control: a crawler that ignores them is stopped by the login, and the one
+URL that has no login to stop it -- a share link -- is the reason both exist.
+
 **A film opens in a player**, which is a page with the film in a `<video>`
 and a link to the file itself. One the browser cannot take as it is — a
 Matroska file, AC-3 sound — plays as HLS, remuxed as it is watched: Safari

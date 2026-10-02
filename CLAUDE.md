@@ -311,6 +311,14 @@ Hard constraints, in the same spirit as the rest of the project:
   rows nothing has looked at yet. It reports and does not drive: there is no
   button here that starts, stops or hurries the indexer, because a surface that
   could would be a surface that has to be protected from being pressed twice.
+- **`/robots.txt` disallows everything, and every page says `noindex`.** Two
+  requests rather than a control, and the second is there for the crawler that
+  read the first and came in anyway. What makes them worth having on a server
+  that is mostly behind a login is the one URL that is not: a share link's only
+  protection is that nobody else has it, and an indexer that found one would
+  publish it. The file answers in front of the session, because a crawler has
+  none and would otherwise be told to sign in before it could be told to leave.
+
 - **A listing can be ordered and counted, and both are the query's** (#251):
   the headings order a folder by name, size or mtime in either direction, and
   three links choose 50, 100 or 500 rows. Neither could be done to a page after
