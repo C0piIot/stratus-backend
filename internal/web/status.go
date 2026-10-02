@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/C0piIot/stratus-backend/internal/db"
+	"github.com/C0piIot/stratus-backend/internal/incoming"
 	"github.com/C0piIot/stratus-backend/internal/media"
 	"github.com/C0piIot/stratus-backend/internal/storage"
 )
@@ -21,6 +22,16 @@ const countsFragment = "counts"
 type Indexing struct {
 	Index    db.MediaIndex
 	Interval time.Duration
+}
+
+// Imports is the import folder, and nil when none is configured -- which is the
+// default, so the page says nothing about it rather than saying it is empty.
+//
+// Read, never driven, like the indexer: there is no button here that sweeps the
+// folder, for the same reason there is none that reindexes.
+type Imports interface {
+	Dir() string
+	State() incoming.State
 }
 
 // status is the page that answers "is it done yet". A library is indexed in the
@@ -39,6 +50,7 @@ func (h *handler) status(w http.ResponseWriter, r *http.Request, user string) {
 		Counts:    counts,
 		Percent:   percent(counts),
 		FreeSpace: h.freeSpace(r),
+		Incoming:  h.incomingOf(),
 		// The version is on the page because it is what a re-index moves: an
 		// operator who raised it wants to see the numbers fall and climb again.
 		IndexVersion: media.Version,
@@ -50,6 +62,37 @@ func (h *handler) status(w http.ResponseWriter, r *http.Request, user string) {
 		return
 	}
 	h.render(w, http.StatusOK, pageStatus, v)
+}
+
+// incomingOf is what the page says about the import folder, and nil when there
+// is none to say anything about.
+func (h *handler) incomingOf() *importsView {
+	if h.imports == nil {
+		return nil
+	}
+	state := h.imports.State()
+	v := importsView{
+		Dir:      h.imports.Dir(),
+		Waiting:  state.Waiting,
+		Imported: state.Imported,
+		Error:    state.LastError,
+	}
+	if !state.LastRun.IsZero() {
+		v.LastRun = state.LastRun.Format("15:04:05")
+	}
+	return &v
+}
+
+// importsView is that, already rendered.
+type importsView struct {
+	Dir      string
+	Waiting  int
+	Imported int64
+	LastRun  string
+	// Error is why the last pass did not empty the folder. The page shows it
+	// because a file that will not import is otherwise a file that sits there
+	// silently for ever.
+	Error string
 }
 
 // freeSpace is how much room the blob store says is left, rendered.

@@ -141,6 +141,41 @@ func TestLoadLogLevel(t *testing.T) {
 	}
 }
 
+// TestLoadIncoming: the folder is the switch and the interval is the pace, and
+// the one configuration that cannot be allowed is the one that would sweep the
+// blob store into itself.
+func TestLoadIncoming(t *testing.T) {
+	t.Parallel()
+
+	if cfg := load(t, nil); cfg.IncomingDir != "" || cfg.IncomingInterval != config.DefaultIncomingInterval {
+		t.Errorf("unset = %q every %v, want no folder and the default pace",
+			cfg.IncomingDir, cfg.IncomingInterval)
+	}
+	if cfg := load(t, map[string]string{
+		"STRATUS_INCOMING_DIR":      "/srv/incoming",
+		"STRATUS_INCOMING_INTERVAL": "30s",
+	}); cfg.IncomingDir != "/srv/incoming" || cfg.IncomingInterval != 30*time.Second {
+		t.Errorf("set = %q every %v", cfg.IncomingDir, cfg.IncomingInterval)
+	}
+
+	refused := []map[string]string{
+		{"STRATUS_INCOMING_INTERVAL": "1minute"},
+		{"STRATUS_INCOMING_INTERVAL": "-1m"},
+		// The blob store lives under the data directory, so this one would
+		// import what it had just stored, for ever.
+		{"STRATUS_DATA_DIR": "/data", "STRATUS_INCOMING_DIR": "/data/incoming"},
+		{"STRATUS_DATA_DIR": "/data", "STRATUS_INCOMING_DIR": "/data"},
+	}
+	for _, vars := range refused {
+		if _, err := config.Load(env(vars)); err == nil {
+			t.Errorf("Load(%v) was allowed", vars)
+		}
+	}
+
+	// And beside it is fine, which is the ordinary deployment.
+	load(t, map[string]string{"STRATUS_DATA_DIR": "/data", "STRATUS_INCOMING_DIR": "/incoming"})
+}
+
 func TestLoadIndexInterval(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

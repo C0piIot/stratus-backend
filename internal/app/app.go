@@ -17,6 +17,7 @@ import (
 	"github.com/C0piIot/stratus-backend/internal/dav"
 	"github.com/C0piIot/stratus-backend/internal/db"
 	"github.com/C0piIot/stratus-backend/internal/files"
+	"github.com/C0piIot/stratus-backend/internal/incoming"
 	"github.com/C0piIot/stratus-backend/internal/media"
 	"github.com/C0piIot/stratus-backend/internal/music"
 	"github.com/C0piIot/stratus-backend/internal/storage"
@@ -92,6 +93,10 @@ type Deps struct {
 	// Indexer is nil when there is nothing to index into, which today means no
 	// credentials and therefore no files.
 	Indexer *media.Indexer
+	// Incoming sweeps the import folder, and is nil when none is configured --
+	// which is the default, and also what no credentials means, since an
+	// import needs somebody to file things under.
+	Incoming *incoming.Watcher
 }
 
 // Close releases whatever is open, and tolerates a partly built Deps because
@@ -172,7 +177,7 @@ func (a *App) Handler(deps Deps) http.Handler {
 		// the same sessions: see auth.Sessions for what that buys and what it
 		// costs.
 		mux.Handle("/", web.Handler(a.version, a.buildDate, verifier, sessions, shares, service, thumbs, deps.Database,
-			web.Indexing{Index: deps.Database, Interval: a.cfg.IndexInterval}, films(deps)))
+			web.Indexing{Index: deps.Database, Interval: a.cfg.IndexInterval}, imports(deps), films(deps)))
 	}
 	// The log is outside the compression so that the bytes it counts are the
 	// bytes that went out rather than the ones the handler wrote, and the
@@ -231,6 +236,15 @@ func (a *App) Run(ctx context.Context) error {
 	} else {
 		slog.Warn("media indexing disabled", "reason", "STRATUS_INDEX_INTERVAL is zero")
 	}
+
+	if deps.Incoming != nil {
+		background.Add(1)
+		go func() {
+			defer background.Done()
+			keepRunning(ctx, "importing what arrived on disk", restartPause,
+				func() { a.importPeriodically(ctx, deps) })
+		}()
+	}
 	defer background.Wait()
 
 	srv := a.Server(deps)
@@ -268,6 +282,16 @@ func transcoder(deps Deps) subsonic.Transcoder {
 		return nil
 	}
 	return deps.Transcoder
+}
+
+// imports is what the status page reports the import folder from, and nil when
+// there is no folder. A nil interface rather than a nil pointer inside one, for
+// the reason transcoder gives.
+func imports(deps Deps) web.Imports {
+	if deps.Incoming == nil {
+		return nil
+	}
+	return deps.Incoming
 }
 
 // films is what the web UI plays and streams as HLS with: the media rows and

@@ -149,6 +149,38 @@ func (a *App) collectPeriodically(ctx context.Context, deps Deps) {
 	}
 }
 
+// importPeriodically moves what has landed in the import folder into the
+// library, for as long as ctx lives.
+//
+// A ticker, like the two above, and for the same reason: the interval is also
+// what decides a file has finished arriving, so a pass that restarted the clock
+// after a slow import would keep moving the moment the next file qualifies.
+func (a *App) importPeriodically(ctx context.Context, deps Deps) {
+	slog.Info("importing what arrives on disk",
+		"dir", deps.Incoming.Dir(), "every", a.cfg.IncomingInterval)
+
+	ticker := time.NewTicker(a.cfg.IncomingInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+
+		switch imported, err := deps.Incoming.Pass(ctx); {
+		case errors.Is(err, context.Canceled):
+			return
+		case err != nil:
+			// Logged and carried on with: the files that did import are
+			// imported, and the ones that did not are still on disk.
+			slog.Error("importing what arrived on disk", "imported", imported, "err", err)
+		case imported > 0:
+			slog.Info("imported what arrived on disk", "files", imported)
+		}
+	}
+}
+
 // restartPause is how long a background loop that panicked waits before it is
 // started again, so that one which panics on every pass does not spin.
 const restartPause = time.Minute

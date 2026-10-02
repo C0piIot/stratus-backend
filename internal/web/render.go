@@ -124,6 +124,8 @@ type view struct {
 	// FreeSpace is what the blob store says is left, already rendered, and
 	// empty when it would not say.
 	FreeSpace string
+	// Incoming is the import folder, and nil when none is configured.
+	Incoming *importsView
 	// Shared is the signature this page was reached with, empty for a request
 	// that arrived with a session. Every link the page emits carries it, or the
 	// second click is a login form.

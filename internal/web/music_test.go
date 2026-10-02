@@ -149,7 +149,7 @@ func TestABrokenIndexIsNotAnEmptyLibrary(t *testing.T) {
 			broken := dbtest.FailOn(t, meta, tc.call)
 			creds := credentials()
 			h := web.Handler(version, buildDate, creds, auth.NewSessions(creds, auth.DefaultSessionTTL), auth.NewShares(creds),
-				s, media.NewThumbs(blobs, files.New(blobs, broken), "ffmpeg", t.TempDir()), broken, indexing(meta), web.Video{})
+				s, media.NewThumbs(blobs, files.New(blobs, broken), "ffmpeg", t.TempDir()), broken, indexing(meta), nil, web.Video{})
 			if rec := get(t, h, tc.target, signIn(t, h)); rec.Code != http.StatusInternalServerError {
 				t.Errorf("%s with %s broken = %d, want 500", tc.target, tc.call, rec.Code)
 			}

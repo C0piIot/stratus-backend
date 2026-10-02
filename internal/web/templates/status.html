@@ -64,6 +64,24 @@
 
     <dt class="col-sm-4 fw-normal text-body-secondary">Extractor</dt>
     <dd class="col-sm-8">version {{.IndexVersion}}</dd>
+
+    {{/* Only when a folder is configured, which it is not by default: a row
+         saying nothing is waiting in a folder nobody has is noise. It rides
+         the same fragment as the counts, so a file dropped in appears here
+         without a reload. */}}
+    {{with .Incoming}}
+    <dt class="col-sm-4 fw-normal text-body-secondary">Waiting on disk</dt>
+    <dd class="col-sm-8" data-count="incoming">{{.Waiting}}<span class="text-body-secondary small"> in <code>{{.Dir}}</code></span></dd>
+
+    <dt class="col-sm-4 fw-normal text-body-secondary">Imported</dt>
+    <dd class="col-sm-8" data-count="imported">{{.Imported}}{{with .LastRun}}<span class="text-body-secondary small"> · last looked at {{.}}</span>{{end}}</dd>
+    {{end}}
   </dl>
+
+  {{with .Incoming}}{{with .Error}}
+  <p class="alert alert-warning small mt-3 mb-0" role="status">
+    The last sweep of the import folder did not finish: {{.}}
+  </p>
+  {{end}}{{end}}
 </div>
 {{- end}}

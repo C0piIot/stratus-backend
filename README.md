@@ -376,6 +376,44 @@ segments are cached under `derived/` with `cache-` in their name, and the sweep
 collects each a week after it was written, whatever its film is doing: a film
 re-encoded is gigabytes.
 
+## A folder that drops files in
+
+**`STRATUS_INCOMING_DIR` is a directory on this machine's own filesystem whose
+contents are moved into the library.** Unset by default, which is the feature
+off: there is no sensible directory to guess, and a guessed one would be a
+directory somebody's files disappeared into. It has nothing to do with the blob
+store, which may well be a bucket somewhere else; it is a door for the machines
+that cannot speak any of the protocols — a scanner writing PDFs onto an SMB
+share, an SD card copied in, a cron job dropping a backup.
+
+What goes in comes out the other side exactly as a WebDAV `PUT` would have left
+it: the same row, the same validator, the same owner, the same thumbnail and the
+same place in the index.
+
+Four things worth knowing before pointing anything at it:
+
+- **A file is taken when it has stopped growing.** The directory is swept every
+  `STRATUS_INCOMING_INTERVAL`, a minute by default, and a file moves when two
+  sweeps in a row agree about its size. So the ordinary wait is a minute or two,
+  and a copy slow enough to stall for a whole interval would be taken
+  half-written — turn the interval up if the files arrive over something slow.
+- **Folders are mirrored**, so what you arranged on disk arrives arranged. The
+  folders themselves stay where they are; only files move.
+- **A name that is already in the library is not overwritten.** It arrives as
+  `scan (2).pdf` beside `scan.pdf`, which is what `/photos/` does with two
+  photographs that share a name. Everywhere else here a write replaces, because
+  that is what a `PUT` means; a folder two machines drop files into is not
+  somebody saying "replace that".
+- **Anything that fails stays on disk.** A file that cannot be read, a store
+  that will not answer, a disk that fills: it is left exactly where it is and
+  tried again on the next sweep, the rest of the folder is still imported, and
+  `/status` says how many are waiting and what the last failure was.
+
+Hidden names are skipped, directories included — `.part`, `.crdownload`,
+`.DS_Store` — and so is anything that is not a regular file. The directory may
+not be inside `STRATUS_DATA_DIR`: that is where the blobs are, and a server
+importing its own blob store would do it for ever. It refuses to start instead.
+
 The two backends also clean up after themselves when they open: the disk one
 empties its reserved directory of interrupted uploads, and the S3 one aborts
 multipart uploads abandoned more than a day ago, which are invisible to a
@@ -1101,6 +1139,7 @@ Working now:
   yet.
 - EXIF, audio tags and video probing, indexed in the background and started by
   the upload itself, with a page saying how far it has got.
+- An import folder on local disk, swept into the library: `STRATUS_INCOMING_DIR`.
 - A web UI: sign in, walk the tree, open or download a file, upload one, make a folder,
   rename and delete, see what the indexer found about a file, a gallery of every photo by date -- also served as
   folders by date over WebDAV -- and a music library to browse and play. A signed-cookie session and a CSP that allows nothing but
