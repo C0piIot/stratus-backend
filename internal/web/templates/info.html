@@ -1,0 +1,49 @@
+{{define "content" -}}
+{{with .Info}}
+<div class="row justify-content-center">
+  <div class="col-12 col-lg-8">
+    <h1 class="h4 text-break">{{.Name}}</h1>
+    <div class="card card-body">
+      {{template "facts" .}}
+    </div>
+    <div class="d-flex gap-2 mt-3">
+      <a class="btn btn-outline-secondary" href="{{.Back}}">Back to the folder</a>
+      <a class="btn btn-outline-secondary" href="{{.Href}}">Open the file</a>
+    </div>
+  </div>
+</div>
+{{end}}
+{{- end}}
+
+{{/* The same facts as a row of the listing they were opened from, which is what
+     htmx asks for. Open on arrival and closable without a request: the
+     disclosure is the browser's own, so hiding this again costs nothing and
+     needs no script. */}}
+{{define "detail" -}}
+{{with .Info}}
+<tr class="table-light">
+  <td colspan="4">
+    <details open>
+      <summary class="small text-body-secondary">What is known about {{.Name}}</summary>
+      <div class="mt-2">{{template "facts" .}}</div>
+    </details>
+  </td>
+</tr>
+{{end}}
+{{- end}}
+
+{{define "facts" -}}
+{{if or .Facts .Media}}
+<dl class="row small mb-0">
+  {{range .Facts}}
+  <dt class="col-sm-3">{{.Label}}</dt>
+  <dd class="col-sm-9 text-break mb-1">{{.Value}}</dd>
+  {{end}}
+  {{range .Media}}
+  <dt class="col-sm-3">{{.Label}}</dt>
+  <dd class="col-sm-9 text-break mb-1">{{.Value}}</dd>
+  {{end}}
+</dl>
+{{end}}
+{{if .Note}}<p class="small text-body-secondary mb-0 mt-2">{{.Note}}</p>{{end}}
+{{- end}}

@@ -13,7 +13,7 @@ import (
 const deletePrefix = "/delete/"
 
 func (h *handler) deleteForm(w http.ResponseWriter, r *http.Request, user string) {
-	target, f, ok := h.editing(w, r, user)
+	target, f, ok := h.targetOf(w, r, user)
 	if !ok {
 		return
 	}
@@ -26,7 +26,7 @@ func (h *handler) deleteForm(w http.ResponseWriter, r *http.Request, user string
 
 // remove deletes a file, or a directory and everything under it.
 func (h *handler) remove(w http.ResponseWriter, r *http.Request, user string) {
-	target, _, ok := h.editing(w, r, user)
+	target, _, ok := h.targetOf(w, r, user)
 	if !ok {
 		return
 	}

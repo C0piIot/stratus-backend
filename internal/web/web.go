@@ -140,6 +140,7 @@ func Handler(version, buildDate string, v auth.Verifier, s *auth.Sessions, share
 	mux.HandleFunc("POST /folders/{path...}", h.signedIn(h.newFolder))
 	mux.HandleFunc("GET /share/{path...}", h.signedIn(h.shareForm))
 	mux.HandleFunc("POST /share/{path...}", h.signedIn(h.share))
+	mux.HandleFunc("GET "+infoPrefix+"{path...}", h.signedIn(h.info))
 	mux.HandleFunc("GET /rename/{path...}", h.signedIn(h.renameForm))
 	mux.HandleFunc("POST /rename/{path...}", h.signedIn(h.rename))
 	mux.HandleFunc("GET /delete/{path...}", h.signedIn(h.deleteForm))

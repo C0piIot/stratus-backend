@@ -22,7 +22,7 @@ protocols your existing apps already understand.
 | HLS | films a player cannot take as they are, remuxed | Chromecast, Safari, VLC, the web UI's player | **works** § |
 | CalDAV | calendar | DAVx5, Thunderbird, iOS/macOS | next |
 | OpenSubsonic | music | Symfonium, Substreamer, DSub, Feishin | **works** † |
-| Web UI | sign in, browse, upload, download, rename, delete, a photo gallery, a music library, library status | any browser | **partly** |
+| Web UI | sign in, browse, upload, download, rename, delete, what is known about a file, a photo gallery, a music library, library status | any browser | **partly** |
 | CardDAV | contacts | DAVx5, Thunderbird | planned |
 | DLNA / UPnP-AV | TVs, set-top players | | planned |
 
@@ -538,6 +538,18 @@ access to the session, because this origin serves the UI and a page opened here
 would otherwise run as whoever is signed in. Files go through
 `http.ServeContent`, so ranges, conditional requests and resuming a half-finished
 download behave exactly as they do on the streaming surface.
+
+**Every file says what is known about it**: the button beside it opens, under
+the row, what the file row carries -- type, size, when it last changed, its
+validator -- and what the indexer extracted: a photograph's date, camera,
+dimensions and coordinates, a track's duration, codec, bitrate and tags, a
+film's resolution, codecs, frame rate and colour. It is read when the button is
+pressed and not before, because a folder is a hundred rows and this is almost
+never opened; the same URL, `/info/<path>`, is a whole page when it is followed
+as a link, which is what a browser with no JavaScript does. A file nothing has
+read yet says so, one nothing could parse says why and whether it will be tried
+again, and one replaced since it was read shows no metadata at all -- what was
+extracted describes bytes that are gone.
 
 **A film opens in a player**, which is a page with the film in a `<video>`
 and a link to the file itself. One the browser cannot take as it is — a
@@ -1066,7 +1078,7 @@ Working now:
 - EXIF, audio tags and video probing, indexed in the background and started by
   the upload itself, with a page saying how far it has got.
 - A web UI: sign in, walk the tree, open or download a file, upload one, make a folder,
-  rename and delete, a gallery of every photo by date -- also served as
+  rename and delete, see what the indexer found about a file, a gallery of every photo by date -- also served as
   folders by date over WebDAV -- and a music library to browse and play. A signed-cookie session and a CSP that allows nothing but
   the binary's own assets.
 - A request log, migrations applied at startup, and a container asserted from

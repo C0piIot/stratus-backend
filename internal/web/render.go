@@ -38,6 +38,7 @@ const (
 	pageLogin   = "login.html"
 	pageFiles   = "files.html"
 	pageRename  = "rename.html"
+	pageInfo    = "info.html"
 	pageDelete  = "delete.html"
 	pageStatus  = "status.html"
 	pageShare   = "share.html"
@@ -58,6 +59,7 @@ var pages = map[string]*template.Template{
 	pageLogin:   parse(pageLogin),
 	pageFiles:   parse(pageFiles),
 	pageRename:  parse(pageRename),
+	pageInfo:    parse(pageInfo),
 	pageDelete:  parse(pageDelete),
 	pageStatus:  parse(pageStatus),
 	pageShare:   parse(pageShare),
@@ -133,6 +135,9 @@ type view struct {
 	IsDir  bool
 	Action string
 	Back   string
+	// Info is what is known about one file: the page, and the row a listing
+	// opens under it.
+	Info *infoView
 	// Tiles is one page of the photo grid, and Photo the one photograph the
 	// viewer shows.
 	Tiles []tile
