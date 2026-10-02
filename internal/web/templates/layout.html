@@ -4,6 +4,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+{{/* The second half of /robots.txt, for the crawler that read it and came in
+     anyway: that one asks not to be crawled, this asks not to be indexed. It is
+     on every page rather than on the shared ones alone, because a login form in
+     a search result is nothing to find either. */}}
+<meta name="robots" content="noindex, nofollow">
 <title>{{.Title}} · Stratus</title>
 <link rel="stylesheet" href="{{.Assets}}/bootstrap.min.css">
 {{/* Every place htmx evaluates a string checks this first, so turning it off

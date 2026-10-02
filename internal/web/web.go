@@ -145,6 +145,7 @@ func Handler(version, buildDate string, v auth.Verifier, s *auth.Sessions, share
 	mux.HandleFunc("POST /rename/{path...}", h.signedIn(h.rename))
 	mux.HandleFunc("GET /delete/{path...}", h.signedIn(h.deleteForm))
 	mux.HandleFunc("POST /delete/{path...}", h.signedIn(h.remove))
+	mux.HandleFunc("GET /robots.txt", robots)
 	mux.HandleFunc("GET /login", h.loginForm)
 	mux.HandleFunc("POST /login", h.login)
 	mux.HandleFunc("POST /logout", h.logout)
