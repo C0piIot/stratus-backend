@@ -1,3 +1,17 @@
+-- The schema, as one migration.
+--
+-- It was eight until #269. Keeping the steps was buying nothing: there is no
+-- database anywhere that needs them, and a reader who wants to know what a
+-- column is for had to reconstruct it from a chain of ALTERs. What a migration
+-- file is really worth is the paragraph beside each decision, and those are all
+-- here -- the issue numbers with them, so the argument is still findable.
+--
+-- The way back is not supported and does not pretend to be: a database written
+-- by the eight is at version 15, and db.Migrate refuses a schema it does not
+-- know rather than running against it. The answer is a new database.
+--
+-- From here the next one is 0002 and nothing is ever edited in place again.
+
 CREATE TABLE files (
     id          BIGSERIAL   PRIMARY KEY,
     owner_id    TEXT        NOT NULL,
@@ -8,7 +22,28 @@ CREATE TABLE files (
     mtime       TIMESTAMPTZ NOT NULL,
     etag        TEXT        NOT NULL,
     mime_type   TEXT        NOT NULL,
-    is_dir      BOOLEAN     NOT NULL DEFAULT FALSE
+    is_dir      BOOLEAN     NOT NULL DEFAULT FALSE,
+
+    -- What a search box matches against (#259): the file's own name, which no
+    -- row stores -- it is what is left of the path after the parent, and
+    -- nothing at all is cut from a row at the root, where the parent is empty.
+    -- The name and not the path, so that a word in a folder finds the folder
+    -- and not the thousand photographs under it.
+    --
+    -- The separators a filename is made of are turned into spaces before the
+    -- tokeniser sees them, and that is not optional here: this parser reads
+    -- photo.jpg as one token called a file, so searching photo would find
+    -- nothing at all. With them flattened it is photo and jpg, which is what
+    -- db.Finder promises.
+    --
+    -- 'simple' and not a language configuration: a filename is not prose, and
+    -- English stemming would turn notes into note and make a search for the
+    -- name somebody typed miss it.
+    search_name tsvector    GENERATED ALWAYS AS (
+        to_tsvector('simple', translate(
+            substring(path FROM char_length(parent_path) + (CASE WHEN parent_path = '' THEN 1 ELSE 2 END)),
+            '._-()[]', '       '))
+    ) STORED
 );
 
 CREATE UNIQUE INDEX files_owner_path ON files (owner_id, path);
@@ -24,6 +59,25 @@ CREATE UNIQUE INDEX files_owner_path ON files (owner_id, path);
 -- materialising every child into a slice -- and a second index would be paid
 -- on every write instead.
 CREATE INDEX files_owner_parent ON files (owner_id, parent_path, is_dir DESC, path);
+
+-- The two orderings a listing can be asked for that path alone cannot serve
+-- (#251): by size and by when a file last changed.
+--
+-- is_dir is in the key and not in the ORDER BY. A page asks for one group at a
+-- time -- directories, then files -- so is_dir is an equality, and with it
+-- pinned the remaining columns are the sort exactly. That is what makes one
+-- index serve both directions: scanned backwards it yields size DESC, path
+-- DESC, which is a descending page, while the group stays where it was.
+--
+-- The cursor has to be a row comparison -- (size, path) > ($1, $2) -- for
+-- either of these to be a seek. MySQL has neither index, because its
+-- parent_path is indexed by a prefix and nothing after a prefix column can
+-- satisfy an ORDER BY.
+CREATE INDEX files_owner_parent_size ON files (owner_id, parent_path, is_dir, size, path);
+
+CREATE INDEX files_owner_parent_mtime ON files (owner_id, parent_path, is_dir, mtime, path);
+
+CREATE INDEX files_search_name ON files USING GIN (search_name);
 
 CREATE TABLE media (
     file_id             BIGINT           PRIMARY KEY REFERENCES files (id) ON DELETE CASCADE,
@@ -41,6 +95,13 @@ CREATE TABLE media (
     -- again. A file nothing can parse gets no such time.
     retry_at            TIMESTAMPTZ,
     taken_at            TIMESTAMPTZ,
+    -- The moment the gallery lists a photograph by (#211): when the camera
+    -- says it was taken, and when the file arrived for one that says nothing,
+    -- like a screenshot. A column because the two halves live in different
+    -- tables, and an ORDER BY over an expression spanning both is one no index
+    -- can serve -- every page would sort every image the owner has. PutMedia
+    -- writes it.
+    sort_at             TIMESTAMPTZ,
     width               INTEGER          NOT NULL DEFAULT 0,
     height              INTEGER          NOT NULL DEFAULT 0,
     orientation         INTEGER          NOT NULL DEFAULT 0,
@@ -79,14 +140,54 @@ CREATE TABLE media (
     year                INTEGER          NOT NULL DEFAULT 0,
     genre               TEXT             NOT NULL DEFAULT '',
     album_artist        TEXT             NOT NULL DEFAULT '',
-    search_song         TEXT             NOT NULL DEFAULT '',
+
+    -- The five columns a search matches, folded in Go and not by the engine
+    -- (#85): what is compared must not depend on anyone's lower(). One tag
+    -- each -- the title and the artist credited on the track are two columns
+    -- because a search answers an artist as a row of its own, and a bucket
+    -- promising the title cannot read a column that also holds a name (#262).
+    --
+    -- search_photo is what a photograph is found by, which is not its name: a
+    -- camera calls everything IMG_0042.JPG. The camera, and the year it says
+    -- the picture was taken -- not the month, which has a name only in a
+    -- language, and not the place, because a coordinate is two numbers and
+    -- turning one into "Lisbon" is a service this project does not have.
+    search_title        TEXT             NOT NULL DEFAULT '',
+    search_artist       TEXT             NOT NULL DEFAULT '',
     search_album        TEXT             NOT NULL DEFAULT '',
-    search_album_artist TEXT             NOT NULL DEFAULT ''
+    search_album_artist TEXT             NOT NULL DEFAULT '',
+    search_photo        TEXT             NOT NULL DEFAULT '',
+
+    -- And the two vectors the GIN indexes below are over. The tags one holds
+    -- the title, the album and the album artist together, and that is on
+    -- purpose: the three buckets that ask about tags each match one column, so
+    -- this one **narrows** -- the index gets the query off the library -- and
+    -- the column itself decides, with its own to_tsvector in the WHERE. Exact,
+    -- because a row whose album matches is in the combined vector too. Three
+    -- vectors with a GIN each was the alternative, and it is three indexes
+    -- written by every PutMedia to save an expression over what the index had
+    -- already narrowed to. The credited artist is not in it: nothing matches
+    -- that through an index here, since Music.Search scans with LIKE.
+    search_tags         tsvector         GENERATED ALWAYS AS (
+        to_tsvector('simple', translate(
+            search_title || ' ' || search_album || ' ' || search_album_artist,
+            '._-()[]', '       '))
+    ) STORED,
+    search_photo_text   tsvector         GENERATED ALWAYS AS (
+        to_tsvector('simple', translate(search_photo, '._-()[]', '       '))
+    ) STORED
 );
 
 CREATE INDEX media_taken_at ON media (taken_at);
 
 CREATE INDEX media_kind_artist_album ON media (kind, album_artist, album);
+
+-- The gallery's ORDER BY, and a month is a range of it.
+CREATE INDEX media_kind_sort ON media (kind, sort_at, file_id);
+
+CREATE INDEX media_search_tags ON media USING GIN (search_tags);
+
+CREATE INDEX media_search_photo ON media USING GIN (search_photo_text);
 
 CREATE TABLE uploads (
     id         TEXT        NOT NULL PRIMARY KEY,

@@ -336,7 +336,7 @@ func listPageArgs(order db.FileOrder, owner, dir string, isDir bool, after db.Cu
 // and then takes the first of them, whichever ordering was asked for. A page
 // therefore bounds what crosses the wire and what the browser renders, while
 // the other two drivers also make it a seek. That is the cost of the column
-// type, not of the query, and it is why 0009 adds no index here: an index this
+// type, not of the query, and it is why this driver has no index for it: one
 // schema can declare would be written on every write and read by nothing.
 //
 // The cursor stays the spelled-out OR here while the other two moved to a row
@@ -445,7 +445,7 @@ func (r *repo) PutMedia(ctx context.Context, m db.Media) error {
 
 	// The gallery's ordering, from both tables. A second statement rather than
 	// an expression in the upsert, which could not see the files row in all
-	// three dialects the same way. See 0006_photo_timeline.sql.
+	// three dialects the same way. See sort_at in the schema.
 	const sortAt = `UPDATE media SET sort_at = COALESCE(taken_at, (SELECT mtime FROM files WHERE files.id = media.file_id))
 		WHERE file_id = ?`
 	if _, err := r.q.ExecContext(ctx, sortAt, m.FileID); err != nil {
@@ -1136,7 +1136,7 @@ func scanUploadRow(rows *sql.Rows) (db.Upload, error) {
 // nameFlat is the term flattened the way search_name is, so that what is
 // compared is the same shape on both sides -- searching photo.jpg has to match
 // a column where the dot is already a space. Spelled out here rather than done
-// in Go because migration 0010 defines it in SQL, and two definitions of one
+// in Go because the schema defines it in SQL, and two definitions of one
 // rule is how they come to disagree.
 const nameFlat = `REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
 	?, '.', ' '), '_', ' '), '-', ' '), '(', ' '), ')', ' '), '[', ' '), ']', ' ')`
@@ -1162,7 +1162,7 @@ func phrase(term string) string {
 // FULLTEXT on both sides, which is this engine's answer and not the port's, and
 // the one place where a column of this schema is not binary-collated: a match
 // uses the column's collation, so search_name is accent- and case-insensitive
-// while everything around it stays exact. See 0010_search.sql.
+// while everything around it stays exact. See search_name in the schema.
 //
 // A word shorter than innodb_ft_min_token_size -- three by default -- is not in
 // the index and finds nothing here. That is the floor db.Finder's promise is
@@ -1171,7 +1171,7 @@ func phrase(term string) string {
 // **One key per column, which is this engine's alone** (#262). A MATCH has to
 // name exactly the columns some FULLTEXT key was built on and cannot be
 // restricted to one of them, so the three buckets over tags each got their own
-// index in migration 0015. The other two engines restrict a match to a column
+// key in the schema. The other two engines restrict a match to a column
 // and keep the one index they had.
 func (r *repo) Find(ctx context.Context, owner string, f db.FindFilter) (db.FindResult, error) {
 	var out db.FindResult
@@ -1260,8 +1260,8 @@ func (r *repo) Find(ctx context.Context, owner string, f db.FindFilter) (db.Find
 	return out, nil
 }
 
-// tagColumn is one bucket's match, over the key migration 0015 gave that
-// column. Written here rather than three times, because what differs between
+// tagColumn is one bucket's match, over the FULLTEXT key that column has to
+// itself. Written here rather than three times, because what differs between
 // the three is the column and nothing else.
 func tagColumn(column string) string {
 	return `MATCH(m.` + column + `) AGAINST (` + nameFlat + ` IN BOOLEAN MODE)`

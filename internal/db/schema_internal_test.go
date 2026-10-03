@@ -35,10 +35,13 @@ import (
 // the reason. A driver answers in whatever way its engine is best at, and
 // sometimes that is nothing at all -- but it has to be written down here, or
 // the half-written pair this test exists to catch looks exactly the same.
-var oneSided = map[string]string{
-	"0011_search_fts.sql": "FTS5 is how SQLite answers db.Finder (#261); PostgreSQL's answer is the generated tsvector in 0010",
-	"0013_music_trgm.sql": "FTS5 again, for Music.Search (#262); PostgreSQL could have pg_trgm and the measurement said it is not worth an extension yet",
-}
+//
+// Empty since #269 collapsed the schema into its first migration, which is
+// where the engines differ now: SQLite's 0001 carries two FTS5 tables and
+// their triggers, PostgreSQL's two generated tsvectors, MySQL's four FULLTEXT
+// keys. The map stays because the next pair that is written half-way is the
+// one this catches.
+var oneSided = map[string]string{}
 
 func TestBothDriversCarryTheSameMigrations(t *testing.T) {
 	t.Parallel()

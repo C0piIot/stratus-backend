@@ -357,9 +357,9 @@ Hard constraints, in the same spirit as the rest of the project:
   together and leaves the group where it was. Inside the `ORDER BY` it would
   have needed a descending twin per key, paid on every write.
 
-  **Measured, like #211, and the measurement changed the code.** Migration 0009
-  adds `files_owner_parent_size` and `files_owner_parent_mtime` to SQLite and
-  PostgreSQL; MySQL gets neither, because its `parent_path(500)` prefix means
+  **Measured, like #211, and the measurement changed the code.** The schema
+  carries `files_owner_parent_size` and `files_owner_parent_mtime` on SQLite
+  and PostgreSQL; MySQL gets neither, because its `parent_path(500)` prefix means
   nothing after it can satisfy an `ORDER BY` and an index there would be written
   by every write and read by nothing. On a folder of a hundred thousand files,
   page 900 cost 44 ms with the spelled-out `OR` the old cursor used and 0.78 ms
@@ -438,7 +438,7 @@ Hard constraints, in the same spirit as the rest of the project:
   different tables, and ordering by an expression across both is one no index
   serves -- 677 ms a page over a hundred thousand photos, against 1.7 ms with
   the column and an index on `(kind, sort_at, file_id)`, and 1.6 ms at page 900.
-  PutMedia writes it and migration 0006 filled what existed. Two more details
+  PutMedia writes it. Two more details
   that were each measured: the cursor is a row comparison, `(sort_at, file_id)
   < (?, ?)`, because the spelled-out `OR` only seeks on the time and walks a
   tie -- a burst of photos sharing one second -- from its top; and the months
@@ -720,7 +720,8 @@ before the engine sees them, because otherwise each tokeniser decides for
 itself: PostgreSQL reads `photo.jpg` as one token and a search for `photo`
 would find nothing at all, while MySQL splits it.
 
-Migration 0010 is where each engine's answer lives, and the numbers are in it:
+Each engine's answer is in its own `0001_schema.sql`, with the numbers beside
+it:
 
 - **PostgreSQL** generates a `tsvector` on each side and indexes it with GIN,
   with `phraseto_tsquery` for the match -- `'simple'` and not a language, since
@@ -732,8 +733,8 @@ Migration 0010 is where each engine's answer lives, and the numbers are in it:
   searching case-sensitive, which the contract forbids. Its match is boolean
   mode with the term quoted as a phrase, so the characters that are operators
   there are dropped from it.
-- **SQLite** reads an FTS5 index over that same generated column, maintained by
-  triggers (0011, #261). `unicode61` and not `trigram`, which is a decision
+- **SQLite** reads an FTS5 index over that same generated column, maintained
+  by triggers (#261). `unicode61` and not `trigram`, which is a decision
   about the promise rather than about speed: whole words are what the port
   guarantees and what the other two do, so all three now answer the same
   question, and the substring matching `LIKE` used to give is gone.
@@ -798,8 +799,7 @@ Each engine asks about one column, and only one of them needed a new index for
 it:
 
 - **SQLite** restricts a match to a column of the FTS5 table it already has --
-  `search_album : "x"` -- so 0013's index answers four questions. Migration
-  0015 only rebuilds it with the split column in it.
+  `search_album : "x"` -- so one index answers four questions.
 - **PostgreSQL** keeps the one GIN over the combined `search_tags` as a
   **filter** and lets the column decide: the index narrows, and
   `to_tsvector(...) @@ q` over `search_album` says yes or no. Exact, because a
@@ -808,10 +808,10 @@ it:
   by every `PutMedia` to save an expression over what the index already
   narrowed to.
 - **MySQL** cannot do either: a `MATCH` has to name exactly the columns of some
-  `FULLTEXT` key and there is no column-restricted form, so 0015 turns the one
-  key over three columns into three keys over one each. `media_search_tags`
-  had exactly one reader -- the track bucket -- and that is the reader that
-  stopped asking about three columns at once.
+  `FULLTEXT` key and there is no column-restricted form, so it carries a key
+  per column where one over the three would have done before. That combined
+  key had exactly one reader -- the track bucket -- and that is the reader
+  that stopped asking about three columns at once.
 
 Measured on fifty thousand tracks by six artists, best of three, and the shape
 is the same in all three engines: a term that matches nothing is **0.4 ms**
@@ -821,8 +821,8 @@ and a term that matches every row costs the sort before the page, up to 132,
 343 and 467 ms. The first number is the one that moved: on SQLite the same
 query through the `LIKE` an index cannot serve -- which is what a term under
 the trigram floor still takes -- is **58 to 110 ms**. The worst case is the
-shape of the question and not of the index, which is what 0013 said about the
-same aggregate.
+shape of the question and not of the index, which is what the trigram index
+already said about the same aggregate.
 
 **`Music.Search` keeps its own promise and got its own index** (#262). It is
 what OpenSubsonic's `search3` answers from, and what it promises is a
@@ -831,7 +831,7 @@ cannot be told the server changed its mind. That is the opposite of what
 `db.Finder` promises, so the two stay two searches; what changed is that
 SQLite's no longer scans.
 
-A trigram FTS5 index (0013), because the promise decides the tokenizer rather
+A trigram FTS5 index, because the promise decides the tokenizer rather
 than the other way round, and the same `CROSS JOIN` lesson as #264: written as
 a subquery the planner walks every audio row and probes the index per row,
 which was 80 ms of the 310 this was meant to remove. Driven from the index it
@@ -875,6 +875,25 @@ CONSTRAINT`, so adding the constraint after a release means rebuilding the table
 and the `PRAGMA foreign_keys=OFF` that needs is silently ignored inside a
 transaction -- which is how `db.Migrate` applies every migration. Until the first
 real deployment it would simply go into `0001_schema.sql`.
+
+**The schema is one migration per engine, edited in place** (#269). There is a
+single `0001_schema.sql` in each driver, and the fifteen steps that built it
+are gone. What they were worth was the paragraph beside each decision, and
+those moved into the file rather than being deleted -- with the issue numbers,
+so the argument is still findable from the column it is about.
+
+What makes that allowed is that nothing is deployed: there are no users, and
+the demo instance is a volume somebody can delete. What makes it safe is that
+`db.Migrate` already refuses a database whose version it does not know, so one
+written by the fifteen says so at startup instead of running against a schema
+this build never wrote. The equivalence was checked rather than assumed --
+every engine migrated both ways and the two schemas dumped and compared, down
+to each column's type, default and collation, each index, each trigger.
+
+**This is the last time.** The rule from here is the ordinary one: a migration
+is added, never edited, and the next number is 0002. It is written at the top
+of each of the three files so that the next person to reach for an ALTER finds
+it there.
 
 **Migrating takes the engine's own lock, and it is the one thing in this port
 that could not be a row** (#242). `Migrate` read `MAX(version)` and then applied
@@ -1662,8 +1681,7 @@ Restraint here is principle 3, not laziness:
   advertises class 2 to everybody, and with two instances on one database
   `423 Locked` would have been true of one of them and false of the other.
   This server runs as one process by design, so that reason is gone and the
-  table went with it: migrations 0007 and 0008 created the two tables and 0014
-  drops them.
+  two tables went with it.
 
   **What the table cost, and what came back by removing it.** memLS marks a
   node held while a request runs and a held node cannot expire; a row cannot

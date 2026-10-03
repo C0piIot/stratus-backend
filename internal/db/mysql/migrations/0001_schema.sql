@@ -1,3 +1,17 @@
+-- The schema, as one migration.
+--
+-- It was seven until #269. Keeping the steps was buying nothing: there is no
+-- database anywhere that needs them, and a reader who wants to know what a
+-- column is for had to reconstruct it from a chain of ALTERs. What a migration
+-- file is really worth is the paragraph beside each decision, and those are all
+-- here -- the issue numbers with them, so the argument is still findable.
+--
+-- The way back is not supported and does not pretend to be: a database written
+-- by the seven is at version 15, and db.Migrate refuses a schema it does not
+-- know rather than running against it. The answer is a new database.
+--
+-- From here the next one is 0002 and nothing is ever edited in place again.
+
 -- MySQL cannot index a TEXT column without a prefix length, and InnoDB caps an
 -- index key at 3072 bytes, which is 768 characters of utf8mb4. A path is up to
 -- MaxPathLen bytes, so the unique constraint the other two drivers put straight
@@ -30,6 +44,25 @@ CREATE TABLE files (
     mime_type   TEXT         NOT NULL,
     is_dir      TINYINT(1)   NOT NULL DEFAULT 0,
 
+    -- What a search box matches against (#259): the file's own name, which no
+    -- row stores -- it is what is left of the path after the parent, and
+    -- nothing at all is cut from a row at the root, where the parent is empty.
+    -- The name and not the path, so that a word in a folder finds the folder
+    -- and not the thousand photographs under it. Seven nested REPLACEs because
+    -- this dialect has no TRANSLATE, which is ugly and is written once.
+    --
+    -- **The one column in this schema that is not binary-collated.** A
+    -- FULLTEXT match uses the column's collation, and utf8mb4_0900_bin would
+    -- make searching case-sensitive, which db.Finder forbids. The paragraph at
+    -- the top is about a unique key over a path; this column is in no unique
+    -- key and is never read back.
+    search_name TEXT         COLLATE utf8mb4_0900_ai_ci
+    GENERATED ALWAYS AS (
+        REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
+            SUBSTRING(path, CHAR_LENGTH(parent_path) + IF(parent_path = '', 1, 2)),
+        '.', ' '), '_', ' '), '-', ' '), '(', ' '), ')', ' '), '[', ' '), ']', ' ')
+    ) STORED,
+
     UNIQUE KEY files_owner_path (owner_id, path_hash),
     -- A prefix is enough here, unlike above: this index narrows a lookup and
     -- the engine still compares the whole value, so a shared prefix costs a
@@ -39,7 +72,8 @@ CREATE TABLE files (
     -- at the end of this index so that a page of a listing is a seek; nothing
     -- after a prefix column is usable for an ORDER BY, so adding them here
     -- would be dead weight and the driver says outright that it sorts instead.
-    KEY files_owner_parent (owner_id, parent_path(500))
+    KEY files_owner_parent (owner_id, parent_path(500)),
+    FULLTEXT KEY files_search_name (search_name)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_bin;
 
 CREATE TABLE media (
@@ -58,6 +92,13 @@ CREATE TABLE media (
     -- again. A file nothing can parse gets no such time.
     retry_at            BIGINT       NULL,
     taken_at            BIGINT      NULL,
+    -- The moment the gallery lists a photograph by (#211): when the camera
+    -- says it was taken, and when the file arrived for one that says nothing,
+    -- like a screenshot. A column because the two halves live in different
+    -- tables, and an ORDER BY over an expression spanning both is one no index
+    -- can serve -- every page would sort every image the owner has. PutMedia
+    -- writes it.
+    sort_at             BIGINT      NULL,
     width               INT         NOT NULL DEFAULT 0,
     height              INT         NOT NULL DEFAULT 0,
     orientation         INT         NOT NULL DEFAULT 0,
@@ -96,12 +137,44 @@ CREATE TABLE media (
     year                INT         NOT NULL DEFAULT 0,
     genre               TEXT        NOT NULL,
     album_artist        TEXT        NOT NULL,
-    search_song         TEXT        NOT NULL,
+
+    -- The five columns a search matches, folded in Go and not by the engine
+    -- (#85): what is compared must not depend on anyone's lower(). They keep
+    -- this table's binary collation for that reason, unlike files.search_name
+    -- above -- a folded column is already case-insensitive by construction.
+    --
+    -- One tag each. The title and the artist credited on the track are two
+    -- columns because a search answers an artist as a row of its own, and a
+    -- bucket promising the title cannot read a column that also holds a name
+    -- (#262). search_photo is what a photograph is found by, which is not its
+    -- name: the camera, and the year it says the picture was taken.
+    search_title        TEXT        NOT NULL,
+    search_artist       TEXT        NOT NULL,
     search_album        TEXT        NOT NULL,
     search_album_artist TEXT        NOT NULL,
+    search_photo        TEXT        NOT NULL,
 
     KEY media_taken_at (taken_at),
     KEY media_kind_artist_album (kind, album_artist(191), album(191)),
+    -- The gallery's ORDER BY, and a month is a range of it.
+    KEY media_kind_sort (kind, sort_at, file_id),
+
+    -- **One FULLTEXT key per column, which is this engine's alone** (#262). A
+    -- MATCH has to name exactly the columns some key was built on and there is
+    -- no column-restricted form of it, so three buckets asking about one
+    -- column each need three indexes. SQLite restricts a match to a column of
+    -- its FTS5 table and PostgreSQL narrows with a combined vector and decides
+    -- with the column; neither of them carries these.
+    --
+    -- No key on search_artist: nothing matches it through an index, because
+    -- Music.Search scans with LIKE here -- the ngram parser is not exact
+    -- substring and depends on a server variable, which is #262's measurement
+    -- and not an oversight.
+    FULLTEXT KEY media_search_title (search_title),
+    FULLTEXT KEY media_search_album (search_album),
+    FULLTEXT KEY media_search_album_artist (search_album_artist),
+    FULLTEXT KEY media_search_photo (search_photo),
+
     CONSTRAINT media_file FOREIGN KEY (file_id) REFERENCES files (id) ON DELETE CASCADE
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_bin;
 
