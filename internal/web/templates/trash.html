@@ -10,7 +10,9 @@
 </div>
 <p class="small text-body-secondary mt-3 mb-0">
   A deletion is kept for {{.Kept}} days and then destroyed, with the pictures
-  made from it. Nothing was copied to put it here, so nothing is copied back.
+  made from it. Nothing was copied to put it here, so nothing is copied back —
+  and if something has taken its name since, it comes back beside it rather
+  than over it.
 </p>
 {{else}}
 <div class="card">
@@ -35,7 +37,16 @@
       {{if .In}}in {{.In}} · {{end}}{{.Files}} file{{if ne .Files 1}}s{{end}} · {{.Size}} · deleted {{.When}}
     </div>
   </div>
-  <a class="btn btn-sm btn-outline-danger flex-shrink-0" href="{{.Destroy}}">Delete for good</a>
+  <div class="d-flex align-items-center gap-2 flex-shrink-0">
+    {{/* A form and not a link: this one changes something, and the session
+         cookie is SameSite=Lax with CrossOriginProtection behind it. It needs
+         no page in between, because putting something back is not the kind of
+         mistake you cannot undo. */}}
+    <form method="post" action="{{.Restore}}" class="m-0">
+      <button class="btn btn-sm btn-outline-secondary" type="submit">Restore</button>
+    </form>
+    <a class="btn btn-sm btn-outline-danger" href="{{.Destroy}}">Delete for good</a>
+  </div>
 </div>
 {{end}}
 {{if .NextPage}}

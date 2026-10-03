@@ -373,3 +373,36 @@ func TestWhatCannotBeFiled(t *testing.T) {
 		}
 	})
 }
+
+// taken is a library where every name is already in use, which is the one way
+// to reach the end of the search for a free one.
+type taken struct{}
+
+func (taken) Write(context.Context, string, string, io.Reader, int64, string) (db.File, error) {
+	return db.File{}, errors.New("nothing should be written here")
+}
+func (taken) Stat(context.Context, string, string) (db.File, error) { return db.File{}, nil }
+func (taken) Mkdir(context.Context, string, string) (db.File, error) {
+	return db.File{}, errors.New("nothing should be made here")
+}
+
+// TestAHundredNamesTakenIsRefusedRatherThanNumberedForEver: the numbering is
+// bounded, because a folder that already holds a hundred copies of one name is
+// something to be told about rather than added to.
+func TestAHundredNamesTakenIsRefusedRatherThanNumberedForEver(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	w := incoming.New(dir, owner, taken{})
+	drop(t, dir, "scan.pdf", "whatever")
+
+	w.Pass(t.Context()) //nolint:errcheck // the first pass only measures.
+	switch imported, err := w.Pass(t.Context()); {
+	case err == nil || !strings.Contains(err.Error(), "is taken"):
+		t.Fatalf("Pass = %v, want the hundred names refused", err)
+	case imported != 0:
+		t.Errorf("imported %d", imported)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "scan.pdf")); err != nil {
+		t.Errorf("the file was removed although it was never stored: %v", err)
+	}
+}

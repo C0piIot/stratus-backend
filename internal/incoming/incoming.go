@@ -22,7 +22,6 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -260,13 +259,8 @@ func (w *Watcher) mkdirAll(ctx context.Context, dir string) error {
 // /playlists/ already disambiguate with, and the extension survives because it
 // is what the indexer reads.
 func (w *Watcher) free(ctx context.Context, target string) (string, error) {
-	ext := path.Ext(target)
-	stem := strings.TrimSuffix(target, ext)
 	for n := 1; n <= maxCopies; n++ {
-		candidate := target
-		if n > 1 {
-			candidate = stem + " (" + strconv.Itoa(n) + ")" + ext
-		}
+		candidate := db.CopyName(target, n)
 		switch _, err := w.files.Stat(ctx, w.owner, candidate); {
 		case errors.Is(err, db.ErrNotFound):
 			return candidate, nil

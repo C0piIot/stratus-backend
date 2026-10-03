@@ -278,3 +278,39 @@ func TestEmptyingTheTrashSurvivesNothing(t *testing.T) {
 		t.Error("the deletion was destroyed by a pass that failed")
 	}
 }
+
+// TestRestoreSurvivesNothing: a restore is one transaction, so a database that
+// fails halfway has to leave the deletion in the trash and the tree alone --
+// the half-restored folder is the thing this must never produce.
+func TestRestoreSurvivesNothing(t *testing.T) {
+	t.Parallel()
+	blobs, meta := breakable(t)
+	working := files.New(blobs, meta)
+	if _, err := working.Mkdir(t.Context(), owner, "album"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := working.Write(t.Context(), owner, "album/one.jpg", strings.NewReader("one"), 3, "image/jpeg"); err != nil {
+		t.Fatal(err)
+	}
+	if err := working.Remove(t.Context(), owner, "album"); err != nil {
+		t.Fatal(err)
+	}
+	batches, err := working.Trash(t.Context(), owner, db.TrashCursor{}, 10)
+	if err != nil || len(batches) != 1 {
+		t.Fatalf("Trash = %+v, %v", batches, err)
+	}
+
+	for _, method := range []string{"TrashedIn", "FileByPath", "CreateDir", "PutFile"} {
+		broken := files.New(blobs, dbtest.FailOn(t, meta, method))
+		if _, rerr := broken.Restore(t.Context(), owner, batches[0].ID); !errors.Is(rerr, dbtest.ErrInjected) {
+			t.Errorf("Restore with %s broken = %v, want the injected failure", method, rerr)
+		}
+		// Nothing landed, and the deletion is still there to try again.
+		if _, serr := working.Stat(t.Context(), owner, "album"); !errors.Is(serr, db.ErrNotFound) {
+			t.Errorf("%s: a failed restore left part of the tree behind", method)
+		}
+		if left, _ := working.Trash(t.Context(), owner, db.TrashCursor{}, 10); len(left) != 1 {
+			t.Errorf("%s: a failed restore emptied the trash anyway", method)
+		}
+	}
+}

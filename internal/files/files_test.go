@@ -394,13 +394,20 @@ func TestTheTrashKeepsOneEntryPerDeletion(t *testing.T) {
 	if len(batches) != 2 {
 		t.Fatalf("the trash holds %d deletions, want two", len(batches))
 	}
-	// Newest first, and a tree is named by the folder that was deleted rather
-	// than by the first file in it.
-	if batches[0].Root != "loose.txt" {
-		t.Errorf("the newest deletion is %q", batches[0].Root)
+	// A tree is named by the folder that was deleted rather than by the first
+	// file in it. Which of the two comes first is not asserted here: they are
+	// the same millisecond apart, so the order falls to the batch id, and the
+	// case that walks a page in order is in the conformance suite, where the
+	// clock is the test's.
+	byRoot := map[string]db.TrashBatch{}
+	for _, b := range batches {
+		byRoot[b.Root] = b
 	}
-	if got := batches[1]; got.Root != "album" || got.Files != 2 {
+	if got := byRoot["album"]; got.Files != 2 {
 		t.Errorf("the tree is %+v, want two files under album", got)
+	}
+	if got := byRoot["loose.txt"]; got.Files != 1 {
+		t.Errorf("the single file is %+v, want one", got)
 	}
 
 	totals, err := s.TrashTotals(t.Context(), owner)
@@ -660,4 +667,199 @@ func readTestdata(t *testing.T, name string) []byte {
 		t.Fatal(err)
 	}
 	return body
+}
+
+// TestRestoreAFile puts one back where it came from.
+func TestRestoreAFile(t *testing.T) {
+	t.Parallel()
+	s, blobs := service(t)
+	before := write(t, s, "notes.txt", "hello")
+	if err := s.Remove(t.Context(), owner, "notes.txt"); err != nil {
+		t.Fatal(err)
+	}
+
+	back, err := s.Restore(t.Context(), owner, onlyBatch(t, s))
+	if err != nil {
+		t.Fatalf("Restore: %v", err)
+	}
+	if back.Path != "notes.txt" {
+		t.Errorf("it came back at %q", back.Path)
+	}
+	// The row as it was, pointing at the bytes that never moved.
+	if back.BlobKey != before.BlobKey || back.ETag != before.ETag || back.Size != before.Size {
+		t.Errorf("it came back as %+v, want %+v", back, before)
+	}
+	if got := read(t, s, "notes.txt"); got != "hello" {
+		t.Errorf("the restored file reads %q", got)
+	}
+	if _, err := blobs.Stat(t.Context(), before.BlobKey); err != nil {
+		t.Errorf("the bytes are gone: %v", err)
+	}
+	// And it is out of the trash.
+	if batches, _ := s.Trash(t.Context(), owner, db.TrashCursor{}, 10); len(batches) != 0 {
+		t.Errorf("the deletion is still in the trash: %+v", batches)
+	}
+}
+
+// TestRestoreLandsBesideWhatTookItsName: restoring is not a PUT, and whatever
+// has the name now is not a mistake. A folder takes its contents with it.
+func TestRestoreLandsBesideWhatTookItsName(t *testing.T) {
+	t.Parallel()
+	s, _ := service(t)
+	if _, err := s.Mkdir(t.Context(), owner, "album"); err != nil {
+		t.Fatal(err)
+	}
+	write(t, s, "album/one.jpg", "the first one")
+	if err := s.Remove(t.Context(), owner, "album"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Somebody makes a new album with the same name and puts something in it.
+	if _, err := s.Mkdir(t.Context(), owner, "album"); err != nil {
+		t.Fatal(err)
+	}
+	write(t, s, "album/one.jpg", "a different one")
+
+	back, err := s.Restore(t.Context(), owner, onlyBatch(t, s))
+	if err != nil {
+		t.Fatalf("Restore: %v", err)
+	}
+	if back.Path != "album (2)" {
+		t.Fatalf("it came back at %q, want beside the one that took the name", back.Path)
+	}
+	if got := read(t, s, "album (2)/one.jpg"); got != "the first one" {
+		t.Errorf("the restored file reads %q", got)
+	}
+	if got := read(t, s, "album/one.jpg"); got != "a different one" {
+		t.Errorf("the file that was in the way reads %q", got)
+	}
+}
+
+// TestRestoreRebuildsTheWayBack: the folders above it were part of the same
+// tree until somebody deleted those too.
+func TestRestoreRebuildsTheWayBack(t *testing.T) {
+	t.Parallel()
+	s, _ := service(t)
+	for _, dir := range []string{"holiday", "holiday/album"} {
+		if _, err := s.Mkdir(t.Context(), owner, dir); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(t, s, "holiday/album/one.jpg", "one")
+
+	if err := s.Remove(t.Context(), owner, "holiday/album"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Remove(t.Context(), owner, "holiday"); err != nil {
+		t.Fatal(err)
+	}
+
+	// The older of the two deletions is the album, whose parent is now gone.
+	batches, err := s.Trash(t.Context(), owner, db.TrashCursor{}, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var album string
+	for _, b := range batches {
+		if b.Root == "holiday/album" {
+			album = b.ID
+		}
+	}
+	if album == "" {
+		t.Fatalf("the album is not in the trash: %+v", batches)
+	}
+
+	if _, err := s.Restore(t.Context(), owner, album); err != nil {
+		t.Fatalf("Restore: %v", err)
+	}
+	if dir, err := s.Stat(t.Context(), owner, "holiday"); err != nil || !dir.IsDir {
+		t.Errorf("the folder on the way back was not recreated: %+v %v", dir, err)
+	}
+	if got := read(t, s, "holiday/album/one.jpg"); got != "one" {
+		t.Errorf("the restored file reads %q", got)
+	}
+}
+
+// TestRestoreRefusesToDisplaceAFile: making room would mean deleting
+// somebody's file, and this is the function that puts things back.
+func TestRestoreRefusesToDisplaceAFile(t *testing.T) {
+	t.Parallel()
+	s, _ := service(t)
+	if _, err := s.Mkdir(t.Context(), owner, "holiday"); err != nil {
+		t.Fatal(err)
+	}
+	write(t, s, "holiday/one.jpg", "one")
+	if err := s.Remove(t.Context(), owner, "holiday"); err != nil {
+		t.Fatal(err)
+	}
+	// A file where the folder was.
+	write(t, s, "holiday", "not a folder any more")
+
+	// The root itself is taken by a file, so it lands beside it.
+	back, err := s.Restore(t.Context(), owner, onlyBatch(t, s))
+	if err != nil {
+		t.Fatalf("Restore: %v", err)
+	}
+	if back.Path != "holiday (2)" {
+		t.Errorf("it came back at %q", back.Path)
+	}
+	if got := read(t, s, "holiday"); got != "not a folder any more" {
+		t.Errorf("the file in the way reads %q", got)
+	}
+
+	// But an ancestor that is a file now is a conflict: there is nowhere to
+	// put the tree, and nothing here will delete a file to make room.
+	write(t, s, "trip", "a file")
+	if _, err := s.Mkdir(t.Context(), owner, "away"); err != nil {
+		t.Fatal(err)
+	}
+	write(t, s, "away/photo.jpg", "x")
+	if err := s.Remove(t.Context(), owner, "away/photo.jpg"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Remove(t.Context(), owner, "away"); err != nil {
+		t.Fatal(err)
+	}
+	// Move the file into the way by renaming it over where "away" was.
+	if err := s.Move(t.Context(), owner, "trip", "away"); err != nil {
+		t.Fatal(err)
+	}
+
+	var photo string
+	batches, _ := s.Trash(t.Context(), owner, db.TrashCursor{}, 10)
+	for _, b := range batches {
+		if b.Root == "away/photo.jpg" {
+			photo = b.ID
+		}
+	}
+	if _, err := s.Restore(t.Context(), owner, photo); !errors.Is(err, db.ErrConflict) {
+		t.Errorf("Restore under a file = %v, want ErrConflict", err)
+	}
+	if got := read(t, s, "away"); got != "a file" {
+		t.Errorf("the file in the way reads %q", got)
+	}
+}
+
+// TestRestoreOfNothing: a deletion that is not there is not found, and a
+// button pressed twice says so rather than restoring something twice.
+func TestRestoreOfNothing(t *testing.T) {
+	t.Parallel()
+	s, _ := service(t)
+	if _, err := s.Restore(t.Context(), owner, "never-existed"); !errors.Is(err, db.ErrNotFound) {
+		t.Errorf("Restore of nothing = %v, want ErrNotFound", err)
+	}
+}
+
+// onlyBatch is the one deletion in the trash, for the cases that made exactly
+// one.
+func onlyBatch(t *testing.T, s *files.Service) string {
+	t.Helper()
+	batches, err := s.Trash(t.Context(), owner, db.TrashCursor{}, 10)
+	if err != nil {
+		t.Fatalf("Trash: %v", err)
+	}
+	if len(batches) != 1 {
+		t.Fatalf("the trash holds %d deletions, want one", len(batches))
+	}
+	return batches[0].ID
 }
