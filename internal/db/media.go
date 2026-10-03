@@ -120,8 +120,16 @@ type Media struct {
 // separate questions. An artist must not match because the words were in the
 // title of one of its tracks.
 type Folded struct {
-	// Song is the track's own text: its title and the artist credited on it.
-	Song string
+	// Title is the track's own name, and Artist whoever is credited on that
+	// track rather than on the record it is from.
+	//
+	// **One column each, and that is #262's doing.** They were one -- the
+	// track's text -- until a search started answering an artist as a row of
+	// its own: a bucket that promises the title cannot read a column that also
+	// holds the name of whoever played it, or every track by somebody comes
+	// back under their own name again. Music.Search still reads both, so
+	// OpenSubsonic answers what it always did.
+	Title, Artist string
 	// Album and AlbumArtist are the two names an album is filed under, and the
 	// keys the album and artist listings group by.
 	Album, AlbumArtist string
@@ -137,7 +145,8 @@ type Folded struct {
 // Fold returns the folded text for m. Drivers must store exactly this.
 func (m Media) Fold() Folded {
 	return Folded{
-		Song:        fold(m.Title, m.Artist),
+		Title:       fold(m.Title),
+		Artist:      fold(m.Artist),
 		Album:       fold(m.Album),
 		AlbumArtist: fold(m.AlbumArtist),
 		Photo:       fold(m.Camera, taken(m.TakenAt)),

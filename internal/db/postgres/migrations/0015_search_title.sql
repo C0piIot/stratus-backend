@@ -1,0 +1,21 @@
+-- The folded song becomes two columns (#262).
+--
+-- A search now answers an artist as a row of its own, so the bucket that
+-- answers tracks has to be about the title and nothing else. It could not be:
+-- search_song held the title and the artist credited on the track together,
+-- which is why searching for somebody's name came back as everything they ever
+-- recorded. Two columns, one tag each; the rename carries into the generated
+-- search_tags without touching it, because an expression here refers to a
+-- column and not to its name.
+--
+-- search_tags keeps the three it already had and does not grow the new one.
+-- What it is for is narrowing: the three buckets over tags each match one
+-- column, and this index is what gets them off the library before the column
+-- decides. Nothing matches the credited artist through it -- Music.Search
+-- scans with LIKE on this engine -- so a fourth name in the vector would be
+-- written by every PutMedia and read by nobody.
+--
+-- Nothing backfills the columns, for the reason #85 gives and media.Version 8
+-- answers.
+ALTER TABLE media RENAME COLUMN search_song TO search_title;
+ALTER TABLE media ADD COLUMN search_artist TEXT NOT NULL DEFAULT '';

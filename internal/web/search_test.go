@@ -56,8 +56,8 @@ func TestAnEmptyBoxIsAPageAndNotAnError(t *testing.T) {
 	has(t, rec.Body.String(), "Type into the box")
 }
 
-// TestASearchFindsNamesAndTags, which is the whole feature: one box, both
-// halves of the library.
+// TestASearchFindsNamesAndTags, which is the whole feature: one box, every
+// shape in the library.
 func TestASearchFindsNamesAndTags(t *testing.T) {
 	t.Parallel()
 	h, s, meta := browserOver(t)
@@ -77,8 +77,8 @@ func TestASearchFindsNamesAndTags(t *testing.T) {
 	}
 
 	// The music half is the tags and not the names: a word in a filename finds
-	// the file above, and a word in a tag finds the track here.
-	tagged := get(t, h, "/search?q=autechre", cookie).Body.String()
+	// the file above, and a track's own title finds the track here.
+	tagged := get(t, h, "/search?q=montreal", cookie).Body.String()
 	has(t, tagged, ">Montreal<", "Autechre", "/music/Autechre/Amber")
 
 	// A folder is found by its own name, and what is inside it is not dragged
@@ -90,13 +90,80 @@ func TestASearchFindsNamesAndTags(t *testing.T) {
 	}
 }
 
+// TestAnArtistIsOneLineAndNotTheirDiscography is #262's decision seen from the
+// page: a word that is somebody's name answers with the name, and their tracks
+// stay where they are, which is under it.
+func TestAnArtistIsOneLineAndNotTheirDiscography(t *testing.T) {
+	t.Parallel()
+	h, s, meta := browserOver(t)
+	cookie := signIn(t, h)
+	for i, title := range []string{"Montreal", "Nine", "Silverside"} {
+		addTrack(t, s, meta, fmt.Sprintf("autechre-%d.flac", i), db.Media{
+			AlbumArtist: "Autechre", Artist: "Autechre", Album: "Amber", Title: title,
+		})
+	}
+
+	body := get(t, h, "/search?q=autechre", cookie).Body.String()
+	has(t, body, `href="/music/Autechre"`, "1 album")
+	for _, title := range []string{">Montreal<", ">Nine<", ">Silverside<"} {
+		if strings.Contains(body, title) {
+			t.Errorf("an artist's tracks came back with them (%s):\n%s", title, body)
+		}
+	}
+
+	// And an album is its own line too, with who it is by under it.
+	album := get(t, h, "/search?q=amber", cookie).Body.String()
+	has(t, album, `href="/music/Autechre/Amber"`, "3 tracks")
+}
+
+// TestTheTwoNameBucketsPage: artists and albums resume by name, which is a
+// different cursor from the one the three made of files use.
+func TestTheTwoNameBucketsPage(t *testing.T) {
+	t.Parallel()
+	h, s, meta := browserOver(t)
+	cookie := signIn(t, h)
+	for i := range 60 {
+		addTrack(t, s, meta, fmt.Sprintf("lumen-%02d.flac", i), db.Media{
+			AlbumArtist: fmt.Sprintf("Lumen %02d", i),
+			Artist:      fmt.Sprintf("Lumen %02d", i),
+			Album:       fmt.Sprintf("Lumen %02d", i),
+			Title:       "Untitled",
+		})
+	}
+
+	first := get(t, h, "/search?q=lumen&in=artists", cookie).Body.String()
+	if strings.Contains(first, ">Lumen 59<") {
+		t.Error("the first page holds the last artist, so nothing was paged")
+	}
+	next := nextLink.FindStringSubmatch(first)
+	if next == nil {
+		t.Fatalf("no link to the rest of the artists:\n%s", first)
+	}
+	has(t, next[1], "in=artists", "after=Lumen")
+
+	second := get(t, h, html(next[1]), cookie).Body.String()
+	has(t, second, ">Lumen 59<")
+	if strings.Contains(second, ">Lumen 00<") {
+		t.Errorf("the second page repeats the first:\n%s", second)
+	}
+
+	// An album resumes by two names, so its cursor carries both.
+	albums := get(t, h, "/search?q=lumen&in=albums", cookie).Body.String()
+	link := nextLink.FindStringSubmatch(albums)
+	if link == nil {
+		t.Fatalf("no link to the rest of the albums:\n%s", albums)
+	}
+	has(t, link[1], "in=albums", "%2F")
+	has(t, get(t, h, html(link[1]), cookie).Body.String(), ">Lumen 59<")
+}
+
 func TestASearchThatFindsNothingSaysSo(t *testing.T) {
 	t.Parallel()
 	h, s := browser(t)
 	write(t, s, "notes.txt", "x")
 
 	body := get(t, h, "/search?q=nothinghere", signIn(t, h)).Body.String()
-	has(t, body, "Nothing is called that", "No track is tagged that")
+	has(t, body, "Nothing is called that", "No music is called that")
 }
 
 // TestOneHalfAtATime: the "more" link narrows the page to the half somebody is
@@ -106,16 +173,16 @@ func TestOneHalfAtATime(t *testing.T) {
 	h, s, meta := browserOver(t)
 	cookie := signIn(t, h)
 	write(t, s, "sunset.txt", "a file")
-	addTrack(t, s, meta, "track.flac", db.Media{Artist: "Sunset", Title: "One"})
+	addTrack(t, s, meta, "track.flac", db.Media{Artist: "Boards", Title: "Sunset"})
 
 	files := get(t, h, "/search?q=sunset&in=files", cookie).Body.String()
 	has(t, files, ">sunset.txt")
-	if strings.Contains(files, ">One<") {
+	if strings.Contains(files, ">Sunset<") {
 		t.Errorf("a files-only page showed tracks:\n%s", files)
 	}
 
 	tracks := get(t, h, "/search?q=sunset&in=tracks", cookie).Body.String()
-	has(t, tracks, ">One<")
+	has(t, tracks, ">Sunset<")
 	if strings.Contains(tracks, ">sunset.txt") {
 		t.Errorf("a tracks-only page showed files:\n%s", tracks)
 	}
@@ -160,7 +227,7 @@ func TestHtmxGetsOneHalfAndNothingElse(t *testing.T) {
 	h, s, meta := browserOver(t)
 	cookie := signIn(t, h)
 	write(t, s, "sunset.txt", "a file")
-	addTrack(t, s, meta, "track.flac", db.Media{Artist: "Sunset", Title: "One"})
+	addTrack(t, s, meta, "track.flac", db.Media{Artist: "Boards", Title: "Sunset"})
 
 	files := htmx(t, h, "/search?q=sunset&in=files", cookie).Body.String()
 	if !strings.HasPrefix(strings.TrimSpace(files), "<tr") || strings.Contains(files, "<!doctype") {
@@ -170,7 +237,7 @@ func TestHtmxGetsOneHalfAndNothingElse(t *testing.T) {
 	if strings.Contains(tracks, "<!doctype") || strings.Contains(tracks, "<tr") {
 		t.Errorf("htmx was given a document rather than the track list:\n%s", tracks)
 	}
-	has(t, tracks, "list-group-item", ">One<")
+	has(t, tracks, "list-group-item", ">Sunset<")
 }
 
 func TestASearchThatIsNotOne(t *testing.T) {
@@ -205,19 +272,27 @@ func TestASearchIsNotSharedReading(t *testing.T) {
 	}
 }
 
-// TestATrackWithNoTagsIsStillFound: the music half shows what it is called when
-// nothing has read its tags, which is the state every track is in for the
-// minute after it arrives.
+// TestATrackWithNoTagsIsStillFound: a track nothing has read is found by its
+// name, in the files bucket, which is the state every track is in for the
+// minute after it arrives. The music bucket matches titles, and a row with no
+// tags has none -- so the two buckets divide this between them rather than one
+// of them inventing a title out of the path.
 func TestATrackWithNoTagsIsStillFound(t *testing.T) {
 	t.Parallel()
 	h, s, meta := browserOver(t)
-	addTrack(t, s, meta, "sunset.flac", db.Media{Artist: "Sunset Collective"})
+	cookie := signIn(t, h)
+	addTrack(t, s, meta, "sunset.flac", db.Media{})
 
-	body := get(t, h, "/search?q=sunset&in=tracks", signIn(t, h)).Body.String()
-	has(t, body, ">sunset.flac<", "Sunset Collective")
-	// No album, so no link to one and no duration beside it.
-	if strings.Contains(body, ">Album<") {
-		t.Errorf("a track with no album offered a link to one:\n%s", body)
+	body := get(t, h, "/search?q=sunset", cookie).Body.String()
+	has(t, body, ">sunset.flac", "No music is called that")
+
+	// And one that has been read shows its tags and not its name, with no link
+	// to an album it is not on.
+	addTrack(t, s, meta, "02.flac", db.Media{Artist: "Collective", Title: "Harbour"})
+	tagged := get(t, h, "/search?q=harbour&in=tracks", cookie).Body.String()
+	has(t, tagged, ">Harbour<", "Collective")
+	if strings.Contains(tagged, ">Album<") {
+		t.Errorf("a track with no album offered a link to one:\n%s", tagged)
 	}
 }
 

@@ -130,13 +130,18 @@ type view struct {
 	Columns []column
 	Rows    []rowChoice
 	// Query is what was typed into the search box, on every page so the box
-	// keeps it, and Found and MoreTracks are the music half of a result. Only
-	// is the half a result page was narrowed to, empty when it shows both.
-	Query      string
-	Found      []foundTrack
-	MoreTracks string
-	MorePhotos string
-	Only       string
+	// keeps it, and the five fields under it are a result: a bucket of rows
+	// and the link to the rest of each. Only is the bucket a result page was
+	// narrowed to, empty when it shows them all.
+	Query        string
+	Found        []foundTrack
+	FoundArtists []foundArtist
+	FoundAlbums  []foundAlbum
+	MoreTracks   string
+	MorePhotos   string
+	MoreArtists  string
+	MoreAlbums   string
+	Only         string
 	// Counts and the three fields under it are the status page: how much of the
 	// library has been looked at, and by which extractor.
 	Counts       db.MediaCounts
@@ -179,6 +184,11 @@ type view struct {
 	Albums  []albumRow
 	Album   *albumView
 }
+
+// Shows reports whether a result page is showing one of its buckets: all of
+// them, or the one it was narrowed to. A method rather than a field per bucket,
+// because five of those in the template is five chances to spell one wrong.
+func (v view) Shows(bucket string) bool { return v.Only == "" || v.Only == bucket }
 
 // render writes a whole page or none of it. The buffer is the point: a template
 // that failed halfway would otherwise have already sent a 200 and half the

@@ -389,7 +389,7 @@ const mediaColumns = `file_id, kind, indexed_at, version, etag, error, retry_at,
 // matches on. They are written and filtered but never read back: they are how
 // the row is stored, not part of what a db.Media is, so scanMedia does not know
 // about them.
-const mediaWriteColumns = mediaColumns + `, search_song, search_album, search_album_artist, search_photo`
+const mediaWriteColumns = mediaColumns + `, search_title, search_artist, search_album, search_album_artist, search_photo`
 
 // PutMedia implements db.MediaIndex.
 func (r *repo) PutMedia(ctx context.Context, m db.Media) error {
@@ -412,7 +412,7 @@ func (r *repo) PutMedia(ctx context.Context, m db.Media) error {
 	}
 
 	const query = `INSERT INTO media (` + mediaWriteColumns + `)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		AS new
 		ON DUPLICATE KEY UPDATE
 			kind = new.kind, indexed_at = new.indexed_at, version = new.version,
@@ -426,7 +426,8 @@ func (r *repo) PutMedia(ctx context.Context, m db.Media) error {
 			color_primaries = new.color_primaries, color_transfer = new.color_transfer, color_space = new.color_space, dovi_profile = new.dovi_profile, artist = new.artist,
 			album = new.album, title = new.title, track_no = new.track_no,
 			disc_no = new.disc_no, year = new.year, genre = new.genre,
-			album_artist = new.album_artist, search_song = new.search_song,
+			album_artist = new.album_artist,
+			search_title = new.search_title, search_artist = new.search_artist,
 			search_album = new.search_album,
 			search_album_artist = new.search_album_artist,
 			search_photo = new.search_photo`
@@ -436,7 +437,7 @@ func (r *repo) PutMedia(ctx context.Context, m db.Media) error {
 		m.Width, m.Height, m.Orientation, lat, lon, m.Camera,
 		m.DurationMS, m.Codec, m.Bitrate, m.SampleRate, m.Channels, m.BitDepth, m.CodecProfile, m.Level, m.FrameRate, m.AudioCodec, m.ColorPrimaries, m.ColorTransfer, m.ColorSpace, m.DoViProfile, m.Artist, m.Album, m.Title,
 		m.TrackNo, m.DiscNo, m.Year, m.Genre,
-		m.AlbumArtist, folded.Song, folded.Album, folded.AlbumArtist, folded.Photo,
+		m.AlbumArtist, folded.Title, folded.Artist, folded.Album, folded.AlbumArtist, folded.Photo,
 	)
 	if err != nil {
 		return fmt.Errorf("put media for file %d: %w", m.FileID, mapErr(err))
@@ -834,7 +835,8 @@ func (r *repo) Search(ctx context.Context, owner string, f db.SearchFilter) (db.
 	tracks := `SELECT ` + joinedFileColumns + `, ` + joinedMediaColumns + `
 		FROM media m JOIN files f ON f.id = m.file_id
 		WHERE f.owner_id = ? AND m.kind = ?
-		  AND (m.search_song LIKE ? ESCAPE '` + likeEscape + `'
+		  AND (m.search_title LIKE ? ESCAPE '` + likeEscape + `'
+		    OR m.search_artist LIKE ? ESCAPE '` + likeEscape + `'
 		    OR m.search_album LIKE ? ESCAPE '` + likeEscape + `'
 		    OR m.search_album_artist LIKE ? ESCAPE '` + likeEscape + `')
 		ORDER BY m.album_artist, m.album, m.disc_no, m.track_no, f.path
@@ -851,7 +853,7 @@ func (r *repo) Search(ctx context.Context, owner string, f db.SearchFilter) (db.
 		return db.SearchResult{}, fmt.Errorf("search albums: %w", mapErr(err))
 	}
 	if out.Tracks, err = sqlutil.Collect(ctx, r.q, scanTrack, tracks,
-		owner, kind, term, term, term, f.Tracks.Limit, f.Tracks.Offset); err != nil {
+		owner, kind, term, term, term, term, f.Tracks.Limit, f.Tracks.Offset); err != nil {
 		return db.SearchResult{}, fmt.Errorf("search tracks: %w", mapErr(err))
 	}
 	return out, nil
@@ -1165,6 +1167,12 @@ func phrase(term string) string {
 // A word shorter than innodb_ft_min_token_size -- three by default -- is not in
 // the index and finds nothing here. That is the floor db.Finder's promise is
 // written to clear, and why its conformance cases use longer words.
+//
+// **One key per column, which is this engine's alone** (#262). A MATCH has to
+// name exactly the columns some FULLTEXT key was built on and cannot be
+// restricted to one of them, so the three buckets over tags each got their own
+// index in migration 0015. The other two engines restrict a match to a column
+// and keep the one index they had.
 func (r *repo) Find(ctx context.Context, owner string, f db.FindFilter) (db.FindResult, error) {
 	var out db.FindResult
 	if err := f.Validate(); err != nil {
@@ -1183,10 +1191,29 @@ func (r *repo) Find(ctx context.Context, owner string, f db.FindFilter) (db.Find
 	tracks := `SELECT ` + joinedFileColumns + `, ` + joinedMediaColumns + `
 		FROM media m JOIN files f ON f.id = m.file_id
 		WHERE f.owner_id = ? AND m.kind = ?
-		  AND MATCH(m.search_song, m.search_album, m.search_album_artist)
-		      AGAINST (` + nameFlat + ` IN BOOLEAN MODE)
+		  AND ` + tagColumn("search_title") + `
 		  AND f.path > ?
 		ORDER BY f.path LIMIT ?`
+
+	artists := `SELECT m.album_artist, COUNT(DISTINCT m.album)
+		FROM media m JOIN files f ON f.id = m.file_id
+		WHERE f.owner_id = ? AND m.kind = ?
+		  AND ` + tagColumn("search_album_artist") + `
+		  AND m.album_artist <> '' AND m.album <> '' AND m.album_artist > ?
+		GROUP BY m.album_artist
+		ORDER BY m.album_artist LIMIT ?`
+
+	// The cursor is spelled out rather than written as a row comparison, which
+	// is this dialect's rule everywhere else too: it does not range-optimise
+	// one. Here it changes no plan -- what these rows came out of is a
+	// FULLTEXT match and a GROUP BY -- and the form stays the same as the
+	// listing's so that one driver does not read two ways.
+	albums := albumSelect + `
+		WHERE f.owner_id = ? AND m.kind = ?
+		  AND ` + tagColumn("search_album") + `
+		  AND m.album <> ''
+		  AND (m.album_artist > ? OR (m.album_artist = ? AND m.album > ?))` + albumGroup + `
+		ORDER BY m.album_artist, m.album LIMIT ?`
 
 	photos := `SELECT ` + joinedFileColumns + `
 		FROM media m JOIN files f ON f.id = m.file_id
@@ -1215,5 +1242,27 @@ func (r *repo) Find(ctx context.Context, owner string, f db.FindFilter) (db.Find
 			return db.FindResult{}, fmt.Errorf("find photos: %w", mapErr(err))
 		}
 	}
+	if f.Artists.Wanted() {
+		if out.Artists, err = sqlutil.Collect(ctx, r.q, scanArtist, artists,
+			owner, string(db.KindAudio), phrase(term),
+			f.Artists.After.Artist, f.Artists.Limit); err != nil {
+			return db.FindResult{}, fmt.Errorf("find artists: %w", mapErr(err))
+		}
+	}
+	if f.Albums.Wanted() {
+		if out.Albums, err = sqlutil.Collect(ctx, r.q, scanAlbum, albums,
+			owner, string(db.KindAudio), phrase(term),
+			f.Albums.After.Artist, f.Albums.After.Artist, f.Albums.After.Album,
+			f.Albums.Limit); err != nil {
+			return db.FindResult{}, fmt.Errorf("find albums: %w", mapErr(err))
+		}
+	}
 	return out, nil
+}
+
+// tagColumn is one bucket's match, over the key migration 0015 gave that
+// column. Written here rather than three times, because what differs between
+// the three is the column and nothing else.
+func tagColumn(column string) string {
+	return `MATCH(m.` + column + `) AGAINST (` + nameFlat + ` IN BOOLEAN MODE)`
 }

@@ -32,13 +32,17 @@ func RunFind(t *testing.T, newRepo func(t *testing.T) db.Repo) {
 		{"the separators in a name are word boundaries", findSeparators},
 		{"case does not matter", findCase},
 		{"several words are a phrase", findPhrase},
-		{"a tag finds its track", findTags},
+		{"a word of a title finds the track", findTitles},
+		{"an artist and an album are not two hundred tracks", findTagsAreNotTracks},
+		{"an album artist is a result of its own", findArtists},
+		{"an album is a result of its own", findAlbums},
 		{"a camera and a year find a photograph", findPhotos},
 		{"a photograph with nothing recorded is not found by nothing", findPhotosBlank},
 		{"a search sees one owner", findOwner},
 		{"an empty term finds nothing", findEmpty},
 		{"a half nobody asked for is not answered", findUnwanted},
 		{"a search is walked a page at a time", findPaged},
+		{"artists and albums are walked a page at a time", findPagedTags},
 		{"a cursor still resumes after its row is deleted", findPagedDeletedCursor},
 		{"a page of no rows is refused", findLimit},
 	}
@@ -57,12 +61,19 @@ func found(t *testing.T, s db.Repo, text string) []string {
 	return foundIn(t, s, db.FindFilter{Text: text, Files: db.Window{Limit: 50}})
 }
 
-func foundIn(t *testing.T, s db.Repo, f db.FindFilter) []string {
+// find is one search, with the error already failed on.
+func find(t *testing.T, s db.Repo, f db.FindFilter) db.FindResult {
 	t.Helper()
 	result, err := s.Find(t.Context(), owner, f)
 	if err != nil {
 		t.Fatalf("Find(%+v): %v", f, err)
 	}
+	return result
+}
+
+func foundIn(t *testing.T, s db.Repo, f db.FindFilter) []string {
+	t.Helper()
+	result := find(t, s, f)
 	out := make([]string, 0, len(result.Files)+len(result.Tracks)+len(result.Photos))
 	for _, file := range result.Files {
 		out = append(out, file.Path)
@@ -136,20 +147,77 @@ func findPhrase(t *testing.T, s db.Repo) {
 	}
 }
 
-func findTags(t *testing.T, s db.Repo) {
-	catalogue(t, s,
-		record{artist: "Autechre", album: "Amber"},
-		record{artist: "Burial", album: "Untrue"},
-	)
+// findTitles: what finds a track is its own title. Its artist and its album
+// find the artist and the album, which is the case below.
+func findTitles(t *testing.T, s db.Repo) {
+	records(t, s)
 
-	tracks := db.FindFilter{Text: "autechre", Tracks: db.Window{Limit: 50}}
-	if got := foundIn(t, s, tracks); len(got) != 1 {
-		t.Errorf("autechre = %v, want its one track", got)
+	tracks := db.Window{Limit: 50}
+	if got := foundIn(t, s, db.FindFilter{Text: "foil", Tracks: tracks}); len(got) != 1 {
+		t.Errorf("foil = %v, want the track called that", got)
 	}
-	album := db.FindFilter{Text: "untrue", Tracks: db.Window{Limit: 50}}
-	if got := foundIn(t, s, album); len(got) != 1 {
-		t.Errorf("untrue = %v, want the track on it", got)
+	if got := foundIn(t, s, db.FindFilter{Text: "nothinghere", Tracks: tracks}); len(got) != 0 {
+		t.Errorf("a word no track is called = %v, want nothing", got)
 	}
+}
+
+// findTagsAreNotTracks is the decision #262 made, written as a test: a word
+// that is somebody's name matches everything they ever recorded, so it answers
+// one artist instead of two hundred tracks. The negative is the whole point --
+// without it this is the search that was here before.
+func findTagsAreNotTracks(t *testing.T, s db.Repo) {
+	records(t, s)
+
+	for _, term := range []string{"autechre", "amber"} {
+		got := foundIn(t, s, db.FindFilter{Text: term, Tracks: db.Window{Limit: 50}})
+		if len(got) != 0 {
+			t.Errorf("%q came back as tracks: %v", term, got)
+		}
+	}
+}
+
+func findArtists(t *testing.T, s db.Repo) {
+	records(t, s)
+
+	result := find(t, s, db.FindFilter{Text: "autechre", Artists: db.TagWindow{Limit: 50}})
+	if len(result.Artists) != 1 || result.Artists[0].Name != "Autechre" {
+		t.Fatalf("autechre = %+v, want the one artist", result.Artists)
+	}
+	if result.Artists[0].AlbumCount != 1 {
+		t.Errorf("album count = %d, want 1", result.Artists[0].AlbumCount)
+	}
+
+	// The album's word is not the artist's, or a search would answer every
+	// bucket with everything.
+	if got := find(t, s, db.FindFilter{Text: "amber", Artists: db.TagWindow{Limit: 50}}); len(got.Artists) != 0 {
+		t.Errorf("an album name came back as an artist: %+v", got.Artists)
+	}
+}
+
+func findAlbums(t *testing.T, s db.Repo) {
+	records(t, s)
+
+	result := find(t, s, db.FindFilter{Text: "amber", Albums: db.TagWindow{Limit: 50}})
+	if len(result.Albums) != 1 {
+		t.Fatalf("amber = %+v, want the one album", result.Albums)
+	}
+	if got := result.Albums[0]; got.Name != "Amber" || got.Artist != "Autechre" {
+		t.Errorf("album = %q by %q, want Amber by Autechre", got.Name, got.Artist)
+	}
+	if got := find(t, s, db.FindFilter{Text: "autechre", Albums: db.TagWindow{Limit: 50}}); len(got.Albums) != 0 {
+		t.Errorf("an artist name came back as an album: %+v", got.Albums)
+	}
+}
+
+// records is the two-track library the tag cases are written against. Every
+// word in it is four letters or more and none is a common one, for the reason
+// at the top of this file.
+func records(t *testing.T, s db.Repo) {
+	t.Helper()
+	catalogue(t, s,
+		record{artist: "Autechre", album: "Amber", title: "Foil"},
+		record{artist: "Burial", album: "Untrue", title: "Archangel"},
+	)
 }
 
 // shot stores an image and the row an extractor would have left beside it.
@@ -244,16 +312,18 @@ func findUnwanted(t *testing.T, s db.Repo) {
 	put(t, s, file("holiday/amber.jpg"))
 	catalogue(t, s, record{artist: "Autechre", album: "Amber"})
 
-	result, err := s.Find(t.Context(), owner,
-		db.FindFilter{Text: "amber", Files: db.Window{Limit: 50}})
-	if err != nil {
-		t.Fatal(err)
-	}
+	result := find(t, s, db.FindFilter{Text: "amber", Files: db.Window{Limit: 50}})
 	if len(result.Files) == 0 {
-		t.Error("the half that was asked for came back empty")
+		t.Error("the bucket that was asked for came back empty")
 	}
 	if len(result.Tracks) != 0 {
 		t.Errorf("tracks = %+v, want none: nothing asked for them", result.Tracks)
+	}
+	if len(result.Albums) != 0 {
+		t.Errorf("albums = %+v, want none: nothing asked for them", result.Albums)
+	}
+	if len(result.Artists) != 0 {
+		t.Errorf("artists = %+v, want none: nothing asked for them", result.Artists)
 	}
 }
 
@@ -335,5 +405,70 @@ func findLimit(t *testing.T, s db.Repo) {
 	if _, err := s.Find(t.Context(), owner,
 		db.FindFilter{Text: "sunset", Files: db.Window{Limit: -1}}); err == nil {
 		t.Error("a page of -1 rows was allowed")
+	}
+	if _, err := s.Find(t.Context(), owner,
+		db.FindFilter{Text: "sunset", Artists: db.TagWindow{Limit: -1}}); err == nil {
+		t.Error("a page of -1 artists was allowed")
+	}
+}
+
+// findPagedTags walks the two buckets whose cursor is a name rather than a
+// path, and for the same reason findPaged walks the others: every row once and
+// in one order.
+//
+// The names are one word apart and differ in a letter, not in a space or a
+// hyphen: how a database orders text is its own, and a case that depended on
+// where a collation files a separator would pass on one engine and fail on
+// another.
+func findPagedTags(t *testing.T, s db.Repo) {
+	catalogue(t, s,
+		record{artist: "Solstice Alpha", album: "Lumen Alpha"},
+		record{artist: "Solstice Bravo", album: "Lumen Bravo"},
+		record{artist: "Solstice Charlie", album: "Lumen Charlie"},
+	)
+
+	var artists []string
+	after := db.TagCursor{}
+	for range 4 {
+		page := find(t, s, db.FindFilter{
+			Text: "solstice", Artists: db.TagWindow{After: after, Limit: 2},
+		})
+		if len(page.Artists) > 2 {
+			t.Fatalf("a page of 2 came back with %d", len(page.Artists))
+		}
+		if len(page.Artists) == 0 {
+			break
+		}
+		for _, a := range page.Artists {
+			artists = append(artists, a.Name)
+		}
+		after = db.TagCursor{Artist: page.Artists[len(page.Artists)-1].Name}
+	}
+	want := []string{"Solstice Alpha", "Solstice Bravo", "Solstice Charlie"}
+	if !slices.Equal(artists, want) {
+		t.Errorf("walked the artists as %v, want %v", artists, want)
+	}
+
+	var albums []string
+	after = db.TagCursor{}
+	for range 4 {
+		page := find(t, s, db.FindFilter{
+			Text: "lumen", Albums: db.TagWindow{After: after, Limit: 2},
+		})
+		if len(page.Albums) > 2 {
+			t.Fatalf("a page of 2 came back with %d", len(page.Albums))
+		}
+		if len(page.Albums) == 0 {
+			break
+		}
+		for _, a := range page.Albums {
+			albums = append(albums, a.Name)
+		}
+		last := page.Albums[len(page.Albums)-1]
+		after = db.TagCursor{Artist: last.Artist, Album: last.Name}
+	}
+	want = []string{"Lumen Alpha", "Lumen Bravo", "Lumen Charlie"}
+	if !slices.Equal(albums, want) {
+		t.Errorf("walked the albums as %v, want %v", albums, want)
 	}
 }

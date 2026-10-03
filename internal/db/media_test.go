@@ -68,8 +68,11 @@ func TestMediaFold(t *testing.T) {
 
 	// Case-folded past ASCII, which is the whole point: neither engine's own
 	// lower() would agree with the other about Ó.
-	if want := "jóga björk"; got.Song != want {
-		t.Errorf("Song = %q, want %q", got.Song, want)
+	if want := "jóga"; got.Title != want {
+		t.Errorf("Title = %q, want %q", got.Title, want)
+	}
+	if want := "björk"; got.Artist != want {
+		t.Errorf("Artist = %q, want %q", got.Artist, want)
 	}
 	if want := "homogenic"; got.Album != want {
 		t.Errorf("Album = %q, want %q", got.Album, want)
@@ -81,7 +84,7 @@ func TestMediaFold(t *testing.T) {
 	}
 
 	// A missing tag leaves no stray space to match on.
-	if bare := (db.Media{Title: "Untagged"}).Fold(); bare.Song != "untagged" || bare.Album != "" {
+	if bare := (db.Media{Title: "Untagged"}).Fold(); bare.Title != "untagged" || bare.Artist != "" || bare.Album != "" {
 		t.Errorf("a row with only a title folded to %+v", bare)
 	}
 	// And both sides of the comparison go through the same folding.
