@@ -4,17 +4,20 @@
 {{if not .Query}}
 <div class="card">
   <div class="card-body text-body-secondary">
-    Type into the box above to find a file or a folder by its name, or a track
-    by its title, artist or album. Whole words, and several of them mean those
-    words in that order.
+    Type into the box above to find a file or a folder by its name, a track by
+    its title, or an artist, an album or a photograph by what the tags and the
+    camera say. Whole words, and several of them mean those words in that
+    order.
   </div>
 </div>
 {{else}}
 
-{{/* Each half is shown unless the page was narrowed to the other one. A half
+{{/* Each bucket is shown unless the page was narrowed to another one. A bucket
      with nothing in it says so rather than disappearing, or a search that found
-     only tracks would look like a search that found only half an answer. */}}
-{{if ne .Only "tracks"}}
+     only tracks would look like a search that found only half an answer -- but
+     the three music ones say it once between them, since five lines of "no"
+     around one answer is a page that reads as a failure. */}}
+{{if .Shows "files"}}
 <h2 class="h6 text-body-secondary">Files</h2>
 {{if .Entries}}
 <div class="card mb-4">
@@ -39,18 +42,29 @@
 {{end}}
 {{end}}
 
-{{if ne .Only "files"}}
+{{if or (.Shows "artists") (.Shows "albums") (.Shows "tracks")}}
 <h2 class="h6 text-body-secondary">Music</h2>
-{{if .Found}}
+{{if .Shows "artists"}}{{if .FoundArtists}}
+<div class="list-group mb-4">
+  {{template "artists" .}}
+</div>
+{{end}}{{end}}
+{{if .Shows "albums"}}{{if .FoundAlbums}}
+<div class="list-group mb-4">
+  {{template "albums" .}}
+</div>
+{{end}}{{end}}
+{{if .Shows "tracks"}}{{if .Found}}
 <div class="list-group mb-4">
   {{template "tracks" .}}
 </div>
-{{else}}
-<p class="text-body-secondary small mb-4">No track is tagged that.</p>
+{{end}}{{end}}
+{{if and (not .FoundArtists) (not .FoundAlbums) (not .Found)}}
+<p class="text-body-secondary small mb-4">No music is called that.</p>
 {{end}}
 {{end}}
 
-{{if ne .Only "files"}}{{if ne .Only "tracks"}}
+{{if .Shows "photos"}}
 <h2 class="h6 text-body-secondary">Photos</h2>
 {{if .Tiles}}
 <div class="row g-1 mb-4">
@@ -59,7 +73,7 @@
 {{else}}
 <p class="text-body-secondary small mb-4">No photograph was taken by anything called that.</p>
 {{end}}
-{{end}}{{end}}
+{{end}}
 
 {{end}}
 
@@ -83,7 +97,45 @@
 {{end}}
 {{- end}}
 
-{{/* The music half of a result, and the way to the rest of it. A fragment for
+{{/* An artist found by name: one line for somebody whose discography would
+     otherwise be two hundred rows of track, and the way into it. */}}
+{{define "artists" -}}
+{{range .FoundArtists}}
+<a class="list-group-item list-group-item-action d-flex align-items-baseline gap-2" href="{{.Href}}">
+  <span class="text-break">{{.Name}}</span>
+  <span class="ms-auto small text-body-secondary text-nowrap">{{.Albums}} album{{if ne .Albums 1}}s{{end}}</span>
+</a>
+{{end}}
+{{if .MoreArtists}}
+<div class="list-group-item text-center py-3"
+     hx-get="{{.MoreArtists}}" hx-trigger="revealed" hx-swap="outerHTML">
+  <a class="link-secondary small text-decoration-none" href="{{.MoreArtists}}">More artists</a>
+</div>
+{{end}}
+{{- end}}
+
+{{define "albums" -}}
+{{range .FoundAlbums}}
+<div class="list-group-item d-flex justify-content-between align-items-center gap-3">
+  <div class="text-break">
+    <a class="text-decoration-none" href="{{.Href}}">{{.Name}}</a>
+    <div class="small text-body-secondary">
+      <a class="link-secondary text-decoration-none" href="{{.ArtistHref}}">{{.Artist}}</a>
+      {{if .Year}}· {{.Year}}{{end}}
+    </div>
+  </div>
+  <span class="small text-body-secondary flex-shrink-0">{{.Songs}} track{{if ne .Songs 1}}s{{end}}</span>
+</div>
+{{end}}
+{{if .MoreAlbums}}
+<div class="list-group-item text-center py-3"
+     hx-get="{{.MoreAlbums}}" hx-trigger="revealed" hx-swap="outerHTML">
+  <a class="link-secondary small text-decoration-none" href="{{.MoreAlbums}}">More albums</a>
+</div>
+{{end}}
+{{- end}}
+
+{{/* The tracks of a result, and the way to the rest of them. A fragment for
      the same reason the listing's rows are one: htmx asks for exactly this when
      it extends them, and a browser with no script follows the link instead. */}}
 {{define "tracks" -}}

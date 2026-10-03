@@ -644,6 +644,10 @@ func musicSearchEmpty(t *testing.T, s db.Repo) {
 type record struct {
 	artist, album, genre string
 	year                 int
+	// title is the track's own, for the cases that care which of the three
+	// tags matched. Empty is "Track", which is what every case that does not
+	// care was written against.
+	title string
 }
 
 // catalogue writes one track per record, each in its own file, one minute apart
@@ -663,7 +667,11 @@ func catalogue(t *testing.T, s db.Repo, records ...record) {
 		f.MTime = base.Add(time.Duration(i) * time.Minute)
 		stored := put(t, s, f)
 
-		m := song(rec.artist, rec.artist, rec.album, "Track", 1)
+		title := rec.title
+		if title == "" {
+			title = "Track"
+		}
+		m := song(rec.artist, rec.artist, rec.album, title, 1)
 		m.Genre, m.Year = rec.genre, rec.year
 		m.FileID = stored.ID
 		if err := s.PutMedia(t.Context(), m); err != nil {

@@ -331,7 +331,7 @@ const mediaColumns = `file_id, kind, indexed_at, version, etag, error, retry_at,
 // matches on. They are written and filtered but never read back: they are how
 // the row is stored, not part of what a db.Media is, so scanMedia does not know
 // about them.
-const mediaWriteColumns = mediaColumns + `, search_song, search_album, search_album_artist, search_photo`
+const mediaWriteColumns = mediaColumns + `, search_title, search_artist, search_album, search_album_artist, search_photo`
 
 // PutMedia implements db.MediaIndex.
 func (r *repo) PutMedia(ctx context.Context, m db.Media) error {
@@ -354,7 +354,7 @@ func (r *repo) PutMedia(ctx context.Context, m db.Media) error {
 	}
 
 	const query = `INSERT INTO media (` + mediaWriteColumns + `)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (file_id) DO UPDATE SET
 			kind = excluded.kind, indexed_at = excluded.indexed_at, version = excluded.version,
 			etag = excluded.etag, error = excluded.error, retry_at = excluded.retry_at,
@@ -367,7 +367,8 @@ func (r *repo) PutMedia(ctx context.Context, m db.Media) error {
 			color_primaries = excluded.color_primaries, color_transfer = excluded.color_transfer, color_space = excluded.color_space, dovi_profile = excluded.dovi_profile, artist = excluded.artist,
 			album = excluded.album, title = excluded.title, track_no = excluded.track_no,
 			disc_no = excluded.disc_no, year = excluded.year, genre = excluded.genre,
-			album_artist = excluded.album_artist, search_song = excluded.search_song,
+			album_artist = excluded.album_artist,
+			search_title = excluded.search_title, search_artist = excluded.search_artist,
 			search_album = excluded.search_album,
 			search_album_artist = excluded.search_album_artist,
 			search_photo = excluded.search_photo`
@@ -377,7 +378,7 @@ func (r *repo) PutMedia(ctx context.Context, m db.Media) error {
 		m.Width, m.Height, m.Orientation, lat, lon, m.Camera,
 		m.DurationMS, m.Codec, m.Bitrate, m.SampleRate, m.Channels, m.BitDepth, m.CodecProfile, m.Level, m.FrameRate, m.AudioCodec, m.ColorPrimaries, m.ColorTransfer, m.ColorSpace, m.DoViProfile, m.Artist, m.Album, m.Title,
 		m.TrackNo, m.DiscNo, m.Year, m.Genre,
-		m.AlbumArtist, folded.Song, folded.Album, folded.AlbumArtist, folded.Photo,
+		m.AlbumArtist, folded.Title, folded.Artist, folded.Album, folded.AlbumArtist, folded.Photo,
 	)
 	if err != nil {
 		return fmt.Errorf("put media for file %d: %w", m.FileID, mapErr(err))
@@ -796,7 +797,8 @@ const (
 const (
 	likeArtist = `m.search_album_artist LIKE ? ESCAPE '` + sqlutil.LikeEscape + `'`
 	likeAlbum  = `m.search_album LIKE ? ESCAPE '` + sqlutil.LikeEscape + `'`
-	likeTrack  = `(m.search_song LIKE ? ESCAPE '` + sqlutil.LikeEscape + `'
+	likeTrack  = `(m.search_title LIKE ? ESCAPE '` + sqlutil.LikeEscape + `'
+		    OR m.search_artist LIKE ? ESCAPE '` + sqlutil.LikeEscape + `'
 		    OR m.search_album LIKE ? ESCAPE '` + sqlutil.LikeEscape + `'
 		    OR m.search_album_artist LIKE ? ESCAPE '` + sqlutil.LikeEscape + `')`
 )
@@ -836,7 +838,7 @@ func (r *repo) Search(ctx context.Context, owner string, f db.SearchFilter) (db.
 		  AND `+likeTrack
 	artistArgs := []any{owner, kind, term}
 	albumArgs := []any{owner, kind, term}
-	trackArgs := []any{owner, kind, term, term, term}
+	trackArgs := []any{owner, kind, term, term, term, term}
 
 	if len([]rune(folded)) >= trigramMin {
 		artists, albums = indexedArtists, indexedAlbums
@@ -1164,14 +1166,18 @@ func ftsPhrase(term string) string {
 
 // Find implements db.Repo.
 //
-// The names half asks an FTS5 index maintained by triggers (0011), which is
-// this engine's answer and not the port's. The tracks half is still LIKE over
-// the folded columns, and the number says why: a music library is small beside
-// a file tree, and the machinery is there the day it is not.
+// Every bucket asks an FTS5 index maintained by triggers: the names one 0011's,
+// and the four that read tags or a camera 0013's and 0012's. The join is by
+// rowid, which is the file's id, and the ordering and the cursor stay the
+// port's -- by path, or by the name a bucket of tags is grouped by, because
+// relevance is not comparable between engines and has nothing in it to resume
+// from.
 //
-// The join is by rowid, which is the file's id, and the ordering and the cursor
-// stay the port's -- by path, because relevance is not comparable between
-// engines and has nothing in it to resume from.
+// media_fts is a trigram index, so these four are asked by column --
+// `search_album : "x"` -- and a term shorter than a trigram falls back to the
+// LIKE this always did. Trigrams also mean this engine answers a substring
+// where the other two answer a word; that is the thing the port says nothing
+// may depend on, and it was already true of the LIKE that came before.
 func (r *repo) Find(ctx context.Context, owner string, f db.FindFilter) (db.FindResult, error) {
 	var out db.FindResult
 	if err := f.Validate(); err != nil {
@@ -1181,6 +1187,7 @@ func (r *repo) Find(ctx context.Context, owner string, f db.FindFilter) (db.Find
 		return out, nil
 	}
 	term := db.FoldQuery(f.Text)
+	indexed := len([]rune(term)) >= trigramMin
 
 	files := `SELECT ` + joinedFileColumns + ` FROM files_fts
 		CROSS JOIN files f ON f.id = files_fts.rowid
@@ -1189,12 +1196,9 @@ func (r *repo) Find(ctx context.Context, owner string, f db.FindFilter) (db.Find
 
 	// Not a const, for the reason Search's is not: the column lists are built
 	// at startup rather than written out.
-	tracks := `SELECT ` + joinedFileColumns + `, ` + joinedMediaColumns + `
-		FROM media m JOIN files f ON f.id = m.file_id
-		WHERE f.owner_id = ? AND m.kind = ?
-		  AND (m.search_song LIKE ? ESCAPE '` + sqlutil.LikeEscape + `'
-		    OR m.search_album LIKE ? ESCAPE '` + sqlutil.LikeEscape + `'
-		    OR m.search_album_artist LIKE ? ESCAPE '` + sqlutil.LikeEscape + `')
+	tracks, trackArgs := foundIn(indexed, "search_title", term,
+		`SELECT `+joinedFileColumns+`, `+joinedMediaColumns)
+	tracks += `
 		  AND f.path > ?
 		ORDER BY f.path LIMIT ?`
 
@@ -1205,6 +1209,20 @@ func (r *repo) Find(ctx context.Context, owner string, f db.FindFilter) (db.Find
 		  AND f.path > ?
 		ORDER BY f.path LIMIT ?`
 
+	artists, artistArgs := foundIn(indexed, "search_album_artist", term,
+		`SELECT m.album_artist, COUNT(DISTINCT m.album)`)
+	artists += `
+		  AND m.album_artist <> '' AND m.album <> '' AND m.album_artist > ?
+		GROUP BY m.album_artist
+		ORDER BY m.album_artist LIMIT ?`
+
+	albums, albumArgs := foundIn(indexed, "search_album", term,
+		`SELECT m.album_artist, m.album, COUNT(*), COALESCE(SUM(m.duration_ms), 0),
+			MAX(m.year), MAX(m.genre), MIN(f.mtime)`)
+	albums += `
+		  AND m.album <> '' AND (m.album_artist, m.album) > (?, ?)` + albumGroup + `
+		ORDER BY m.album_artist, m.album LIMIT ?`
+
 	var err error
 	if f.Files.Wanted() {
 		if out.Files, err = sqlutil.Collect(ctx, r.q, scanFileRow, files,
@@ -1213,10 +1231,8 @@ func (r *repo) Find(ctx context.Context, owner string, f db.FindFilter) (db.Find
 		}
 	}
 	if f.Tracks.Wanted() {
-		tagged := sqlutil.Contains(term)
 		if out.Tracks, err = sqlutil.Collect(ctx, r.q, scanTrack, tracks,
-			owner, string(db.KindAudio), tagged, tagged, tagged,
-			f.Tracks.After.Path, f.Tracks.Limit); err != nil {
+			append(trackArgs(owner, db.KindAudio), f.Tracks.After.Path, f.Tracks.Limit)...); err != nil {
 			return db.FindResult{}, fmt.Errorf("find tracks: %w", mapErr(err))
 		}
 	}
@@ -1227,5 +1243,47 @@ func (r *repo) Find(ctx context.Context, owner string, f db.FindFilter) (db.Find
 			return db.FindResult{}, fmt.Errorf("find photos: %w", mapErr(err))
 		}
 	}
+	if f.Artists.Wanted() {
+		if out.Artists, err = sqlutil.Collect(ctx, r.q, scanArtist, artists,
+			append(artistArgs(owner, db.KindAudio),
+				f.Artists.After.Artist, f.Artists.Limit)...); err != nil {
+			return db.FindResult{}, fmt.Errorf("find artists: %w", mapErr(err))
+		}
+	}
+	if f.Albums.Wanted() {
+		if out.Albums, err = sqlutil.Collect(ctx, r.q, scanAlbum, albums,
+			append(albumArgs(owner, db.KindAudio),
+				f.Albums.After.Artist, f.Albums.After.Album, f.Albums.Limit)...); err != nil {
+			return db.FindResult{}, fmt.Errorf("find albums: %w", mapErr(err))
+		}
+	}
 	return out, nil
+}
+
+// foundIn is one bucket's query down to the end of its match, and the binds
+// that go in front of whatever the caller adds: the index when the term is long
+// enough for a trigram and the scan when it is not.
+//
+// Written once because the four buckets over media differ in the column they
+// ask about and in nothing else, and because the two forms are not a predicate
+// swapped into one query -- what changes is which table drives, which is the
+// CROSS JOIN lesson #264 and #262 each paid for separately.
+func foundIn(indexed bool, column, term, selection string) (string, func(owner string, kind db.Kind) []any) {
+	if indexed {
+		return selection + `
+		FROM media_fts
+		CROSS JOIN media m ON m.file_id = media_fts.rowid
+		CROSS JOIN files f ON f.id = m.file_id
+		WHERE media_fts MATCH ? AND f.owner_id = ? AND m.kind = ?`,
+			func(owner string, kind db.Kind) []any {
+				return []any{ftsColumn(column, term), owner, string(kind)}
+			}
+	}
+	return selection + `
+		FROM media m JOIN files f ON f.id = m.file_id
+		WHERE f.owner_id = ? AND m.kind = ?
+		  AND m.` + column + ` LIKE ? ESCAPE '` + sqlutil.LikeEscape + `'`,
+		func(owner string, kind db.Kind) []any {
+			return []any{owner, string(kind), sqlutil.Contains(term)}
+		}
 }

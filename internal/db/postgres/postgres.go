@@ -289,7 +289,7 @@ const mediaColumns = `file_id, kind, indexed_at, version, etag, error, retry_at,
 // matches on. They are written and filtered but never read back: they are how
 // the row is stored, not part of what a db.Media is, so scanMedia does not know
 // about them.
-const mediaWriteColumns = mediaColumns + `, search_song, search_album, search_album_artist, search_photo`
+const mediaWriteColumns = mediaColumns + `, search_title, search_artist, search_album, search_album_artist, search_photo`
 
 // PutMedia implements db.MediaIndex.
 func (r *repo) PutMedia(ctx context.Context, m db.Media) error {
@@ -313,7 +313,7 @@ func (r *repo) PutMedia(ctx context.Context, m db.Media) error {
 
 	const query = `INSERT INTO media (` + mediaWriteColumns + `)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19,
-			$20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40)
+			$20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41)
 		ON CONFLICT (file_id) DO UPDATE SET
 			kind = excluded.kind, indexed_at = excluded.indexed_at, version = excluded.version,
 			etag = excluded.etag, error = excluded.error, retry_at = excluded.retry_at,
@@ -326,7 +326,8 @@ func (r *repo) PutMedia(ctx context.Context, m db.Media) error {
 			color_primaries = excluded.color_primaries, color_transfer = excluded.color_transfer, color_space = excluded.color_space, dovi_profile = excluded.dovi_profile, artist = excluded.artist,
 			album = excluded.album, title = excluded.title, track_no = excluded.track_no,
 			disc_no = excluded.disc_no, year = excluded.year, genre = excluded.genre,
-			album_artist = excluded.album_artist, search_song = excluded.search_song,
+			album_artist = excluded.album_artist,
+			search_title = excluded.search_title, search_artist = excluded.search_artist,
 			search_album = excluded.search_album,
 			search_album_artist = excluded.search_album_artist,
 			search_photo = excluded.search_photo`
@@ -336,7 +337,7 @@ func (r *repo) PutMedia(ctx context.Context, m db.Media) error {
 		m.Width, m.Height, m.Orientation, lat, lon, m.Camera,
 		m.DurationMS, m.Codec, m.Bitrate, m.SampleRate, m.Channels, m.BitDepth, m.CodecProfile, m.Level, m.FrameRate, m.AudioCodec, m.ColorPrimaries, m.ColorTransfer, m.ColorSpace, m.DoViProfile, m.Artist, m.Album, m.Title,
 		m.TrackNo, m.DiscNo, m.Year, m.Genre,
-		m.AlbumArtist, folded.Song, folded.Album, folded.AlbumArtist, folded.Photo,
+		m.AlbumArtist, folded.Title, folded.Artist, folded.Album, folded.AlbumArtist, folded.Photo,
 	)
 	if err != nil {
 		return fmt.Errorf("put media for file %d: %w", m.FileID, mapErr(err))
@@ -714,7 +715,7 @@ func (r *repo) Search(ctx context.Context, owner string, f db.SearchFilter) (db.
 	term := sqlutil.Contains(db.FoldQuery(f.Text))
 	kind := string(db.KindAudio)
 
-	const artists = `SELECT m.album_artist, COUNT(DISTINCT m.album)
+	artists := `SELECT m.album_artist, COUNT(DISTINCT m.album)
 		FROM media m JOIN files f ON f.id = m.file_id
 		WHERE f.owner_id = $1 AND m.kind = $2 AND m.album_artist <> '' AND m.album <> ''
 		  AND m.search_album_artist LIKE $3 ESCAPE '` + sqlutil.LikeEscape + `'
@@ -722,7 +723,7 @@ func (r *repo) Search(ctx context.Context, owner string, f db.SearchFilter) (db.
 		ORDER BY m.album_artist
 		LIMIT $4 OFFSET $5`
 
-	const albums = albumSelect + `
+	albums := albumSelect + `
 		WHERE f.owner_id = $1 AND m.kind = $2 AND m.album <> ''
 		  AND m.search_album LIKE $3 ESCAPE '` + sqlutil.LikeEscape + `'` + albumGroup + `
 		ORDER BY m.album_artist, m.album
@@ -731,7 +732,8 @@ func (r *repo) Search(ctx context.Context, owner string, f db.SearchFilter) (db.
 	tracks := `SELECT ` + joinedFileColumns + `, ` + joinedMediaColumns + `
 		FROM media m JOIN files f ON f.id = m.file_id
 		WHERE f.owner_id = $1 AND m.kind = $2
-		  AND (m.search_song LIKE $3 ESCAPE '` + sqlutil.LikeEscape + `'
+		  AND (m.search_title LIKE $3 ESCAPE '` + sqlutil.LikeEscape + `'
+		    OR m.search_artist LIKE $3 ESCAPE '` + sqlutil.LikeEscape + `'
 		    OR m.search_album LIKE $3 ESCAPE '` + sqlutil.LikeEscape + `'
 		    OR m.search_album_artist LIKE $3 ESCAPE '` + sqlutil.LikeEscape + `')
 		ORDER BY m.album_artist, m.album, m.disc_no, m.track_no, f.path
@@ -1030,6 +1032,16 @@ const nameFlat = `translate($2, '._-()[]', '       ')`
 //
 // 'simple' rather than a language: a filename is not prose, and English
 // stemming would file notes under note and lose the name somebody typed.
+//
+// **The four buckets over media share one index and differ after it** (#262).
+// search_tags holds the title, the album and the album artist in one vector,
+// and each of those three questions is now about one of them -- so the index
+// narrows and the column decides, which is tagColumn below. It is exact: a row
+// whose album matches is always in the combined vector too, so the index never
+// hides an answer, and the expression it is handed to runs on what the index
+// let through rather than on the library. Three generated vectors with a GIN
+// each was the alternative: three indexes written by every PutMedia, to save
+// an expression over a handful of rows.
 func (r *repo) Find(ctx context.Context, owner string, f db.FindFilter) (db.FindResult, error) {
 	var out db.FindResult
 	if err := f.Validate(); err != nil {
@@ -1048,9 +1060,23 @@ func (r *repo) Find(ctx context.Context, owner string, f db.FindFilter) (db.Find
 	tracks := `SELECT ` + joinedFileColumns + `, ` + joinedMediaColumns + `
 		FROM media m JOIN files f ON f.id = m.file_id
 		WHERE f.owner_id = $1 AND m.kind = $5
-		  AND m.search_tags @@ phraseto_tsquery('simple', ` + nameFlat + `)
+		  AND ` + tagColumn("search_title") + `
 		  AND f.path > $3
 		ORDER BY f.path LIMIT $4`
+
+	artists := `SELECT m.album_artist, COUNT(DISTINCT m.album)
+		FROM media m JOIN files f ON f.id = m.file_id
+		WHERE f.owner_id = $1 AND m.kind = $5
+		  AND ` + tagColumn("search_album_artist") + `
+		  AND m.album_artist <> '' AND m.album <> '' AND m.album_artist > $3
+		GROUP BY m.album_artist
+		ORDER BY m.album_artist LIMIT $4`
+
+	albums := albumSelect + `
+		WHERE f.owner_id = $1 AND m.kind = $6
+		  AND ` + tagColumn("search_album") + `
+		  AND m.album <> '' AND (m.album_artist, m.album) > ($3, $4)` + albumGroup + `
+		ORDER BY m.album_artist, m.album LIMIT $5`
 
 	photos := `SELECT ` + joinedFileColumns + `
 		FROM media m JOIN files f ON f.id = m.file_id
@@ -1078,5 +1104,30 @@ func (r *repo) Find(ctx context.Context, owner string, f db.FindFilter) (db.Find
 			return db.FindResult{}, fmt.Errorf("find photos: %w", mapErr(err))
 		}
 	}
+	if f.Artists.Wanted() {
+		if out.Artists, err = sqlutil.Collect(ctx, r.q, scanArtist, artists,
+			owner, term, f.Artists.After.Artist, f.Artists.Limit, string(db.KindAudio)); err != nil {
+			return db.FindResult{}, fmt.Errorf("find artists: %w", mapErr(err))
+		}
+	}
+	if f.Albums.Wanted() {
+		if out.Albums, err = sqlutil.Collect(ctx, r.q, scanAlbum, albums,
+			owner, term, f.Albums.After.Artist, f.Albums.After.Album, f.Albums.Limit,
+			string(db.KindAudio)); err != nil {
+			return db.FindResult{}, fmt.Errorf("find albums: %w", mapErr(err))
+		}
+	}
 	return out, nil
+}
+
+// tagColumn is one bucket's match over media: the GIN index on search_tags
+// first, because that is what keeps this off the library, and then the one
+// column the bucket is about.
+//
+// The flattening is nameFlat's on the query side and the same translate on the
+// column, so both sides are the shape migration 0010 chose.
+func tagColumn(column string) string {
+	return `m.search_tags @@ phraseto_tsquery('simple', ` + nameFlat + `)
+		  AND to_tsvector('simple', translate(m.` + column + `, '._-()[]', '       '))
+		      @@ phraseto_tsquery('simple', ` + nameFlat + `)`
 }

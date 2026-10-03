@@ -604,13 +604,20 @@ which is where `stratus-app` casts from.
 
 **There is a search box in the bar at the top.** It finds a file or a folder by
 its **name** -- not its path, so a word in a folder finds the folder and not the
-thousand photographs under it -- a track by its title, artist or album, and a
-photograph by its camera or its year.
+thousand photographs under it -- a track by its title, an artist, an album, and
+a photograph by its camera or its year.
 Whole words, and several of them mean those words in that order; it does not
 match half a word, and it does not rank -- results come back in path order, so
 the same search twice is the same answer and the next page resumes exactly
 where the last one stopped. It is a GET form, so a search is a URL you can send
 or bookmark.
+
+**An artist is one line, not their discography.** Searching a name answers with
+the artist and the records, each a line that opens the page for it, and the
+track list under them is titles only -- otherwise a prolific artist is two
+hundred rows and the answer is buried in them. A track nothing has read the
+tags of has no title to match, so that one is found by its filename, among the
+files.
 
 **A photograph is found by what the camera recorded**, which is the half of a
 search that a filename cannot give you: `olympus` finds everything taken on
@@ -620,14 +627,21 @@ somewhere else, which a self-hosted server should not have to do to answer its
 own search box.
 
 Each part shows fifty at a time and offers the rest, which opens that part on
-its own: `/search?q=sunset&in=files`. What is not in it yet is artists and
-albums as results of their own rather than as the tracks on them.
+its own: `/search?q=sunset&in=files`. What is not in it yet is a place: a
+photograph knows where it was taken as two numbers, and turning those into
+"Lisbon" means asking a service somewhere else.
 
 How the matching is done is each database's business: a generated `tsvector`
 with a GIN index on PostgreSQL, a `FULLTEXT` index on MySQL, and FTS5 on
 SQLite. All three match whole words, which is the whole of what is promised --
 SQLite used to find inside a word, because it scanned with `LIKE`, and does not
 any more.
+
+Searching for music is quick when the term is a rare one and costs more when it
+is not, on every engine: measured on fifty thousand tracks, a term that matches
+nothing comes back in a millisecond or two, one that matches a sixth of the
+library in 30 to 70 ms, and one that matches every track in 130 to 470 ms,
+because every match is ordered before the first fifty can be taken.
 
 What that changed, measured on a hundred thousand files: a term that matches
 nothing went from 170 ms to under a millisecond, which is what a typo costs
@@ -1179,7 +1193,8 @@ Working now:
 - EXIF, audio tags and video probing, indexed in the background and started by
   the upload itself, with a page saying how far it has got.
 - An import folder on local disk, swept into the library: `STRATUS_INCOMING_DIR`.
-- A search box over names and music tags, paged by a cursor.
+- A search box over names, titles, artists, albums and what a camera
+  recorded, paged by a cursor.
 - A web UI: sign in, walk the tree, open or download a file, upload one, make a folder,
   rename and delete, see what the indexer found about a file, a gallery of every photo by date -- also served as
   folders by date over WebDAV -- and a music library to browse and play. A signed-cookie session and a CSP that allows nothing but

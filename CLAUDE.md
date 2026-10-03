@@ -383,12 +383,30 @@ Hard constraints, in the same spirit as the rest of the project:
   navbar had to be rearranged for it: the links used to live inside the
   sign-out form, and a form does not nest.
 
-  **Each half of a result pages on its own, and the "more" link narrows the
-  page to that half** -- `?q=…&in=files&after=…`. Two cursors in one URL was
-  the alternative and is the one nobody can read. The files half is the
-  listing's own `rows` template, which moved to `rows.html` so two pages can
-  parse it rather than two pages keeping a copy; it brings the info dialog with
-  it, so the page carries a `#file-dialog` of its own.
+  **Each bucket of a result pages on its own, and the "more" link narrows the
+  page to that bucket** -- `?q=…&in=files&after=…`. Two cursors in one URL was
+  the alternative and is the one nobody can read, and it is also why one
+  `after` is enough: a page carrying a cursor is a page narrowed to one bucket,
+  so the parameter is read in that bucket's shape -- a path for the three made
+  of files, a name or a name under a name for the two made of tags, each half
+  escaped so that an album called `AC/DC Live` is not read as two. The files
+  bucket is the listing's own `rows` template, which moved to `rows.html` so
+  two pages can parse it rather than two pages keeping a copy; it brings the
+  info dialog with it, so the page carries a `#file-dialog` of its own.
+
+  **Five buckets under three headings** (#262): Files, Music -- artists,
+  albums and then tracks -- and Photos. The heading is what says "nothing",
+  not the bucket, because five lines of it around one answer reads as a page
+  that failed rather than as a page with an answer on it. An artist and an
+  album are a line each and not a cover: fifty covers is fifty thumbnails to
+  generate for a page somebody reads once. And the template asks
+  `{{if .Shows "artists"}}` rather than chaining `ne`, because five negations
+  is five chances to spell one wrong.
+
+  One thing the narrowing took away, and it is the right trade: a track whose
+  tags nothing has read has no title, so the music bucket cannot find it and
+  the files bucket does, by its name. Inventing a title out of the path would
+  have put the same row in two buckets.
 
   It is `signedIn` and not `readable`, and that is deliberate rather than
   incidental: there is no `{path...}` in this route for a share's signature to
@@ -678,9 +696,10 @@ Hard rule: no driver-specific SQL or types leak outside the driver package.
 
 **Searching is the one thing this port does not specify, and that is the
 decision** (#259). `db.Finder` says what a search means -- a whole word of a
-file's or a folder's **name**, or of a track's tags, matched as a phrase when
-there are several, ordered by path so a cursor can resume -- and says nothing
-about how. Each engine answers with what it is good at, including with columns
+file's or a folder's **name**, of a track's **title**, of an album artist, of
+an album or of what a camera recorded, matched as a phrase when there are
+several, ordered by path or by the name a bucket groups by so that a cursor can
+resume -- and says nothing about how. Each engine answers with what it is good at, including with columns
 and indexes of its own, which is the same licence the schema already takes when
 MySQL carries a `path_hash` nothing else has.
 
@@ -749,6 +768,61 @@ mechanism that exists for exactly this and the argument #85 already made: a
 backfill would have been each engine's own `lower()`, which is the divergence
 folding in Go removes. It costs a pass over the library, and `/status` is where
 somebody watches it.
+
+**An artist and an album are the fourth and fifth, and the track bucket lost
+something to pay for them** (#262). Searching somebody's name used to come back
+as everything they ever recorded -- two hundred rows where one line would do --
+so the name is now answered as an artist, the record as an album, and the
+tracks bucket matches **the title and nothing else**. That is a change to what
+the port promises and not a faster way of keeping it, which is why it is
+written here, in the interface and in the suite: `dbtest` asserts the negative,
+that a word of an album does not come back as its tracks.
+
+Neither is a row. An album is a `GROUP BY` over tags, so there is no path to
+order by and no path to resume from: the cursor is the group key itself, a name
+for an artist and two for an album, and `db.TagCursor` is that. What it does
+**not** promise is a collation -- each engine sorts text its own way, and all
+the port guarantees is that a page resumes where the one before it ended on
+that same database.
+
+It cost a column, and that is the part worth knowing. `Folded.Song` was the
+title and the artist credited on the track together, which no bucket that
+answers artists separately can read, so it became `Folded.Title` and
+`Folded.Artist` -- one tag each, written by Go like the other three, and
+`media.Version` 8 is what rewrites the rows. `Music.Search` reads both and
+answers what it always did, so OpenSubsonic does not notice; the one thing that
+moved is a phrase straddling the join between a title and a name, which nothing
+was promised about.
+
+Each engine asks about one column, and only one of them needed a new index for
+it:
+
+- **SQLite** restricts a match to a column of the FTS5 table it already has --
+  `search_album : "x"` -- so 0013's index answers four questions. Migration
+  0015 only rebuilds it with the split column in it.
+- **PostgreSQL** keeps the one GIN over the combined `search_tags` as a
+  **filter** and lets the column decide: the index narrows, and
+  `to_tsvector(...) @@ q` over `search_album` says yes or no. Exact, because a
+  row whose album matches is in the combined vector too. Three generated
+  vectors with a GIN each was the alternative, and it is three indexes written
+  by every `PutMedia` to save an expression over what the index already
+  narrowed to.
+- **MySQL** cannot do either: a `MATCH` has to name exactly the columns of some
+  `FULLTEXT` key and there is no column-restricted form, so 0015 turns the one
+  key over three columns into three keys over one each. `media_search_tags`
+  had exactly one reader -- the track bucket -- and that is the reader that
+  stopped asking about three columns at once.
+
+Measured on fifty thousand tracks by six artists, best of three, and the shape
+is the same in all three engines: a term that matches nothing is **0.4 ms**
+(SQLite), **2.2 ms** (PostgreSQL) and **0.6 ms** (MySQL); a term that matches a
+sixth of the library costs the `GROUP BY` over what matched, 49, 33 and 72 ms;
+and a term that matches every row costs the sort before the page, up to 132,
+343 and 467 ms. The first number is the one that moved: on SQLite the same
+query through the `LIKE` an index cannot serve -- which is what a term under
+the trigram floor still takes -- is **58 to 110 ms**. The worst case is the
+shape of the question and not of the index, which is what 0013 said about the
+same aggregate.
 
 **`Music.Search` keeps its own promise and got its own index** (#262). It is
 what OpenSubsonic's `search3` answers from, and what it promises is a

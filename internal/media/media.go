@@ -44,7 +44,12 @@ import (
 // lower(), which is the divergence folding in Go exists to remove -- so the
 // queue does it instead, which costs a pass over the library and no
 // correctness.
-const Version = 7
+//
+// And to 8 when the folded song became two columns, the title and the artist
+// credited on the track (#262). Same argument a third time: both halves are
+// in the row already, and splitting them in SQL would be each engine deciding
+// where one tag ends.
+const Version = 8
 
 // errTooLargeToRead is what a file gets instead of a local copy when it is
 // larger than maxSpool. It is a refusal rather than a failure, and it is
