@@ -465,12 +465,6 @@ func (f *fileSystem) enforceLocks(next http.Handler) http.Handler {
 			return
 		}
 
-		// One name for every lock this request takes or claims, put on before
-		// anything under here asks for one. It is the scope the word "request"
-		// in "for the length of the request" refers to, and this is the only
-		// place that knows where that scope begins and ends. See holderKey.
-		r = r.WithContext(withHolder(r.Context(), newHolder()))
-
 		src, dst, ok := f.lockedPaths(r)
 		if !ok {
 			// Not a path this server would serve. Handed on so that what

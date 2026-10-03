@@ -200,7 +200,7 @@ func TestPropfindDoesNotAskOncePerChild(t *testing.T) {
 	}
 
 	counted := &countingStore{Store: meta}
-	h := withUser(dav.Handler(prefix, files.New(blobs, counted), counted), "edu")
+	h := withUser(dav.Handler(prefix, files.New(blobs, counted)), "edu")
 
 	do(t, h, "MKCOL", "/dav/album", "")
 	const children = 50
@@ -280,8 +280,8 @@ func TestPropfindListsAPhotograph(t *testing.T) {
 // show.
 func TestPropfindNamesARowWithNoTypeByItsExtension(t *testing.T) {
 	t.Parallel()
-	svc, meta := service(t)
-	h := withUser(dav.Handler(prefix, svc, meta), "edu")
+	svc, _ := service(t)
+	h := withUser(dav.Handler(prefix, svc), "edu")
 	do(t, h, "MKCOL", "/dav/camera", "")
 
 	// Nothing a sniff recognises, and nothing declared: the row is left empty.

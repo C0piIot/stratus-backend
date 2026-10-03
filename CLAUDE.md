@@ -802,36 +802,9 @@ and the `PRAGMA foreign_keys=OFF` that needs is silently ignored inside a
 transaction -- which is how `db.Migrate` applies every migration. Until the first
 real deployment it would simply go into `0001_schema.sql`.
 
-**Creating a lock queues on a row that exists only to be queued on** (#244).
-`CreateLock` carries its covering check inside the `INSERT`, which cannot race
-another insert into the row it checks -- but it can race one into a row that
-*covers* it. At `READ COMMITTED` neither statement sees the other's uncommitted
-work, so a `LOCK` on `/a` and the zero-depth lock a `PUT` takes on `/a/b` land
-together, and afterwards neither holder can write: each finds the other's lock
-covering its own and waits an hour for it to time out. The unique index catches
-two locks with the same root and can catch nothing else -- what has to be
-excluded is a relationship between two rows, which no index expresses.
-
-So both creations first take their owner's row in `lock_guard`, and the one that
-gets it second re-evaluates its `NOT EXISTS` against a statement that has
-committed. A table with one column, which is its key; nothing is stored in it.
-
-**Only PostgreSQL was ever exposed, and the guard is in all three anyway.** The
-test fails there and passes on the other two with the guard taken out: InnoDB
-reads the `SELECT` of an `INSERT ... SELECT` with locks under `REPEATABLE READ`,
-and SQLite takes the write lock at `BEGIN`. Both are true and neither is ours to
-rely on -- MySQL's holds only while nobody sets `transaction_isolation` to
-`READ-COMMITTED`, which is an operator's line in a config file. Being correct by
-coincidence is the thing this port is written not to be, and the price is one
-indexed upsert: measured against PostgreSQL over a container network, a
-create-and-release pair went from 1.80 ms to 2.20 ms. A refinement that would
-keep ordinary writes from queueing on each other -- a shared guard for
-zero-depth creations and an exclusive one for the rest -- is written down here
-and not implemented, because 0.4 ms did not earn it.
-
 **Migrating takes the engine's own lock, and it is the one thing in this port
 that could not be a row** (#242). `Migrate` read `MAX(version)` and then applied
-everything above it with nothing in between, so two instances starting together
+everything above it with nothing in between, so two processes starting together
 applied the same migration: on PostgreSQL the second failed to start, and on
 MySQL, where DDL is not transactional, it could stop half way and leave the
 schema between two versions. A table cannot guard that -- the table is DDL
@@ -839,6 +812,12 @@ itself, and creating `schema_migrations` is already part of the race, which is
 why the lock is taken before the first statement rather than before the first
 migration. The test that pins it fails three times out of three with the lock
 taken out.
+
+**It is kept although this server runs as one process** (#192), and that is not
+a contradiction: a rolling deploy on Fly or Render starts the new container
+before it stops the old one, so two processes reach `Migrate` within a second
+of each other exactly when a release is going out. One instance at a time is a
+statement about steady state, not about the handful of seconds a deploy takes.
 
 So `MigrationLocker` is an optional interface the two server engines satisfy and
 SQLite does not, rather than a switch inside `migrate.go` -- which is written not
@@ -849,7 +828,7 @@ worth knowing:
   for the run, and the release is that transaction's rollback. A session lock
   would need `pg_advisory_unlock`, which is a statement, and a statement that
   fails would put a connection back in the pool still holding the lock -- the
-  next instance would then block against this one. A rollback cannot end there.
+  next process would then block against this one. A rollback cannot end there.
 - **MySQL** has no transaction-scoped named lock, so `GET_LOCK` lives on one
   connection taken out of the pool and `RELEASE_LOCK` is explicit. When that
   fails the connection is handed `driver.ErrBadConn` instead of being pooled,
@@ -1594,54 +1573,43 @@ Restraint here is principle 3, not laziness:
   lived in the process. They are rows (#243), and the interface in
   `internal/dav/locks.go` is those same four methods with two things the
   library's could not carry: a `context.Context`, because a lock is a query now
-  and a query belongs to the request that caused it, and a flag on a create
-  saying which of the two kinds of lock is being asked for -- a client's, which
-  outlives this request and this process, or the one a write takes on itself,
-  which is held while the request runs and let go when it ends. In memory the
-  distinction did not exist, because a held node cannot expire and a process
-  that dies takes every lock it knew with it.
+  and a query belongs to the request that caused it, and a `Covers` that asks
+  whether a token names a live lock over a path -- which x/net's interface can
+  only answer by claiming the lock and giving it straight back.
 
-  There is one implementation and deliberately no second: an in-memory twin
-  kept for the tests would be a second code path that could disagree with the
-  first about what a lock means, which is the mistake `confirmLocks` warns
-  about one layer down. There is no configuration variable for it either, for
-  the same reason there never was: a setting that accepts one value promises a
-  choice that does not exist, which is what principle 3 calls "just in case".
+  The interface outlived the reason it was widened, and that is fine: it is
+  what let the storage underneath be swapped twice without the enforcement
+  moving a line. There is still one implementation and deliberately no second.
 
-  **In memory was right until the server had to say the same thing twice.** The
-  argument for memLS was that a lock is a claim with a timeout measured in
-  minutes, and a restart forgetting one costs a client a retry -- the same trade
-  the signed session makes. What it left out is that the server advertises class
-  2 to everybody: with two instances on one database, `423 Locked` would be true
-  of one of them and false of the other for the same resource, and a promise
-  that depends on which machine answered is not one (#192).
+  **In memory, and this is the second time that was decided** (#192). The
+  argument was always that a lock is a claim with a timeout measured in
+  minutes, and a restart forgetting one costs a client a retry -- the same
+  trade the signed session makes. #243 overruled it for one reason: the server
+  advertises class 2 to everybody, and with two instances on one database
+  `423 Locked` would have been true of one of them and false of the other.
+  This server runs as one process by design, so that reason is gone and the
+  table went with it: migrations 0007 and 0008 created the two tables and 0014
+  drops them.
 
-  **What the table cost is a lease.** memLS marks a node held while a request
-  runs and a held node cannot expire; a row cannot copy the second half, because
-  nothing frees a row whose process died. So a hold carries `held_by` and
-  `held_until`, a request in flight renews it every 40 seconds, and an instance
-  killed mid-`PUT` leaves that one path answering `423` for up to a minute --
-  which is the whole price, stated where a client would otherwise discover it.
-  A client that hangs up mid-write pays the same, and correctly: from the table
-  there is no difference between a request that stopped renewing and a process
-  that stopped running.
+  **What the table cost, and what came back by removing it.** memLS marks a
+  node held while a request runs and a held node cannot expire; a row cannot
+  copy the second half, because nothing frees a row whose process died. So a
+  hold carried a holder and an expiry, a request in flight renewed it every 40
+  seconds, and a process killed mid-`PUT` left that one path answering `423`
+  for up to a minute. None of that exists now: a held node dies with the
+  process that held it. The two tables, the lease, the heartbeat, the port's
+  `db.Locks`, its three driver implementations and its conformance suite are
+  about two thousand lines that are not there any more.
 
-  The SQL is portable across the three drivers and indexed. Finding the lock
-  that covers a resource is an `IN` over the ancestors computed in Go, taking
-  one over a collection is a range over `root`, and neither is a `LIKE`. The
-  insert carries its own `NOT EXISTS`, which is the rule the tree invariant
-  follows: asking first and inserting after leaves a window a concurrent `LOCK`
-  fits into, and between two instances that window is a round trip wide. The
-  one thing the insert cannot see is a lock that has timed out but not been
-  swept, since the unique index does not filter on the expiry -- so a refusal
-  sweeps and tries once more, which costs a statement only when the answer was
-  going to be a refusal anyway.
+  It also took `lock_guard` with it (#244), which existed because two creations
+  that cover each other could both commit at `READ COMMITTED` -- a race between
+  two transactions, and there are no transactions in a map.
 
-  **What it did not buy** is two correct instances. litmus is unchanged at 29 of
-  33 -- none of the four is about persistence -- and the rest of #192 is
-  untouched: the disk backend still empties its reserved directory at startup,
-  the schema-from-the-future check still runs only at startup, the throttle is
-  still per process and the indexer still probes the same batch N times.
+  **What was kept is the half that litmus measures.** Enforcement is #174's and
+  is untouched: the `If` header, the tagged lists, the `Not` and `ETag`
+  conditions, and the lock a write takes on itself. litmus stays at 29 of 33,
+  which is the number to watch if this is ever reconsidered -- it was 29 on
+  memLS before the table and it is 29 after it.
 
   **The `If` header parser is vendored, and that is the expensive part.** RFC
   4918 10.4 is the gnarliest grammar in the specification and x/net keeps its

@@ -18,7 +18,9 @@
 # log to protect the number would be the metric wagging the code.
 #
 # internal/db/postgres went 94 -> 93 when creating a lock became a transaction
-# (#244). The guard it takes first, and the sweep-and-retry around an expired
+# (#244). That code is gone again with the lock table (#192) and the floor stays
+# where it is: raising one belongs to a PR that earns it with tests, not to one
+# that deletes the code the number was about. The guard it takes first, and the sweep-and-retry around an expired
 # row still sitting on the unique index, are four statements whose only
 # uncovered half is "the database refused this statement" -- and a working
 # PostgreSQL does not refuse an indexed upsert on request. The suite that could

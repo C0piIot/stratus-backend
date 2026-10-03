@@ -26,8 +26,8 @@ func server(t *testing.T) http.Handler {
 	t.Helper()
 	// The handler takes the owner from the request, so the tests put one there
 	// the way auth.Basic does.
-	svc, meta := service(t)
-	return withUser(dav.Handler(prefix, svc, meta), "edu")
+	svc, _ := service(t)
+	return withUser(dav.Handler(prefix, svc), "edu")
 }
 
 // service is the real file layer over real backends in a temporary directory:
@@ -525,7 +525,7 @@ func TestWithoutAnAuthenticatedUser(t *testing.T) {
 	}
 
 	// No auth.Basic in front of it, so nothing put a user on the context.
-	h := dav.Handler(prefix, files.New(blobs, meta), meta)
+	h := dav.Handler(prefix, files.New(blobs, meta))
 
 	// PROPFIND goes with an empty body: a body that is not XML is rejected
 	// before the request ever reaches the backend, which would test the parser

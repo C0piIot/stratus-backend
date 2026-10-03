@@ -152,7 +152,7 @@ func (a *App) Handler(deps Deps) http.Handler {
 		// why the cookie counts only on a request the browser calls its own.
 		sessions := auth.NewSessions(creds, auth.DefaultSessionTTL)
 		mux.Handle(davPrefix, dav.SignedLinks(davPrefix, shares, auth.Session(sessions,
-			auth.Basic(davRealm, verifier, hlsOr(web.HLS(davPrefix, service, films(deps)), dav.Handler(davPrefix, service, deps.Database))))))
+			auth.Basic(davRealm, verifier, hlsOr(web.HLS(davPrefix, service, films(deps)), dav.Handler(davPrefix, service))))))
 		// The same realm and the same throttle: it is the same credentials, and
 		// a second budget of guesses would be a second way in.
 		mux.Handle(tusPrefix, auth.Session(sessions, auth.Basic(davRealm, verifier, tus.Handler(tusPrefix, service))))
