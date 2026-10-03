@@ -94,11 +94,10 @@ type fileSystem struct {
 	// still on the Destination header, and it has to be put back on every href
 	// in a multistatus or the client follows a link to nowhere.
 	prefix string
-	// locks is what makes LOCK mean something, and it is the database rather
-	// than this process: a lock nobody else can see is not a lock, and that
-	// includes the instance next door and the same binary after a restart
-	// (#243). See locks.go for the interface and dblocks.go for what is under
-	// it.
+	// locks is what makes LOCK mean something, and it lives in this process
+	// and nowhere else: a lock is a claim with a timeout measured in minutes,
+	// and a restart forgetting one costs a client a retry (#192, #243). See
+	// locks.go for the interface and memlocks.go for what is under it.
 	locks lockSystem
 	// now is the clock the lock system is driven by. Every one of its four
 	// methods takes the time as an argument rather than reading it, which is

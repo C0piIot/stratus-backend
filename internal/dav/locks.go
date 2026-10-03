@@ -16,11 +16,11 @@ import (
 //
 // LOCK used to answer with a well-formed token that nothing recorded, because
 // Finder will not mount a share read-write against a class 1 server (#3) and
-// there was no lock system to hand it to. There was one for a while --
-// x/net/webdav arrived for PROPFIND (#136) and brought a LockSystem with it,
-// which held what it knew in the process -- and there is a table now (#243),
-// because a promise that depends on which instance answered, and that a
-// restart forgets, is not one. What is under this file is dblocks.go.
+// there was no lock system to hand it to. x/net/webdav arrived for PROPFIND
+// (#136) and brought a LockSystem with it, which holds what it knows in the
+// process; it was a table for a while (#243), for a second instance that this
+// server does not have. What is under this file is memlocks.go, and the
+// reasoning is there.
 //
 // What is in it is the other half -- refusing a write to something somebody
 // else has locked -- and it is our own because x/net enforces locks inside its
