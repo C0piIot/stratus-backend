@@ -17,6 +17,7 @@ import (
 	"github.com/C0piIot/stratus-backend/internal/files"
 	"github.com/C0piIot/stratus-backend/internal/storage"
 	"github.com/C0piIot/stratus-backend/internal/storage/disk"
+	"github.com/C0piIot/stratus-backend/internal/storage/storagetest"
 )
 
 const owner = "edu"
@@ -110,26 +111,102 @@ func TestWriteWithUnknownSize(t *testing.T) {
 	}
 }
 
-// TestOverwriteKeepsTheOldBlobUntouched is the ordering rule made visible: a
-// new key every time means an overwrite cannot destroy the previous content
-// before the row that replaces it has committed.
-func TestOverwriteKeepsTheOldBlobUntouched(t *testing.T) {
+// TestOverwriteDropsWhatItReplaced: a new key every time, so the previous
+// content is intact until the row that replaces it has committed -- and gone
+// immediately afterwards, with the pictures made from it, rather than left for
+// a sweep that runs once a day (#272).
+func TestOverwriteDropsWhatItReplaced(t *testing.T) {
 	t.Parallel()
 	s, blobs := service(t)
 
 	first := write(t, s, "notes.txt", "version one")
-	second := write(t, s, "notes.txt", "version two")
+	thumb := files.DerivedKey(first.BlobKey, "300.jpg")
+	if _, err := blobs.Put(t.Context(), thumb, strings.NewReader("a thumbnail"), -1); err != nil {
+		t.Fatal(err)
+	}
 
+	second := write(t, s, "notes.txt", "version two")
 	if first.BlobKey == second.BlobKey {
 		t.Error("the overwrite reused the blob key, so the old content was destroyed in place")
 	}
 	if got := read(t, s, "notes.txt"); got != "version two" {
 		t.Errorf("read %q, want the second version", got)
 	}
-	// The old blob is now garbage with nothing pointing at it, which is #17's
-	// job and not an error here.
+	if _, err := blobs.Stat(t.Context(), first.BlobKey); !errors.Is(err, storage.ErrNotFound) {
+		t.Errorf("the replaced blob is still there: %v", err)
+	}
+	if _, err := blobs.Stat(t.Context(), thumb); !errors.Is(err, storage.ErrNotFound) {
+		t.Errorf("the picture made from the replaced blob is still there: %v", err)
+	}
+	if n := blobCount(t, blobs); n != 1 {
+		t.Errorf("the store holds %d objects, want the live one alone", n)
+	}
+}
+
+// TestWritingOverADirectoryDropsNothing: a directory has no blob, so there is
+// no key to drop and nothing may be invented in its place. The write is
+// refused by the database, which is where that rule lives.
+func TestWritingOverADirectoryDropsNothing(t *testing.T) {
+	t.Parallel()
+	s, blobs := service(t)
+	if _, err := s.Mkdir(t.Context(), owner, "album"); err != nil {
+		t.Fatal(err)
+	}
+	write(t, s, "album/photo.jpg", "a photograph")
+
+	if _, err := s.Write(t.Context(), owner, "album",
+		strings.NewReader("not a directory"), 15, "text/plain"); err == nil {
+		t.Fatal("writing a file over a directory was allowed")
+	}
+	if n := blobCount(t, blobs); n != 1 {
+		t.Errorf("the store holds %d objects, want the photograph alone", n)
+	}
+	if got := read(t, s, "album/photo.jpg"); got != "a photograph" {
+		t.Errorf("the photograph reads %q", got)
+	}
+}
+
+// TestWritingSomewhereNewDropsNothing is the other side of it: there is no
+// previous content, and a write must not go looking for one to delete.
+func TestWritingSomewhereNewDropsNothing(t *testing.T) {
+	t.Parallel()
+	s, blobs := service(t)
+
+	write(t, s, "one.txt", "one")
+	write(t, s, "two.txt", "two")
+	if n := blobCount(t, blobs); n != 2 {
+		t.Errorf("the store holds %d objects, want both", n)
+	}
+}
+
+// TestAnOverwriteThatCannotTidyUpStillSucceeds: the bytes are stored and the
+// row is committed, so the write happened. Failing it because the *previous*
+// content could not be swept away would be a lie about what the server did,
+// and what is left behind is exactly the orphan the sweep exists for.
+func TestAnOverwriteThatCannotTidyUpStillSucceeds(t *testing.T) {
+	t.Parallel()
+	blobs, meta := breakable(t)
+	s := files.New(blobs, meta)
+	first := write(t, s, "notes.txt", "version one")
+
+	broken := files.New(storagetest.FailOn(t, blobs, "Delete"), meta)
+	if _, err := broken.Write(t.Context(), owner, "notes.txt",
+		strings.NewReader("version two"), 11, "text/plain"); err != nil {
+		t.Fatalf("Write over a store that will not delete = %v, want it to succeed", err)
+	}
+	if got := read(t, s, "notes.txt"); got != "version two" {
+		t.Errorf("read %q, want the second version", got)
+	}
 	if _, err := blobs.Stat(t.Context(), first.BlobKey); err != nil {
-		t.Errorf("the previous blob is gone already: %v", err)
+		t.Fatalf("the orphan is not where the sweep will find it: %v", err)
+	}
+
+	// And the net under it still works.
+	switch done, err := s.Collect(t.Context(), 0); {
+	case err != nil:
+		t.Fatalf("Collect: %v", err)
+	case done.Deleted != 1:
+		t.Errorf("Collect deleted %d, want the orphan the write could not", done.Deleted)
 	}
 }
 

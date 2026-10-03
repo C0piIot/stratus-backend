@@ -90,9 +90,11 @@ func (a *App) indexUntilDry(ctx context.Context, deps Deps) bool {
 
 // collectPeriodically sweeps blobs no row points at, for as long as ctx lives.
 //
-// Every write takes a fresh blob key so that a failed overwrite cannot destroy
-// what it was replacing, which means every overwrite leaves one behind. This is
-// what reclaims them.
+// A daily tick, because this is the net rather than the collector: what gives
+// a blob up on purpose gives it up at the moment it does (#272), and what
+// reaches here is what nobody was left to announce -- a process killed between
+// the blob and its row, a tidy-up the store refused, a thumbnail whose
+// generator has moved on.
 func (a *App) collectPeriodically(ctx context.Context, deps Deps) {
 	service := deps.Files
 	ticker := time.NewTicker(a.cfg.GCInterval)

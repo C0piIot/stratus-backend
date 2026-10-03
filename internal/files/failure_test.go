@@ -223,8 +223,9 @@ func TestCollectReportsABlobItCouldNotDelete(t *testing.T) {
 	if _, err := working.Write(t.Context(), owner, "notes.txt", strings.NewReader("one"), 3, "text/plain"); err != nil {
 		t.Fatal(err)
 	}
-	// An overwrite, which is what leaves an orphan for the sweep to find.
-	if _, err := working.Write(t.Context(), owner, "notes.txt", strings.NewReader("two"), 3, "text/plain"); err != nil {
+	// A blob nothing points at, which is what the sweep is the net for.
+	if _, err := blobs.Put(t.Context(), "document/2026/01/01/NOROWHOLDSTHIS.txt",
+		strings.NewReader("two"), -1); err != nil {
 		t.Fatal(err)
 	}
 

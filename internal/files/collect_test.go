@@ -24,17 +24,30 @@ func blobCount(t *testing.T, blobs storage.Storage) int {
 	return n
 }
 
-// TestCollectTakesTheOverwrittenBlob is the leak this exists for: a fresh key
-// on every write means the previous blob is left behind, on purpose, so that a
-// failed overwrite cannot destroy what it was replacing.
-func TestCollectTakesTheOverwrittenBlob(t *testing.T) {
+// orphan puts an object in the store that no row will ever point at.
+//
+// That is what a process killed between the blob and its row leaves behind,
+// and since #272 it is very nearly the only way one gets there: an overwrite
+// takes its own predecessor now, so the sweep is the net under the cases
+// nobody announced rather than the routine collector it used to be.
+func orphan(t *testing.T, blobs storage.Storage, name, body string) string {
+	t.Helper()
+	key := "document/2026/01/01/" + name + ".txt"
+	if _, err := blobs.Put(t.Context(), key, strings.NewReader(body), -1); err != nil {
+		t.Fatalf("put the orphan %q: %v", key, err)
+	}
+	return key
+}
+
+// TestCollectTakesABlobNoRowPointsAt is the leak this exists for.
+func TestCollectTakesABlobNoRowPointsAt(t *testing.T) {
 	t.Parallel()
 	s, blobs := service(t)
 
-	first := write(t, s, "notes.txt", "version one")
-	second := write(t, s, "notes.txt", "version two")
+	live := write(t, s, "notes.txt", "version two")
+	left := orphan(t, blobs, "ORPHANEDBYACRASH", "version one")
 	if blobCount(t, blobs) != 2 {
-		t.Fatal("the overwrite did not leave the previous blob behind, so this test is testing nothing")
+		t.Fatal("the fixture is not two objects, so this test is testing nothing")
 	}
 
 	// No grace at all, because the blobs were written a moment ago.
@@ -54,10 +67,10 @@ func TestCollectTakesTheOverwrittenBlob(t *testing.T) {
 	if got := read(t, s, "notes.txt"); got != "version two" {
 		t.Errorf("the live file reads %q", got)
 	}
-	if _, err := blobs.Stat(t.Context(), second.BlobKey); err != nil {
+	if _, err := blobs.Stat(t.Context(), live.BlobKey); err != nil {
 		t.Errorf("the live blob was collected: %v", err)
 	}
-	if _, err := blobs.Stat(t.Context(), first.BlobKey); !errors.Is(err, storage.ErrNotFound) {
+	if _, err := blobs.Stat(t.Context(), left); !errors.Is(err, storage.ErrNotFound) {
 		t.Errorf("the orphan survived: %v", err)
 	}
 }
@@ -69,7 +82,7 @@ func TestCollectRespectsTheGrace(t *testing.T) {
 	t.Parallel()
 	s, blobs := service(t)
 	write(t, s, "notes.txt", "one")
-	write(t, s, "notes.txt", "two")
+	orphan(t, blobs, "WRITTENASECONDAGO", "two")
 
 	done, err := s.Collect(t.Context(), time.Hour)
 	if err != nil {
@@ -254,15 +267,13 @@ func TestCollectSweepsAnOlderGeneration(t *testing.T) {
 
 // TestCollectSweepsDerivedObjectsWithTheirParent is the other half, and the
 // case a key convention buys over a table: the derived key carries its
-// parent's, so one rule collects both -- including after an overwrite, which
-// leaves the old blob orphaned and its thumbnails filed under a key nothing
-// will ever look for again.
+// parent's, so one rule collects both.
 func TestCollectSweepsDerivedObjectsWithTheirParent(t *testing.T) {
 	t.Parallel()
 	s, blobs := service(t)
 
-	first := write(t, s, "photo.jpg", "version one")
-	orphaned := files.DerivedKey(first.BlobKey, "300.jpg")
+	left := orphan(t, blobs, "APARENTNOROWHOLDS", "version one")
+	orphaned := files.DerivedKey(left, "300.jpg")
 	if _, err := blobs.Put(t.Context(), orphaned, strings.NewReader("a thumbnail"), -1); err != nil {
 		t.Fatal(err)
 	}
@@ -277,12 +288,12 @@ func TestCollectSweepsDerivedObjectsWithTheirParent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Collect: %v", err)
 	}
-	// The overwritten blob and its thumbnail, and nothing else.
+	// The orphaned blob and its thumbnail, and nothing else.
 	if done.Deleted != 2 {
 		t.Errorf("Collect deleted %d objects, want the old blob and its thumbnail", done.Deleted)
 	}
 	if _, err := blobs.Stat(t.Context(), orphaned); !errors.Is(err, storage.ErrNotFound) {
-		t.Errorf("the thumbnail of the overwritten blob survived: %v", err)
+		t.Errorf("the thumbnail of the orphaned blob survived: %v", err)
 	}
 	if _, err := blobs.Stat(t.Context(), kept); err != nil {
 		t.Errorf("the live file's thumbnail was collected: %v", err)

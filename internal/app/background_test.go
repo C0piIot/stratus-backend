@@ -189,18 +189,29 @@ func TestCollectorDisabled(t *testing.T) {
 		"STRATUS_GC_INTERVAL": "0",
 	})
 
-	for _, body := range []string{"one", "two"} {
-		req, err := http.NewRequestWithContext(t.Context(), http.MethodPut, base+"/dav/notes.txt", strings.NewReader(body))
-		if err != nil {
-			t.Fatal(err)
-		}
-		req.SetBasicAuth("edu", password)
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		_ = resp.Body.Close()
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPut, base+"/dav/notes.txt", strings.NewReader("one"))
+	if err != nil {
+		t.Fatal(err)
 	}
+	req.SetBasicAuth("edu", password)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+
+	// A blob no row points at, put where only the collector would find it. An
+	// overwrite no longer leaves one: a write takes its predecessor itself
+	// (#272), so the only way to give this test something to not collect is to
+	// make the orphan by hand.
+	orphan := filepath.Join(dataDir, "blobs", "document", "2026", "01", "01")
+	if err := os.MkdirAll(orphan, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(orphan, "NOROWHOLDSTHIS.txt"), []byte("two"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
 	time.Sleep(200 * time.Millisecond)
 	stop()
 

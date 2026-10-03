@@ -172,15 +172,13 @@ func (s *Service) CompleteUpload(ctx context.Context, owner, id string) (db.File
 		ETag:     tag,
 		MIMEType: mimeType,
 	}
+	var superseded string
 	err = s.meta.Tx(ctx, func(r db.Repo) error {
-		if perr := s.requireParent(ctx, r, owner, u.Path); perr != nil {
-			return perr
-		}
-		stored, perr := r.PutFile(ctx, f)
+		stored, replaced, perr := s.replace(ctx, r, f)
 		if perr != nil {
 			return perr
 		}
-		f = stored
+		f, superseded = stored, replaced
 		return r.DeleteUpload(ctx, owner, id)
 	})
 	if err != nil {
@@ -189,6 +187,10 @@ func (s *Service) CompleteUpload(ctx context.Context, owner, id string) (db.File
 		_ = s.blobs.Delete(ctx, u.BlobKey)
 		return db.File{}, err
 	}
+	// And the same one in the other direction: a camera roll that sends a
+	// photograph it already sent arrives here and not through Write, so this
+	// is the door most overwrites in this project come through.
+	s.drop(ctx, superseded)
 	s.written(f)
 	return f, nil
 }
