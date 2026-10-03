@@ -377,6 +377,24 @@ Hard constraints, in the same spirit as the rest of the project:
   than a number, or it would be a way to ask this server to render a hundred
   thousand rows and offer a thumbnail for each.
 
+- **The search box is a GET form, which is the first one here** (#259). It
+  submits to `/search?q=`, so a search is a URL somebody can send and not a
+  request per keystroke, and `form-action 'self'` already allowed it. The
+  navbar had to be rearranged for it: the links used to live inside the
+  sign-out form, and a form does not nest.
+
+  **Each half of a result pages on its own, and the "more" link narrows the
+  page to that half** -- `?q=…&in=files&after=…`. Two cursors in one URL was
+  the alternative and is the one nobody can read. The files half is the
+  listing's own `rows` template, which moved to `rows.html` so two pages can
+  parse it rather than two pages keeping a copy; it brings the info dialog with
+  it, so the page carries a `#file-dialog` of its own.
+
+  It is `signedIn` and not `readable`, and that is deliberate rather than
+  incidental: there is no `{path...}` in this route for a share's signature to
+  be checked against, and a link to one folder does not authorise a search
+  across somebody's whole library.
+
 - **What the indexer found is a page of its own, `/info/<path>`** (#249): the
   file row's half -- type, size, modified, validator -- and the extracted half
   by kind, each field dropped when it is unknown rather than printed as a zero,

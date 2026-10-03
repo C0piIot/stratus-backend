@@ -22,7 +22,7 @@ protocols your existing apps already understand.
 | HLS | films a player cannot take as they are, remuxed | Chromecast, Safari, VLC, the web UI's player | **works** § |
 | CalDAV | calendar | DAVx5, Thunderbird, iOS/macOS | next |
 | OpenSubsonic | music | Symfonium, Substreamer, DSub, Feishin | **works** † |
-| Web UI | sign in, browse, upload, download, rename, delete, what is known about a file, a photo gallery, a music library, library status | any browser | **partly** |
+| Web UI | sign in, browse, search, upload, download, rename, delete, what is known about a file, a photo gallery, a music library, library status | any browser | **partly** |
 | CardDAV | contacts | DAVx5, Thunderbird | planned |
 | DLNA / UPnP-AV | TVs, set-top players | | planned |
 
@@ -605,6 +605,26 @@ file's URL, or on its share link, since a receiver cannot sign in. It answers
 under `/dav/` too, on the WebDAV address of the film with the same signature,
 which is where `stratus-app` casts from.
 
+**There is a search box in the bar at the top.** It finds a file or a folder by
+its **name** -- not its path, so a word in a folder finds the folder and not the
+thousand photographs under it -- and a track by its title, artist or album.
+Whole words, and several of them mean those words in that order; it does not
+match half a word, and it does not rank -- results come back in path order, so
+the same search twice is the same answer and the next page resumes exactly
+where the last one stopped. It is a GET form, so a search is a URL you can send
+or bookmark.
+
+Each half shows fifty at a time and offers the rest, which opens that half on
+its own: `/search?q=sunset&in=files`. What is not in it yet is photographs by
+what the camera recorded, and artists and albums as results of their own rather
+than as the tracks on them.
+
+How the matching is done is each database's business, which is worth knowing
+because they are not identical. PostgreSQL and MySQL use a real full-text index
+and match whole words. SQLite scans, which also means it matches inside a word
+-- more than the others, and not something to rely on -- and a term that matches
+nothing costs about 170 ms on a library of a hundred thousand files.
+
 **Photos have a gallery of their own at `/gallery/photos`**: every image in the
 library, newest first by when the camera says it was taken and grouped by month,
 wherever it was filed. An image with no camera date -- a screenshot, a download
@@ -1140,6 +1160,7 @@ Working now:
 - EXIF, audio tags and video probing, indexed in the background and started by
   the upload itself, with a page saying how far it has got.
 - An import folder on local disk, swept into the library: `STRATUS_INCOMING_DIR`.
+- A search box over names and music tags, paged by a cursor.
 - A web UI: sign in, walk the tree, open or download a file, upload one, make a folder,
   rename and delete, see what the indexer found about a file, a gallery of every photo by date -- also served as
   folders by date over WebDAV -- and a music library to browse and play. A signed-cookie session and a CSP that allows nothing but

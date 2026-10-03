@@ -35,8 +35,12 @@ var templateFS embed.FS
 var staticFS embed.FS
 
 const (
-	pageLogin   = "login.html"
-	pageFiles   = "files.html"
+	pageLogin  = "login.html"
+	pageFiles  = "files.html"
+	pageSearch = "search.html"
+	// pageRows is not a page: it is the listing's rows, which the search page
+	// shows too.
+	pageRows    = "rows.html"
 	pageRename  = "rename.html"
 	pageInfo    = "info.html"
 	pageDelete  = "delete.html"
@@ -57,7 +61,8 @@ const (
 // what lets the layout call it.
 var pages = map[string]*template.Template{
 	pageLogin:   parse(pageLogin),
-	pageFiles:   parse(pageFiles),
+	pageFiles:   parse(pageFiles, pageRows),
+	pageSearch:  parse(pageSearch, pageRows),
 	pageRename:  parse(pageRename),
 	pageInfo:    parse(pageInfo),
 	pageDelete:  parse(pageDelete),
@@ -73,8 +78,16 @@ var pages = map[string]*template.Template{
 	pageAlbum:   parse(pageAlbum),
 }
 
-func parse(page string) *template.Template {
-	return template.Must(template.ParseFS(templateFS, "templates/layout.html", "templates/"+page))
+// parse builds one page's template set: the layout, the page, and whatever
+// partials it shares with another page. A set per page because every page
+// defines "content", so one set for all of them would keep the last.
+func parse(page string, partials ...string) *template.Template {
+	files := make([]string, 0, 2+len(partials))
+	files = append(files, "templates/layout.html", "templates/"+page)
+	for _, p := range partials {
+		files = append(files, "templates/"+p)
+	}
+	return template.Must(template.ParseFS(templateFS, files...))
 }
 
 // view is what every page is rendered from. One flat struct for four pages
@@ -115,6 +128,13 @@ type view struct {
 	// and one per page size on offer.
 	Columns []column
 	Rows    []rowChoice
+	// Query is what was typed into the search box, on every page so the box
+	// keeps it, and Found and MoreTracks are the music half of a result. Only
+	// is the half a result page was narrowed to, empty when it shows both.
+	Query      string
+	Found      []foundTrack
+	MoreTracks string
+	Only       string
 	// Counts and the three fields under it are the status page: how much of the
 	// library has been looked at, and by which extractor.
 	Counts       db.MediaCounts

@@ -136,6 +136,15 @@ func handlerImports(t *testing.T, s *files.Service, blobs storage.Storage, meta 
 		s, media.NewThumbs(blobs, s, "ffmpeg", t.TempDir()), nil, indexing(meta), imports, web.Video{})
 }
 
+// handlerOverIndex is the UI over an index somebody else assembled, which is
+// how a test puts a broken one behind the search box.
+func handlerOverIndex(t *testing.T, s *files.Service, blobs storage.Storage, index web.Index) http.Handler {
+	t.Helper()
+	creds := credentials()
+	return web.Handler(version, buildDate, creds, auth.NewSessions(creds, auth.DefaultSessionTTL), auth.NewShares(creds),
+		s, media.NewThumbs(blobs, s, "ffmpeg", t.TempDir()), index, indexing(nil), nil, web.Video{})
+}
+
 // refusing answers every login with one error, for the arms a correct password
 // does not reach.
 type refusing struct{ err error }

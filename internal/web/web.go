@@ -60,10 +60,12 @@ const contentSecurityPolicy = "default-src 'none'; style-src 'self'; script-src 
 const fileContentSecurityPolicy = "default-src 'none'; img-src 'self'; media-src 'self'; " +
 	"style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'"
 
-// Index is what the gallery and the music pages read: the media index by date
-// and by tag, and what the user has said about the music.
+// Index is what the gallery, the music pages and the search box read: the media
+// index by date and by tag, what the user has said about the music, and the
+// text search across both halves of the library.
 type Index interface {
 	db.Photos
+	db.Finder
 	Library
 }
 
@@ -97,6 +99,9 @@ type handler struct {
 	photoIndex db.Photos
 	// library is the same index by tag, for the music pages.
 	library Library
+	// finder is what the search box asks, which is neither of those two: it
+	// answers across the tree and the tags at once.
+	finder db.Finder
 	// video is the player and HLS, and a zero one means neither is offered.
 	video Video
 }
@@ -113,7 +118,7 @@ func Handler(version, buildDate string, v auth.Verifier, s *auth.Sessions, share
 ) http.Handler {
 	h := &handler{
 		version: version, buildDate: buildDate, verifier: v, sessions: s, shares: shares,
-		files: service, thumbs: thumbs, photoIndex: index, library: index,
+		files: service, thumbs: thumbs, photoIndex: index, library: index, finder: index,
 		indexing: indexing, imports: imports, video: video,
 	}
 
@@ -133,6 +138,10 @@ func Handler(version, buildDate string, v auth.Verifier, s *auth.Sessions, share
 	// thumbnails and works.
 	mux.HandleFunc("GET /thumb/{path...}", h.readable(h.thumbnail))
 	mux.HandleFunc("GET /status", h.signedIn(h.status))
+	// Signed in and not readable: this route has no path for a share's
+	// signature to be checked against, and a search over somebody's whole
+	// library is not what a link to one folder authorises.
+	mux.HandleFunc("GET "+searchPrefix, h.signedIn(h.search))
 	mux.HandleFunc("GET "+galleryPhotos, h.signedIn(h.photos))
 	mux.HandleFunc("GET "+photoPrefix+"{path...}", h.signedIn(h.photo))
 	mux.HandleFunc("GET "+musicPrefix, h.signedIn(h.artists))
