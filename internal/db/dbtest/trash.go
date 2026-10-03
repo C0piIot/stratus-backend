@@ -26,6 +26,7 @@ func RunTrash(t *testing.T, newRepo func(t *testing.T) db.Repo) {
 		{"a deletion is one entry, named by its root", trashBatches},
 		{"deletions come back newest first, a page at a time", trashPaged},
 		{"the trash belongs to its owner", trashOwner},
+		{"a row with no owner is only seen by asking for none", trashNoOwner},
 		{"its keys are what keeps the sweep off them", trashKeys},
 		{"expired deletions come back oldest first", trashExpiry},
 		{"deleting one is idempotent", trashDelete},
@@ -189,6 +190,46 @@ func trashOwner(t *testing.T, s db.Repo) {
 	}
 	if rows, _ := s.TrashedIn(t.Context(), "someone-else", "their-batch"); len(rows) != 1 {
 		t.Error("one owner destroyed another's deletion")
+	}
+}
+
+// trashNoOwner holds up the other half of #276: a blob the sweep could not
+// account for is filed under no owner, because nobody can say whose it was,
+// and the owner is the filter -- so a person's page cannot show one by
+// accident and asking for none shows nothing else.
+func trashNoOwner(t *testing.T, s db.Repo) {
+	mine := trashed(t, s, time.Now().UTC(), deleted("mine.txt"))
+	nobodys := db.File{BlobKey: "image/2026/10/03/NOROWHOLDSTHIS", Size: 7}
+	if err := s.Trash(t.Context(), "swept", []db.File{nobodys}, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.TrashBatches(t.Context(), "", db.TrashCursor{}, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != "swept" {
+		t.Fatalf("asking for no owner answered %+v, want the swept batch alone", got)
+	}
+	// It has no path, so the batch has no root to be named by: that is the
+	// page's job, not the database's.
+	if got[0].Root != "" || got[0].Files != 1 || got[0].Bytes != 7 {
+		t.Errorf("the swept batch is %+v, want one unnamed object of seven bytes", got[0])
+	}
+
+	mineOnly, err := s.TrashBatches(t.Context(), owner, db.TrashCursor{}, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(mineOnly) != 1 || mineOnly[0].ID != mine {
+		t.Errorf("a person's trash is %+v, want their deletion alone", mineOnly)
+	}
+
+	switch totals, terr := s.TrashTotals(t.Context(), ""); {
+	case terr != nil:
+		t.Fatal(terr)
+	case totals.Files != 1 || totals.Bytes != 7:
+		t.Errorf("the unowned totals are %+v, want one file of seven bytes", totals)
 	}
 }
 

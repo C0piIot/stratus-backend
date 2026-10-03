@@ -145,9 +145,12 @@ func (a *App) collectPeriodically(ctx context.Context, deps Deps) {
 				"reason", "the database references no blobs and the store is not empty")
 		case err != nil:
 			slog.Error("collecting orphan blobs", "err", err)
-		case done.Deleted > 0:
-			slog.Info("collected orphan blobs",
-				"scanned", done.Scanned, "deleted", done.Deleted, "bytes", done.Bytes)
+		case done.Deleted > 0 || done.Trashed > 0:
+			// Two fates and two numbers: what was destroyed is gone, and what
+			// was moved is in the trash and still costs the same room (#276).
+			slog.Info("swept the blob store",
+				"scanned", done.Scanned, "deleted", done.Deleted,
+				"freed", done.Bytes, "unaccounted", done.Trashed)
 		}
 	}
 }

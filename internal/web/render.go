@@ -191,7 +191,13 @@ type view struct {
 	// Deletions is a page of the trash, TrashSize what it is holding onto in
 	// all, and Kept how many days a deletion is given.
 	Deletions []deletion
-	TrashSize string
+	// Unaccounted is the other kind of trash row: blobs the sweep found that
+	// no row claims, which have no path and therefore no way back.
+	Unaccounted []deletion
+	TrashSize   string
+	// Unclaimed is what those are holding, rendered, and empty when there are
+	// none -- which is what a healthy server looks like.
+	Unclaimed string
 	Kept      int
 }
 

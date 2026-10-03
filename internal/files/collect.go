@@ -2,6 +2,7 @@ package files
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"strconv"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/C0piIot/stratus-backend/internal/db"
+	"github.com/C0piIot/stratus-backend/internal/storage"
 )
 
 // DefaultGrace is how old a blob must be before it is considered garbage.
@@ -164,13 +166,19 @@ func (s *Service) dropBlob(ctx context.Context, key string) error {
 var ErrEmptyIndex = errors.New("files: the index is empty and the blob store is not")
 
 // Collected is what one pass did, for the log line that follows it.
+//
+// Deleted and Trashed are two different fates and are counted apart: what was
+// destroyed is gone and its Bytes are free, while what was moved to the trash
+// is still there and still costs the same room (#276).
 type Collected struct {
 	Scanned int
 	Deleted int
+	Trashed int
 	Bytes   int64
 }
 
-// Collect deletes blobs no row points at.
+// Collect finds the blobs no row points at: the originals go to the trash and
+// what was derived from them is destroyed.
 //
 // It is the net and no longer the routine collector (#272). What drops a blob
 // on purpose drops it then and there: a write takes its own predecessor, a
@@ -179,6 +187,19 @@ type Collected struct {
 // never committed, a process killed between the two, a tidy-up the store
 // refused, a derived object whose generator has moved on -- plus whatever
 // arrived in the store by some other road.
+//
+// **An original is moved and not destroyed** (#276). The alternative was a
+// threshold: refuse the pass when too much of the store looks unreferenced,
+// which is a heuristic with a number nobody can justify, and which cannot
+// catch the likely case -- a database restored from last week, where only the
+// last week looks like garbage. Keeping the bytes for a month is the honest
+// version of the same worry. The name is not kept with them, because there is
+// none: it was in the index that went wrong, and a blob key is opaque by
+// design (#24). What the month buys is not a button, it is time.
+//
+// **What was derived is destroyed all the same**, because it can be made
+// again: a thumbnail kept for a month against a picture that regenerates on
+// the first request is noise with a bill attached.
 func (s *Service) Collect(ctx context.Context, olderThan time.Duration) (Collected, error) {
 	// The database is read first and the store second, and the order matters: a
 	// row written between the two would otherwise have its blob listed as
@@ -194,9 +215,10 @@ func (s *Service) Collect(ctx context.Context, olderThan time.Duration) (Collect
 		}
 		referenced[key] = struct{}{}
 	}
-	// A blob in the trash is not garbage: it has an owner, a deletion it
-	// belongs to and a month to live (#274). The sweep is not who decides to
-	// throw it away -- EmptyTrash is, when the month is up.
+	// A blob in the trash is not garbage: it has a deletion it belongs to and
+	// a month to live (#274). The sweep is not who decides to throw it away --
+	// EmptyTrash is, when the month is up. It is also what keeps this pass
+	// from finding the same orphan again tomorrow.
 	for key, err := range s.meta.TrashKeys(ctx) {
 		if err != nil {
 			return Collected{}, fmt.Errorf("read the trashed keys: %w", err)
@@ -204,33 +226,38 @@ func (s *Service) Collect(ctx context.Context, olderThan time.Duration) (Collect
 		referenced[key] = struct{}{}
 	}
 
+	// Counted and buffered rather than decided object by object, and that is
+	// not tidiness. An original that goes to the trash stops being garbage in
+	// this same pass, so whether its thumbnails survive would otherwise depend
+	// on the order the store happened to list them in. Deciding at the end
+	// means the derived half is judged against what is referenced *plus* what
+	// this pass just rescued. It also means a listing that fails halfway
+	// deletes nothing, where before it left half a store swept.
 	var done Collected
+	var orphans []db.File
+	var derivedKeys []storage.ObjectInfo
 	cutoff := time.Now().Add(-olderThan)
 
 	for info, err := range s.blobs.List(ctx, "") {
 		if err != nil {
-			return done, fmt.Errorf("list the blob store: %w", err)
+			return Collected{}, fmt.Errorf("list the blob store: %w", err)
 		}
 		done.Scanned++
 
 		// An index with no rows at all, against a store with objects in it, is
 		// far more likely to be a database pointed somewhere new than a library
-		// somebody emptied. Refusing turns a catastrophe into a log line.
+		// somebody emptied. Refusing turns a catastrophe into a log line --
+		// and it stays even with the trash behind it, because moving a whole
+		// library into the trash is not an answer either.
 		if len(referenced) == 0 {
 			return done, ErrEmptyIndex
 		}
+		if info.ModTime.After(cutoff) {
+			continue
+		}
 
-		// A derived object has no row of its own and never will: it is garbage
-		// exactly when the blob it was made from is. Without this rule the
-		// sweep would delete every thumbnail an hour after it was made and the
-		// lazy path would generate it again, forever -- a treadmill that shows
-		// up in a CPU graph and an egress bill rather than as a failure.
-		//
-		// It is also what catches an overwrite, which leaves the old blob
-		// orphaned *and* its thumbnails, filed under a key nothing will look
-		// for again.
-		var live bool
-		switch parent, derived := parentOf(info.Key); {
+		parent, derived := parentOf(info.Key)
+		switch {
 		case derived && parent == "":
 			// Under the derived prefix and naming no parent, so nothing here
 			// can say whether it is garbage. Skipped rather than guessed at:
@@ -238,26 +265,47 @@ func (s *Service) Collect(ctx context.Context, olderThan time.Duration) (Collect
 			// that loses data.
 			continue
 		case derived:
-			_, live = referenced[parent]
+			derivedKeys = append(derivedKeys, info)
+		default:
+			if _, live := referenced[info.Key]; !live {
+				orphans = append(orphans, db.File{
+					BlobKey: info.Key,
+					Size:    info.Size,
+					MTime:   info.ModTime.UTC().Truncate(db.TimePrecision),
+				})
+			}
+		}
+	}
+
+	// The originals first, so that what they were made into is judged against
+	// a trash that already holds them.
+	if len(orphans) > 0 {
+		if err := s.meta.Trash(ctx, rand.Text(), orphans, time.Now().UTC()); err != nil {
+			return done, fmt.Errorf("move %d unaccounted blobs to the trash: %w", len(orphans), err)
+		}
+		for _, o := range orphans {
+			referenced[o.BlobKey] = struct{}{}
+		}
+		done.Trashed = len(orphans)
+	}
+
+	for _, info := range derivedKeys {
+		parent, _ := parentOf(info.Key)
+		if _, live := referenced[parent]; live {
 			// And a picture whose generator has moved on is garbage even
 			// though the file it was made from is still here. Without this the
 			// generation in the key would only stop the old object being
 			// served, and leave it on the disk for as long as its parent
 			// lived -- which is the objection that kept the key a pure
 			// function of its parent's in the first place (#161).
-			if live && staleGeneration(info.Key) {
-				live = false
-			}
-			// And a cache outlives its welcome a week after it was written,
+			//
+			// A cache outlives its welcome a week after it was written,
 			// whatever its parent is doing.
-			if live && cached(info.Key) && time.Since(info.ModTime) > CacheRetention {
-				live = false
+			stale := staleGeneration(info.Key)
+			expired := cached(info.Key) && time.Since(info.ModTime) > CacheRetention
+			if !stale && !expired {
+				continue
 			}
-		default:
-			_, live = referenced[info.Key]
-		}
-		if live || info.ModTime.After(cutoff) {
-			continue
 		}
 		if err := s.blobs.Delete(ctx, info.Key); err != nil {
 			return done, fmt.Errorf("delete %q: %w", info.Key, err)
@@ -387,6 +435,13 @@ const maxCopies = 100
 func (s *Service) Restore(ctx context.Context, owner, batch string) (db.File, error) {
 	var root db.File
 	var restored []db.File
+
+	if owner == "" {
+		// The rule lives here and not in the template that does not draw the
+		// button: a blob nobody can account for has no path to be put back at,
+		// because the path was in the index that went wrong (#276).
+		return db.File{}, fmt.Errorf("%w: nothing is known about where these belonged", db.ErrConflict)
+	}
 
 	err := s.meta.Tx(ctx, func(r db.Repo) error {
 		rows, err := r.TrashedIn(ctx, owner, batch)

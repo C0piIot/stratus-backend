@@ -465,6 +465,18 @@ Hard constraints, in the same spirit as the rest of the project:
   cannot be undone" to how long you have to change your mind. It also keeps the
   listing from carrying two forms per row.
 
+  **Two kinds of row and two sections** (#276). A deletion has a path and
+  comes back; a blob the sweep could not account for has only a key, so it
+  cannot, and the page says that by not drawing the button rather than by
+  drawing a dead one. `/status` separates the two numbers for the same
+  reason: what you deleted is a decision, and what the server cannot explain
+  is a symptom.
+
+  Destroying is two calls and not a lookup, which is the policy written out:
+  a signed-in person may destroy what they deleted and what belongs to
+  nobody, and nothing else. That is the scope that will keep one person out
+  of another's trash when there is more than one of them.
+
   **The trash is a page of deletions, not of files** (`/trash`). Deleting a
   folder of a thousand photographs is one accident, and a thousand rows is not
   a way to find it again: one line per `Remove`, named by the folder that was
@@ -711,6 +723,21 @@ What the move costs is the cascades: `media`, `track_annotations` and
 and the playlist entries go with the row. They went with a delete before this
 too, so nothing is newly lost -- but it is what will make restoring cost a
 re-index (#275).
+
+**A blob nobody can account for is a trash row with no owner** (#276), and
+that needed no column and no migration: `owner_id = ''` and `path = ''` are
+exactly what can be said about an object nobody claims, and the owner is
+already the filter -- `TrashBatches("")` answers the sweep's finds and a
+person's page cannot show one, because the handler passes the session's user
+and that is never empty. One batch per pass, so the page says "twelve objects
+found on the third" rather than listing twelve.
+
+It replaces the proportional refusal #271 was going to get. That was a
+heuristic with a number nobody could justify, and it could not catch the
+likely case -- a database restored from last week, where only the last week
+looks unreferenced. Keeping the bytes is the honest version of the same fear.
+What stays from #271 is the empty-index refusal: moving a whole library into
+the trash is not an answer either.
 
 A deletion is a **batch**: one `Remove` is one id on every row it took, which
 is what lets a page show an accident instead of a thousand files, and what

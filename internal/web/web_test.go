@@ -66,6 +66,18 @@ func browserOver(t *testing.T) (http.Handler, *files.Service, db.Store) {
 		s, thumbs, meta, indexing(meta), nil, web.Video{}), s, meta
 }
 
+// browserOverStore is browser plus the blob store behind it, for the tests
+// that have to put an object where no row claims it.
+func browserOverStore(t *testing.T) (http.Handler, *files.Service, storage.Storage) {
+	t.Helper()
+	blobs, meta := backends(t)
+	s := files.New(blobs, meta)
+	creds := credentials()
+	thumbs := media.NewThumbs(blobs, s, "ffmpeg", t.TempDir())
+	return web.Handler(version, buildDate, creds, auth.NewSessions(creds, auth.DefaultSessionTTL), auth.NewShares(creds),
+		s, thumbs, meta, indexing(meta), nil, web.Video{}), s, blobs
+}
+
 // handlerIndexing is handlerOver for the tests that care about what the status
 // page was told rather than about what is in the tree.
 func handlerIndexing(t *testing.T, s *files.Service, blobs storage.Storage, ix web.Indexing) http.Handler {
