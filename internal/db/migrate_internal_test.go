@@ -119,6 +119,56 @@ CREATE TABLE a (
 	}
 }
 
+// A trigger body is full of semicolons and is one statement all the same, which
+// is what SQLite's FTS5 index is maintained by (0011). Before this, the first
+// of them ended the CREATE TRIGGER halfway and the engine was handed a syntax
+// error.
+func TestStatementsKeepATriggerWhole(t *testing.T) {
+	t.Parallel()
+
+	const migration = `
+CREATE VIRTUAL TABLE a_fts USING fts5(name, content = 'a');
+
+CREATE TRIGGER a_ai AFTER INSERT ON a BEGIN
+    INSERT INTO a_fts (rowid, name) VALUES (new.id, new.name);
+END;
+
+CREATE TRIGGER a_au AFTER UPDATE ON a BEGIN
+    -- Two statements in here, and a comment with a semicolon; both of them.
+    INSERT INTO a_fts (a_fts, rowid, name) VALUES ('delete', old.id, old.name);
+    INSERT INTO a_fts (rowid, name) VALUES (new.id, new.name);
+END;
+
+INSERT INTO a_fts (a_fts) VALUES ('rebuild');
+`
+	got := statements(migration)
+	if len(got) != 4 {
+		t.Fatalf("split into %d statements, want 4: %q", len(got), got)
+	}
+	for i, want := range []string{"CREATE VIRTUAL TABLE", "CREATE TRIGGER a_ai", "CREATE TRIGGER a_au", "INSERT INTO a_fts"} {
+		if !strings.HasPrefix(got[i], want) {
+			t.Errorf("statement %d = %q, want it to start %q", i, got[i], want)
+		}
+	}
+	if n := strings.Count(got[2], "INSERT INTO"); n != 2 {
+		t.Errorf("the update trigger kept %d of its two statements: %q", n, got[2])
+	}
+	if strings.Contains(got[2], "--") {
+		t.Errorf("a comment inside a trigger survived: %q", got[2])
+	}
+
+	// A trigger nobody closed goes to the engine as it is: it knows which file
+	// and which statement, and this does not.
+	if unclosed := statements("CREATE TRIGGER t AFTER INSERT ON a BEGIN\n  SELECT 1;\n"); len(unclosed) != 1 {
+		t.Errorf("an unclosed trigger split into %d statements: %q", len(unclosed), unclosed)
+	}
+
+	// And the word BEGIN outside a trigger is the word BEGIN.
+	if plain := statements("CREATE TABLE a (begin INTEGER);\nCREATE TABLE b (id INTEGER);\n"); len(plain) != 2 {
+		t.Errorf("a column called begin opened a body: %q", plain)
+	}
+}
+
 // The migration lock, from the side a real engine cannot show: a run that fails
 // has to give it back, and it has to be taken before the first statement rather
 // than before the first migration. Both are assertions about order, so they are

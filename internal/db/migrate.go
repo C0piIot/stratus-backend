@@ -129,9 +129,18 @@ func apply(ctx context.Context, sqlDB *sql.DB, m Migration) error {
 // paragraph -- and a prose sentence contains a semicolon sooner or later, which
 // the split would take for the end of a statement.
 //
-// The split is still on semicolons, so a migration may not contain one inside a
-// string literal or a trigger body. That is a real limit and a cheap one: it is
-// checked by the fact that every migration has to run on every driver.
+// The split is on semicolons, with one exception: a trigger's body is full of
+// them and is one statement all the same, so the pieces of a CREATE TRIGGER are
+// put back together until its END. SQLite needs that -- an FTS5 index is
+// maintained by triggers (0011) -- and the alternative was maintaining it from
+// the driver, which would turn the one statement that moves a subtree into one
+// per row.
+//
+// It is not a SQL parser and must not become one. It knows two things: a
+// statement that begins CREATE TRIGGER has a body, and that body ends at the
+// END that balances its BEGIN. A semicolon inside a string literal still splits,
+// and so would a CASE ... END inside a trigger. Both are limits worth having
+// over a parser nobody can read.
 func statements(sql string) []string {
 	var body strings.Builder
 	for line := range strings.SplitSeq(sql, "\n") {
@@ -143,12 +152,51 @@ func statements(sql string) []string {
 	}
 
 	var out []string
-	for stmt := range strings.SplitSeq(body.String(), ";") {
-		if trimmed := strings.TrimSpace(stmt); trimmed != "" {
+	var current strings.Builder
+	for piece := range strings.SplitSeq(body.String(), ";") {
+		current.WriteString(piece)
+		if unclosedTrigger(current.String()) {
+			// The semicolon that ended this piece belongs to the body.
+			current.WriteByte(';')
+			continue
+		}
+		if trimmed := strings.TrimSpace(current.String()); trimmed != "" {
 			out = append(out, trimmed)
 		}
+		current.Reset()
+	}
+	// Whatever is left is a statement with no semicolon after it, or a trigger
+	// nobody closed. Either way it goes to the engine as it is: a refusal there
+	// says which file and which statement, and one here would not.
+	if trimmed := strings.TrimSpace(current.String()); trimmed != "" {
+		out = append(out, trimmed)
 	}
 	return out
+}
+
+// unclosedTrigger reports whether stmt is a CREATE TRIGGER whose body is still
+// open. Only a trigger, so the word BEGIN anywhere else -- a column called
+// begin, a transaction nobody should be writing in a migration -- is read as
+// what it is.
+func unclosedTrigger(stmt string) bool {
+	words := strings.Fields(strings.ToUpper(stmt))
+	if len(words) == 0 || words[0] != "CREATE" {
+		return false
+	}
+	// CREATE TRIGGER, and CREATE TEMP TRIGGER, which is as far as the forms go.
+	if !slices.Contains(words[:min(len(words), 3)], "TRIGGER") {
+		return false
+	}
+	var depth int
+	for _, w := range words {
+		switch w {
+		case "BEGIN":
+			depth++
+		case "END":
+			depth--
+		}
+	}
+	return depth > 0
 }
 
 // loadMigrations reads NNNN_name.sql files and returns them in version order.
