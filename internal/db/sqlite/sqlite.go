@@ -278,7 +278,7 @@ func listPageArgs(order db.FileOrder, owner, dir string, isDir bool, after db.Cu
 //
 // files_owner_parent is (owner_id, parent_path, is_dir DESC, path), which with
 // is_dir pinned is this ORDER BY exactly, in both directions. Ordering by size
-// or by mtime has an index each of its own, added in 0009.
+// or by mtime has an index each of its own, in the schema.
 //
 // Those two resume on a row comparison rather than the spelled-out OR this
 // query used to carry, for the reason #211 found in the photo timeline: the OR
@@ -386,7 +386,7 @@ func (r *repo) PutMedia(ctx context.Context, m db.Media) error {
 
 	// The gallery's ordering, from both tables. A second statement rather than
 	// an expression in the upsert, which could not see the files row in all
-	// three dialects the same way. See 0006_photo_timeline.sql.
+	// three dialects the same way. See sort_at in the schema.
 	const sortAt = `UPDATE media SET sort_at = COALESCE(taken_at, (SELECT mtime FROM files WHERE files.id = media.file_id))
 		WHERE file_id = ?`
 	if _, err := r.q.ExecContext(ctx, sortAt, m.FileID); err != nil {
@@ -768,7 +768,7 @@ const (
 		LIMIT ? OFFSET ?`
 )
 
-// The same three searches again, asking the index instead of scanning (0013).
+// The same three searches again, asking media_fts instead of scanning.
 //
 // They are whole queries and not a predicate swapped into the ones above,
 // because what changes is which table drives: written as a subquery, SQLite
@@ -1158,7 +1158,7 @@ func scanUploadRow(rows *sql.Rows) (db.Upload, error) {
 // doubled, which is how a quoted string carries one.
 //
 // The separators are not flattened here. The index reads search_name, which
-// migration 0010 already flattened, and unicode61 splits on punctuation
+// the schema already flattened, and unicode61 splits on punctuation
 // anyway -- so photo.jpg arrives as two words on both sides.
 func ftsPhrase(term string) string {
 	return `"` + strings.ReplaceAll(term, `"`, `""`) + `"`
@@ -1166,8 +1166,8 @@ func ftsPhrase(term string) string {
 
 // Find implements db.Repo.
 //
-// Every bucket asks an FTS5 index maintained by triggers: the names one 0011's,
-// and the four that read tags or a camera 0013's and 0012's. The join is by
+// Every bucket asks an index maintained by triggers: files_fts for the names
+// and media_fts for the four over tags and cameras. The join is by
 // rowid, which is the file's id, and the ordering and the cursor stay the
 // port's -- by path, or by the name a bucket of tags is grouped by, because
 // relevance is not comparable between engines and has nothing in it to resume

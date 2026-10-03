@@ -236,7 +236,7 @@ func listPageArgs(order db.FileOrder, owner, dir string, isDir bool, after db.Cu
 //
 // files_owner_parent is (owner_id, parent_path, is_dir DESC, path), which with
 // is_dir pinned is this ORDER BY exactly, in both directions. Ordering by size
-// or by mtime has an index each of its own, added in 0009.
+// or by mtime has an index each of its own, in the schema.
 //
 // Those two resume on a row comparison rather than the spelled-out OR this
 // query used to carry, for the reason #211 found in the photo timeline: the OR
@@ -345,7 +345,7 @@ func (r *repo) PutMedia(ctx context.Context, m db.Media) error {
 
 	// The gallery's ordering, from both tables. A second statement rather than
 	// an expression in the upsert, which could not see the files row in all
-	// three dialects the same way. See 0006_photo_timeline.sql.
+	// three dialects the same way. See sort_at in the schema.
 	const sortAt = `UPDATE media SET sort_at = COALESCE(taken_at, (SELECT mtime FROM files WHERE files.id = media.file_id))
 		WHERE file_id = $1`
 	if _, err := r.q.ExecContext(ctx, sortAt, m.FileID); err != nil {
@@ -1019,7 +1019,7 @@ func scanUploadRow(rows *sql.Rows) (db.Upload, error) {
 // nameFlat is the term flattened the way search_name is, so that what is
 // compared is the same shape on both sides -- searching photo.jpg has to match
 // a column where the dot is already a space. Spelled out here rather than done
-// in Go because migration 0010 defines it in SQL, and two definitions of one
+// in Go because the schema defines it in SQL, and two definitions of one
 // rule is how they come to disagree.
 const nameFlat = `translate($2, '._-()[]', '       ')`
 
@@ -1125,7 +1125,7 @@ func (r *repo) Find(ctx context.Context, owner string, f db.FindFilter) (db.Find
 // column the bucket is about.
 //
 // The flattening is nameFlat's on the query side and the same translate on the
-// column, so both sides are the shape migration 0010 chose.
+// column, so both sides are the shape search_name is generated in.
 func tagColumn(column string) string {
 	return `m.search_tags @@ phraseto_tsquery('simple', ` + nameFlat + `)
 		  AND to_tsvector('simple', translate(m.` + column + `, '._-()[]', '       '))

@@ -132,7 +132,7 @@ func apply(ctx context.Context, sqlDB *sql.DB, m Migration) error {
 // The split is on semicolons, with one exception: a trigger's body is full of
 // them and is one statement all the same, so the pieces of a CREATE TRIGGER are
 // put back together until its END. SQLite needs that -- an FTS5 index is
-// maintained by triggers (0011) -- and the alternative was maintaining it from
+// maintained by triggers -- and the alternative was maintaining it from
 // the driver, which would turn the one statement that moves a subtree into one
 // per row.
 //
