@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/C0piIot/stratus-backend/internal/db"
 	"github.com/C0piIot/stratus-backend/internal/db/dbtest"
@@ -236,4 +237,47 @@ func TestASearchSurvivesNothing(t *testing.T) {
 	if strings.Contains(rec.Body.String(), dbtest.ErrInjected.Error()) {
 		t.Errorf("the page tells the reader what the database said:\n%s", rec.Body)
 	}
+}
+
+// TestASearchFindsAPhotographByItsCamera: a camera calls everything IMG_0042,
+// so the name half finds nothing anybody meant and this half is why.
+func TestASearchFindsAPhotographByItsCamera(t *testing.T) {
+	t.Parallel()
+	h, s, meta := browserOver(t)
+	cookie := signIn(t, h)
+	addPhoto(t, s, meta, "IMG_0042.jpg", time.Date(2024, 6, 2, 10, 0, 0, 0, time.UTC), "Olympus OM-1")
+	addPhoto(t, s, meta, "IMG_0043.jpg", time.Date(2019, 8, 9, 10, 0, 0, 0, time.UTC), "Canon EOS R6")
+
+	body := get(t, h, "/search?q=olympus", cookie).Body.String()
+	has(t, body, "Photos", `/gallery/photos/IMG_0042.jpg`, "/thumb/IMG_0042.jpg?size=300")
+	if strings.Contains(body, "IMG_0043") {
+		t.Errorf("a photograph from another camera is in the results:\n%s", body)
+	}
+
+	// And by the year the camera recorded, which is the other half of what a
+	// photograph says about itself.
+	if year := get(t, h, "/search?q=2019", cookie).Body.String(); !strings.Contains(year, "IMG_0043.jpg") {
+		t.Errorf("a year found nothing:\n%s", year)
+	}
+}
+
+// TestOnePhotoHalfAtATime: the photographs page on their own like the other two.
+func TestOnePhotoHalfAtATime(t *testing.T) {
+	t.Parallel()
+	h, s, meta := browserOver(t)
+	cookie := signIn(t, h)
+	addPhoto(t, s, meta, "IMG_0042.jpg", time.Date(2024, 6, 2, 10, 0, 0, 0, time.UTC), "Olympus OM-1")
+	write(t, s, "olympus-notes.txt", "about the camera")
+
+	only := get(t, h, "/search?q=olympus&in=photos", cookie).Body.String()
+	has(t, only, "IMG_0042.jpg")
+	if strings.Contains(only, "olympus-notes.txt") {
+		t.Errorf("a photographs-only page showed files:\n%s", only)
+	}
+
+	fragment := htmx(t, h, "/search?q=olympus&in=photos", cookie).Body.String()
+	if strings.Contains(fragment, "<!doctype") || strings.Contains(fragment, "<tr") {
+		t.Errorf("htmx was given a document rather than the grid:\n%s", fragment)
+	}
+	has(t, fragment, "ratio-1x1")
 }

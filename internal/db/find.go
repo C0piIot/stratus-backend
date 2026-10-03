@@ -29,6 +29,9 @@ type Finder interface {
 	//     ``._-()[]`` -- are word boundaries, so IMG_0001.JPG is three words.
 	//   - The same of a track's title, artist, album or album artist finds that
 	//     track.
+	//   - The same of a photograph's camera, or the year the camera says it was
+	//     taken, finds that photograph. Not where it was taken: a coordinate is
+	//     two numbers, and a name for it would be a service this does not have.
 	//   - Several words are matched as a phrase: all of them, in the order they
 	//     were typed and next to each other. It is what somebody means by
 	//     typing two words, and it is the one multi-word meaning all three
@@ -51,14 +54,15 @@ type Finder interface {
 	Find(ctx context.Context, owner string, f FindFilter) (FindResult, error)
 }
 
-// FindFilter is one search over the two things a library holds that have words
-// in them. Each half is asked for separately because a page shows them
+// FindFilter is one search over the three things a library holds that have
+// words in them. Each half is asked for separately because a page shows them
 // separately and walks them separately.
 type FindFilter struct {
 	Text string
-	// Files and Tracks are the two halves. A zero Limit asks for nothing, which
-	// is how a caller that only wants one of them says so.
-	Files, Tracks Window
+	// Files, Tracks and Photos are the three halves -- thirds, since the
+	// photographs arrived. A zero Limit asks for nothing, which is how a
+	// caller that wants only some of them says so.
+	Files, Tracks, Photos Window
 }
 
 // Window is one page of one half: where to resume and how much to take.
@@ -80,7 +84,7 @@ func (w Window) Wanted() bool { return w.Limit > 0 }
 // so a caller's bug would be the whole library on one driver and an error on
 // another. Here rather than in each of them, for the reason ValidateLimit is.
 func (f FindFilter) Validate() error {
-	for _, w := range []Window{f.Files, f.Tracks} {
+	for _, w := range []Window{f.Files, f.Tracks, f.Photos} {
 		if w.Limit < 0 {
 			return fmt.Errorf("db: a page asks for no rows or some, not %d", w.Limit)
 		}
@@ -92,4 +96,8 @@ func (f FindFilter) Validate() error {
 type FindResult struct {
 	Files  []File
 	Tracks []Track
+	// Photos are the file rows, not the media ones: what a page shows of a
+	// photograph is a thumbnail, and that is made from a path, a size and a
+	// validator.
+	Photos []File
 }

@@ -736,6 +736,20 @@ Migration 0010 is where each engine's answer lives, and the numbers are in it:
   before fifty are taken. The worst case halved and the common one collapsed,
   which is the trade. The index is about 10 MiB per hundred thousand files.
 
+**A photograph is the third thing a search answers** (#262), and it is where
+this stops being a column generated in SQL. A photograph has no text: it has a
+camera and a time. So the text is folded in Go, like the music tags and for the
+reason #85 gives, and `Media.Fold` grew a fourth field -- the camera as
+recorded, and the year as a word. Not the month, which has a name only in a
+language, and not the place, because `db.GPS` is two numbers and the name of a
+coordinate is a service this project does not have.
+
+Nothing backfills the column. `media.Version` went to 7 instead, which is the
+mechanism that exists for exactly this and the argument #85 already made: a
+backfill would have been each engine's own `lower()`, which is the divergence
+folding in Go removes. It costs a pass over the library, and `/status` is where
+somebody watches it.
+
 `Music.Search` is untouched beside it: that is what OpenSubsonic's `search3`
 answers from, with its own pages and its own meaning of an empty query, and a
 client depends on it.

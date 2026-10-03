@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/C0piIot/stratus-backend/internal/db"
+	"github.com/C0piIot/stratus-backend/internal/media"
 )
 
 // searchPrefix is where the box in the navbar submits. A GET form, so a search
@@ -26,11 +27,15 @@ const searchPageSize = 50
 const (
 	inFiles  = "files"
 	inTracks = "tracks"
+	inPhotos = "photos"
 )
 
-// searchTracks is the fragment htmx asks for when it extends the tracks half,
-// as listFragment is for the files half.
-const searchTracks = "tracks"
+// The fragments htmx asks for when it extends one of the halves, as
+// listFragment is for the files one.
+const (
+	searchTracks = "tracks"
+	searchPhotos = "photos"
+)
 
 // search answers the box.
 func (h *handler) search(w http.ResponseWriter, r *http.Request, user string) {
@@ -39,7 +44,7 @@ func (h *handler) search(w http.ResponseWriter, r *http.Request, user string) {
 
 	only := q.Get("in")
 	switch only {
-	case "", inFiles, inTracks:
+	case "", inFiles, inTracks, inPhotos:
 	default:
 		h.badRequest(w, user, "There is nothing here to search called that.")
 		return
@@ -68,6 +73,9 @@ func (h *handler) search(w http.ResponseWriter, r *http.Request, user string) {
 	if only == "" || only == inTracks {
 		filter.Tracks = db.Window{After: after, Limit: searchPageSize + 1}
 	}
+	if only == "" || only == inPhotos {
+		filter.Photos = db.Window{After: after, Limit: searchPageSize + 1}
+	}
 	found, err := h.finder.Find(r.Context(), user, filter)
 	if err != nil {
 		h.fail(w, r, user, err)
@@ -87,12 +95,21 @@ func (h *handler) search(w http.ResponseWriter, r *http.Request, user string) {
 		v.MoreTracks = searchLink(term, inTracks, db.After(tracks[len(tracks)-1].File))
 	}
 
+	photos, morePhotos := trim(found.Photos)
+	v.Tiles = shots(photos)
+	if morePhotos {
+		v.MorePhotos = searchLink(term, inPhotos, db.After(photos[len(photos)-1]))
+	}
+
 	// htmx is extending one half, which is the only time a fragment is asked
 	// for -- and it asks for the half it is in, since a bucket page shows one.
 	if r.Header.Get("HX-Request") == "true" {
 		fragment := listFragment
-		if only == inTracks {
+		switch only {
+		case inTracks:
 			fragment = searchTracks
+		case inPhotos:
+			fragment = searchPhotos
 		}
 		h.renderTemplate(w, http.StatusOK, pageSearch, fragment, v)
 		return
@@ -117,6 +134,21 @@ func searchLink(term, only string, after db.Cursor) string {
 	q.Set("in", only)
 	q.Set("after", encodeCursor(db.SortName, after))
 	return searchPrefix + "?" + q.Encode()
+}
+
+// shots is the photographs of a result, as the cells the gallery's grid is made
+// of. The viewer is the gallery's too: a photograph found here opens where it
+// would have opened there, with the ones either side of it a click away.
+func shots(photos []db.File) []tile {
+	out := make([]tile, 0, len(photos))
+	for _, p := range photos {
+		cell := tile{Href: link(photoPrefix, p.Path), Name: path.Base(p.Path)}
+		if media.CanThumbnail(p.Path, p.Size) {
+			cell.Thumb = thumbURL(p, tileThumb)
+		}
+		out = append(out, cell)
+	}
+	return out
 }
 
 // foundTrack is one track in a result: what it is, where to hear it and where

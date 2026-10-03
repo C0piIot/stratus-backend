@@ -607,17 +607,24 @@ which is where `stratus-app` casts from.
 
 **There is a search box in the bar at the top.** It finds a file or a folder by
 its **name** -- not its path, so a word in a folder finds the folder and not the
-thousand photographs under it -- and a track by its title, artist or album.
+thousand photographs under it -- a track by its title, artist or album, and a
+photograph by its camera or its year.
 Whole words, and several of them mean those words in that order; it does not
 match half a word, and it does not rank -- results come back in path order, so
 the same search twice is the same answer and the next page resumes exactly
 where the last one stopped. It is a GET form, so a search is a URL you can send
 or bookmark.
 
-Each half shows fifty at a time and offers the rest, which opens that half on
-its own: `/search?q=sunset&in=files`. What is not in it yet is photographs by
-what the camera recorded, and artists and albums as results of their own rather
-than as the tracks on them.
+**A photograph is found by what the camera recorded**, which is the half of a
+search that a filename cannot give you: `olympus` finds everything taken on
+one, and `2024` everything taken that year. Not where it was taken -- a
+coordinate is two numbers, and turning one into "Lisbon" means asking a service
+somewhere else, which a self-hosted server should not have to do to answer its
+own search box.
+
+Each part shows fifty at a time and offers the rest, which opens that part on
+its own: `/search?q=sunset&in=files`. What is not in it yet is artists and
+albums as results of their own rather than as the tracks on them.
 
 How the matching is done is each database's business: a generated `tsvector`
 with a GIN index on PostgreSQL, a `FULLTEXT` index on MySQL, and FTS5 on

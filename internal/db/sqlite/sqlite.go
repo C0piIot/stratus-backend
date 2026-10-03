@@ -327,11 +327,11 @@ func (r *repo) ListFilesPage(
 
 const mediaColumns = `file_id, kind, indexed_at, version, etag, error, retry_at, taken_at, width, height, orientation, latitude, longitude, camera, duration_ms, codec, bitrate, sample_rate, channels, bit_depth, codec_profile, level, frame_rate, audio_codec, color_primaries, color_transfer, color_space, dovi_profile, artist, album, title, track_no, disc_no, year, genre, album_artist`
 
-// mediaWriteColumns is the read list plus the three folded columns a search
+// mediaWriteColumns is the read list plus the four folded columns a search
 // matches on. They are written and filtered but never read back: they are how
 // the row is stored, not part of what a db.Media is, so scanMedia does not know
 // about them.
-const mediaWriteColumns = mediaColumns + `, search_song, search_album, search_album_artist`
+const mediaWriteColumns = mediaColumns + `, search_song, search_album, search_album_artist, search_photo`
 
 // PutMedia implements db.MediaIndex.
 func (r *repo) PutMedia(ctx context.Context, m db.Media) error {
@@ -354,7 +354,7 @@ func (r *repo) PutMedia(ctx context.Context, m db.Media) error {
 	}
 
 	const query = `INSERT INTO media (` + mediaWriteColumns + `)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (file_id) DO UPDATE SET
 			kind = excluded.kind, indexed_at = excluded.indexed_at, version = excluded.version,
 			etag = excluded.etag, error = excluded.error, retry_at = excluded.retry_at,
@@ -369,14 +369,15 @@ func (r *repo) PutMedia(ctx context.Context, m db.Media) error {
 			disc_no = excluded.disc_no, year = excluded.year, genre = excluded.genre,
 			album_artist = excluded.album_artist, search_song = excluded.search_song,
 			search_album = excluded.search_album,
-			search_album_artist = excluded.search_album_artist`
+			search_album_artist = excluded.search_album_artist,
+			search_photo = excluded.search_photo`
 
 	_, err := r.q.ExecContext(ctx, query,
 		m.FileID, string(m.Kind), m.IndexedAt.UnixMilli(), m.Version, m.ETag, m.Error, retryAt, takenAt,
 		m.Width, m.Height, m.Orientation, lat, lon, m.Camera,
 		m.DurationMS, m.Codec, m.Bitrate, m.SampleRate, m.Channels, m.BitDepth, m.CodecProfile, m.Level, m.FrameRate, m.AudioCodec, m.ColorPrimaries, m.ColorTransfer, m.ColorSpace, m.DoViProfile, m.Artist, m.Album, m.Title,
 		m.TrackNo, m.DiscNo, m.Year, m.Genre,
-		m.AlbumArtist, folded.Song, folded.Album, folded.AlbumArtist,
+		m.AlbumArtist, folded.Song, folded.Album, folded.AlbumArtist, folded.Photo,
 	)
 	if err != nil {
 		return fmt.Errorf("put media for file %d: %w", m.FileID, mapErr(err))
@@ -1114,6 +1115,13 @@ func (r *repo) Find(ctx context.Context, owner string, f db.FindFilter) (db.Find
 		  AND f.path > ?
 		ORDER BY f.path LIMIT ?`
 
+	photos := `SELECT ` + joinedFileColumns + `
+		FROM media m JOIN files f ON f.id = m.file_id
+		WHERE f.owner_id = ? AND m.kind = ?
+		  AND m.search_photo LIKE ? ESCAPE '` + sqlutil.LikeEscape + `'
+		  AND f.path > ?
+		ORDER BY f.path LIMIT ?`
+
 	var err error
 	if f.Files.Wanted() {
 		if out.Files, err = sqlutil.Collect(ctx, r.q, scanFileRow, files,
@@ -1127,6 +1135,13 @@ func (r *repo) Find(ctx context.Context, owner string, f db.FindFilter) (db.Find
 			owner, string(db.KindAudio), tagged, tagged, tagged,
 			f.Tracks.After.Path, f.Tracks.Limit); err != nil {
 			return db.FindResult{}, fmt.Errorf("find tracks: %w", mapErr(err))
+		}
+	}
+	if f.Photos.Wanted() {
+		if out.Photos, err = sqlutil.Collect(ctx, r.q, scanFileRow, photos,
+			owner, string(db.KindImage), sqlutil.Contains(term),
+			f.Photos.After.Path, f.Photos.Limit); err != nil {
+			return db.FindResult{}, fmt.Errorf("find photos: %w", mapErr(err))
 		}
 	}
 	return out, nil

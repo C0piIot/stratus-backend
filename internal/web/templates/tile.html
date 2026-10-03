@@ -1,0 +1,15 @@
+{{/* One cell of a grid of photographs, for the two pages that show one: the
+     gallery, which groups by month and pages by date, and a search result,
+     which does neither. What they share is the picture, so that is what is
+     shared -- the row around it and the way to the next page are each page's
+     own. */}}
+{{define "tile" -}}
+<div class="col-4 col-sm-3 col-md-2">
+  <a href="{{.Href}}" class="d-block ratio ratio-1x1 bg-body-secondary rounded overflow-hidden"
+     title="{{.Name}}">
+    {{if .Thumb}}<img src="{{.Thumb}}" alt="{{.Name}}" width="300" height="300" loading="lazy"
+      class="object-fit-cover w-100 h-100">
+    {{else}}<span class="d-flex align-items-center justify-content-center small text-body-secondary p-1 text-break">{{.Name}}</span>{{end}}
+  </a>
+</div>
+{{- end}}
