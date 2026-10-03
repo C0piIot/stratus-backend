@@ -129,6 +129,34 @@ func parentOf(key string) (parent string, derived bool) {
 	return rest[:i], true
 }
 
+// dropBlob throws away a blob and everything derived from it, which is what
+// giving one up on purpose means (#272): the picture made from a photograph and
+// the segments re-encoded from a film are garbage the moment their original is,
+// and waiting for the sweep to work that out is waiting a day.
+//
+// Collect still knows the same rule -- a derived object is garbage when its
+// parent is gone -- and still has to, for everything that never came through
+// here: a process that died between the two, a generation that moved on, an
+// object whose parent went before this existed.
+//
+// The listing is of one prefix with two or three objects in it, not of the
+// store. A caller deleting a thousand rows pays a thousand of them, which is
+// the same order as the thousand deletes it was already doing.
+func (s *Service) dropBlob(ctx context.Context, key string) error {
+	if err := s.blobs.Delete(ctx, key); err != nil {
+		return fmt.Errorf("delete blob %q: %w", key, err)
+	}
+	for info, err := range s.blobs.List(ctx, DerivedPrefix+key+"/") {
+		if err != nil {
+			return fmt.Errorf("list what was derived from %q: %w", key, err)
+		}
+		if derr := s.blobs.Delete(ctx, info.Key); derr != nil {
+			return fmt.Errorf("delete derived %q: %w", info.Key, derr)
+		}
+	}
+	return nil
+}
+
 // ErrEmptyIndex is returned when the database references no blobs at all and
 // the store is not empty. See the check in Collect.
 var ErrEmptyIndex = errors.New("files: the index is empty and the blob store is not")
@@ -142,10 +170,13 @@ type Collected struct {
 
 // Collect deletes blobs no row points at.
 //
-// There is a leak to collect because a write takes a fresh key every time, so
-// that a failed overwrite cannot destroy the content it was replacing. What that
-// buys in safety it pays for here: every overwrite leaves the previous blob
-// behind, and so does every write whose row never committed.
+// It is the net and no longer the routine collector (#272). What drops a blob
+// on purpose drops it then and there: a write takes its own predecessor, a
+// delete takes what it deleted, and both take the pictures made from it. What
+// reaches this sweep is what nobody was left to announce -- a write whose row
+// never committed, a process killed between the two, a tidy-up the store
+// refused, a derived object whose generator has moved on -- plus whatever
+// arrived in the store by some other road.
 func (s *Service) Collect(ctx context.Context, olderThan time.Duration) (Collected, error) {
 	// The database is read first and the store second, and the order matters: a
 	// row written between the two would otherwise have its blob listed as

@@ -92,8 +92,8 @@ func (s *Service) Copy(ctx context.Context, owner, from, to string, recursive bo
 
 	// What the destination held before, now that the rows naming it are gone.
 	for _, key := range orphaned {
-		if derr := s.blobs.Delete(ctx, key); derr != nil {
-			return created, fmt.Errorf("delete blob %q: %w", key, derr)
+		if derr := s.dropBlob(ctx, key); derr != nil {
+			return created, derr
 		}
 	}
 	for _, row := range rows {

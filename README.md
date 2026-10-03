@@ -322,9 +322,17 @@ accepts an upload of unknown length has to invent a rule for when it ended.
 
 A write puts the bytes down before the row, and takes a fresh blob key every
 time, so that a failed overwrite cannot destroy the content it was replacing.
-The price is that every overwrite leaves the previous blob behind. A sweep runs
-in the background — in the same process, as everything here does — and deletes
-blobs no row points at.
+Once the row is committed the one that lost is dropped on the spot, with the
+thumbnails made from it — so replacing a file does not quietly keep a second
+copy of it, and neither does a phone re-sending a photograph it already sent.
+The same at the other end: deleting a file deletes its blob and its pictures.
+
+A sweep runs in the background all the same — in the same process, as
+everything here does — and deletes blobs no row points at. It is the net under
+the cases nobody was left to announce: a process killed between the bytes and
+the row, a tidy-up the store refused, a thumbnail whose generator has moved on,
+or something that arrived in the store by another road. Daily, because that is
+what a net is for.
 
 Two rules make it safe rather than dangerous:
 
@@ -335,16 +343,11 @@ Two rules make it safe rather than dangerous:
   pointed somewhere new than a library somebody emptied. It logs and does
   nothing.
 
-The same pass reclaims **locks that have timed out**. Nothing depends on it
-running — every read of the lock table filters on the expiry — so it frees rows
-rather than enforcing anything, which is what makes it safe on every instance at
-once.
-
 **Generated files live under a `derived/` prefix in the same store**, and the
-sweep understands them: a thumbnail has no row of its own, so it is garbage
-exactly when the file it was made from is. One rule collects both, including
-after an overwrite, which leaves the old blob orphaned *and* its thumbnails
-filed under a key nothing will look for again.
+key carries its original's — which is what lets one rule cover both: a
+thumbnail has no row of its own, so it is garbage exactly when the file it was
+made from is. That is how a write and a delete know what to take with them,
+and how the sweep judges what reaches it.
 
 It is also garbage when the thumbnail generator has changed since it was made —
 the key says which generator made it. So an upgrade that improves the pictures

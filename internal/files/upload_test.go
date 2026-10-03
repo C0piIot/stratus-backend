@@ -85,6 +85,42 @@ func appendAt(t *testing.T, s *files.Service, id string, at int64, body []byte) 
 	return u
 }
 
+// TestACompletedUploadDropsWhatItReplaced: the same bargain as a PUT, through
+// the door most overwrites here actually come through. A camera roll that
+// sends a photograph it has already sent arrives over tus, not over WebDAV,
+// so a completion that left its predecessor behind would leave a second copy
+// of a library (#272).
+func TestACompletedUploadDropsWhatItReplaced(t *testing.T) {
+	t.Parallel()
+	s, blobs := service(t)
+
+	first := write(t, s, "clip.mp4", "version one")
+	thumb := files.DerivedKey(first.BlobKey, "300.jpg")
+	if _, err := blobs.Put(t.Context(), thumb, strings.NewReader("a frame"), -1); err != nil {
+		t.Fatal(err)
+	}
+
+	body := []byte("version two")
+	u := begin(t, s, "clip.mp4", int64(len(body)))
+	appendAt(t, s, u.ID, 0, body)
+	if _, err := s.CompleteUpload(t.Context(), owner, u.ID); err != nil {
+		t.Fatalf("CompleteUpload: %v", err)
+	}
+
+	if got := read(t, s, "clip.mp4"); got != string(body) {
+		t.Errorf("read %q, want the uploaded version", got)
+	}
+	if _, err := blobs.Stat(t.Context(), first.BlobKey); !errors.Is(err, storage.ErrNotFound) {
+		t.Errorf("the replaced blob is still there: %v", err)
+	}
+	if _, err := blobs.Stat(t.Context(), thumb); !errors.Is(err, storage.ErrNotFound) {
+		t.Errorf("the picture made from the replaced blob is still there: %v", err)
+	}
+	if n := blobCount(t, blobs); n != 1 {
+		t.Errorf("the store holds %d objects, want the live one alone", n)
+	}
+}
+
 // TestUploadResumesAfterEverythingForgets covers the case the feature exists
 // for: nothing is held in memory between requests, so the upload can be picked
 // up from the row alone.

@@ -1002,6 +1002,31 @@ internal/web/             inbound adapter: server-rendered UI
   **blob first, row second**, which leaves a collectable orphan blob instead of a
   row pointing at nothing.
 
+  **And the commit is where what lost is dropped** (#272). A write takes a
+  fresh key, so an overwrite has two blobs between the store and the commit and
+  exactly one after it: `replace` reads the row it is displacing inside the
+  transaction and reports the key, and the caller drops it -- with everything
+  derived from it -- once the transaction has gone in. `Write` and
+  `CompleteUpload` share that function because they are the same two
+  statements, and tus is the door most overwrites in this project actually come
+  through: a camera roll re-sending a photograph does not pass through `Write`.
+  `Copy` already did this for the destination it replaces and `Remove` for what
+  it deletes; this is the one door that had been missed.
+
+  **What it accepts is a narrow window, and it is written down rather than
+  discovered.** A reader holds its body open -- a descriptor on disk, the
+  response on S3 -- and a new request re-reads the row, so it gets the new key.
+  What breaks is a reader that seeks *after* the commit, which in practice is a
+  transcode running against the file somebody is replacing. It fails loudly and
+  the next request is served the new file.
+
+  The error from that tidy-up is swallowed, and it is the only error this
+  package swallows: the bytes are stored and the row is committed, so the write
+  happened, and answering `500` because the *previous* content could not be
+  removed would be a lie about what the server did. What is left behind is an
+  orphan, which is what the sweep is for -- and `Collect` is now that net
+  rather than the routine collector it was.
+
   `music` exists for the same kind of reason, and was created the day it had
   one (#196): removing entries from a playlist by index is a read and a write
   that have to be one transaction, or a second client editing in between is
@@ -1437,6 +1462,12 @@ Restraint here is principle 3, not laziness:
   exactly when the blob it was made from is. A `derived` table with a foreign key
   was the alternative, and it buys a guarantee for a migration and a query per
   thumbnail served.
+
+  That rule is also what `dropBlob` reads forwards instead of backwards (#272):
+  everything under `derived/<key>/` goes when `<key>` does, so a replaced
+  photograph takes its pictures with it and a replaced film takes the segments
+  re-encoded from it, which are gigabytes. One listing of a prefix holding two
+  or three objects, against a day of keeping both.
 
   Sizes come from a fixed ladder, because the size is part of the key and an
   arbitrary one means an unbounded set of objects nothing asks for twice.

@@ -170,15 +170,13 @@ func (s *Service) Write(ctx context.Context, owner, path string, body io.Reader,
 		return db.File{}, err
 	}
 
+	var superseded string
 	err = s.meta.Tx(ctx, func(r db.Repo) error {
-		if perr := s.requireParent(ctx, r, owner, path); perr != nil {
-			return perr
-		}
-		stored, perr := r.PutFile(ctx, f)
+		stored, replaced, perr := s.replace(ctx, r, f)
 		if perr != nil {
 			return perr
 		}
-		f = stored
+		f, superseded = stored, replaced
 		return nil
 	})
 	if err != nil {
@@ -187,8 +185,57 @@ func (s *Service) Write(ctx context.Context, owner, path string, body io.Reader,
 		_ = s.blobs.Delete(ctx, f.BlobKey)
 		return db.File{}, err
 	}
+	s.drop(ctx, superseded)
 	s.written(f)
 	return f, nil
+}
+
+// replace commits f and reports the blob it took the place of, which is the
+// half of a write that both doors share -- a PUT and a resumable upload that
+// has finished are the same two statements, and a second opinion here about
+// what replacing means is exactly the drift this package exists to stop.
+//
+// The lookup is inside the caller's transaction, so what is reported is what
+// this write actually displaced and not what was there a moment before. Two
+// writers racing on one path can still both read the same row and name the
+// same key, and the second one's blob is then an orphan nobody announced:
+// that is what the sweep is for, and the reason it does not go away.
+func (s *Service) replace(ctx context.Context, r db.Repo, f db.File) (db.File, string, error) {
+	if err := s.requireParent(ctx, r, f.OwnerID, f.Path); err != nil {
+		return db.File{}, "", err
+	}
+
+	var superseded string
+	switch old, err := r.FileByPath(ctx, f.OwnerID, f.Path); {
+	case err == nil:
+		// A directory has no blob, and writing over one is the database's
+		// refusal to give rather than this function's to prepare for.
+		if !old.IsDir {
+			superseded = old.BlobKey
+		}
+	case !errors.Is(err, db.ErrNotFound):
+		return db.File{}, "", err
+	}
+
+	stored, err := r.PutFile(ctx, f)
+	if err != nil {
+		return db.File{}, "", err
+	}
+	return stored, superseded, nil
+}
+
+// drop throws away the blob a write replaced, once that write is committed.
+//
+// The error is swallowed on purpose, and it is the one place in this package
+// that swallows one: the bytes are stored and the row is committed, so the
+// client's write succeeded, and answering 500 because the *previous* content
+// could not be tidied away would be a lie about what happened. What is left
+// behind is an orphan, which is the thing the sweep was written for.
+func (s *Service) drop(ctx context.Context, key string) {
+	if key == "" {
+		return
+	}
+	_ = s.dropBlob(ctx, key)
 }
 
 // storeBlob writes the bytes and returns the row that would describe them,
@@ -222,8 +269,9 @@ func (s *Service) storeBlob(ctx context.Context, owner, path string, body io.Rea
 
 	// A fresh key every time, never derived from the path: it is what lets an
 	// import adopt somebody else's bucket (#24), and it means an overwrite that
-	// fails halfway has not destroyed the previous content. The cost is an
-	// orphaned blob per overwrite, which is #17's job.
+	// fails halfway has not destroyed the previous content. What it costs is
+	// one blob too many between here and the commit, and the commit is where
+	// the one that lost is dropped (#272).
 	key := newBlobKey(path, sniffedKind)
 	digest := sha256.New()
 
@@ -314,10 +362,10 @@ func (s *Service) Remove(ctx context.Context, owner, path string) error {
 	}
 
 	for _, key := range orphaned {
-		if err := s.blobs.Delete(ctx, key); err != nil {
+		if err := s.dropBlob(ctx, key); err != nil {
 			// The rows are already gone, so the caller's delete did succeed.
 			// What is left is garbage with an owner: #17.
-			return fmt.Errorf("delete blob %q: %w", key, err)
+			return err
 		}
 	}
 	return nil
