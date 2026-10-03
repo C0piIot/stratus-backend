@@ -22,14 +22,7 @@
 {{define "tiles" -}}
 {{range .Tiles}}
 {{if .Heading}}<h2 class="col-12 h6 text-body-secondary mt-3 mb-1">{{.Heading}}</h2>{{end}}
-<div class="col-4 col-sm-3 col-md-2">
-  <a href="{{.Href}}" class="d-block ratio ratio-1x1 bg-body-secondary rounded overflow-hidden"
-     title="{{.Name}}">
-    {{if .Thumb}}<img src="{{.Thumb}}" alt="{{.Name}}" width="300" height="300" loading="lazy"
-      class="object-fit-cover w-100 h-100">
-    {{else}}<span class="d-flex align-items-center justify-content-center small text-body-secondary p-1 text-break">{{.Name}}</span>{{end}}
-  </a>
-</div>
+{{template "tile" .}}
 {{end}}
 {{if .NextPage}}
 {{/* A link a browser with no JavaScript follows, and the trigger htmx swaps

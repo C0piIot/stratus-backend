@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/C0piIot/stratus-backend/internal/db"
 )
@@ -32,6 +33,8 @@ func RunFind(t *testing.T, newRepo func(t *testing.T) db.Repo) {
 		{"case does not matter", findCase},
 		{"several words are a phrase", findPhrase},
 		{"a tag finds its track", findTags},
+		{"a camera and a year find a photograph", findPhotos},
+		{"a photograph with nothing recorded is not found by nothing", findPhotosBlank},
 		{"a search sees one owner", findOwner},
 		{"an empty term finds nothing", findEmpty},
 		{"a half nobody asked for is not answered", findUnwanted},
@@ -60,12 +63,15 @@ func foundIn(t *testing.T, s db.Repo, f db.FindFilter) []string {
 	if err != nil {
 		t.Fatalf("Find(%+v): %v", f, err)
 	}
-	out := make([]string, 0, len(result.Files)+len(result.Tracks))
+	out := make([]string, 0, len(result.Files)+len(result.Tracks)+len(result.Photos))
 	for _, file := range result.Files {
 		out = append(out, file.Path)
 	}
 	for _, track := range result.Tracks {
 		out = append(out, track.File.Path)
+	}
+	for _, p := range result.Photos {
+		out = append(out, p.Path)
 	}
 	return out
 }
@@ -143,6 +149,61 @@ func findTags(t *testing.T, s db.Repo) {
 	album := db.FindFilter{Text: "untrue", Tracks: db.Window{Limit: 50}}
 	if got := foundIn(t, s, album); len(got) != 1 {
 		t.Errorf("untrue = %v, want the track on it", got)
+	}
+}
+
+// shot stores an image and the row an extractor would have left beside it.
+// Not photo, which this package already has for the gallery's own cases.
+func shot(t *testing.T, s db.Repo, name, camera string, taken time.Time) {
+	t.Helper()
+	stored := put(t, s, file(name))
+	if err := s.PutMedia(t.Context(), db.Media{
+		FileID: stored.ID, Kind: db.KindImage, IndexedAt: time.Now(), Version: 1,
+		Camera: camera, TakenAt: taken,
+	}); err != nil {
+		t.Fatalf("PutMedia(%q): %v", name, err)
+	}
+}
+
+// findPhotos: a camera calls everything IMG_0042, so what a photograph is found
+// by is what the camera recorded rather than what the file is called.
+func findPhotos(t *testing.T, s db.Repo) {
+	shot(t, s, "camera/IMG_0042.JPG", "Olympus OM-1", time.Date(2024, 6, 2, 10, 0, 0, 0, time.UTC))
+	shot(t, s, "camera/IMG_0043.JPG", "Canon EOS R6", time.Date(2019, 8, 9, 10, 0, 0, 0, time.UTC))
+
+	window := db.Window{Limit: 50}
+	for term, want := range map[string]string{
+		"olympus": "camera/IMG_0042.JPG",
+		"OLYMPUS": "camera/IMG_0042.JPG",
+		"2024":    "camera/IMG_0042.JPG",
+		"canon":   "camera/IMG_0043.JPG",
+		"2019":    "camera/IMG_0043.JPG",
+	} {
+		got := foundIn(t, s, db.FindFilter{Text: term, Photos: window})
+		if !slices.Equal(got, []string{want}) {
+			t.Errorf("%q found %v, want [%s]", term, got, want)
+		}
+	}
+
+	// And the half nobody asked for stays empty, as it does for the others.
+	if got := foundIn(t, s, db.FindFilter{Text: "olympus", Files: window}); len(got) != 0 {
+		t.Errorf("a camera matched a file name: %v", got)
+	}
+}
+
+// findPhotosBlank: a photograph nothing was recorded about has no text, and an
+// empty column must not be something every search matches.
+func findPhotosBlank(t *testing.T, s db.Repo) {
+	shot(t, s, "camera/IMG_0044.JPG", "", time.Time{})
+	shot(t, s, "camera/IMG_0045.JPG", "Olympus OM-1", time.Time{})
+
+	window := db.Window{Limit: 50}
+	if got := foundIn(t, s, db.FindFilter{Text: "olympus", Photos: window}); !slices.Equal(got, []string{"camera/IMG_0045.JPG"}) {
+		t.Errorf("olympus found %v, want the one with a camera", got)
+	}
+	// A year nothing was taken in. Zero is not a date, so neither row has one.
+	if got := foundIn(t, s, db.FindFilter{Text: "0001", Photos: window}); len(got) != 0 {
+		t.Errorf("a photograph with no date was filed under year one: %v", got)
 	}
 }
 

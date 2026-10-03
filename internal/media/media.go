@@ -36,7 +36,15 @@ import (
 //
 // It went to 6 for a picture's colour and a Dolby Vision profile (#50): what
 // tells a film that has to be brought down to SDR from one that does not.
-const Version = 6
+//
+// It went to 7 for the folded text a photograph is searched by (#262), and it
+// is the second bump the extractor itself did not need, for the same reason
+// the third was: the column derives from a camera and a date already in the
+// row. Backfilling it in the migration would have meant each engine's own
+// lower(), which is the divergence folding in Go exists to remove -- so the
+// queue does it instead, which costs a pass over the library and no
+// correctness.
+const Version = 7
 
 // errTooLargeToRead is what a file gets instead of a local copy when it is
 // larger than maxSpool. It is a refusal rather than a failure, and it is

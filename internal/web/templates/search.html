@@ -50,11 +50,37 @@
 {{end}}
 {{end}}
 
+{{if ne .Only "files"}}{{if ne .Only "tracks"}}
+<h2 class="h6 text-body-secondary">Photos</h2>
+{{if .Tiles}}
+<div class="row g-1 mb-4">
+  {{template "photos" .}}
+</div>
+{{else}}
+<p class="text-body-secondary small mb-4">No photograph was taken by anything called that.</p>
+{{end}}
+{{end}}{{end}}
+
 {{end}}
 
 {{/* Where a file's details land, as on the listing: one at a time, so a second
      look replaces the first. */}}
 <div id="file-dialog"></div>
+{{- end}}
+
+{{/* The photographs of a result and the way to the rest of them. The cell is
+     the gallery's, the row around it and the paging are this page's: a search
+     has no months to head and no date to resume from. */}}
+{{define "photos" -}}
+{{range .Tiles}}
+{{template "tile" .}}
+{{end}}
+{{if .MorePhotos}}
+<div class="col-12 text-center py-3"
+     hx-get="{{.MorePhotos}}" hx-trigger="revealed" hx-swap="outerHTML">
+  <a class="link-secondary small text-decoration-none" href="{{.MorePhotos}}">More photos</a>
+</div>
+{{end}}
 {{- end}}
 
 {{/* The music half of a result, and the way to the rest of it. A fragment for

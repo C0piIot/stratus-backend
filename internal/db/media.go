@@ -1,6 +1,7 @@
 package db
 
 import (
+	"strconv"
 	"strings"
 	"time"
 )
@@ -124,6 +125,13 @@ type Folded struct {
 	// Album and AlbumArtist are the two names an album is filed under, and the
 	// keys the album and artist listings group by.
 	Album, AlbumArtist string
+	// Photo is what a photograph can be found by, which is not its name: the
+	// camera, and the year it was taken. Not the month, which has a name only
+	// in some language -- English here, and a promise to keep in every other
+	// one after that -- and not where it was taken, because a coordinate is two
+	// numbers and turning one into "Lisbon" is a service this project does not
+	// have.
+	Photo string
 }
 
 // Fold returns the folded text for m. Drivers must store exactly this.
@@ -132,7 +140,18 @@ func (m Media) Fold() Folded {
 		Song:        fold(m.Title, m.Artist),
 		Album:       fold(m.Album),
 		AlbumArtist: fold(m.AlbumArtist),
+		Photo:       fold(m.Camera, taken(m.TakenAt)),
 	}
+}
+
+// taken is the year a photograph was taken, as a word, and nothing at all when
+// the camera did not say. A zero time is not a year: every file that arrived
+// without one would otherwise be findable as the first of January, year 1.
+func taken(at time.Time) string {
+	if at.IsZero() {
+		return ""
+	}
+	return strconv.Itoa(at.Year())
 }
 
 // FoldQuery folds a search term the same way, which is the other half of the

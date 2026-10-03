@@ -38,9 +38,10 @@ const (
 	pageLogin  = "login.html"
 	pageFiles  = "files.html"
 	pageSearch = "search.html"
-	// pageRows is not a page: it is the listing's rows, which the search page
-	// shows too.
+	// pageRows and pageTile are not pages: they are the listing's rows and one
+	// cell of a grid of photographs, each of them shown by two pages.
 	pageRows    = "rows.html"
+	pageTile    = "tile.html"
 	pageRename  = "rename.html"
 	pageInfo    = "info.html"
 	pageDelete  = "delete.html"
@@ -62,7 +63,7 @@ const (
 var pages = map[string]*template.Template{
 	pageLogin:   parse(pageLogin),
 	pageFiles:   parse(pageFiles, pageRows),
-	pageSearch:  parse(pageSearch, pageRows),
+	pageSearch:  parse(pageSearch, pageRows, pageTile),
 	pageRename:  parse(pageRename),
 	pageInfo:    parse(pageInfo),
 	pageDelete:  parse(pageDelete),
@@ -70,7 +71,7 @@ var pages = map[string]*template.Template{
 	pageShare:   parse(pageShare),
 	pageShared:  parse(pageShared),
 	pageError:   parse(pageError),
-	pagePhotos:  parse(pagePhotos),
+	pagePhotos:  parse(pagePhotos, pageTile),
 	pagePhoto:   parse(pagePhoto),
 	pagePlay:    parse(pagePlay),
 	pageArtists: parse(pageArtists),
@@ -134,6 +135,7 @@ type view struct {
 	Query      string
 	Found      []foundTrack
 	MoreTracks string
+	MorePhotos string
 	Only       string
 	// Counts and the three fields under it are the status page: how much of the
 	// library has been looked at, and by which extractor.
