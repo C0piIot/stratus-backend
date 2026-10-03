@@ -46,6 +46,8 @@ const (
 	pageInfo    = "info.html"
 	pageDelete  = "delete.html"
 	pageStatus  = "status.html"
+	pageTrash   = "trash.html"
+	pageDestroy = "destroy.html"
 	pageShare   = "share.html"
 	pageShared  = "shared.html"
 	pageError   = "error.html"
@@ -68,6 +70,8 @@ var pages = map[string]*template.Template{
 	pageInfo:    parse(pageInfo),
 	pageDelete:  parse(pageDelete),
 	pageStatus:  parse(pageStatus),
+	pageTrash:   parse(pageTrash),
+	pageDestroy: parse(pageDestroy),
 	pageShare:   parse(pageShare),
 	pageShared:  parse(pageShared),
 	pageError:   parse(pageError),
@@ -183,6 +187,12 @@ type view struct {
 	Artists []artistRow
 	Albums  []albumRow
 	Album   *albumView
+
+	// Deletions is a page of the trash, TrashSize what it is holding onto in
+	// all, and Kept how many days a deletion is given.
+	Deletions []deletion
+	TrashSize string
+	Kept      int
 }
 
 // Shows reports whether a result page is showing one of its buckets: all of

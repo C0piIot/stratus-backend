@@ -298,6 +298,44 @@ CREATE TABLE uploads (
 
 CREATE INDEX uploads_expires_at ON uploads (expires_at);
 
+-- What has been deleted and not yet destroyed (#274).
+--
+-- A table and not a flag on files, which is the decision: a flag would make
+-- every read query in every driver filter, and the one that forgot would show
+-- deleted files in silence. Here nothing else changes, and there is nothing to
+-- collide -- no unique index on the path, so deleting a.txt twice is two rows.
+--
+-- The columns are the file row as it was, so putting one back is an insert
+-- (#275). The blob is not copied anywhere: the bytes stay where they were
+-- written and only the table naming them changed, which is also why the sweep
+-- has to count these keys as referenced.
+--
+-- No foreign key to files: the row this describes is gone, which is the whole
+-- point. That also means the cascades took the media row, the stars and the
+-- playlist entries with it -- a restored file is re-indexed, and that is the
+-- price of the move.
+CREATE TABLE trash (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    -- The deletion this row arrived in. One Remove is one batch, so a folder
+    -- of a thousand photographs is one entry on the page and one restore.
+    batch      TEXT    NOT NULL,
+    owner_id   TEXT    NOT NULL,
+    path       TEXT    NOT NULL,
+    blob_key   TEXT    NOT NULL,
+    size       INTEGER NOT NULL,
+    mtime      INTEGER NOT NULL,
+    etag       TEXT    NOT NULL,
+    mime_type  TEXT    NOT NULL,
+    is_dir     INTEGER NOT NULL DEFAULT 0,
+    deleted_at INTEGER NOT NULL
+);
+
+-- One deletion at a time, which is what the page and a restore both read.
+CREATE INDEX trash_owner_batch ON trash (owner_id, batch);
+
+-- And oldest first, for the pass that empties it.
+CREATE INDEX trash_deleted_at ON trash (deleted_at);
+
 -- What a user has said about their library: stars and ratings (#194).
 --
 -- Two tables because a track is a row and an album or an artist is not. A

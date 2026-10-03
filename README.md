@@ -325,7 +325,9 @@ time, so that a failed overwrite cannot destroy the content it was replacing.
 Once the row is committed the one that lost is dropped on the spot, with the
 thumbnails made from it — so replacing a file does not quietly keep a second
 copy of it, and neither does a phone re-sending a photograph it already sent.
-The same at the other end: deleting a file deletes its blob and its pictures.
+At the other end, deleting puts the row in the trash and touches no bytes at
+all; it is destroying a deletion — by hand or by the thirty days running out —
+that takes the blob and the pictures made from it.
 
 A sweep runs in the background all the same — in the same process, as
 everything here does — and deletes blobs no row points at. It is the net under
@@ -338,6 +340,9 @@ Two rules make it safe rather than dangerous:
 
 - **A grace period.** A blob with no row may be a write still in flight, so
   nothing younger than `STRATUS_GC_GRACE` is touched.
+- **It leaves the trash alone.** A blob somebody deleted is not garbage: it has
+  an owner, a deletion it belongs to and thirty days to live, and the sweep
+  counts those keys as referenced.
 - **It refuses an empty index.** A database that references no blobs at all,
   next to a store with objects in it, is far more likely to be a database
   pointed somewhere new than a library somebody emptied. It logs and does
@@ -775,9 +780,20 @@ A client that already has the password can also derive one for itself without
 asking the server, which is how the mobile app hands a video to a Chromecast:
 the format is in `CLAUDE.md`.
 
-**Deleting asks first and then means it.** There is no trash bin: the row goes,
-and the blob behind it is swept up afterwards, so the page in between is the only
-chance to have not meant it. Deleting a folder takes everything inside it.
+**Deleting puts it in the trash**, at `/trash`, where it is kept for thirty
+days and then destroyed for good. Deleting a folder takes everything inside it,
+and the trash shows that as **one deletion** rather than as a thousand files:
+one line, with what was in it, and a button that throws it away now if you want
+the room back. The page still asks first, because a folder is worth a question.
+
+Nothing is copied to put something there — the bytes stay exactly where they
+were written, and only the table that names them changes — so deleting still
+costs nothing and frees nothing until the thirty days are up or you say so. The
+status page says how much room the trash is holding.
+
+What does *not* go there is the previous version of a file you overwrote. That
+is versioning rather than a trash bin, and it would mean keeping a second copy
+of everything a phone re-uploads.
 
 **Renaming a folder takes everything inside it**, from the UI and from a WebDAV
 `MOVE` alike. It is a rewrite of every path underneath, done in one statement

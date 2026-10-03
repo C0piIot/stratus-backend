@@ -2,9 +2,11 @@ package web_test
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -285,15 +287,16 @@ func TestDelete(t *testing.T) {
 	write(t, s, "notes.txt", "hello")
 	cookie := signIn(t, h)
 
-	// Asked first: there is no trash bin, so the page in between is the only
-	// chance to have not meant it.
+	// Asked first, still: a folder is worth a question even with a trash bin
+	// behind it, and what the page says has changed from "this cannot be
+	// undone" to how long you have to change your mind.
 	form := get(t, h, "/delete/notes.txt", cookie)
 	if form.Code != http.StatusOK {
 		t.Fatalf("the delete page = %d, want 200", form.Code)
 	}
 	body := form.Body.String()
-	if !strings.Contains(body, "cannot be undone") {
-		t.Error("the page does not say that it is permanent")
+	if !strings.Contains(body, "trash") || !strings.Contains(body, "30 days") {
+		t.Errorf("the page does not say where it goes or for how long:\n%s", body)
 	}
 	if !strings.Contains(body, `action="/delete/notes.txt"`) {
 		t.Error("the page posts somewhere else")
@@ -312,6 +315,125 @@ func TestDelete(t *testing.T) {
 	}
 	if _, err := s.Stat(t.Context(), username, "notes.txt"); !errors.Is(err, db.ErrNotFound) {
 		t.Errorf("the file survived: %v", err)
+	}
+
+	// And it is in the trash, as one deletion.
+	trash := get(t, h, "/trash", cookie).Body.String()
+	has(t, trash, "notes.txt", "1 file", "Delete for good")
+}
+
+// TestTheTrashHoldsADeletionUntilItIsDestroyed is the page's whole job: what
+// was deleted is still there, as one entry, and goes when it is told to.
+func TestTheTrashHoldsADeletionUntilItIsDestroyed(t *testing.T) {
+	t.Parallel()
+	h, s := browser(t)
+	mkdir(t, s, "album")
+	write(t, s, "album/one.jpg", "one")
+	write(t, s, "album/two.jpg", "two")
+	cookie := signIn(t, h)
+
+	if empty := get(t, h, "/trash", cookie).Body.String(); !strings.Contains(empty, "Nothing has been deleted") {
+		t.Errorf("an empty trash does not say so:\n%s", empty)
+	}
+
+	remove(t, h, "album", cookie)
+	page := get(t, h, "/trash", cookie).Body.String()
+	// One accident and not three rows, named by the folder that was deleted.
+	has(t, page, "album", "2 files")
+	if strings.Contains(page, "one.jpg") {
+		t.Errorf("the trash lists the files inside a deletion:\n%s", page)
+	}
+
+	// The status page says the room is still held, and links here.
+	has(t, get(t, h, "/status", cookie).Body.String(), "In the trash", `href="/trash"`)
+
+	// Destroying asks first, and this time it really is final.
+	link := destroyLink.FindStringSubmatch(page)
+	if link == nil {
+		t.Fatalf("no way to destroy the deletion:\n%s", page)
+	}
+	has(t, get(t, h, html(link[1]), cookie).Body.String(), "cannot be undone")
+
+	rec := post(t, h, html(link[1]), nil, cookie)
+	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/trash" {
+		t.Fatalf("destroying = %d %q", rec.Code, rec.Header().Get("Location"))
+	}
+	if after := get(t, h, "/trash", cookie).Body.String(); !strings.Contains(after, "Nothing has been deleted") {
+		t.Errorf("the deletion outlived being destroyed:\n%s", after)
+	}
+}
+
+// destroyLink finds the button that throws a deletion away for good.
+var destroyLink = regexp.MustCompile(`href="(/trash/[^"]+)"`)
+
+// TestTheTrashPages: fifty accidents is already more than anybody has, and
+// past that it resumes by the moment and the deletion rather than by an
+// offset, like every other list here.
+func TestTheTrashPages(t *testing.T) {
+	t.Parallel()
+	h, s := browser(t)
+	cookie := signIn(t, h)
+	for i := range 51 {
+		name := fmt.Sprintf("gone-%02d.txt", i)
+		write(t, s, name, "x")
+		remove(t, h, name, cookie)
+	}
+
+	first := get(t, h, "/trash", cookie).Body.String()
+	next := nextLink.FindStringSubmatch(first)
+	if next == nil {
+		t.Fatalf("no link to the rest of the trash:\n%s", first)
+	}
+	has(t, next[1], "after=")
+
+	// htmx is given the list and not a document, as everywhere else.
+	fragment := htmx(t, h, html(next[1]), cookie).Body.String()
+	if strings.Contains(fragment, "<!doctype") {
+		t.Errorf("htmx was given a document:\n%s", fragment)
+	}
+	has(t, fragment, "list-group-item")
+
+	// The fifty-first is on the second page and not on the first.
+	if strings.Count(first, "Delete for good") != 50 {
+		t.Errorf("the first page holds %d deletions, want fifty", strings.Count(first, "Delete for good"))
+	}
+}
+
+// TestATrashCursorThatIsNotOne.
+func TestATrashCursorThatIsNotOne(t *testing.T) {
+	t.Parallel()
+	h := newHandler(t, nil)
+	cookie := signIn(t, h)
+
+	for _, after := range []string{"nonsense", "notanumber/batch", "1700000000000"} {
+		if code := get(t, h, "/trash?after="+after, cookie).Code; code != http.StatusBadRequest {
+			t.Errorf("/trash?after=%s = %d, want 400", after, code)
+		}
+	}
+}
+
+// TestTheTrashSurvivesNothing: an index that will not answer is a page that
+// says so, and a status page that cannot measure the trash still renders --
+// it is one line on a page about something else.
+func TestTheTrashSurvivesNothing(t *testing.T) {
+	t.Parallel()
+	blobs, meta := backends(t)
+	for _, method := range []string{"TrashBatches", "TrashTotals"} {
+		broken := files.New(blobs, dbtest.FailOn(t, meta, method))
+		h := handlerOver(t, broken, blobs, meta)
+		if code := get(t, h, "/trash", signIn(t, h)).Code; code != http.StatusInternalServerError {
+			t.Errorf("/trash with %s broken = %d, want 500", method, code)
+		}
+	}
+
+	broken := files.New(blobs, dbtest.FailOn(t, meta, "TrashTotals"))
+	h := handlerOver(t, broken, blobs, meta)
+	rec := get(t, h, "/status", signIn(t, h))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("/status with the trash unmeasurable = %d, want 200", rec.Code)
+	}
+	if strings.Contains(rec.Body.String(), "In the trash") {
+		t.Error("the status page invented a number for a trash it could not measure")
 	}
 }
 

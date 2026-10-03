@@ -205,11 +205,18 @@ func (s *Service) commitCopies(ctx context.Context, owner, to string, rows []db.
 		case err == nil:
 			// RFC 4918 9.8.4: an overwrite replaces the destination, it does
 			// not merge into it.
-			keys, rerr := removeTree(ctx, r, owner, to)
+			replaced, rerr := removeTree(ctx, r, owner, to)
 			if rerr != nil {
 				return rerr
 			}
-			orphaned = keys
+			// Not into the trash, for the reason Remove gives: this is a
+			// replacement and not a deletion, and the previous content of a
+			// path is versioning (#274).
+			for _, row := range replaced {
+				if !row.IsDir {
+					orphaned = append(orphaned, row.BlobKey)
+				}
+			}
 		case !errors.Is(err, db.ErrNotFound):
 			return err
 		}

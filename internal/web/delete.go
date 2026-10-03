@@ -3,13 +3,16 @@ package web
 import (
 	"net/http"
 	"path"
+	"time"
 
 	"github.com/C0piIot/stratus-backend/internal/db"
+	"github.com/C0piIot/stratus-backend/internal/files"
 )
 
-// deletePrefix is where a delete is confirmed. There is no trash bin and the
-// blob is swept up afterwards, so the page in between is the only chance to
-// have not meant it.
+// deletePrefix is where a delete is confirmed. The page stays now that there
+// is a trash bin behind it (#274): deleting a folder is still worth a question,
+// and the answer it gives has changed from "this cannot be undone" to how long
+// you have to change your mind.
 const deletePrefix = "/delete/"
 
 func (h *handler) deleteForm(w http.ResponseWriter, r *http.Request, user string) {
@@ -21,6 +24,7 @@ func (h *handler) deleteForm(w http.ResponseWriter, r *http.Request, user string
 		Title: "Delete", User: user,
 		Name: path.Base(target), IsDir: f.IsDir,
 		Action: link(deletePrefix, target), Back: href(db.ParentOf(target)),
+		Kept: int(files.DefaultTrashRetention / (24 * time.Hour)),
 	})
 }
 

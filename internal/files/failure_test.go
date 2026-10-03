@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/C0piIot/stratus-backend/internal/db"
 	"github.com/C0piIot/stratus-backend/internal/db/dbtest"
@@ -142,11 +143,13 @@ func TestWriteWritesNoBlobWhenTheStoreRefuses(t *testing.T) {
 	}
 }
 
-// TestRemoveReportsABlobItCouldNotDelete: the rows go in one transaction and
-// the blobs afterwards, so a store that refuses leaves garbage the caller has
-// to hear about -- the delete did succeed as far as the tree is concerned, and
-// silence would make the leak invisible.
-func TestRemoveReportsABlobItCouldNotDelete(t *testing.T) {
+// TestDestroyingADeletionReportsABlobItCouldNotDelete: the rows go in one
+// transaction and the blobs afterwards, so a store that refuses leaves garbage
+// the caller has to hear about -- the deletion is gone as far as the trash is
+// concerned, and silence would make the leak invisible.
+//
+// Remove itself can no longer fail this way: it touches no blob at all (#274).
+func TestDestroyingADeletionReportsABlobItCouldNotDelete(t *testing.T) {
 	t.Parallel()
 	blobs, meta := breakable(t)
 
@@ -159,10 +162,17 @@ func TestRemoveReportsABlobItCouldNotDelete(t *testing.T) {
 	if _, err := working.Write(t.Context(), owner, "keep.txt", strings.NewReader("keep"), 4, "text/plain"); err != nil {
 		t.Fatal(err)
 	}
+	if err := working.Remove(t.Context(), owner, "notes.txt"); err != nil {
+		t.Fatal(err)
+	}
+	batches, err := working.Trash(t.Context(), owner, db.TrashCursor{}, 10)
+	if err != nil || len(batches) != 1 {
+		t.Fatalf("Trash = %+v, %v", batches, err)
+	}
 
 	broken := files.New(storagetest.FailOn(t, blobs, "Delete"), meta)
-	if err := broken.Remove(t.Context(), owner, "notes.txt"); !errors.Is(err, storagetest.ErrInjected) {
-		t.Fatalf("Remove = %v, want the injected failure", err)
+	if _, _, derr := broken.DestroyTrashed(t.Context(), owner, batches[0].ID); !errors.Is(derr, storagetest.ErrInjected) {
+		t.Fatalf("DestroyTrashed = %v, want the injected failure", derr)
 	}
 
 	// The row is gone even so, which is what makes this a leak and not a
@@ -236,5 +246,35 @@ func TestCollectReportsABlobItCouldNotDelete(t *testing.T) {
 	}
 	if done.Deleted != 0 {
 		t.Errorf("Collect reported %d deleted after deleting none", done.Deleted)
+	}
+}
+
+// TestEmptyingTheTrashSurvivesNothing: the pass is a loop over rows, and a
+// database that will not yield them has to stop the pass rather than report
+// an empty trash.
+func TestEmptyingTheTrashSurvivesNothing(t *testing.T) {
+	t.Parallel()
+	blobs, meta := breakable(t)
+	working := files.New(blobs, meta)
+	if _, err := working.Write(t.Context(), owner, "notes.txt", strings.NewReader("hello"), 5, "text/plain"); err != nil {
+		t.Fatal(err)
+	}
+	if err := working.Remove(t.Context(), owner, "notes.txt"); err != nil {
+		t.Fatal(err)
+	}
+
+	broken := files.New(blobs, dbtest.FailOn(t, meta, "ExpiredTrash"))
+	if _, err := broken.EmptyTrash(t.Context(), time.Now()); !errors.Is(err, dbtest.ErrInjected) {
+		t.Fatalf("EmptyTrash = %v, want the injected failure", err)
+	}
+
+	// And one that cannot read the deletion it is about to destroy leaves it
+	// alone rather than deleting the rows it could not list.
+	alsoBroken := files.New(blobs, dbtest.FailOn(t, meta, "TrashedIn"))
+	if _, err := alsoBroken.EmptyTrash(t.Context(), time.Now()); !errors.Is(err, dbtest.ErrInjected) {
+		t.Fatalf("EmptyTrash = %v, want the injected failure", err)
+	}
+	if batches, _ := working.Trash(t.Context(), owner, db.TrashCursor{}, 10); len(batches) != 1 {
+		t.Error("the deletion was destroyed by a pass that failed")
 	}
 }

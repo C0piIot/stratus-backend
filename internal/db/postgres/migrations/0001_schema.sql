@@ -204,6 +204,26 @@ CREATE TABLE uploads (
 
 CREATE INDEX uploads_expires_at ON uploads (expires_at);
 
+-- What has been deleted and not yet destroyed (#274). See the SQLite schema
+-- for why this is a table and not a flag on files.
+CREATE TABLE trash (
+    id         BIGSERIAL   PRIMARY KEY,
+    batch      TEXT        NOT NULL,
+    owner_id   TEXT        NOT NULL,
+    path       TEXT        NOT NULL,
+    blob_key   TEXT        NOT NULL,
+    size       BIGINT      NOT NULL,
+    mtime      TIMESTAMPTZ NOT NULL,
+    etag       TEXT        NOT NULL,
+    mime_type  TEXT        NOT NULL,
+    is_dir     BOOLEAN     NOT NULL DEFAULT FALSE,
+    deleted_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE INDEX trash_owner_batch ON trash (owner_id, batch);
+
+CREATE INDEX trash_deleted_at ON trash (deleted_at);
+
 -- What a user has said about their library: stars and ratings (#194).
 --
 -- Two tables because a track is a row and an album or an artist is not. A

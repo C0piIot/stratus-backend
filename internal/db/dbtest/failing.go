@@ -39,6 +39,7 @@ var repoMethods = []string{
 	"Find", "TrackByFile", "CreatePlaylist", "PlaylistByID", "LockPlaylist", "PlaylistTracks",
 	"UpdatePlaylist", "SetPlaylistTracks", "PhotoTimeline", "PhotoAround",
 	"Artists", "Albums", "Tracks", "AnnotationsOf",
+	"Trash", "TrashBatches", "TrashTotals", "TrashedIn", "ExpiredTrash",
 }
 
 // Failing is a db.Store that fails one named method and passes the rest
@@ -74,6 +75,46 @@ func (f *Failing) Ping(ctx context.Context) error { return f.store.Ping(ctx) }
 
 // Close implements db.Store.
 func (f *Failing) Close() error { return f.store.Close() }
+
+// Trash implements db.Repo.
+func (f *failingRepo) Trash(ctx context.Context, batch string, rows []db.File, at time.Time) error {
+	if err := f.fails("Trash"); err != nil {
+		return err
+	}
+	return f.Repo.Trash(ctx, batch, rows, at)
+}
+
+// TrashBatches implements db.Repo.
+func (f *failingRepo) TrashBatches(ctx context.Context, owner string, after db.TrashCursor, limit int) ([]db.TrashBatch, error) {
+	if err := f.fails("TrashBatches"); err != nil {
+		return nil, err
+	}
+	return f.Repo.TrashBatches(ctx, owner, after, limit)
+}
+
+// TrashTotals implements db.Repo.
+func (f *failingRepo) TrashTotals(ctx context.Context, owner string) (db.TrashTotals, error) {
+	if err := f.fails("TrashTotals"); err != nil {
+		return db.TrashTotals{}, err
+	}
+	return f.Repo.TrashTotals(ctx, owner)
+}
+
+// TrashedIn implements db.Repo.
+func (f *failingRepo) TrashedIn(ctx context.Context, owner, batch string) ([]db.Trashed, error) {
+	if err := f.fails("TrashedIn"); err != nil {
+		return nil, err
+	}
+	return f.Repo.TrashedIn(ctx, owner, batch)
+}
+
+// ExpiredTrash implements db.Repo.
+func (f *failingRepo) ExpiredTrash(ctx context.Context, before time.Time) iter.Seq2[db.Trashed, error] {
+	if err := f.fails("ExpiredTrash"); err != nil {
+		return func(yield func(db.Trashed, error) bool) { yield(db.Trashed{}, err) }
+	}
+	return f.Repo.ExpiredTrash(ctx, before)
+}
 
 // failingRepo is the half that can sit inside a transaction.
 type failingRepo struct {

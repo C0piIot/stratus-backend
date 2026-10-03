@@ -1,0 +1,47 @@
+{{define "content" -}}
+<div class="d-flex align-items-baseline gap-3 mb-3">
+  <h1 class="h4 mb-0">Trash</h1>
+  {{if .Deletions}}<span class="ms-auto small text-body-secondary">{{.TrashSize}} held</span>{{end}}
+</div>
+
+{{if .Deletions}}
+<div class="list-group">
+  {{template "deletions" .}}
+</div>
+<p class="small text-body-secondary mt-3 mb-0">
+  A deletion is kept for {{.Kept}} days and then destroyed, with the pictures
+  made from it. Nothing was copied to put it here, so nothing is copied back.
+</p>
+{{else}}
+<div class="card">
+  <div class="card-body text-body-secondary">
+    Nothing has been deleted. What you delete lands here for {{.Kept}} days
+    before it is destroyed for good.
+  </div>
+</div>
+{{end}}
+{{- end}}
+
+{{/* One row per deletion, not per file: deleting a folder of a thousand
+     photographs is one accident, and a thousand rows is not a way to find it.
+     The fragment is what htmx asks for when it extends the list, and the link
+     at the end is what a browser with no script follows instead. */}}
+{{define "deletions" -}}
+{{range .Deletions}}
+<div class="list-group-item d-flex justify-content-between align-items-center gap-3">
+  <div class="text-break">
+    {{.Name}}
+    <div class="small text-body-secondary">
+      {{if .In}}in {{.In}} · {{end}}{{.Files}} file{{if ne .Files 1}}s{{end}} · {{.Size}} · deleted {{.When}}
+    </div>
+  </div>
+  <a class="btn btn-sm btn-outline-danger flex-shrink-0" href="{{.Destroy}}">Delete for good</a>
+</div>
+{{end}}
+{{if .NextPage}}
+<div class="list-group-item text-center py-3"
+     hx-get="{{.NextPage}}" hx-trigger="revealed" hx-swap="outerHTML">
+  <a class="link-secondary small text-decoration-none" href="{{.NextPage}}">More</a>
+</div>
+{{end}}
+{{- end}}

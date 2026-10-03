@@ -195,6 +195,29 @@ CREATE TABLE uploads (
     KEY uploads_expires_at (expires_at)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_bin;
 
+-- What has been deleted and not yet destroyed (#274). See the SQLite schema
+-- for why this is a table and not a flag on files.
+--
+-- The path is not indexed here and does not need to be: nothing looks a
+-- trashed row up by name, which is also why this table escapes the path_hash
+-- the live one carries.
+CREATE TABLE trash (
+    id         BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    batch      VARCHAR(64)  NOT NULL,
+    owner_id   VARCHAR(255) NOT NULL,
+    path       TEXT         NOT NULL,
+    blob_key   TEXT         NOT NULL,
+    size       BIGINT       NOT NULL,
+    mtime      BIGINT       NOT NULL,
+    etag       TEXT         NOT NULL,
+    mime_type  TEXT         NOT NULL,
+    is_dir     TINYINT(1)   NOT NULL DEFAULT 0,
+    deleted_at BIGINT       NOT NULL,
+
+    KEY trash_owner_batch (owner_id, batch),
+    KEY trash_deleted_at (deleted_at)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_bin;
+
 -- What a user has said about their library: stars and ratings (#194).
 --
 -- Two tables because a track is a row and an album or an artist is not. A
