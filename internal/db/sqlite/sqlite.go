@@ -741,6 +741,72 @@ func (r *repo) Genres(ctx context.Context, owner string) ([]db.Genre, error) {
 	return out, nil
 }
 
+// The three searches Music.Search answers, as the part before the match and
+// the part after it. Written once and filled in twice, because the predicate
+// in the middle is the only thing that differs between a scan and an index --
+// and two whole copies of a GROUP BY are two things that drift apart.
+const (
+	searchArtists = `SELECT m.album_artist, COUNT(DISTINCT m.album)
+		FROM media m JOIN files f ON f.id = m.file_id
+		WHERE f.owner_id = ? AND m.kind = ? AND m.album_artist <> '' AND m.album <> ''
+		  AND `
+	searchArtistsBy = `
+		GROUP BY m.album_artist
+		ORDER BY m.album_artist
+		LIMIT ? OFFSET ?`
+
+	searchAlbums = albumSelect + `
+		WHERE f.owner_id = ? AND m.kind = ? AND m.album <> ''
+		  AND `
+	searchAlbumsBy = albumGroup + `
+		ORDER BY m.album_artist, m.album
+		LIMIT ? OFFSET ?`
+
+	searchTracksBy = `
+		ORDER BY m.album_artist, m.album, m.disc_no, m.track_no, f.path
+		LIMIT ? OFFSET ?`
+)
+
+// The same three searches again, asking the index instead of scanning (0013).
+//
+// They are whole queries and not a predicate swapped into the ones above,
+// because what changes is which table drives: written as a subquery, SQLite
+// walks every audio row and probes the index per row, which was 80 ms of the
+// 310 this was meant to remove. The index has to be the outer loop, and
+// CROSS JOIN is how that is said -- the same lesson as #264, in the same
+// words.
+const (
+	indexedArtists = `SELECT m.album_artist, COUNT(DISTINCT m.album)
+		FROM media_fts
+		CROSS JOIN media m ON m.file_id = media_fts.rowid
+		CROSS JOIN files f ON f.id = m.file_id
+		WHERE media_fts MATCH ? AND f.owner_id = ? AND m.kind = ?
+		  AND m.album_artist <> '' AND m.album <> ''`
+
+	indexedAlbums = `SELECT m.album_artist, m.album, COUNT(*), COALESCE(SUM(m.duration_ms), 0),
+			MAX(m.year), MAX(m.genre), MIN(f.mtime)
+		FROM media_fts
+		CROSS JOIN media m ON m.file_id = media_fts.rowid
+		CROSS JOIN files f ON f.id = m.file_id
+		WHERE media_fts MATCH ? AND f.owner_id = ? AND m.kind = ? AND m.album <> ''`
+)
+
+// The predicates the scanning queries match with, which is what this driver
+// always did.
+const (
+	likeArtist = `m.search_album_artist LIKE ? ESCAPE '` + sqlutil.LikeEscape + `'`
+	likeAlbum  = `m.search_album LIKE ? ESCAPE '` + sqlutil.LikeEscape + `'`
+	likeTrack  = `(m.search_song LIKE ? ESCAPE '` + sqlutil.LikeEscape + `'
+		    OR m.search_album LIKE ? ESCAPE '` + sqlutil.LikeEscape + `'
+		    OR m.search_album_artist LIKE ? ESCAPE '` + sqlutil.LikeEscape + `')`
+)
+
+// trigramMin is the shortest term the index can answer. A trigram index knows
+// three characters at a time and nothing about two, so a shorter term goes the
+// way it always went -- which is also what keeps the one case in the
+// conformance suite where a search for "%" finds "100% Silk".
+const trigramMin = 3
+
 // Search implements db.Repo.
 //
 // Three queries, and every one of them matches a column this process folded
@@ -751,48 +817,65 @@ func (r *repo) Genres(ctx context.Context, owner string) ([]db.Genre, error) {
 // The folded columns are constant within an album, so the album and artist
 // filters live in WHERE and not HAVING -- unlike the genre and the year, which
 // are aggregates.
+//
+// What it matches does not depend on which of the two paths below it takes.
+// That is the point of #262: the index made the same answer faster -- 310 ms
+// to 0.2 ms for a term nothing matches over fifty thousand tracks -- and the
+// conformance suite did not move a line.
 func (r *repo) Search(ctx context.Context, owner string, f db.SearchFilter) (db.SearchResult, error) {
-	term := sqlutil.Contains(db.FoldQuery(f.Text))
+	folded := db.FoldQuery(f.Text)
 	kind := string(db.KindAudio)
 
-	const artists = `SELECT m.album_artist, COUNT(DISTINCT m.album)
-		FROM media m JOIN files f ON f.id = m.file_id
-		WHERE f.owner_id = ? AND m.kind = ? AND m.album_artist <> '' AND m.album <> ''
-		  AND m.search_album_artist LIKE ? ESCAPE '` + sqlutil.LikeEscape + `'
-		GROUP BY m.album_artist
-		ORDER BY m.album_artist
-		LIMIT ? OFFSET ?`
+	term := sqlutil.Contains(folded)
+	trackSelect := `SELECT ` + joinedFileColumns + `, ` + joinedMediaColumns
 
-	const albums = albumSelect + `
-		WHERE f.owner_id = ? AND m.kind = ? AND m.album <> ''
-		  AND m.search_album LIKE ? ESCAPE '` + sqlutil.LikeEscape + `'` + albumGroup + `
-		ORDER BY m.album_artist, m.album
-		LIMIT ? OFFSET ?`
-
-	tracks := `SELECT ` + joinedFileColumns + `, ` + joinedMediaColumns + `
+	artists, albums, tracks := searchArtists+likeArtist, searchAlbums+likeAlbum,
+		trackSelect+`
 		FROM media m JOIN files f ON f.id = m.file_id
 		WHERE f.owner_id = ? AND m.kind = ?
-		  AND (m.search_song LIKE ? ESCAPE '` + sqlutil.LikeEscape + `'
-		    OR m.search_album LIKE ? ESCAPE '` + sqlutil.LikeEscape + `'
-		    OR m.search_album_artist LIKE ? ESCAPE '` + sqlutil.LikeEscape + `')
-		ORDER BY m.album_artist, m.album, m.disc_no, m.track_no, f.path
-		LIMIT ? OFFSET ?`
+		  AND `+likeTrack
+	artistArgs := []any{owner, kind, term}
+	albumArgs := []any{owner, kind, term}
+	trackArgs := []any{owner, kind, term, term, term}
+
+	if len([]rune(folded)) >= trigramMin {
+		artists, albums = indexedArtists, indexedAlbums
+		tracks = trackSelect + `
+		FROM media_fts
+		CROSS JOIN media m ON m.file_id = media_fts.rowid
+		CROSS JOIN files f ON f.id = m.file_id
+		WHERE media_fts MATCH ? AND f.owner_id = ? AND m.kind = ?`
+		artistArgs = []any{ftsColumn("search_album_artist", folded), owner, kind}
+		albumArgs = []any{ftsColumn("search_album", folded), owner, kind}
+		trackArgs = []any{ftsPhrase(folded), owner, kind}
+	}
 
 	var out db.SearchResult
 	var err error
-	if out.Artists, err = sqlutil.Collect(ctx, r.q, scanArtist, artists,
-		owner, kind, term, f.Artists.Limit, f.Artists.Offset); err != nil {
+	if out.Artists, err = sqlutil.Collect(ctx, r.q, scanArtist, artists+searchArtistsBy,
+		paged(artistArgs, f.Artists)...); err != nil {
 		return db.SearchResult{}, fmt.Errorf("search artists: %w", mapErr(err))
 	}
-	if out.Albums, err = sqlutil.Collect(ctx, r.q, scanAlbum, albums,
-		owner, kind, term, f.Albums.Limit, f.Albums.Offset); err != nil {
+	if out.Albums, err = sqlutil.Collect(ctx, r.q, scanAlbum, albums+searchAlbumsBy,
+		paged(albumArgs, f.Albums)...); err != nil {
 		return db.SearchResult{}, fmt.Errorf("search albums: %w", mapErr(err))
 	}
-	if out.Tracks, err = sqlutil.Collect(ctx, r.q, scanTrack, tracks,
-		owner, kind, term, term, term, f.Tracks.Limit, f.Tracks.Offset); err != nil {
+	if out.Tracks, err = sqlutil.Collect(ctx, r.q, scanTrack, tracks+searchTracksBy,
+		paged(trackArgs, f.Tracks)...); err != nil {
 		return db.SearchResult{}, fmt.Errorf("search tracks: %w", mapErr(err))
 	}
 	return out, nil
+}
+
+// paged puts the page on the end of a bind list.
+func paged(args []any, p db.Page) []any {
+	return append(append(make([]any, 0, len(args)+2), args...), p.Limit, p.Offset)
+}
+
+// ftsColumn is an FTS5 query for one column of media_fts, which is how the
+// artist and album buckets keep matching one column each.
+func ftsColumn(column, term string) string {
+	return column + " : " + ftsPhrase(term)
 }
 
 func scanGenre(rows *sql.Rows) (db.Genre, error) {

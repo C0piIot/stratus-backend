@@ -37,6 +37,7 @@ import (
 // the half-written pair this test exists to catch looks exactly the same.
 var oneSided = map[string]string{
 	"0011_search_fts.sql": "FTS5 is how SQLite answers db.Finder (#261); PostgreSQL's answer is the generated tsvector in 0010",
+	"0013_music_trgm.sql": "FTS5 again, for Music.Search (#262); PostgreSQL could have pg_trgm and the measurement said it is not worth an extension yet",
 }
 
 func TestBothDriversCarryTheSameMigrations(t *testing.T) {

@@ -750,9 +750,28 @@ backfill would have been each engine's own `lower()`, which is the divergence
 folding in Go removes. It costs a pass over the library, and `/status` is where
 somebody watches it.
 
-`Music.Search` is untouched beside it: that is what OpenSubsonic's `search3`
-answers from, with its own pages and its own meaning of an empty query, and a
-client depends on it.
+**`Music.Search` keeps its own promise and got its own index** (#262). It is
+what OpenSubsonic's `search3` answers from, and what it promises is a
+substring -- a client searches as somebody types, so "ute" finds Autechre and
+cannot be told the server changed its mind. That is the opposite of what
+`db.Finder` promises, so the two stay two searches; what changed is that
+SQLite's no longer scans.
+
+A trigram FTS5 index (0013), because the promise decides the tokenizer rather
+than the other way round, and the same `CROSS JOIN` lesson as #264: written as
+a subquery the planner walks every audio row and probes the index per row,
+which was 80 ms of the 310 this was meant to remove. Driven from the index it
+is 1.5 ms. A term shorter than three characters goes the way it always went,
+which is a trigram index's own floor and also what keeps the conformance case
+where searching `%` finds "100% Silk".
+
+**PostgreSQL and MySQL still scan, and that was measured rather than skipped.**
+`pg_trgm` answers the `LIKE` already written, with no change to the query at
+all -- and it took 90 ms to 52, a 1.7x bought with an extension a role may not
+be allowed to create, which would be a server that does not start. MySQL has
+only the `ngram` parser, which is not exact substring and depends on
+`ngram_token_size`, a server variable. Neither is worth it today; the numbers
+are on #262.
 
 **The tree invariant is half SQL and half Go, and that asymmetry is a decision.**
 That a directory with anything in it cannot be deleted or moved is a `NOT EXISTS`
