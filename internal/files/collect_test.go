@@ -40,7 +40,10 @@ func orphan(t *testing.T, blobs storage.Storage, name, body string) string {
 	return key
 }
 
-// TestCollectTakesABlobNoRowPointsAt is the leak this exists for.
+// TestCollectTakesABlobNoRowPointsAt is the leak this exists for -- and since
+// #276 it takes it to the trash rather than destroying it, because a blob
+// nobody can account for is as likely to be a database that went wrong as a
+// file that rotted.
 func TestCollectTakesABlobNoRowPointsAt(t *testing.T) {
 	t.Parallel()
 	s, blobs := service(t)
@@ -56,23 +59,93 @@ func TestCollectTakesABlobNoRowPointsAt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Collect: %v", err)
 	}
-	if done.Deleted != 1 || done.Scanned != 2 {
-		t.Errorf("Collect = %+v, want one of two deleted", done)
-	}
-	if done.Bytes != int64(len("version one")) {
-		t.Errorf("Bytes = %d, want the size of the orphan", done.Bytes)
+	if done.Trashed != 1 || done.Deleted != 0 || done.Scanned != 2 {
+		t.Errorf("Collect = %+v, want one of two moved and nothing destroyed", done)
 	}
 
-	// The live file still reads, which is the difference between collecting
-	// garbage and losing data.
+	// Nothing was freed, and that is the point: both blobs are still there.
+	if done.Bytes != 0 {
+		t.Errorf("Bytes = %d, want nothing freed by a pass that destroyed nothing", done.Bytes)
+	}
+	if blobCount(t, blobs) != 2 {
+		t.Error("a blob was destroyed by a pass that should only have moved one")
+	}
 	if got := read(t, s, "notes.txt"); got != "version two" {
 		t.Errorf("the live file reads %q", got)
 	}
-	if _, err := blobs.Stat(t.Context(), live.BlobKey); err != nil {
-		t.Errorf("the live blob was collected: %v", err)
+	if _, serr := blobs.Stat(t.Context(), left); serr != nil {
+		t.Errorf("the unaccounted blob was destroyed: %v", serr)
+	}
+
+	// It is in the trash, under no owner, because nobody can say whose it was.
+	batches, err := s.Trash(t.Context(), "", db.TrashCursor{}, 10)
+	if err != nil {
+		t.Fatalf("Trash: %v", err)
+	}
+	if len(batches) != 1 || batches[0].Files != 1 {
+		t.Fatalf("the unaccounted blobs are %+v, want one", batches)
+	}
+	// And not in anybody's: a page shows deletions, and this is not one.
+	if mine, _ := s.Trash(t.Context(), owner, db.TrashCursor{}, 10); len(mine) != 0 {
+		t.Errorf("an unaccounted blob showed up as somebody's deletion: %+v", mine)
+	}
+	// Nor can it be put back: there is no path to put it at.
+	if _, err := s.Restore(t.Context(), "", batches[0].ID); !errors.Is(err, db.ErrConflict) {
+		t.Errorf("Restore of an unaccounted blob = %v, want ErrConflict", err)
+	}
+
+	// A second pass does not find it again: the trash holds its key now.
+	switch again, aerr := s.Collect(t.Context(), 0); {
+	case aerr != nil:
+		t.Fatalf("Collect: %v", aerr)
+	case again.Trashed != 0:
+		t.Errorf("the second pass moved %d blobs that were already in the trash", again.Trashed)
+	}
+
+	// And destroying the batch is what finally frees the room.
+	if _, _, err := s.DestroyTrashed(t.Context(), "", batches[0].ID); err != nil {
+		t.Fatalf("DestroyTrashed: %v", err)
 	}
 	if _, err := blobs.Stat(t.Context(), left); !errors.Is(err, storage.ErrNotFound) {
-		t.Errorf("the orphan survived: %v", err)
+		t.Errorf("the unaccounted blob survived being destroyed: %v", err)
+	}
+	if _, err := blobs.Stat(t.Context(), live.BlobKey); err != nil {
+		t.Errorf("the live blob was destroyed with it: %v", err)
+	}
+}
+
+// TestCollectKeepsThePicturesOfWhatItMoved is why the pass counts before it
+// deletes: an original that goes to the trash stops being garbage in that
+// same pass, and whether its thumbnails survive must not depend on the order
+// the store happened to list them in.
+func TestCollectKeepsThePicturesOfWhatItMoved(t *testing.T) {
+	t.Parallel()
+	s, blobs := service(t)
+
+	left := orphan(t, blobs, "APHOTOGRAPHNOROWHOLDS", "pixels")
+	thumb := files.DerivedKey(left, "300.jpg")
+	if _, err := blobs.Put(t.Context(), thumb, strings.NewReader("a thumbnail"), -1); err != nil {
+		t.Fatal(err)
+	}
+	write(t, s, "keep.txt", "so the index is not empty")
+
+	switch done, err := s.Collect(t.Context(), 0); {
+	case err != nil:
+		t.Fatalf("Collect: %v", err)
+	case done.Trashed != 1 || done.Deleted != 0:
+		t.Errorf("Collect = %+v, want the original moved and its picture left alone", done)
+	}
+	if _, err := blobs.Stat(t.Context(), thumb); err != nil {
+		t.Errorf("the picture of what was moved was destroyed: %v", err)
+	}
+
+	// And it goes when the original does.
+	batches, _ := s.Trash(t.Context(), "", db.TrashCursor{}, 10)
+	if _, _, err := s.DestroyTrashed(t.Context(), "", batches[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := blobs.Stat(t.Context(), thumb); !errors.Is(err, storage.ErrNotFound) {
+		t.Errorf("the picture outlived the blob it was made from: %v", err)
 	}
 }
 
@@ -281,8 +354,10 @@ func TestCollectSweepsDerivedObjectsWithTheirParent(t *testing.T) {
 	t.Parallel()
 	s, blobs := service(t)
 
-	left := orphan(t, blobs, "APARENTNOROWHOLDS", "version one")
-	orphaned := files.DerivedKey(left, "300.jpg")
+	// A picture whose original is not in the store at all, which is what is
+	// left when a blob was destroyed and its derived objects were not. The
+	// parent is a key, not an object: nothing holds it and nothing will.
+	orphaned := files.DerivedKey("image/2026/01/01/APARENTNOROWHOLDS.jpg", "300.jpg")
 	if _, err := blobs.Put(t.Context(), orphaned, strings.NewReader("a thumbnail"), -1); err != nil {
 		t.Fatal(err)
 	}
@@ -297,9 +372,10 @@ func TestCollectSweepsDerivedObjectsWithTheirParent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Collect: %v", err)
 	}
-	// The orphaned blob and its thumbnail, and nothing else.
-	if done.Deleted != 2 {
-		t.Errorf("Collect deleted %d objects, want the old blob and its thumbnail", done.Deleted)
+	// The picture with no original, and nothing else. What is derived is
+	// destroyed rather than kept, because it can be made again.
+	if done.Deleted != 1 || done.Trashed != 0 {
+		t.Errorf("Collect = %+v, want the parentless picture destroyed and nothing moved", done)
 	}
 	if _, err := blobs.Stat(t.Context(), orphaned); !errors.Is(err, storage.ErrNotFound) {
 		t.Errorf("the thumbnail of the orphaned blob survived: %v", err)

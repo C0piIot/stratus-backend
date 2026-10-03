@@ -67,6 +67,21 @@ func (h *handler) trash(w http.ResponseWriter, r *http.Request, user string) {
 		v.NextPage = trashLink(db.TrashCursor{DeletedAt: last.DeletedAt, Batch: last.ID})
 	}
 
+	// The second kind of row, and the reason the page has two sections rather
+	// than one list with a disabled button on half of it: a blob nobody can
+	// account for has no path to be put back at (#276).
+	//
+	// Not paged. A healthy server has none of these at all, and a server with
+	// thousands has one problem rather than thousands -- what the page is for
+	// there is to say the number, which the first fifty say as well as all of
+	// them.
+	unaccounted, err := h.files.Trash(r.Context(), "", db.TrashCursor{}, trashPageSize)
+	if err != nil {
+		h.fail(w, r, user, err)
+		return
+	}
+	v.Unaccounted = deletions(unaccounted)
+
 	if r.Header.Get("HX-Request") == "true" {
 		h.renderTemplate(w, http.StatusOK, pageTrash, trashFragment, v)
 		return
@@ -86,9 +101,21 @@ func (h *handler) destroyForm(w http.ResponseWriter, r *http.Request, user strin
 	h.render(w, http.StatusOK, pageDestroy, v)
 }
 
-// destroy throws one deletion away for good.
+// destroy throws one deletion away for good: this reader's own, or one of the
+// sweep's, which belong to nobody.
+//
+// Two calls and not a lookup, because that is the policy written out: a
+// signed-in person may destroy what they deleted and what the server cannot
+// account for, and nothing else. The owner is the scope that will keep one
+// person out of another's trash when there is more than one of them (#276),
+// and "" is the scope that is nobody's.
 func (h *handler) destroy(w http.ResponseWriter, r *http.Request, user string) {
-	if _, _, err := h.files.DestroyTrashed(r.Context(), user, r.PathValue("batch")); err != nil {
+	batch := r.PathValue("batch")
+	destroyed, _, err := h.files.DestroyTrashed(r.Context(), user, batch)
+	if err == nil && destroyed == 0 {
+		_, _, err = h.files.DestroyTrashed(r.Context(), "", batch)
+	}
+	if err != nil {
 		h.fail(w, r, user, err)
 		return
 	}
@@ -125,7 +152,7 @@ type deletion struct {
 func deletions(batches []db.TrashBatch) []deletion {
 	out := make([]deletion, 0, len(batches))
 	for _, b := range batches {
-		out = append(out, deletion{
+		row := deletion{
 			ID:      b.ID,
 			Name:    path.Base(b.Root),
 			In:      db.ParentOf(b.Root),
@@ -134,7 +161,15 @@ func deletions(batches []db.TrashBatch) []deletion {
 			When:    b.DeletedAt.Format("2006-01-02 15:04"),
 			Destroy: trashPrefix + "/" + url.PathEscape(b.ID),
 			Restore: trashPrefix + "/" + url.PathEscape(b.ID) + "/restore",
-		})
+		}
+		// A sweep's batch has no root, because nothing in it has a path. It
+		// is named by what it is and offers no way back: the name was in the
+		// index that went wrong.
+		if b.Root == "" {
+			row.Name = "found by the sweep"
+			row.Restore = ""
+		}
+		out = append(out, row)
 	}
 	return out
 }

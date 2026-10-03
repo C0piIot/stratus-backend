@@ -68,7 +68,13 @@ func TestCollectorRuns(t *testing.T) {
 
 	// What a failed overwrite leaves behind, without racing a live write to get
 	// it. Backdated past the grace, or the sweep would rightly leave it alone.
-	orphan := filepath.Join(blobDir, "ZZ", "ZZ", "ORPHANOFAFAILEDOVERWRITE")
+	//
+	// A derived object and not an original: an original goes to the trash now
+	// and stays on disk (#276), so the thing to watch from out here -- where
+	// the only window is the data directory -- is the half the sweep still
+	// destroys. Its parent is a key no row holds, so it is garbage by the
+	// rule the sweep has always had.
+	orphan := filepath.Join(blobDir, "derived", "ZZ", "ZZ", "ORPHANOFAFAILEDOVERWRITE", "g1-300.jpg")
 	if err := os.MkdirAll(filepath.Dir(orphan), 0o750); err != nil {
 		t.Fatal(err)
 	}

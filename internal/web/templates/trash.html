@@ -22,6 +22,31 @@
   </div>
 </div>
 {{end}}
+
+{{/* The second kind of row, and a section of its own rather than a line in
+     the list above: these have no path, so there is nothing to put them back
+     at, and a disabled button would be a worse way to say that. A healthy
+     server has none of these at all. */}}
+{{if .Unaccounted}}
+<h2 class="h6 text-body-secondary mt-4">Unaccounted for</h2>
+<div class="list-group">
+  {{range .Unaccounted}}
+  <div class="list-group-item d-flex justify-content-between align-items-center gap-3">
+    <div class="text-break">
+      {{.Files}} object{{if ne .Files 1}}s{{end}} {{.Name}}
+      <div class="small text-body-secondary">{{.Size}} · found {{.When}}</div>
+    </div>
+    <a class="btn btn-sm btn-outline-danger flex-shrink-0" href="{{.Destroy}}">Delete for good</a>
+  </div>
+  {{end}}
+</div>
+<p class="small text-body-secondary mt-3 mb-0">
+  Bytes that are in the store and that no row claims. They are kept for
+  {{.Kept}} days in case the index is the thing that is wrong — a database
+  restored from a backup, or pointed somewhere new — and they cannot be put
+  back, because what they were called was in that index.
+</p>
+{{end}}
 {{- end}}
 
 {{/* One row per deletion, not per file: deleting a folder of a thousand

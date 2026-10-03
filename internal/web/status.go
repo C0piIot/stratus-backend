@@ -51,6 +51,7 @@ func (h *handler) status(w http.ResponseWriter, r *http.Request, user string) {
 		Percent:   percent(counts),
 		FreeSpace: h.freeSpace(r),
 		TrashSize: h.trashSize(r, user),
+		Unclaimed: h.trashSize(r, ""),
 		Incoming:  h.incomingOf(),
 		// The version is on the page because it is what a re-index moves: an
 		// operator who raised it wants to see the numbers fall and climb again.
@@ -96,9 +97,14 @@ type importsView struct {
 	Error string
 }
 
-// trashSize is how much room what has been deleted is still holding, rendered,
-// and empty when the trash is. Like freeSpace it logs rather than failing the
-// page: this is one line on a page about something else.
+// trashSize is how much room the trash is still holding, rendered, and empty
+// when it holds none. Like freeSpace it logs rather than failing the page:
+// this is one line on a page about something else.
+//
+// The owner is the filter, and "" is what nobody owns: the blobs the sweep
+// could not account for. Two numbers rather than one, because they mean
+// different things -- what you deleted is a decision, and what the server
+// cannot explain is a symptom (#276).
 func (h *handler) trashSize(r *http.Request, user string) string {
 	totals, err := h.files.TrashTotals(r.Context(), user)
 	switch {

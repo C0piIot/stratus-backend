@@ -560,3 +560,53 @@ func TestDeleteRefuses(t *testing.T) {
 		t.Errorf("notes.txt holds %q", got)
 	}
 }
+
+// TestTheTrashShowsWhatNobodyCanAccountFor: two kinds of row, and the page
+// has to say which is which rather than offering a button that lies.
+func TestTheTrashShowsWhatNobodyCanAccountFor(t *testing.T) {
+	t.Parallel()
+	h, s, blobs := browserOverStore(t)
+	cookie := signIn(t, h)
+	write(t, s, "notes.txt", "a file nothing is wrong with")
+
+	// A blob in the store that no row claims, which is what a database
+	// restored from last week looks like.
+	if _, err := blobs.Put(t.Context(), "image/2026/01/01/NOROWHOLDSTHIS.jpg",
+		strings.NewReader("irreplaceable"), -1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Collect(t.Context(), 0); err != nil {
+		t.Fatal(err)
+	}
+
+	page := get(t, h, "/trash", cookie).Body.String()
+	has(t, page, "Unaccounted for", "found by the sweep", "1 object")
+	// It offers no way back, because there is nowhere to put it.
+	if restoreForm.MatchString(page) {
+		t.Errorf("the page offers to restore a blob with no path:\n%s", page)
+	}
+	// And it is not shown as something somebody deleted.
+	if strings.Contains(page, "Restore") {
+		t.Errorf("the page mixes the two kinds of row:\n%s", page)
+	}
+
+	// The status page separates the two numbers: what you deleted is a
+	// decision, what the server cannot explain is a symptom.
+	status := get(t, h, "/status", cookie).Body.String()
+	has(t, status, "Unaccounted for")
+	if strings.Contains(status, "In the trash") {
+		t.Errorf("a sweep's find was counted as something somebody deleted:\n%s", status)
+	}
+
+	// Destroying it is the one thing offered, and it frees the room.
+	link := destroyLink.FindStringSubmatch(page)
+	if link == nil {
+		t.Fatalf("no way to destroy it:\n%s", page)
+	}
+	if code := post(t, h, html(link[1]), nil, cookie).Code; code != http.StatusSeeOther {
+		t.Fatalf("destroying = %d", code)
+	}
+	if _, err := blobs.Stat(t.Context(), "image/2026/01/01/NOROWHOLDSTHIS.jpg"); err == nil {
+		t.Error("the blob survived being destroyed")
+	}
+}

@@ -330,13 +330,26 @@ all; it is destroying a deletion — by hand or by the thirty days running out �
 that takes the blob and the pictures made from it.
 
 A sweep runs in the background all the same — in the same process, as
-everything here does — and deletes blobs no row points at. It is the net under
-the cases nobody was left to announce: a process killed between the bytes and
-the row, a tidy-up the store refused, a thumbnail whose generator has moved on,
-or something that arrived in the store by another road. Daily, because that is
-what a net is for.
+everything here does — and finds the blobs no row points at. It is the net
+under the cases nobody was left to announce: a process killed between the
+bytes and the row, a tidy-up the store refused, a thumbnail whose generator
+has moved on, or something that arrived in the store by another road. Daily,
+because that is what a net is for.
 
-Two rules make it safe rather than dangerous:
+**What it finds goes to the trash rather than being destroyed**, under
+"Unaccounted for", and that is the answer to the thing a sweep is frightening
+for. If the index is the half that is wrong — a database restored from a
+backup, a volume that came back older than the bucket — then everything
+written since looks like garbage, and nothing a sweep could measure would tell
+it apart. So it keeps the bytes for thirty days and says so on the status
+page, and the number growing is the symptom. They cannot be put back from the
+page: what they were called was in the index that went wrong. What the month
+buys is time to fix it.
+
+Thumbnails and other generated files are still destroyed on the spot, because
+they can be made again.
+
+Three rules make it safe rather than dangerous:
 
 - **A grace period.** A blob with no row may be a write still in flight, so
   nothing younger than `STRATUS_GC_GRACE` is touched.

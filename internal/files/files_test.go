@@ -202,12 +202,13 @@ func TestAnOverwriteThatCannotTidyUpStillSucceeds(t *testing.T) {
 		t.Fatalf("the orphan is not where the sweep will find it: %v", err)
 	}
 
-	// And the net under it still works.
+	// And the net under it still works: the orphan goes to the trash, which
+	// is where the sweep puts what it cannot account for (#276).
 	switch done, err := s.Collect(t.Context(), 0); {
 	case err != nil:
 		t.Fatalf("Collect: %v", err)
-	case done.Deleted != 1:
-		t.Errorf("Collect deleted %d, want the orphan the write could not", done.Deleted)
+	case done.Trashed != 1:
+		t.Errorf("Collect = %+v, want the orphan the write could not", done)
 	}
 }
 

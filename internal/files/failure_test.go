@@ -108,13 +108,15 @@ func TestWriteLeavesACollectableOrphanWhenTheCleanupAlsoFails(t *testing.T) {
 	}
 
 	// The sweep takes it and leaves the live one, which is what makes the
-	// damage temporary. No grace, because both were written a moment ago.
+	// damage temporary. No grace, because both were written a moment ago. It
+	// goes to the trash rather than being destroyed (#276), which is where
+	// something nobody can account for waits out its month.
 	done, err := working.Collect(t.Context(), 0)
 	if err != nil {
 		t.Fatalf("Collect: %v", err)
 	}
-	if done.Deleted != 1 {
-		t.Errorf("Collect deleted %d, want the orphan alone", done.Deleted)
+	if done.Trashed != 1 || done.Deleted != 0 {
+		t.Errorf("Collect = %+v, want the orphan moved and nothing destroyed", done)
 	}
 	if got := read(t, working, "keep.txt"); got != "keep" {
 		t.Errorf("the live file reads %q", got)
@@ -183,8 +185,8 @@ func TestDestroyingADeletionReportsABlobItCouldNotDelete(t *testing.T) {
 	if got := blobCount(t, blobs); got != 2 {
 		t.Errorf("the store holds %d blobs, want the live one and the leak", got)
 	}
-	// And the sweep is what eventually takes it.
-	if done, err := working.Collect(t.Context(), 0); err != nil || done.Deleted != 1 {
+	// And the sweep is what eventually takes it, to the trash.
+	if done, err := working.Collect(t.Context(), 0); err != nil || done.Trashed != 1 {
 		t.Errorf("Collect = %+v, %v, want it to take the leak alone", done, err)
 	}
 }
@@ -233,8 +235,10 @@ func TestCollectReportsABlobItCouldNotDelete(t *testing.T) {
 	if _, err := working.Write(t.Context(), owner, "notes.txt", strings.NewReader("one"), 3, "text/plain"); err != nil {
 		t.Fatal(err)
 	}
-	// A blob nothing points at, which is what the sweep is the net for.
-	if _, err := blobs.Put(t.Context(), "document/2026/01/01/NOROWHOLDSTHIS.txt",
+	// A picture whose original nothing holds, which is the half of the sweep
+	// that still destroys rather than moves (#276) -- and therefore the half
+	// a refused delete can still be seen through.
+	if _, err := blobs.Put(t.Context(), files.DerivedKey("image/2026/01/01/NOROWHOLDSTHIS.jpg", "300.jpg"),
 		strings.NewReader("two"), -1); err != nil {
 		t.Fatal(err)
 	}

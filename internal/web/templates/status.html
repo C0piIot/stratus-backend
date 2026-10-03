@@ -71,6 +71,15 @@
     <dd class="col-sm-8" data-trash><a href="/trash">{{.TrashSize}}</a></dd>
     {{end}}
 
+    {{/* The other half, and a row of its own because it means something
+         else: this one is not a decision anybody made. A healthy server
+         never shows it, and one that does is saying that the index and the
+         store disagree. */}}
+    {{if .Unclaimed}}
+    <dt class="col-sm-4 fw-normal text-body-secondary">Unaccounted for</dt>
+    <dd class="col-sm-8" data-unclaimed><a href="/trash">{{.Unclaimed}}</a></dd>
+    {{end}}
+
     <dt class="col-sm-4 fw-normal text-body-secondary">Extractor</dt>
     <dd class="col-sm-8">version {{.IndexVersion}}</dd>
 
