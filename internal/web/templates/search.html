@@ -1,0 +1,82 @@
+{{define "content" -}}
+<h1 class="h4 mb-3">{{if .Query}}{{.Query}}{{else}}Search{{end}}</h1>
+
+{{if not .Query}}
+<div class="card">
+  <div class="card-body text-body-secondary">
+    Type into the box above to find a file or a folder by its name, or a track
+    by its title, artist or album. Whole words, and several of them mean those
+    words in that order.
+  </div>
+</div>
+{{else}}
+
+{{/* Each half is shown unless the page was narrowed to the other one. A half
+     with nothing in it says so rather than disappearing, or a search that found
+     only tracks would look like a search that found only half an answer. */}}
+{{if ne .Only "tracks"}}
+<h2 class="h6 text-body-secondary">Files</h2>
+{{if .Entries}}
+<div class="card mb-4">
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0">
+      <thead>
+        <tr>
+          <th scope="col">Name</th>
+          <th scope="col" class="text-end">Size</th>
+          <th scope="col" class="text-end d-none d-sm-table-cell">Modified</th>
+          <th scope="col"><span class="visually-hidden">Actions</span></th>
+        </tr>
+      </thead>
+      <tbody>
+        {{template "rows" .}}
+      </tbody>
+    </table>
+  </div>
+</div>
+{{else}}
+<p class="text-body-secondary small mb-4">Nothing is called that.</p>
+{{end}}
+{{end}}
+
+{{if ne .Only "files"}}
+<h2 class="h6 text-body-secondary">Music</h2>
+{{if .Found}}
+<div class="list-group mb-4">
+  {{template "tracks" .}}
+</div>
+{{else}}
+<p class="text-body-secondary small mb-4">No track is tagged that.</p>
+{{end}}
+{{end}}
+
+{{end}}
+
+{{/* Where a file's details land, as on the listing: one at a time, so a second
+     look replaces the first. */}}
+<div id="file-dialog"></div>
+{{- end}}
+
+{{/* The music half of a result, and the way to the rest of it. A fragment for
+     the same reason the listing's rows are one: htmx asks for exactly this when
+     it extends them, and a browser with no script follows the link instead. */}}
+{{define "tracks" -}}
+{{range .Found}}
+<div class="list-group-item d-flex justify-content-between align-items-center gap-3">
+  <div class="text-break">
+    <a class="text-decoration-none" href="{{.Href}}">{{.Title}}</a>
+    {{with .By}}<div class="small text-body-secondary">{{.}}</div>{{end}}
+  </div>
+  <div class="d-flex align-items-center gap-3 flex-shrink-0">
+    {{with .Duration}}<span class="small text-body-secondary">{{.}}</span>{{end}}
+    {{with .Album}}<a class="small link-secondary text-decoration-none" href="{{.}}">Album</a>{{end}}
+  </div>
+</div>
+{{end}}
+{{if .MoreTracks}}
+<div class="list-group-item text-center py-3"
+     hx-get="{{.MoreTracks}}" hx-trigger="revealed" hx-swap="outerHTML">
+  <a class="link-secondary small text-decoration-none" href="{{.MoreTracks}}">More tracks</a>
+</div>
+{{end}}
+{{- end}}
