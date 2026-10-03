@@ -1063,24 +1063,31 @@ func scanUploadRow(rows *sql.Rows) (db.Upload, error) {
 	return u, nil
 }
 
-// nameFlat is the term flattened the way search_name is, so that what is
-// compared is the same shape on both sides -- searching photo.jpg has to match
-// a column where the dot is already a space. Spelled out here rather than done
-// in Go because migration 0010 defines it in SQL, and two definitions of one
-// rule is how they come to disagree.
-const nameFlat = `replace(replace(replace(replace(replace(replace(replace(
-	?, '.', ' '), '_', ' '), '-', ' '), '(', ' '), ')', ' '), '[', ' '), ']', ' ')`
+// ftsPhrase wraps a term as an FTS5 phrase: the words it holds, in that order
+// and next to each other, which is what db.Finder promises for more than one.
+//
+// Quoting is also what keeps the term out of FTS5's query syntax -- it has
+// operators of its own, and a search for AND or for an asterisk is a search for
+// those characters, not a query somebody typed by accident. A quote inside is
+// doubled, which is how a quoted string carries one.
+//
+// The separators are not flattened here. The index reads search_name, which
+// migration 0010 already flattened, and unicode61 splits on punctuation
+// anyway -- so photo.jpg arrives as two words on both sides.
+func ftsPhrase(term string) string {
+	return `"` + strings.ReplaceAll(term, `"`, `""`) + `"`
+}
 
 // Find implements db.Repo.
 //
-// LIKE and no full-text index, which is this driver's answer and not the
-// port's: a name is a short column and one owner's rows are reachable through
-// files_owner_name, so a search is a scan of what one person has -- 24 ms over
-// a hundred thousand files, measured. FTS5 is in the pure-Go driver and is what
-// this becomes when that number stops being acceptable. See 0010_search.sql.
+// The names half asks an FTS5 index maintained by triggers (0011), which is
+// this engine's answer and not the port's. The tracks half is still LIKE over
+// the folded columns, and the number says why: a music library is small beside
+// a file tree, and the machinery is there the day it is not.
 //
-// A consequence worth knowing: LIKE matches inside a word, so this driver finds
-// more than db.Finder promises. Nothing may depend on that.
+// The join is by rowid, which is the file's id, and the ordering and the cursor
+// stay the port's -- by path, because relevance is not comparable between
+// engines and has nothing in it to resume from.
 func (r *repo) Find(ctx context.Context, owner string, f db.FindFilter) (db.FindResult, error) {
 	var out db.FindResult
 	if err := f.Validate(); err != nil {
@@ -1091,10 +1098,10 @@ func (r *repo) Find(ctx context.Context, owner string, f db.FindFilter) (db.Find
 	}
 	term := db.FoldQuery(f.Text)
 
-	const files = `SELECT ` + fileColumns + ` FROM files
-		WHERE owner_id = ? AND search_name LIKE '%' || ` + nameFlat + ` || '%'
-		  AND path > ?
-		ORDER BY path LIMIT ?`
+	files := `SELECT ` + joinedFileColumns + ` FROM files_fts
+		CROSS JOIN files f ON f.id = files_fts.rowid
+		WHERE files_fts MATCH ? AND f.owner_id = ? AND f.path > ?
+		ORDER BY f.path LIMIT ?`
 
 	// Not a const, for the reason Search's is not: the column lists are built
 	// at startup rather than written out.
@@ -1110,7 +1117,7 @@ func (r *repo) Find(ctx context.Context, owner string, f db.FindFilter) (db.Find
 	var err error
 	if f.Files.Wanted() {
 		if out.Files, err = sqlutil.Collect(ctx, r.q, scanFileRow, files,
-			owner, term, f.Files.After.Path, f.Files.Limit); err != nil {
+			ftsPhrase(term), owner, f.Files.After.Path, f.Files.Limit); err != nil {
 			return db.FindResult{}, fmt.Errorf("find files: %w", mapErr(err))
 		}
 	}

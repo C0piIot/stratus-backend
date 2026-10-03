@@ -619,11 +619,19 @@ its own: `/search?q=sunset&in=files`. What is not in it yet is photographs by
 what the camera recorded, and artists and albums as results of their own rather
 than as the tracks on them.
 
-How the matching is done is each database's business, which is worth knowing
-because they are not identical. PostgreSQL and MySQL use a real full-text index
-and match whole words. SQLite scans, which also means it matches inside a word
--- more than the others, and not something to rely on -- and a term that matches
-nothing costs about 170 ms on a library of a hundred thousand files.
+How the matching is done is each database's business: a generated `tsvector`
+with a GIN index on PostgreSQL, a `FULLTEXT` index on MySQL, and FTS5 on
+SQLite. All three match whole words, which is the whole of what is promised --
+SQLite used to find inside a word, because it scanned with `LIKE`, and does not
+any more.
+
+What that changed, measured on a hundred thousand files: a term that matches
+nothing went from 170 ms to under a millisecond, which is what a typo costs
+now. A term that matches a large part of the library went the other way -- 31 ms
+where a sixth of them match, 80 ms where all of them do -- because results come
+back in path order and every match has to be sorted before the first fifty can
+be taken. The index costs about 10 MiB per hundred thousand files in the data
+directory, and makes moving a folder of that size about a fifth slower.
 
 **Photos have a gallery of their own at `/gallery/photos`**: every image in the
 library, newest first by when the camera says it was taken and grouped by month,

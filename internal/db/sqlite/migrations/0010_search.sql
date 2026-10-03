@@ -40,3 +40,6 @@ ALTER TABLE files ADD COLUMN search_name TEXT NOT NULL
 -- and is where this goes next, which needs either triggers -- and db.Migrate
 -- splits statements on semicolons, so it cannot carry one -- or the index
 -- maintained from the driver on every write. Neither is earned by 170 ms yet.
+--
+-- 0011 earned it and did the first of the two. This column stays: it is what
+-- that index reads.

@@ -713,17 +713,28 @@ Migration 0010 is where each engine's answer lives, and the numbers are in it:
   searching case-sensitive, which the contract forbids. Its match is boolean
   mode with the term quoted as a phrase, so the characters that are operators
   there are dropped from it.
-- **SQLite** has neither, and does not need one yet: `LIKE` over the generated
-  column, with the planner walking `files_owner_path` in order so a term with
-  hits finds its fifty and stops -- 0.5 ms a page after the first. A term that
-  matches nothing costs 170 ms over a hundred thousand files, which is the
-  number to beat and the reason there is no index on the name: nothing orders by
-  it, so one would be written by every upload and read by nothing. Stored rather
-  than virtual, measured: 408 ms against 172 for the same scan, because a
-  virtual column is seven nested replaces recomputed per row. FTS5 is in the
-  pure-Go driver and is where this goes next, and what it needs first is either
-  triggers -- which `db.Migrate` cannot carry, since it splits statements on
-  semicolons -- or the index maintained from the driver on every write.
+- **SQLite** reads an FTS5 index over that same generated column, maintained by
+  triggers (0011, #261). `unicode61` and not `trigram`, which is a decision
+  about the promise rather than about speed: whole words are what the port
+  guarantees and what the other two do, so all three now answer the same
+  question, and the substring matching `LIKE` used to give is gone.
+
+  **Triggers, and that is what `db.Migrate` learned to carry a trigger body
+  for.** The alternative was maintaining the index from the driver, and
+  `MoveFile` settles it: a subtree move is one statement today, and keeping an
+  index in step from Go would have made it two per row -- plus a read of each
+  old name, since an external-content index has to be handed the text that is
+  going away. With triggers the cost stays inside the statement: that same move
+  over a hundred thousand rows went from 4.5 to 5.4 seconds.
+
+  **The join is a `CROSS JOIN`, and that is not style.** Written as a plain
+  join, the planner drives from `files` in path order and probes the index per
+  row: 3.9 seconds for a term that matches nothing. Pinned the other way round
+  it is 0.37 ms, against 170 for the `LIKE` this replaced. What got worse is a
+  term that matches a large part of the library -- 31 ms at a sixth of it,
+  80 ms at all of it -- because the order is the path, so every match is sorted
+  before fifty are taken. The worst case halved and the common one collapsed,
+  which is the trade. The index is about 10 MiB per hundred thousand files.
 
 `Music.Search` is untouched beside it: that is what OpenSubsonic's `search3`
 answers from, with its own pages and its own meaning of an empty query, and a

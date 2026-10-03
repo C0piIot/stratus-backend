@@ -31,14 +31,33 @@ import (
 // test here therefore cannot import a driver. Reading text also means it runs
 // under `make test` and `make test-race`, where the Postgres suite skips for
 // want of STRATUS_TEST_POSTGRES_DSN.
+// oneSided are the migrations one of the two deliberately does not have, with
+// the reason. A driver answers in whatever way its engine is best at, and
+// sometimes that is nothing at all -- but it has to be written down here, or
+// the half-written pair this test exists to catch looks exactly the same.
+var oneSided = map[string]string{
+	"0011_search_fts.sql": "FTS5 is how SQLite answers db.Finder (#261); PostgreSQL's answer is the generated tsvector in 0010",
+}
+
 func TestBothDriversCarryTheSameMigrations(t *testing.T) {
 	t.Parallel()
 
-	lite := names(load(t, "sqlite"))
-	pg := names(load(t, "postgres"))
+	lite := shared(names(load(t, "sqlite")))
+	pg := shared(names(load(t, "postgres")))
 	if !slices.Equal(lite, pg) {
 		t.Errorf("the two drivers do not carry the same migrations:\n  sqlite:   %v\n  postgres: %v", lite, pg)
 	}
+}
+
+// shared drops the migrations one engine has on purpose.
+func shared(migrations []string) []string {
+	out := make([]string, 0, len(migrations))
+	for _, m := range migrations {
+		if _, deliberate := oneSided[m]; !deliberate {
+			out = append(out, m)
+		}
+	}
+	return out
 }
 
 func load(t *testing.T, driver string) []Migration {
