@@ -2,6 +2,8 @@ package db
 
 import (
 	"fmt"
+	"path"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -240,4 +242,20 @@ func ValidateDir(dir string) error {
 		return nil
 	}
 	return ValidatePath(dir)
+}
+
+// CopyName is name with a number before its extension: "sunset.jpg" becomes
+// "sunset (2).jpg", and n of 1 is the name itself.
+//
+// One function because four things disambiguate this way and three of them
+// said so in a comment: the import folder renaming rather than replacing, the
+// generated names under /photos/ and /playlists/, and a restore landing beside
+// what has taken its place (#275). The extension survives the number because
+// it is what the indexer reads and what a client decides by.
+func CopyName(name string, n int) string {
+	if n <= 1 {
+		return name
+	}
+	ext := path.Ext(name)
+	return strings.TrimSuffix(name, ext) + " (" + strconv.Itoa(n) + ")" + ext
 }

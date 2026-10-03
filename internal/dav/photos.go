@@ -282,11 +282,9 @@ func photoNames(photos []db.Photo) map[string]db.Photo {
 	taken := make(map[string]bool, len(byID))
 	for _, ph := range byID {
 		base := path.Base(ph.File.Path)
-		ext := path.Ext(base)
-		stem := strings.TrimSuffix(base, ext)
 		name := base
 		for n := 2; taken[strings.ToLower(name)]; n++ {
-			name = stem + " (" + strconv.Itoa(n) + ")" + ext
+			name = db.CopyName(base, n)
 		}
 		taken[strings.ToLower(name)] = true
 		named[name] = ph

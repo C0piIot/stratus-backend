@@ -357,3 +357,134 @@ func (s *Service) Trash(ctx context.Context, owner string, after db.TrashCursor,
 func (s *Service) TrashTotals(ctx context.Context, owner string) (db.TrashTotals, error) {
 	return s.meta.TrashTotals(ctx, owner)
 }
+
+// maxCopies bounds the search for a free name when what was deleted has been
+// replaced since. A hundred: a folder that already holds a hundred copies of
+// one name is a situation to be told about rather than added to.
+const maxCopies = 100
+
+// Restore puts a deletion back where it came from, and answers with the row it
+// landed at -- which is not always the one it left from (#275).
+//
+// Three things can have happened to the tree since, and each is decided here
+// rather than discovered:
+//
+//   - **The path is taken.** It lands beside what is there, " (2)" before the
+//     extension, which is the rule the import folder and the generated mounts
+//     already use. Not over it: restoring is not a PUT, and whatever has the
+//     name now is not a mistake. A folder that moves takes its contents with
+//     it, since every row under it is rewritten to the new root.
+//   - **The parent is gone**, deleted after this was. The directories on the
+//     way are recreated, because they were part of the same tree.
+//   - **An ancestor is a file now.** There is nowhere to put the tree, and
+//     nothing here is going to delete somebody's file to make room: it is a
+//     conflict and the page says which path.
+//
+// Everything is one transaction, so a restore either lands whole or not at
+// all. What does not come back is the extracted metadata: it went with the
+// cascade when the row left files, so the indexer reads these again -- which
+// is why each one is announced to it on the way out.
+func (s *Service) Restore(ctx context.Context, owner, batch string) (db.File, error) {
+	var root db.File
+	var restored []db.File
+
+	err := s.meta.Tx(ctx, func(r db.Repo) error {
+		rows, err := r.TrashedIn(ctx, owner, batch)
+		if err != nil {
+			return err
+		}
+		if len(rows) == 0 {
+			return fmt.Errorf("%w: no deletion %q", db.ErrNotFound, batch)
+		}
+
+		// Ordered by path, so the first row is the root of what was deleted:
+		// a prefix sorts before everything under it.
+		from := rows[0].Path
+		to, err := freeName(ctx, r, owner, from)
+		if err != nil {
+			return err
+		}
+		if perr := restoreParents(ctx, r, owner, to); perr != nil {
+			return perr
+		}
+
+		restored = restored[:0]
+		for _, t := range rows {
+			row := t.File
+			row.ID = 0
+			row.Path = to + strings.TrimPrefix(t.Path, from)
+			if row.IsDir {
+				if _, derr := r.CreateDir(ctx, owner, row.Path); derr != nil {
+					return derr
+				}
+				continue
+			}
+			stored, perr := r.PutFile(ctx, row)
+			if perr != nil {
+				return perr
+			}
+			restored = append(restored, stored)
+		}
+
+		root, err = r.FileByPath(ctx, owner, to)
+		if err != nil {
+			return err
+		}
+		return r.DeleteTrash(ctx, owner, batch)
+	})
+	if err != nil {
+		return db.File{}, err
+	}
+
+	// The indexer never saw these: the media rows went with the cascade. Told
+	// rather than left for the hourly query, which is the same bargain a write
+	// makes -- and a burst larger than the channel holds says so and brings
+	// the query forward anyway.
+	for _, f := range restored {
+		s.written(f)
+	}
+	return root, nil
+}
+
+// freeName is where a restored root can land: its own path, or that path with
+// a number beside it when something has taken the name since.
+func freeName(ctx context.Context, r db.Repo, owner, target string) (string, error) {
+	for n := 1; n <= maxCopies; n++ {
+		candidate := db.CopyName(target, n)
+		switch _, err := r.FileByPath(ctx, owner, candidate); {
+		case errors.Is(err, db.ErrNotFound):
+			return candidate, nil
+		case err != nil:
+			return "", err
+		}
+	}
+	return "", fmt.Errorf("%w: %q is taken, and so are the first %d names beside it",
+		db.ErrConflict, target, maxCopies)
+}
+
+// restoreParents recreates the directories above a restored path, which were
+// part of the same tree until somebody deleted them too.
+//
+// A file in the way is a conflict and not something to work around: making
+// room would mean deleting it, and this function exists to put things back
+// rather than to take them away.
+func restoreParents(ctx context.Context, r db.Repo, owner, target string) error {
+	parent := db.ParentOf(target)
+	if parent == "" {
+		return nil
+	}
+	switch f, err := r.FileByPath(ctx, owner, parent); {
+	case err == nil && f.IsDir:
+		return nil
+	case err == nil:
+		return fmt.Errorf("%w: %q is a file now", db.ErrConflict, parent)
+	case !errors.Is(err, db.ErrNotFound):
+		return err
+	}
+
+	if err := restoreParents(ctx, r, owner, parent); err != nil {
+		return err
+	}
+	_, err := r.CreateDir(ctx, owner, parent)
+	return err
+}

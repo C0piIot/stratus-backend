@@ -160,6 +160,7 @@ func Handler(version, buildDate string, v auth.Verifier, s *auth.Sessions, share
 	mux.HandleFunc("GET "+trashPrefix, h.signedIn(h.trash))
 	mux.HandleFunc("GET "+trashPrefix+"/{batch}", h.signedIn(h.destroyForm))
 	mux.HandleFunc("POST "+trashPrefix+"/{batch}", h.signedIn(h.destroy))
+	mux.HandleFunc("POST "+trashPrefix+"/{batch}/restore", h.signedIn(h.restore))
 	mux.HandleFunc("GET /robots.txt", robots)
 	mux.HandleFunc("GET /login", h.loginForm)
 	mux.HandleFunc("POST /login", h.login)

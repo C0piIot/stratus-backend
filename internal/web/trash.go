@@ -95,6 +95,18 @@ func (h *handler) destroy(w http.ResponseWriter, r *http.Request, user string) {
 	redirectLocal(w, r, trashPrefix)
 }
 
+// restore puts a deletion back and sends the browser to where it landed --
+// which is not always where it left from, so the folder is the answer rather
+// than a message about it.
+func (h *handler) restore(w http.ResponseWriter, r *http.Request, user string) {
+	back, err := h.files.Restore(r.Context(), user, r.PathValue("batch"))
+	if err != nil {
+		h.fail(w, r, user, err)
+		return
+	}
+	redirectLocal(w, r, href(db.ParentOf(back.Path)))
+}
+
 // deletion is one accident, as the page shows it.
 type deletion struct {
 	ID string
@@ -107,6 +119,7 @@ type deletion struct {
 	Size    string
 	When    string
 	Destroy string
+	Restore string
 }
 
 func deletions(batches []db.TrashBatch) []deletion {
@@ -120,6 +133,7 @@ func deletions(batches []db.TrashBatch) []deletion {
 			Size:    humanBytes(b.Bytes),
 			When:    b.DeletedAt.Format("2006-01-02 15:04"),
 			Destroy: trashPrefix + "/" + url.PathEscape(b.ID),
+			Restore: trashPrefix + "/" + url.PathEscape(b.ID) + "/restore",
 		})
 	}
 	return out

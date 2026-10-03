@@ -232,7 +232,7 @@ func fileNames(playlists []db.Playlist) (map[string]db.Playlist, []string) {
 		base := safeName(pl.Name)
 		name := base + ".m3u8"
 		for n := 2; taken[strings.ToLower(name)]; n++ {
-			name = base + " (" + strconv.Itoa(n) + ").m3u8"
+			name = db.CopyName(base+".m3u8", n)
 		}
 		taken[strings.ToLower(name)] = true
 		named[name] = pl

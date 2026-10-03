@@ -477,6 +477,12 @@ Hard constraints, in the same spirit as the rest of the project:
   that asks before deleting and the line on `/status` that says how much room
   the trash is holding, which are the two moments the question comes up.
 
+  **Restore is a form and not a page** (#275), unlike the two deletes beside
+  it: putting something back is not the kind of mistake you cannot undo, so
+  there is nothing to ask. It answers with a redirect to the folder the tree
+  landed in rather than with a message about it, because when the name was
+  taken the tree landed somewhere else and the folder is the answer to where.
+
   A rename is a rename, not a move: the field is reduced to one path element, so
   a typed path cannot quietly carry a file across the tree. A folder with
   anything in it cannot be renamed at all -- the metadata port refuses to move a
@@ -708,7 +714,9 @@ re-index (#275).
 
 A deletion is a **batch**: one `Remove` is one id on every row it took, which
 is what lets a page show an accident instead of a thousand files, and what
-will make putting one back a single operation. The batch's root is `MIN(path)`
+makes putting one back a single operation (#275) -- one transaction, so a
+restore lands whole or not at all, and no new port method, since what it needs
+is `TrashedIn`, `PutFile`, `CreateDir` and `DeleteTrash`. The batch's root is `MIN(path)`
 over its rows rather than a column -- "holiday" sorts before
 "holiday/sunset.jpg", so the shortest path in a tree is the tree.
 

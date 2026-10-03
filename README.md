@@ -783,8 +783,18 @@ the format is in `CLAUDE.md`.
 **Deleting puts it in the trash**, at `/trash`, where it is kept for thirty
 days and then destroyed for good. Deleting a folder takes everything inside it,
 and the trash shows that as **one deletion** rather than as a thousand files:
-one line, with what was in it, and a button that throws it away now if you want
-the room back. The page still asks first, because a folder is worth a question.
+one line, with what was in it, a button that puts it back and another that
+throws it away now if you want the room back. The page still asks first,
+because a folder is worth a question.
+
+**Restoring puts the tree back where it was**, and the three things that can
+have happened to that place since are each decided rather than discovered: a
+name taken by something else means it lands **beside** it, `album (2)`, with
+everything under it following — restoring is not an overwrite, and what has
+the name now is not a mistake; folders deleted after it are recreated on the
+way back; and an ancestor that is a *file* now is refused, because making room
+would mean deleting it. What does not come back is what the indexer had read,
+so a restored file is read again — the status page is where that shows.
 
 Nothing is copied to put something there — the bytes stay exactly where they
 were written, and only the table that names them changes — so deleting still

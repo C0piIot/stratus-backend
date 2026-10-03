@@ -366,6 +366,47 @@ func TestTheTrashHoldsADeletionUntilItIsDestroyed(t *testing.T) {
 // destroyLink finds the button that throws a deletion away for good.
 var destroyLink = regexp.MustCompile(`href="(/trash/[^"]+)"`)
 
+// TestRestoringFromTheTrash is the page's other half: what was deleted comes
+// back where it was, and the browser is sent to the folder it landed in --
+// which is the answer to "where did it go" when the name was taken.
+func TestRestoringFromTheTrash(t *testing.T) {
+	t.Parallel()
+	h, s := browser(t)
+	mkdir(t, s, "album")
+	write(t, s, "album/one.jpg", "pixels")
+	cookie := signIn(t, h)
+	remove(t, h, "album", cookie)
+
+	page := get(t, h, "/trash", cookie).Body.String()
+	link := restoreForm.FindStringSubmatch(page)
+	if link == nil {
+		t.Fatalf("no way to restore the deletion:\n%s", page)
+	}
+
+	rec := post(t, h, html(link[1]), nil, cookie)
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("restoring = %d, want 303", rec.Code)
+	}
+	if got := rec.Header().Get("Location"); got != "/files/" {
+		t.Errorf("Location = %q, want the folder it landed in", got)
+	}
+	if _, err := s.Stat(t.Context(), username, "album/one.jpg"); err != nil {
+		t.Errorf("the file did not come back: %v", err)
+	}
+	if after := get(t, h, "/trash", cookie).Body.String(); !strings.Contains(after, "Nothing has been deleted") {
+		t.Errorf("the deletion is still in the trash:\n%s", after)
+	}
+
+	// A deletion that is not there is a 404 rather than a silent success,
+	// which is what a button pressed twice gets.
+	if code := post(t, h, html(link[1]), nil, cookie).Code; code != http.StatusNotFound {
+		t.Errorf("restoring it twice = %d, want 404", code)
+	}
+}
+
+// restoreForm finds the form that puts a deletion back.
+var restoreForm = regexp.MustCompile(`action="(/trash/[^"]+/restore)"`)
+
 // TestTheTrashPages: fifty accidents is already more than anybody has, and
 // past that it resumes by the moment and the deletion rather than by an
 // offset, like every other list here.
