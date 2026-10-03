@@ -124,20 +124,17 @@ Two suites do not, and both are written down rather than hidden — `props`
 because `PROPPATCH` is refused, and `locks` at 29 of 33 for the reasons in the
 next paragraph.
 
-**Locking is real, and a lock is a row.** `LOCK` takes an exclusive write lock,
-and a `PUT`, `DELETE`, `MOVE`, `COPY`, `MKCOL` or `PROPPATCH` against something
-somebody else holds is refused with `423 Locked`. A lock on a folder covers
-everything under it, and the client that took it carries on working by
-submitting its token in the `If` header — where an `ETag` condition beside the
-token is checked too, so "only if the bytes are still these" means what it says.
-Locks are kept in the database, so restarting the server keeps every one of them
-and two instances on the same database honour each other's.
+**Locking is real.** `LOCK` takes an exclusive write lock, and a `PUT`,
+`DELETE`, `MOVE`, `COPY`, `MKCOL` or `PROPPATCH` against something somebody
+else holds is refused with `423 Locked`. A lock on a folder covers everything
+under it, and the client that took it carries on working by submitting its
+token in the `If` header — where an `ETag` condition beside the token is
+checked too, so "only if the bytes are still these" means what it says.
 
 Three limits, because they are the kind a client discovers at the worst
-moment. **A write holds its lock on a lease**, renewed while the request runs:
-a server killed mid-`PUT`, or a client that hangs up during one, leaves that one
-path answering `423` for up to a minute before the lease lapses and it is
-somebody else's to write. **Only exclusive locks**: a request for a shared one
+moment. **Locks live in the server's memory**, so restarting it forgets every
+one of them: a lock is a claim with a timeout measured in minutes, and a
+restart costs whoever held one a retry. **Only exclusive locks**: a request for a shared one
 is answered `501` rather than granted as an exclusive lock the client would
 think it was sharing. And **`LOCK` on a path with nothing at it is `404`**
 rather than creating the empty resource RFC 4918 allows, which is what leaves
@@ -942,9 +939,16 @@ button after an upgrade. Rolling *back* to an older image is refused rather than
 attempted, because a schema from the future is not something to guess at. **Two
 processes started against the same database do not race on it**: on PostgreSQL
 and MySQL the first takes the engine's own lock and the second waits its turn
-rather than failing to start. That is one of the things a second instance would
-need and not all of them — the rest of this server still assumes it is the only
-one.
+rather than failing to start. That is for the seconds a rolling deploy overlaps
+two containers, which is the only time this server is two processes.
+
+**It runs as one instance, by design.** One user does not need a second, and
+several things here are written in the knowledge that there is not one: locks
+live in memory, the login throttle counts per process, the indexer and the
+sweep assume nothing else is working on the same library, and the disk backend
+empties its own scratch directory at startup on the argument that what is in it
+belongs to a dead process. Running two against one database and one bucket
+would be wrong in each of those ways, quietly.
 
 Until the first tagged release the schema is rewritten rather than migrated: the
 initial migration is edited in place as it changes, and only the few additions

@@ -39,9 +39,9 @@ import (
 // The prefix is stripped here rather than by the caller because the backend
 // speaks in storage paths and the handler speaks in URLs, and exactly one place
 // should know the difference.
-func Handler(prefix string, service *files.Service, locks db.Locks) http.Handler {
+func Handler(prefix string, service *files.Service) http.Handler {
 	prefix = strings.TrimSuffix(prefix, "/")
-	fs := &fileSystem{files: service, prefix: prefix, locks: DatabaseLocks(locks), now: time.Now}
+	fs := &fileSystem{files: service, prefix: prefix, locks: MemoryLocks(), now: time.Now}
 	dav := &webdav.Handler{FileSystem: fs}
 	// Everything that writes goes through the lock gate first. See locks.go.
 	guarded := fs.enforceLocks(dav)

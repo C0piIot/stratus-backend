@@ -416,40 +416,22 @@ func TestATaggedCollectionCoversAFileInIt(t *testing.T) {
 	}
 }
 
-// TestARestartKeeps is what moving the locks into the database bought (#243),
-// and it is the same test as before with the assertion turned around: it used
-// to record that a restart forgot every lock.
-//
-// Two handlers over one store is also what two instances are, from the lock
-// table's side: each mints its own instance id and neither knows the other.
-func TestARestartKeeps(t *testing.T) {
+// TestARestartForgetsALock is the price of keeping locks in memory, stated
+// rather than discovered (#192). A lock is a claim with a timeout measured in
+// minutes; a restart forgetting one costs a client a retry, and what it saves
+// is a lease -- a row cannot tell that the process holding it has died, so a
+// write interrupted by a crash used to leave its path refusing everybody for a
+// minute.
+func TestARestartForgetsALock(t *testing.T) {
 	t.Parallel()
-	svc, meta := service(t)
-	before := withUser(dav.Handler(prefix, svc, meta), "edu")
+	svc, _ := service(t)
+	before := withUser(dav.Handler(prefix, svc), "edu")
 	do(t, before, http.MethodPut, "/dav/notes.txt", "hello")
 	lockFile(t, before, "/dav/notes.txt")
 
-	after := withUser(dav.Handler(prefix, svc, meta), "edu")
-	if got := do(t, after, http.MethodPut, "/dav/notes.txt", "after the restart").Code; got != dav.StatusLocked {
-		t.Errorf("a PUT after a restart = %d, want 423: the lock outlives the process", got)
-	}
-}
-
-// TestAnotherInstanceHonoursTheToken is the other half: the client that holds
-// the lock carries on working against the instance that never granted it.
-func TestAnotherInstanceHonoursTheToken(t *testing.T) {
-	t.Parallel()
-	svc, meta := service(t)
-	first := withUser(dav.Handler(prefix, svc, meta), "edu")
-	do(t, first, http.MethodPut, "/dav/notes.txt", "hello")
-	token := lockFile(t, first, "/dav/notes.txt")
-
-	second := withUser(dav.Handler(prefix, svc, meta), "edu")
-	if got := do(t, second, http.MethodPut, "/dav/notes.txt", "mine", "If", ifHeader(token)).Code; got != http.StatusNoContent {
-		t.Errorf("a PUT with the token against another instance = %d, want 204", got)
-	}
-	if got := do(t, second, "UNLOCK", "/dav/notes.txt", "", "Lock-Token", token).Code; got != http.StatusNoContent {
-		t.Errorf("UNLOCK against another instance = %d, want 204", got)
+	after := withUser(dav.Handler(prefix, svc), "edu")
+	if got := do(t, after, http.MethodPut, "/dav/notes.txt", "after the restart").Code; got != http.StatusNoContent {
+		t.Errorf("a PUT after a restart = %d, want 204: the lock went with the process", got)
 	}
 }
 
