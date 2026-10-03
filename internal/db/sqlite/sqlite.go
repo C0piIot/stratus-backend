@@ -1062,3 +1062,65 @@ func scanUploadRow(rows *sql.Rows) (db.Upload, error) {
 	u.ExpiresAt = time.UnixMilli(expires).UTC()
 	return u, nil
 }
+
+// nameFlat is the term flattened the way search_name is, so that what is
+// compared is the same shape on both sides -- searching photo.jpg has to match
+// a column where the dot is already a space. Spelled out here rather than done
+// in Go because migration 0010 defines it in SQL, and two definitions of one
+// rule is how they come to disagree.
+const nameFlat = `replace(replace(replace(replace(replace(replace(replace(
+	?, '.', ' '), '_', ' '), '-', ' '), '(', ' '), ')', ' '), '[', ' '), ']', ' ')`
+
+// Find implements db.Repo.
+//
+// LIKE and no full-text index, which is this driver's answer and not the
+// port's: a name is a short column and one owner's rows are reachable through
+// files_owner_name, so a search is a scan of what one person has -- 24 ms over
+// a hundred thousand files, measured. FTS5 is in the pure-Go driver and is what
+// this becomes when that number stops being acceptable. See 0010_search.sql.
+//
+// A consequence worth knowing: LIKE matches inside a word, so this driver finds
+// more than db.Finder promises. Nothing may depend on that.
+func (r *repo) Find(ctx context.Context, owner string, f db.FindFilter) (db.FindResult, error) {
+	var out db.FindResult
+	if err := f.Validate(); err != nil {
+		return out, err
+	}
+	if f.Text == "" {
+		return out, nil
+	}
+	term := db.FoldQuery(f.Text)
+
+	const files = `SELECT ` + fileColumns + ` FROM files
+		WHERE owner_id = ? AND search_name LIKE '%' || ` + nameFlat + ` || '%'
+		  AND path > ?
+		ORDER BY path LIMIT ?`
+
+	// Not a const, for the reason Search's is not: the column lists are built
+	// at startup rather than written out.
+	tracks := `SELECT ` + joinedFileColumns + `, ` + joinedMediaColumns + `
+		FROM media m JOIN files f ON f.id = m.file_id
+		WHERE f.owner_id = ? AND m.kind = ?
+		  AND (m.search_song LIKE ? ESCAPE '` + sqlutil.LikeEscape + `'
+		    OR m.search_album LIKE ? ESCAPE '` + sqlutil.LikeEscape + `'
+		    OR m.search_album_artist LIKE ? ESCAPE '` + sqlutil.LikeEscape + `')
+		  AND f.path > ?
+		ORDER BY f.path LIMIT ?`
+
+	var err error
+	if f.Files.Wanted() {
+		if out.Files, err = sqlutil.Collect(ctx, r.q, scanFileRow, files,
+			owner, term, f.Files.After.Path, f.Files.Limit); err != nil {
+			return db.FindResult{}, fmt.Errorf("find files: %w", mapErr(err))
+		}
+	}
+	if f.Tracks.Wanted() {
+		tagged := sqlutil.Contains(term)
+		if out.Tracks, err = sqlutil.Collect(ctx, r.q, scanTrack, tracks,
+			owner, string(db.KindAudio), tagged, tagged, tagged,
+			f.Tracks.After.Path, f.Tracks.Limit); err != nil {
+			return db.FindResult{}, fmt.Errorf("find tracks: %w", mapErr(err))
+		}
+	}
+	return out, nil
+}

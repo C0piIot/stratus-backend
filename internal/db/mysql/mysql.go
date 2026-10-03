@@ -1129,3 +1129,76 @@ func scanUploadRow(rows *sql.Rows) (db.Upload, error) {
 	u.ExpiresAt = time.UnixMilli(expires).UTC()
 	return u, nil
 }
+
+// nameFlat is the term flattened the way search_name is, so that what is
+// compared is the same shape on both sides -- searching photo.jpg has to match
+// a column where the dot is already a space. Spelled out here rather than done
+// in Go because migration 0010 defines it in SQL, and two definitions of one
+// rule is how they come to disagree.
+const nameFlat = `REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
+	?, '.', ' '), '_', ' '), '-', ' '), '(', ' '), ')', ' '), '[', ' '), ']', ' ')`
+
+// phrase wraps a term for boolean mode, where a quoted string is the phrase
+// operator and everything else in it is an operator too.
+//
+// Boolean mode rather than natural language, which would match any of the words
+// rather than all of them in order. The price is that the term is syntax, so
+// the characters that mean something there are dropped: a search for "C++" is a
+// search for C, which finds more than was asked rather than failing to parse.
+func phrase(term string) string {
+	return `"` + strings.Map(func(r rune) rune {
+		if strings.ContainsRune(`"\+-><()~*@`, r) {
+			return ' '
+		}
+		return r
+	}, term) + `"`
+}
+
+// Find implements db.Repo.
+//
+// FULLTEXT on both sides, which is this engine's answer and not the port's, and
+// the one place where a column of this schema is not binary-collated: a match
+// uses the column's collation, so search_name is accent- and case-insensitive
+// while everything around it stays exact. See 0010_search.sql.
+//
+// A word shorter than innodb_ft_min_token_size -- three by default -- is not in
+// the index and finds nothing here. That is the floor db.Finder's promise is
+// written to clear, and why its conformance cases use longer words.
+func (r *repo) Find(ctx context.Context, owner string, f db.FindFilter) (db.FindResult, error) {
+	var out db.FindResult
+	if err := f.Validate(); err != nil {
+		return out, err
+	}
+	if f.Text == "" {
+		return out, nil
+	}
+	term := db.FoldQuery(f.Text)
+
+	const files = `SELECT ` + fileColumns + ` FROM files
+		WHERE owner_id = ? AND MATCH(search_name) AGAINST (` + nameFlat + ` IN BOOLEAN MODE)
+		  AND path > ?
+		ORDER BY path LIMIT ?`
+
+	tracks := `SELECT ` + joinedFileColumns + `, ` + joinedMediaColumns + `
+		FROM media m JOIN files f ON f.id = m.file_id
+		WHERE f.owner_id = ? AND m.kind = ?
+		  AND MATCH(m.search_song, m.search_album, m.search_album_artist)
+		      AGAINST (` + nameFlat + ` IN BOOLEAN MODE)
+		  AND f.path > ?
+		ORDER BY f.path LIMIT ?`
+
+	var err error
+	if f.Files.Wanted() {
+		if out.Files, err = sqlutil.Collect(ctx, r.q, scanFileRow, files,
+			owner, phrase(term), f.Files.After.Path, f.Files.Limit); err != nil {
+			return db.FindResult{}, fmt.Errorf("find files: %w", mapErr(err))
+		}
+	}
+	if f.Tracks.Wanted() {
+		if out.Tracks, err = sqlutil.Collect(ctx, r.q, scanTrack, tracks,
+			owner, string(db.KindAudio), phrase(term), f.Tracks.After.Path, f.Tracks.Limit); err != nil {
+			return db.FindResult{}, fmt.Errorf("find tracks: %w", mapErr(err))
+		}
+	}
+	return out, nil
+}
