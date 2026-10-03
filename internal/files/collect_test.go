@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/C0piIot/stratus-backend/internal/db"
 	"github.com/C0piIot/stratus-backend/internal/files"
 	"github.com/C0piIot/stratus-backend/internal/storage"
 )
@@ -134,16 +135,30 @@ func TestCollectAfterARecursiveDelete(t *testing.T) {
 	if err := s.Remove(t.Context(), owner, "album"); err != nil {
 		t.Fatal(err)
 	}
-	// Remove deletes the blobs itself, so there should be nothing left over.
+	// A deleted blob is in the trash, not in limbo: it has an owner and a
+	// month, and the sweep is not who decides to throw it away (#274).
 	done, err := s.Collect(t.Context(), 0)
 	if err != nil {
 		t.Fatalf("Collect: %v", err)
 	}
 	if done.Deleted != 0 {
-		t.Errorf("Collect found %d orphans after a delete that cleans up after itself", done.Deleted)
+		t.Errorf("Collect took %d blobs that belong to the trash", done.Deleted)
+	}
+	if blobCount(t, blobs) != 2 {
+		t.Error("the surviving file or the trashed one lost its blob")
+	}
+
+	// And once the trash lets go, the same sweep is what would have taken it
+	// -- except that destroying a deletion takes its bytes itself.
+	batches, err := s.Trash(t.Context(), owner, db.TrashCursor{}, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.DestroyTrashed(t.Context(), owner, batches[0].ID); err != nil {
+		t.Fatal(err)
 	}
 	if blobCount(t, blobs) != 1 {
-		t.Error("the surviving file lost its blob")
+		t.Error("destroying the deletion left its bytes behind")
 	}
 }
 
@@ -153,15 +168,9 @@ func TestCollectAfterARecursiveDelete(t *testing.T) {
 func TestCollectRefusesAnEmptyIndex(t *testing.T) {
 	t.Parallel()
 	s, blobs := service(t)
-	write(t, s, "photo.jpg", "irreplaceable")
-	if err := s.Remove(t.Context(), owner, "photo.jpg"); err != nil {
-		t.Fatal(err)
-	}
-	// Put an object back with no row pointing at it, which is what a store
-	// looks like next to a database that knows nothing about it.
-	if _, err := blobs.Put(t.Context(), "blobs/AA/BB/orphan", strings.NewReader("irreplaceable"), -1); err != nil {
-		t.Fatal(err)
-	}
+	// A store with somebody's photograph in it and a database that knows
+	// nothing about it, which is what a DSN pointed somewhere new looks like.
+	orphan(t, blobs, "SOMEBODYSPHOTOGRAPH", "irreplaceable")
 
 	_, err := s.Collect(t.Context(), 0)
 	if !errors.Is(err, files.ErrEmptyIndex) {

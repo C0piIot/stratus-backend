@@ -231,6 +231,7 @@ type Repo interface {
 	Playlists
 	Photos
 	Uploads
+	Trash
 }
 
 // Store is a database connection.

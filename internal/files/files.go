@@ -17,12 +17,14 @@ package files
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"hash"
 	"io"
+	"time"
 
 	"github.com/C0piIot/stratus-backend/internal/db"
 	"github.com/C0piIot/stratus-backend/internal/sniff"
@@ -35,6 +37,7 @@ import (
 type Database interface {
 	db.Files
 	db.Uploads
+	db.Trash
 	Tx(ctx context.Context, fn func(db.Repo) error) error
 }
 
@@ -344,62 +347,60 @@ func (s *Service) Move(ctx context.Context, owner, from, to string) error {
 	})
 }
 
-// Remove deletes path and, if it is a directory, everything under it.
+// Remove deletes path and, if it is a directory, everything under it -- into
+// the trash, which is where deleting goes now (#274).
 //
-// Every row goes in one transaction, so a failure halfway leaves the tree as it
-// was. The blobs are deleted afterwards, outside it: they are the half that is
-// safe to lose.
+// The rows move out of files and into trash in one transaction, so a failure
+// halfway leaves the tree as it was and nothing is ever in neither place.
+// **No blob is touched at all**: the bytes stay exactly where they were
+// written, and what changed is which table says who they belong to. That is
+// what makes this cost nothing and take no room -- and it is also why the
+// sweep has to count the trash's keys as referenced.
+//
+// Only this door trashes. An overwrite -- a PUT, a finished upload, a COPY
+// onto something -- drops what it replaced then and there (#272), because
+// keeping the previous content of a file is versioning and not a trash bin,
+// and it would put back the second copy of everything that #273 removed.
 func (s *Service) Remove(ctx context.Context, owner, path string) error {
-	var orphaned []string
-
-	err := s.meta.Tx(ctx, func(r db.Repo) error {
-		keys, err := removeTree(ctx, r, owner, path)
-		orphaned = keys
-		return err
-	})
-	if err != nil {
-		return err
-	}
-
-	for _, key := range orphaned {
-		if err := s.dropBlob(ctx, key); err != nil {
-			// The rows are already gone, so the caller's delete did succeed.
-			// What is left is garbage with an owner: #17.
+	batch := rand.Text()
+	return s.meta.Tx(ctx, func(r db.Repo) error {
+		rows, err := removeTree(ctx, r, owner, path)
+		if err != nil {
 			return err
 		}
-	}
-	return nil
+		return r.Trash(ctx, batch, rows, time.Now().UTC())
+	})
 }
 
 // removeTree deletes depth first, so a directory is only removed once it is
-// empty, which is the one order the database will accept.
-func removeTree(ctx context.Context, r db.Repo, owner, path string) ([]string, error) {
+// empty, which is the one order the database will accept. It answers with the
+// rows it took, in that same order, which is what the trash is written from --
+// directories included, so that putting the tree back is possible (#275).
+func removeTree(ctx context.Context, r db.Repo, owner, path string) ([]db.File, error) {
 	f, err := r.FileByPath(ctx, owner, path)
 	if err != nil {
 		return nil, err
 	}
 
-	var keys []string
+	var rows []db.File
 	if f.IsDir {
 		children, err := r.ListFiles(ctx, owner, path)
 		if err != nil {
 			return nil, err
 		}
 		for _, child := range children {
-			childKeys, err := removeTree(ctx, r, owner, child.Path)
+			under, err := removeTree(ctx, r, owner, child.Path)
 			if err != nil {
 				return nil, err
 			}
-			keys = append(keys, childKeys...)
+			rows = append(rows, under...)
 		}
-	} else {
-		keys = append(keys, f.BlobKey)
 	}
 
 	if err := r.DeleteFile(ctx, owner, path); err != nil {
 		return nil, err
 	}
-	return keys, nil
+	return append(rows, f), nil
 }
 
 // requireParent is the half of the tree invariant that stays in Go: a row whose

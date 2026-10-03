@@ -428,7 +428,7 @@ type entry struct {
 	// browser with no script follows it to a page.
 	Info string
 	// Where the two things that can be done to it are asked for. Both are
-	// pages: a rename needs a name, and a delete cannot be undone.
+	// pages: a rename needs a name, and a delete takes a folder whole.
 	Rename string
 	Delete string
 	Share  string

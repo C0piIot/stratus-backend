@@ -460,9 +460,22 @@ Hard constraints, in the same spirit as the rest of the project:
   half a library, and the page draws the empty square around it.
 - **Renaming and deleting are pages, not buttons in the row.** Each is a GET
   that asks and a POST that does: a rename needs a name typed into something,
-  and a delete cannot be undone -- there is no trash bin, so the page in between
-  is the only chance to have not meant it. It also keeps the listing from
-  carrying two forms per row.
+  and a delete takes a folder with everything in it. The page stays now that
+  there is a trash behind it (#274) -- what changed is its answer, from "this
+  cannot be undone" to how long you have to change your mind. It also keeps the
+  listing from carrying two forms per row.
+
+  **The trash is a page of deletions, not of files** (`/trash`). Deleting a
+  folder of a thousand photographs is one accident, and a thousand rows is not
+  a way to find it again: one line per `Remove`, named by the folder that was
+  deleted -- which is the shortest path in the batch, since "holiday" sorts
+  before "holiday/sunset.jpg" -- with what it held and a button that destroys
+  it now. That button has a page of its own, and it is the one place here
+  where "this cannot be undone" is still true.
+
+  It is not in the navbar. The two places somebody arrives from are the page
+  that asks before deleting and the line on `/status` that says how much room
+  the trash is holding, which are the two moments the question comes up.
 
   A rename is a rename, not a move: the field is reduced to one path element, so
   a typed path cannot quietly carry a file across the tree. A folder with
@@ -669,6 +682,35 @@ after all: the expensive path, taken rarely and on purpose.
 Nothing else will ever collect an abandoned upload -- the sweep cannot see one
 -- so `files.CollectUploads` runs beside it on the same tick, and the deadline
 it enforces is the one the client was told.
+
+**A deleted file is a row too, in `trash`** (#274), and for a reason that is
+worth being exact about. The alternative was a `deleted_at` on `files`, and it
+is the more expensive one: the unique index is `(owner_id, path)`, so deleting
+`a.txt` and writing a new `a.txt` collides unless the trashed path is mangled,
+and every read query in all three drivers would have to filter -- both
+listings, the five buckets of a search, the gallery, the albums, the counts on
+`/status`. The one that forgot would show deleted files in silence. A second
+table costs a port and changes nothing else, which is the same trade `uploads`
+already made.
+
+**Nothing is copied to put something there.** The blob stays exactly where it
+was written; what changed is which table names it, which is also why `Collect`
+adds `TrashKeys` to what it considers referenced. Deleting therefore costs
+nothing and frees nothing, and `EmptyTrash` -- the third pass on the
+collector's tick, before the uploads and the sweep -- is what frees it, a
+`files.DefaultTrashRetention` of thirty days later.
+
+What the move costs is the cascades: `media`, `track_annotations` and
+`playlist_entries` hang off `files(id)`, so the extracted metadata, the stars
+and the playlist entries go with the row. They went with a delete before this
+too, so nothing is newly lost -- but it is what will make restoring cost a
+re-index (#275).
+
+A deletion is a **batch**: one `Remove` is one id on every row it took, which
+is what lets a page show an accident instead of a thousand files, and what
+will make putting one back a single operation. The batch's root is `MIN(path)`
+over its rows rather than a column -- "holiday" sorts before
+"holiday/sunset.jpg", so the shortest path in a tree is the tree.
 
 ### Metadata database — `internal/db`
 

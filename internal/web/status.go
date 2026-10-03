@@ -50,6 +50,7 @@ func (h *handler) status(w http.ResponseWriter, r *http.Request, user string) {
 		Counts:    counts,
 		Percent:   percent(counts),
 		FreeSpace: h.freeSpace(r),
+		TrashSize: h.trashSize(r, user),
 		Incoming:  h.incomingOf(),
 		// The version is on the page because it is what a re-index moves: an
 		// operator who raised it wants to see the numbers fall and climb again.
@@ -93,6 +94,21 @@ type importsView struct {
 	// because a file that will not import is otherwise a file that sits there
 	// silently for ever.
 	Error string
+}
+
+// trashSize is how much room what has been deleted is still holding, rendered,
+// and empty when the trash is. Like freeSpace it logs rather than failing the
+// page: this is one line on a page about something else.
+func (h *handler) trashSize(r *http.Request, user string) string {
+	totals, err := h.files.TrashTotals(r.Context(), user)
+	switch {
+	case err != nil:
+		slog.WarnContext(r.Context(), "measuring the trash", "err", err)
+		return ""
+	case totals.Files == 0:
+		return ""
+	}
+	return humanBytes(totals.Bytes)
 }
 
 // freeSpace is how much room the blob store says is left, rendered.

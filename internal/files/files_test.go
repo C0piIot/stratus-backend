@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/C0piIot/stratus-backend/internal/db"
 	"github.com/C0piIot/stratus-backend/internal/db/sqlite"
@@ -341,9 +342,107 @@ func TestRemoveFile(t *testing.T) {
 	if _, err := s.Stat(t.Context(), owner, "doomed.txt"); !errors.Is(err, db.ErrNotFound) {
 		t.Errorf("Stat after Remove = %v, want ErrNotFound", err)
 	}
-	// Row first, blob second: both are gone by the time Remove returns.
+	// The row moved to the trash and **the blob did not move at all** (#274):
+	// deleting costs no copying and no room, which is what makes keeping it
+	// for a month affordable.
+	if _, err := blobs.Stat(t.Context(), f.BlobKey); err != nil {
+		t.Errorf("the bytes were destroyed by a delete: %v", err)
+	}
+	batches, err := s.Trash(t.Context(), owner, db.TrashCursor{}, 10)
+	if err != nil {
+		t.Fatalf("Trash: %v", err)
+	}
+	if len(batches) != 1 {
+		t.Fatalf("the trash holds %d deletions, want the one", len(batches))
+	}
+	if got := batches[0]; got.Root != "doomed.txt" || got.Files != 1 || got.Bytes != 5 {
+		t.Errorf("the deletion is %+v, want one file of five bytes at doomed.txt", got)
+	}
+
+	// And destroying it for good takes the bytes with it.
+	if _, _, err := s.DestroyTrashed(t.Context(), owner, batches[0].ID); err != nil {
+		t.Fatalf("DestroyTrashed: %v", err)
+	}
 	if _, err := blobs.Stat(t.Context(), f.BlobKey); !errors.Is(err, storage.ErrNotFound) {
-		t.Errorf("the blob survived the delete: %v", err)
+		t.Errorf("the blob survived being destroyed: %v", err)
+	}
+}
+
+// TestTheTrashKeepsOneEntryPerDeletion: a folder of a thousand photographs is
+// a thousand rows and one accident, and the page shows accidents.
+func TestTheTrashKeepsOneEntryPerDeletion(t *testing.T) {
+	t.Parallel()
+	s, _ := service(t)
+	if _, err := s.Mkdir(t.Context(), owner, "album"); err != nil {
+		t.Fatal(err)
+	}
+	write(t, s, "album/one.jpg", "one")
+	write(t, s, "album/two.jpg", "two")
+	write(t, s, "loose.txt", "x")
+
+	if err := s.Remove(t.Context(), owner, "album"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Remove(t.Context(), owner, "loose.txt"); err != nil {
+		t.Fatal(err)
+	}
+
+	batches, err := s.Trash(t.Context(), owner, db.TrashCursor{}, 10)
+	if err != nil {
+		t.Fatalf("Trash: %v", err)
+	}
+	if len(batches) != 2 {
+		t.Fatalf("the trash holds %d deletions, want two", len(batches))
+	}
+	// Newest first, and a tree is named by the folder that was deleted rather
+	// than by the first file in it.
+	if batches[0].Root != "loose.txt" {
+		t.Errorf("the newest deletion is %q", batches[0].Root)
+	}
+	if got := batches[1]; got.Root != "album" || got.Files != 2 {
+		t.Errorf("the tree is %+v, want two files under album", got)
+	}
+
+	totals, err := s.TrashTotals(t.Context(), owner)
+	if err != nil {
+		t.Fatalf("TrashTotals: %v", err)
+	}
+	if totals.Files != 3 || totals.Bytes != 7 {
+		t.Errorf("the trash totals %+v, want three files and seven bytes", totals)
+	}
+}
+
+// TestTheTrashIsEmptiedByAge is what makes it a trash and not a leak.
+func TestTheTrashIsEmptiedByAge(t *testing.T) {
+	t.Parallel()
+	s, blobs := service(t)
+	f := write(t, s, "doomed.txt", "bytes")
+	if err := s.Remove(t.Context(), owner, "doomed.txt"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Nothing is old enough yet.
+	switch done, err := s.EmptyTrash(t.Context(), time.Now().Add(-time.Hour)); {
+	case err != nil:
+		t.Fatalf("EmptyTrash: %v", err)
+	case done.Batches != 0:
+		t.Errorf("it emptied %d deletions that are minutes old", done.Batches)
+	}
+	if _, err := blobs.Stat(t.Context(), f.BlobKey); err != nil {
+		t.Fatalf("the bytes went early: %v", err)
+	}
+
+	switch done, err := s.EmptyTrash(t.Context(), time.Now()); {
+	case err != nil:
+		t.Fatalf("EmptyTrash: %v", err)
+	case done.Batches != 1 || done.Files != 1 || done.Bytes != 5:
+		t.Errorf("EmptyTrash = %+v, want the one deletion", done)
+	}
+	if _, err := blobs.Stat(t.Context(), f.BlobKey); !errors.Is(err, storage.ErrNotFound) {
+		t.Errorf("the bytes outlived the trash: %v", err)
+	}
+	if batches, _ := s.Trash(t.Context(), owner, db.TrashCursor{}, 10); len(batches) != 0 {
+		t.Errorf("the trash still lists %d deletions", len(batches))
 	}
 }
 
@@ -352,7 +451,7 @@ func TestRemoveFile(t *testing.T) {
 // by the time it is removed.
 func TestRemoveTree(t *testing.T) {
 	t.Parallel()
-	s, blobs := service(t)
+	s, blobs, meta := serviceOver(t)
 
 	for _, dir := range []string{"album", "album/raw"} {
 		if _, err := s.Mkdir(t.Context(), owner, dir); err != nil {
@@ -372,13 +471,37 @@ func TestRemoveTree(t *testing.T) {
 			t.Errorf("%q survived the recursive delete: %v", path, err)
 		}
 	}
-	for _, key := range []string{one.BlobKey, two.BlobKey} {
-		if _, err := blobs.Stat(t.Context(), key); !errors.Is(err, storage.ErrNotFound) {
-			t.Errorf("blob %q survived: %v", key, err)
+	// The bytes are all still there, the deleted ones in the trash and the
+	// survivor in the library.
+	for _, key := range []string{one.BlobKey, two.BlobKey, survivor.BlobKey} {
+		if _, err := blobs.Stat(t.Context(), key); err != nil {
+			t.Errorf("blob %q was destroyed by a delete: %v", key, err)
 		}
 	}
-	if _, err := blobs.Stat(t.Context(), survivor.BlobKey); err != nil {
-		t.Errorf("an unrelated blob was deleted: %v", err)
+	// Directories go into the trash too, with no bytes of their own, so that
+	// putting the tree back is possible later (#275).
+	batches, err := s.Trash(t.Context(), owner, db.TrashCursor{}, 10)
+	if err != nil {
+		t.Fatalf("Trash: %v", err)
+	}
+	if len(batches) != 1 || batches[0].Root != "album" {
+		t.Fatalf("the trash holds %+v, want the one deletion of album", batches)
+	}
+	if got := batches[0].Files; got != 2 {
+		t.Errorf("the deletion is %d files, want the two -- the folders are in it too but are not files", got)
+	}
+	rows, err := meta.TrashedIn(t.Context(), owner, batches[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var dirs int
+	for _, row := range rows {
+		if row.IsDir {
+			dirs++
+		}
+	}
+	if len(rows) != 4 || dirs != 2 {
+		t.Errorf("the deletion holds %d rows of which %d are folders, want four and two", len(rows), dirs)
 	}
 }
 

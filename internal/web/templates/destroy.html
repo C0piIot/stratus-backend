@@ -1,17 +1,16 @@
 {{define "content" -}}
 <div class="row justify-content-center">
   <div class="col-12 col-md-8 col-lg-6">
-    <h1 class="h4">Delete {{if .IsDir}}folder{{else}}file{{end}}</h1>
+    <h1 class="h4">Delete for good</h1>
     <div class="card card-body">
       <p class="mb-3">
-        <code>{{.Name}}</code>
-        {{if .IsDir}}and everything inside it{{end}}
-        will be moved to the <a href="/trash">trash</a>, where it is kept for
-        {{.Kept}} days before it is destroyed for good.
+        This deletion and everything in it will be destroyed now, along with
+        the pictures made from it. <strong>This cannot be undone</strong>:
+        there is nothing behind the trash.
       </p>
       <div class="d-flex gap-2">
         <form method="post" action="{{.Action}}">
-          <button class="btn btn-danger" type="submit">Delete</button>
+          <button class="btn btn-danger" type="submit">Delete for good</button>
         </form>
         <a class="btn btn-outline-secondary" href="{{.Back}}">Cancel</a>
       </div>

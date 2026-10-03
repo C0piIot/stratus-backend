@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/C0piIot/stratus-backend/internal/db"
 )
 
 // DefaultGrace is how old a blob must be before it is considered garbage.
@@ -192,6 +194,15 @@ func (s *Service) Collect(ctx context.Context, olderThan time.Duration) (Collect
 		}
 		referenced[key] = struct{}{}
 	}
+	// A blob in the trash is not garbage: it has an owner, a deletion it
+	// belongs to and a month to live (#274). The sweep is not who decides to
+	// throw it away -- EmptyTrash is, when the month is up.
+	for key, err := range s.meta.TrashKeys(ctx) {
+		if err != nil {
+			return Collected{}, fmt.Errorf("read the trashed keys: %w", err)
+		}
+		referenced[key] = struct{}{}
+	}
 
 	var done Collected
 	cutoff := time.Now().Add(-olderThan)
@@ -255,4 +266,94 @@ func (s *Service) Collect(ctx context.Context, olderThan time.Duration) (Collect
 		done.Bytes += info.Size
 	}
 	return done, nil
+}
+
+// DefaultTrashRetention is how long a deletion is kept before it is destroyed
+// for good (#274).
+//
+// A month, which is long enough to notice an accident -- including the kind
+// that is only noticed when somebody goes looking for a photograph months
+// later, which this does not cover and nothing can. It is a constant and not
+// a setting, like the grace and the cache retention beside it: nobody has
+// needed another number yet, and the page lets anybody who wants the room back
+// have it now.
+const DefaultTrashRetention = 30 * 24 * time.Hour
+
+// Emptied is what one pass of the trash did, for the log line that follows it.
+type Emptied struct {
+	Batches int
+	Files   int
+	Bytes   int64
+}
+
+// EmptyTrash destroys every deletion older than before.
+//
+// A batch at a time, because a batch is what expires at once -- every row in
+// one carries the same moment -- and because a pass that stops halfway has
+// then finished whole deletions rather than half of one.
+func (s *Service) EmptyTrash(ctx context.Context, before time.Time) (Emptied, error) {
+	batches := map[string]string{}
+	for t, err := range s.meta.ExpiredTrash(ctx, before) {
+		if err != nil {
+			return Emptied{}, err
+		}
+		batches[t.Batch] = t.OwnerID
+	}
+
+	var done Emptied
+	for batch, owner := range batches {
+		files, bytes, err := s.DestroyTrashed(ctx, owner, batch)
+		done.Batches++
+		done.Files += files
+		done.Bytes += bytes
+		if err != nil {
+			return done, err
+		}
+	}
+	return done, nil
+}
+
+// DestroyTrashed throws a deletion away for good: the rows first and the bytes
+// after, which is the order every delete here follows. The other way round, a
+// crash in between would leave the trash showing something whose bytes are
+// already gone -- and #275 would put a broken file back.
+//
+// Nothing is reported for a batch that is not there. Pressing a button twice
+// is not an error, and neither is this pass racing the one in the background.
+func (s *Service) DestroyTrashed(ctx context.Context, owner, batch string) (int, int64, error) {
+	var rows []db.Trashed
+	err := s.meta.Tx(ctx, func(r db.Repo) error {
+		var rerr error
+		if rows, rerr = r.TrashedIn(ctx, owner, batch); rerr != nil {
+			return rerr
+		}
+		return r.DeleteTrash(ctx, owner, batch)
+	})
+	if err != nil {
+		return 0, 0, err
+	}
+
+	var files int
+	var bytes int64
+	for _, t := range rows {
+		if t.IsDir {
+			continue
+		}
+		if derr := s.dropBlob(ctx, t.BlobKey); derr != nil {
+			return files, bytes, derr
+		}
+		files++
+		bytes += t.Size
+	}
+	return files, bytes, nil
+}
+
+// Trash is a page of what has been deleted, newest first.
+func (s *Service) Trash(ctx context.Context, owner string, after db.TrashCursor, limit int) ([]db.TrashBatch, error) {
+	return s.meta.TrashBatches(ctx, owner, after, limit)
+}
+
+// TrashTotals is how much room the trash is holding onto.
+func (s *Service) TrashTotals(ctx context.Context, owner string) (db.TrashTotals, error) {
+	return s.meta.TrashTotals(ctx, owner)
 }

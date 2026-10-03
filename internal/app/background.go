@@ -100,8 +100,9 @@ func (a *App) collectPeriodically(ctx context.Context, deps Deps) {
 	ticker := time.NewTicker(a.cfg.GCInterval)
 	defer ticker.Stop()
 
-	slog.Info("collecting orphan blobs and abandoned uploads",
-		"every", a.cfg.GCInterval, "grace", a.cfg.GCGrace, "upload_ttl", files.DefaultUploadTTL)
+	slog.Info("collecting orphan blobs, abandoned uploads and the trash",
+		"every", a.cfg.GCInterval, "grace", a.cfg.GCGrace,
+		"upload_ttl", files.DefaultUploadTTL, "trash_retention", files.DefaultTrashRetention)
 	for {
 		select {
 		case <-ctx.Done():
@@ -109,7 +110,20 @@ func (a *App) collectPeriodically(ctx context.Context, deps Deps) {
 		case <-ticker.C:
 		}
 
-		// Uploads first: an abandoned one holds bytes that are invisible to a
+		// The trash first, because what leaves it becomes garbage the sweep
+		// below can then take in the same pass rather than a day later: the
+		// rows go, and the blobs with them.
+		switch done, err := service.EmptyTrash(ctx, time.Now().Add(-files.DefaultTrashRetention)); {
+		case errors.Is(err, context.Canceled):
+			return
+		case err != nil:
+			slog.Error("emptying the trash", "err", err)
+		case done.Batches > 0:
+			slog.Info("emptied the trash",
+				"deletions", done.Batches, "files", done.Files, "bytes", done.Bytes)
+		}
+
+		// Uploads next: an abandoned one holds bytes that are invisible to a
 		// listing, so the blob sweep below can neither see them nor free them.
 		// Nothing else collects them at all.
 		switch done, err := service.CollectUploads(ctx, time.Now()); {
