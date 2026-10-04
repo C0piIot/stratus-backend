@@ -167,7 +167,7 @@ func (a *App) Handler(deps Deps) http.Handler {
 			browser))
 		// The same realm and the same throttle: it is the same credentials, and
 		// a second budget of guesses would be a second way in.
-		mux.Handle(tusPrefix, auth.Session(sessions, auth.Basic(auth.Realm, verifier, tus.Handler(tusPrefix, service))))
+		mux.Handle(tusPrefix, auth.Session(sessions, auth.Basic(auth.Realm, verifier, tus.Handler(tusPrefix, filesPrefix, service))))
 		// The same verifier, deliberately. Subsonic authenticates per request
 		// from the query string rather than through auth.Basic, and a second
 		// NewThrottle here would give an attacker a second budget of guesses at

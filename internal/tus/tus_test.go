@@ -19,7 +19,11 @@ import (
 
 const (
 	prefix = "/tus/"
-	owner  = "edu"
+	// files is where the writable tree is served, and therefore what a
+	// filename names from (#285). Every metadata path below carries it,
+	// because that is what goes on the wire.
+	filesPrefix = "/files/"
+	owner       = "edu"
 )
 
 // server drives the real handler over the real backends, for the same reason
@@ -45,7 +49,7 @@ func server(t *testing.T) (http.Handler, *files.Service) {
 
 	service := files.New(blobs, meta)
 	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		tus.Handler(prefix, service).ServeHTTP(w, r.WithContext(auth.WithUser(r.Context(), owner)))
+		tus.Handler(prefix, filesPrefix, service).ServeHTTP(w, r.WithContext(auth.WithUser(r.Context(), owner)))
 	})
 	return h, service
 }
@@ -85,7 +89,7 @@ func TestUploadInChunks(t *testing.T) {
 	half := len(body) / 2
 
 	rec := do(t, h, http.MethodPost, prefix, "",
-		"Upload-Length", strconv.Itoa(len(body)), "Upload-Metadata", metadata("holiday/clip.mp4", "video/mp4"))
+		"Upload-Length", strconv.Itoa(len(body)), "Upload-Metadata", metadata("files/holiday/clip.mp4", "video/mp4"))
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("POST = %d, want 201: %s", rec.Code, rec.Body)
 	}
@@ -201,7 +205,7 @@ func TestPatchRefusesTheWrongOffset(t *testing.T) {
 	t.Parallel()
 	h, _ := server(t)
 
-	location := create(t, h, "notes.txt", 10)
+	location := create(t, h, "files/notes.txt", 10)
 	if code := do(t, h, http.MethodPatch, location, "12345",
 		"Content-Type", "application/offset+octet-stream", "Upload-Offset", "0").Code; code != http.StatusNoContent {
 		t.Fatalf("the first chunk = %d, want 204", code)
@@ -219,7 +223,7 @@ func TestPatchRefusesTheWrongOffset(t *testing.T) {
 func TestPatchNeedsItsMediaType(t *testing.T) {
 	t.Parallel()
 	h, _ := server(t)
-	location := create(t, h, "notes.txt", 10)
+	location := create(t, h, "files/notes.txt", 10)
 
 	rec := do(t, h, http.MethodPatch, location, "12345",
 		"Content-Type", "text/plain", "Upload-Offset", "0")
@@ -245,13 +249,19 @@ func TestCreateIsChecked(t *testing.T) {
 		headers []string
 		want    int
 	}{
-		{"no length", []string{"Upload-Metadata", metadata("notes.txt", "")}, http.StatusBadRequest},
-		{"a length that is not a number", []string{"Upload-Length", "soon", "Upload-Metadata", metadata("notes.txt", "")}, http.StatusBadRequest},
-		{"a negative length", []string{"Upload-Length", "-1", "Upload-Metadata", metadata("notes.txt", "")}, http.StatusBadRequest},
+		{"no length", []string{"Upload-Metadata", metadata("files/notes.txt", "")}, http.StatusBadRequest},
+		{"a length that is not a number", []string{"Upload-Length", "soon", "Upload-Metadata", metadata("files/notes.txt", "")}, http.StatusBadRequest},
+		{"a negative length", []string{"Upload-Length", "-1", "Upload-Metadata", metadata("files/notes.txt", "")}, http.StatusBadRequest},
 		{"no metadata at all", []string{"Upload-Length", "10"}, http.StatusBadRequest},
 		{"metadata with no filename", []string{"Upload-Length", "10", "Upload-Metadata", "filetype " + base64.StdEncoding.EncodeToString([]byte("text/plain"))}, http.StatusBadRequest},
-		{"a filename that is not a path", []string{"Upload-Length", "10", "Upload-Metadata", metadata("../escape", "")}, http.StatusBadRequest},
-		{"a directory that is not there", []string{"Upload-Length", "10", "Upload-Metadata", metadata("missing/notes.txt", "")}, http.StatusNotFound},
+		{"a filename that is not a path", []string{"Upload-Length", "10", "Upload-Metadata", metadata("files/../escape", "")}, http.StatusBadRequest},
+		{"a directory that is not there", []string{"Upload-Length", "10", "Upload-Metadata", metadata("files/missing/notes.txt", "")}, http.StatusNotFound},
+		// A filename is a path from the origin, so these three name nothing
+		// this server will write to -- and saying so here is the difference
+		// between a client being told and a client retrying for ever (#285).
+		{"a filename outside the writable collection", []string{"Upload-Length", "10", "Upload-Metadata", metadata("photos/2026/01/a.jpg", "")}, http.StatusBadRequest},
+		{"a filename in the old namespace, which has no collection on it", []string{"Upload-Length", "10", "Upload-Metadata", metadata("notes.txt", "")}, http.StatusBadRequest},
+		{"the collection itself, which is not a file", []string{"Upload-Length", "10", "Upload-Metadata", metadata("files", "")}, http.StatusBadRequest},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -267,7 +277,7 @@ func TestCreateIsChecked(t *testing.T) {
 func TestTerminate(t *testing.T) {
 	t.Parallel()
 	h, _ := server(t)
-	location := create(t, h, "notes.txt", 10)
+	location := create(t, h, "files/notes.txt", 10)
 
 	if code := do(t, h, http.MethodDelete, location, "").Code; code != http.StatusNoContent {
 		t.Fatalf("DELETE = %d, want 204", code)
@@ -326,7 +336,7 @@ func TestMethodsAreRefused(t *testing.T) {
 func TestWithoutAnAuthenticatedUser(t *testing.T) {
 	t.Parallel()
 	_, service := server(t)
-	bare := tus.Handler(prefix, service)
+	bare := tus.Handler(prefix, filesPrefix, service)
 
 	for _, method := range []string{http.MethodPost, http.MethodHead, http.MethodPatch, http.MethodDelete} {
 		// POST is the creation endpoint and the rest name an upload, so the two
@@ -349,7 +359,8 @@ func TestWithoutAnAuthenticatedUser(t *testing.T) {
 }
 
 // create starts an upload and returns its URL, for the cases that are about
-// what happens next.
+// what happens next. The path is what goes in the metadata, collection and
+// all.
 func create(t *testing.T, h http.Handler, path string, length int64) string {
 	t.Helper()
 	rec := do(t, h, http.MethodPost, prefix, "",

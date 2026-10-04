@@ -43,6 +43,14 @@ and a real client does the same from the other side: the Stratus app negotiates
 tus, uploads and resumes against this image in its own CI. The three libraries in
 that row are still untried, so read the row as the server holding up its end.
 
+The one thing a tus client cannot work out for itself is what the filename
+means, because the protocol carries it as metadata with no prefix in front of
+it. **It is a path from the root of this server**, the same one a URL is
+written in, so it begins with `files/` — `files/holiday/clip.mp4` is created
+at `/files/holiday/clip.mp4` and readable there over WebDAV. A name outside
+that collection is refused with a `400`, and the directory above it has to
+exist first, exactly as for a `PUT`.
+
 † The protocol works and is asserted end to end, up to and including streaming
 a track out of the shipped container. **No real client has been pointed at it
 yet**, so read that row as the server holding up its end rather than as a

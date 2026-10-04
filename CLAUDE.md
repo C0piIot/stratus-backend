@@ -1194,6 +1194,23 @@ Restraint here is principle 3, not laziness:
   as well, which retires `/gallery/photos` and the album pages' own URLs. It
   was decided with this one because this is the half that breaks addresses.
 
+  **And it missed one surface, which is worth knowing why** (#285). Every URL
+  moved a level up; tus's `Upload-Metadata: filename` did not, because it is
+  not a URL -- it is a path in a header, with no prefix in front of it to say
+  what it is relative to. So the server went on answering to one file by two
+  names, and the only tus client there is sent the other one: `stratus-app`
+  browses `/files/holiday/`, uploads `files/holiday/x.jpg`, and every creation
+  was a 404 its queue retried for ever. Nothing caught it because a `PUT` to
+  the same path works, and because the convention had never been written down
+  anywhere at all -- not the README, not here, not a comment.
+
+  **A filename is now a path from the origin**, like everything else: it
+  begins with `files/`, the collection name is passed into `tus.Handler` from
+  the composition root so it has one source, and anything outside is a `400`
+  whose message names the collection. The rule in one line: **a path with no
+  prefix in front of it needs the server to say where it starts, and the only
+  honest answer is the same place every other path starts.**
+
 - **Two WebDAV libraries, split by method.** `github.com/emersion/go-webdav`
   answers everything except `PROPFIND`, which is
   `golang.org/x/net/webdav`'s. The rule in one line: **the one that can express

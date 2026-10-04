@@ -48,13 +48,22 @@ const offsetContentType = "application/offset+octet-stream"
 
 type handler struct {
 	prefix string
-	files  *files.Service
+	// collection is the name of the writable tree as a URL says it, which is
+	// what a filename is relative to. See create.
+	collection string
+	files      *files.Service
 }
 
 // Handler serves the tus surface under prefix, which is where a created
-// upload's URL is rooted.
-func Handler(prefix string, service *files.Service) http.Handler {
-	h := &handler{prefix: strings.TrimSuffix(prefix, "/"), files: service}
+// upload's URL is rooted. filesPrefix is where the writable tree is served,
+// and it is passed in rather than written here so that the name of that
+// collection has one source.
+func Handler(prefix, filesPrefix string, service *files.Service) http.Handler {
+	h := &handler{
+		prefix:     strings.TrimSuffix(prefix, "/"),
+		collection: strings.Trim(filesPrefix, "/"),
+		files:      service,
+	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Announced on every response, including the errors: a client that
@@ -101,6 +110,19 @@ func (h *handler) options(w http.ResponseWriter) {
 }
 
 // create starts an upload and answers with its URL.
+//
+// The filename is **a path from the origin**, the same one every URL on this
+// server is written in since #279 -- so it begins with the writable
+// collection, `files/`, and anything else is refused. tus has no opinion
+// about this: the metadata field carries a name and no prefix says what it is
+// relative to, so the server has to, and this is the only place it can be
+// said (#285).
+//
+// It used to be a path from the root of the tree, which is the same thing one
+// collection lower. That was never written down anywhere, and when #279 moved
+// every URL a level up this surface stayed behind -- so the server answered
+// to one file by two names and the only tus client there is sent the other
+// one.
 func (h *handler) create(w http.ResponseWriter, r *http.Request) {
 	owner, ok := auth.User(r.Context())
 	if !ok {
@@ -117,9 +139,17 @@ func (h *handler) create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	meta := parseMetadata(r.Header.Get("Upload-Metadata"))
-	path := strings.Trim(meta["filename"], "/")
-	if path == "" {
+	name := strings.Trim(meta["filename"], "/")
+	if name == "" {
 		http.Error(w, "Upload-Metadata must carry a filename", http.StatusBadRequest)
+		return
+	}
+
+	// The message names the collection, because it is the one thing a client
+	// cannot work out from the protocol.
+	path, ok := strings.CutPrefix(name, h.collection+"/")
+	if !ok || path == "" {
+		http.Error(w, "the filename is a path from the server root and goes under "+h.collection+"/", http.StatusBadRequest)
 		return
 	}
 
