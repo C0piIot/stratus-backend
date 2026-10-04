@@ -44,6 +44,21 @@ func TestTheBoxIsOnEveryPageAndKeepsWhatWasTyped(t *testing.T) {
 	has(t, result, `value="holiday"`)
 }
 
+// TestTheBoxHasSomethingToPress: Enter has always submitted it, which is
+// nothing to rely on with a touch keyboard, so the field is an input group
+// with its own submit beside it. Still no script -- it is the form's submit --
+// and still one field, so what is sent is what was already sent.
+func TestTheBoxHasSomethingToPress(t *testing.T) {
+	t.Parallel()
+	h := newHandler(t, nil)
+	cookie := signIn(t, h)
+
+	body := get(t, h, "/files/", cookie).Body.String()
+	has(t, body, `class="input-group input-group-sm"`, `type="submit" aria-label="Search"`,
+		// The emoji rather than an icon set: see the template.
+		"🔍")
+}
+
 // TestAnEmptyBoxIsAPageAndNotAnError.
 func TestAnEmptyBoxIsAPageAndNotAnError(t *testing.T) {
 	t.Parallel()

@@ -23,14 +23,26 @@
     {{else}}<a class="navbar-brand" href="/">Stratus</a>{{end}}
     {{if .User}}
     {{/* The first GET form in this project, and the whole of the search box:
-         one field, submitted by Enter, so there is no script and no button.
+         a field and a submit button, and still no script -- Enter submits it
+         the way it always did, and the button is for the phone, where there is
+         no Enter key worth the name and an input somebody cannot see the end
+         of needs somewhere to press.
          It is its own form and not part of the one below, because a form does
          not nest -- which is why the links moved out of the sign-out form they
-         used to sit inside. */}}
+         used to sit inside.
+         The glyph is the emoji, which is a character the font already has:
+         an icon set would be a third asset vendored for one picture, and a
+         drawn one would be markup to maintain for the same thing. It is
+         aria-hidden because the button around it already has the name. */}}
     <form method="get" action="/search" role="search"
           class="order-last order-sm-0 w-100 w-sm-auto mt-2 mt-sm-0 m-0 flex-sm-grow-1 px-sm-4">
-      <input class="form-control form-control-sm" type="search" name="q" value="{{.Query}}"
-             placeholder="Search" aria-label="Search the library">
+      <div class="input-group input-group-sm">
+        <input class="form-control" type="search" name="q" value="{{.Query}}"
+               placeholder="Search" aria-label="Search the library">
+        <button class="btn btn-outline-secondary" type="submit" aria-label="Search">
+          <span aria-hidden="true">🔍</span>
+        </button>
+      </div>
     </form>
     <div class="d-flex align-items-center gap-3">
       <a class="navbar-text link-secondary text-decoration-none d-none d-md-inline" href="/files/">Files</a>
