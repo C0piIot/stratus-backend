@@ -970,6 +970,13 @@ TRACK
   curl -fsS -u "$davuser:$davpass" -X PUT --data-binary "@scripts/testdata/film.mkv" \
     "http://$davhost/files/film.mkv" >/dev/null 2>&1
 
+  # A FLAC with tags on it (#290), beside cover.jpg so the album it makes has a
+  # picture to find. tone.flac is deliberately left untagged -- the folder view
+  # finds it by the filename standing in for the title it has not got -- and a
+  # real library holds both kinds, so this suite now does too.
+  curl -fsS -u "$davuser:$davpass" -X PUT --data-binary "@scripts/testdata/tagged.flac" \
+    "http://$davhost/files/tagged.flac" >/dev/null 2>&1
+
   # The two properties that made PROPFIND change libraries (#136): whether a
   # file has a preview, and how much room is left, both in the listing a client
   # was making anyway. Asserted from outside, because what matters is the
@@ -1359,8 +1366,6 @@ TRACK
 
   # The library by tag is the last of the generated collections to speak both
   # (#279): the same URL is a page to a browser and a collection to a client.
-  # The grep is guarded rather than piped into the next command, because an
-  # untagged library is an empty one and `set -e` would end the suite.
   music_page="$(curl -fsS -b "$jar" "http://$davhost/music/" 2>/dev/null || true)"
   music_code="$(curl -s -o /dev/null -w '%{http_code}' -u "$davuser:$davpass" \
     -X PROPFIND -H 'Depth: 1' "http://$davhost/music/" || true)"
@@ -1369,24 +1374,83 @@ TRACK
     *) bad "the library by tag is a page and a collection at one URL" "PROPFIND $music_code" ;;
   esac
 
-  # And down to an album, when the library has one with tags on it.
-  artist="$(curl -s -u "$davuser:$davpass" -X PROPFIND -H 'Depth: 1' "http://$davhost/music/" |
-    grep -o '/music/[^<]*/' | grep -v '^/music/$' | head -1 || true)"
+  # And a client walks it down to an album, which is what tagged.flac is here
+  # for (#290): until it was uploaded this library had no artist in it, and
+  # every assertion below was skipped rather than run. The wait is the
+  # indexer's -- the tags are read from the file after it lands.
+  #
+  # Each grep keeps its own `|| true`: with `set -euo pipefail` a grep that
+  # matches nothing ends the suite, which is how an empty /music/ took it down
+  # after the photographs rather than failing one case.
+  artist=""
+  for _ in $(seq 1 50); do
+    artist="$(curl -s -u "$davuser:$davpass" -X PROPFIND -H 'Depth: 1' "http://$davhost/music/" |
+      grep -o '/music/[^<]*/' | grep -v '^/music/$' | head -1 || true)"
+    [ -n "$artist" ] && break
+    sleep 0.2
+  done
+  album=""
+  track=""
   if [ -n "$artist" ]; then
     album="$(curl -s -u "$davuser:$davpass" -X PROPFIND -H 'Depth: 1' "http://$davhost$artist" |
       grep -o "${artist}[^<]*/" | grep -v "^${artist}$" | head -1 || true)"
-    page="$(curl -fsS -b "$jar" "http://$davhost$album" 2>/dev/null || true)"
-    case "$page" in
-      *'<!doctype html>'*'<audio'*) ok "an album is a page with a player per track" ;;
-      *) bad "an album is a page with a player per track" "album '$album': $(head -c 120 <<<"$page")" ;;
-    esac
+  fi
+  if [ -n "$album" ]; then
+    track="$(curl -s -u "$davuser:$davpass" -X PROPFIND -H 'Depth: 1' "http://$davhost$album" |
+      grep -o "${album}[^<]*\.flac" | head -1 || true)"
+  fi
+  if [ -n "$track" ]; then
+    ok "a client walks /music/ down to a track ($track)"
+  else
+    bad "a client walks /music/ down to a track" "artist '$artist', album '$album'"
   fi
 
-  # And the playlists, which a browser could not see at all until now.
+  page=""
+  if [ -n "$album" ]; then
+    page="$(curl -fsS -b "$jar" "http://$davhost$album" 2>/dev/null || true)"
+  fi
+  case "$page" in
+    *'<!doctype html>'*'<audio'*"$track"*) ok "an album is a page with a player per track" ;;
+    *) bad "an album is a page with a player per track" "album '$album': $(head -c 160 <<<"$page")" ;;
+  esac
+
+  # The track's own address is the original, at the URL the multistatus named.
+  if curl -fsS -b "$jar" "http://$davhost$track" 2>/dev/null | cmp -s - scripts/testdata/tagged.flac; then
+    ok "a track's own address serves the original"
+  else
+    bad "a track's own address serves the original" "$track"
+  fi
+
+  # The cover hangs off the album's address as a query, because it is derived
+  # rather than one of the album's files. Smaller than the 2 KB that went in,
+  # for the reason getCoverArt's case gives.
+  coverfile="$(mktmp)/album.jpg"
+  covercode="$(curl -s -o "$coverfile" -w '%{http_code} %{content_type}' -b "$jar" \
+    "http://$davhost${album}?cover=96")"
+  coversize="$(stat -c '%s' "$coverfile" 2>/dev/null || echo 0)"
+  case "$covercode" in
+    "200 image/jpeg"*)
+      if [ "$coversize" -gt 100 ] && [ "$coversize" -lt 2102 ]; then
+        ok "an album's cover is a query on its own address ($coversize bytes)"
+      else
+        bad "an album's cover is a query on its own address" "$coversize bytes"
+      fi ;;
+    *) bad "an album's cover is a query on its own address" "got '$covercode'" ;;
+  esac
+
+  # And the playlists, which a browser could not see at all until now. The one
+  # listed here is the playlist made over OpenSubsonic further up, read the
+  # other way round.
   lists="$(curl -fsS -b "$jar" "http://$davhost/playlists/" 2>/dev/null || true)"
   case "$lists" in
-    *'<h1 class="h4 mb-3">Playlists</h1>'*) ok "the playlists are a page" ;;
-    *) bad "the playlists are a page" "$(head -c 120 <<<"$lists")" ;;
+    *'<h1 class="h4 mb-3">Playlists</h1>'*'/playlists/Smoke.m3u8?view'*)
+      ok "the playlists are a page, with the one made over OpenSubsonic on it" ;;
+    *) bad "the playlists are a page, with the one made over OpenSubsonic on it" "$(head -c 160 <<<"$lists")" ;;
+  esac
+  opened="$(curl -fsS -b "$jar" "http://$davhost/playlists/Smoke.m3u8?view" 2>/dev/null || true)"
+  case "$opened" in
+    *'<audio'*'track.mp3'*) ok "a playlist opens as a page with its track in it" ;;
+    *) bad "a playlist opens as a page with its track in it" "$(head -c 160 <<<"$opened")" ;;
   esac
 
   # One address, two protocols: the month a DAV client just walked is a page
