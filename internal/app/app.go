@@ -53,12 +53,15 @@ const subsonicPrefix = "/rest/"
 // by method below.
 const photosPrefix = "/photos/"
 
+// musicPrefix is where the library is served by tag, a mount of its own for
+// the reason playlistsPrefix is one, and one address for both protocols
+// (#279): the music pages and the collection are the same URLs.
+const musicPrefix = "/music/"
+
 // playlistsPrefix is where playlists are served as .m3u8 files. A mount of its
 // own and not a folder under filesPrefix: that tree is the user's, and a
-// generated file there could collide with a real one (#203). It is the one
-// collection that still answers WebDAV alone -- converging it the way
-// /photos/ converged is what is left of #279, and the question there is not
-// the same one: a playlist is not an album.
+// generated file there could collide with a real one (#203). Both protocols
+// here too since #279: the file for a player, the page for a person.
 const playlistsPrefix = "/playlists/"
 
 // App holds the wired application. Construction is pure: no I/O happens until
@@ -183,9 +186,18 @@ func (a *App) Handler(deps Deps) http.Handler {
 		mux.Handle(subsonicPrefix, auth.Session(sessions,
 			subsonic.Handler(subsonicPrefix, a.version, verifier, deps.Database, service, playlists, thumbs, transcoder(deps))))
 		// The same realm and throttle as the file surface, for the reason tus
-		// shares them.
-		mux.Handle(playlistsPrefix, auth.Session(sessions,
-			auth.Basic(auth.Realm, verifier, dav.Playlists(playlistsPrefix, filesPrefix, playlists))))
+		// shares them -- and the same split by method as the tree and the
+		// photographs: the .m3u8 and the page it describes are one address.
+		mux.Handle(playlistsPrefix, davOrBrowser(
+			auth.Session(sessions, auth.Basic(auth.Realm, verifier,
+				dav.Playlists(playlistsPrefix, filesPrefix, playlists))),
+			browser))
+		// The library by tag, the last of the generated collections to speak
+		// both (#279). Its browser half is the music pages, which have always
+		// been at these URLs.
+		mux.Handle(musicPrefix, davOrBrowser(
+			auth.Session(sessions, auth.Basic(auth.Realm, verifier, dav.Music(musicPrefix, deps.Database))),
+			browser))
 		// The photographs by date are one address and two protocols, like the
 		// tree above (#279): the browser's methods are answered with the grid,
 		// a year, a month or the photograph itself, and everything else by the
@@ -206,7 +218,7 @@ func (a *App) Handler(deps Deps) http.Handler {
 		// anything at all (#281).
 		mux.Handle("/", davOrBrowser(
 			auth.Session(sessions, auth.Basic(auth.Realm, verifier,
-				dav.Root("/", "files", "photos", "playlists"))),
+				dav.Root("/", "files", "music", "photos", "playlists"))),
 			browser))
 	}
 	// The log is outside the compression so that the bytes it counts are the

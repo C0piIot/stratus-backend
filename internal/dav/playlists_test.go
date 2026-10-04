@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"testing"
 	"time"
 
@@ -66,44 +65,10 @@ func mkPlaylist(t *testing.T, lists *music.Service, name string, fileIDs ...int6
 	return p
 }
 
-// TestAPlaylistIsAnM3U8 is what #203 is for: a player that has never heard of
-// Subsonic opens the file and finds the tracks.
-func TestAPlaylistIsAnM3U8(t *testing.T) {
-	t.Parallel()
-	h, lists, _, ids := playlistServer(t)
-	mkPlaylist(t, lists, "Night drive",
-		ids["music/Tri Repetae/01 Rotar & Stud?.flac"], ids["music/Homogenic/01 Hunter.flac"], ids["loose.flac"])
-
-	rec := do(t, h, http.MethodGet, "/playlists/Night%20drive.m3u8", "")
-	if rec.Code != http.StatusOK {
-		t.Fatalf("GET = %d: %s", rec.Code, rec.Body.String())
-	}
-	if got := rec.Header().Get("Content-Type"); got != "audio/x-mpegurl" {
-		t.Errorf("Content-Type = %q", got)
-	}
-	want := "#EXTM3U\n" +
-		"#PLAYLIST:Night drive\n" +
-		"#EXTINF:255,Autechre - Rotar\n" +
-		// Escaped, because a player reads this line as a URL: the ampersand
-		// and the question mark would otherwise end the path.
-		"/files/music/Tri%20Repetae/01%20Rotar%20&%20Stud%3F.flac\n" +
-		"#EXTINF:255,Björk - Hunter\n" +
-		"/files/music/Homogenic/01%20Hunter.flac\n" +
-		// No tags at all: the file name is the title.
-		"#EXTINF:255,loose.flac\n" +
-		"/files/loose.flac\n"
-	if got := rec.Body.String(); got != want {
-		t.Errorf("body =\n%s\nwant\n%s", got, want)
-	}
-	if rec.Header().Get("ETag") == "" {
-		t.Error("no ETag on the file")
-	}
-}
-
 func TestTheMountListsEveryPlaylist(t *testing.T) {
 	t.Parallel()
 	h, lists, _, ids := playlistServer(t)
-	mkPlaylist(t, lists, "Mix", ids["loose.flac"])
+	mixID := mkPlaylist(t, lists, "Mix", ids["loose.flac"]).ID
 	mkPlaylist(t, lists, "Night drive")
 
 	rec := do(t, h, "PROPFIND", "/playlists/", "", "Depth", "1")
@@ -114,14 +79,18 @@ func TestTheMountListsEveryPlaylist(t *testing.T) {
 	if mix["getcontenttype"] != "audio/x-mpegurl" {
 		t.Errorf("getcontenttype = %q", mix["getcontenttype"])
 	}
-	body := do(t, h, http.MethodGet, "/playlists/Mix.m3u8", "")
-	if mix["getcontentlength"] != strconv.Itoa(body.Body.Len()) {
-		t.Errorf("getcontentlength = %q, the file is %d bytes", mix["getcontentlength"], body.Body.Len())
+	// The length this listing promises is the length of the file the other
+	// half serves, which is the same generator (#279): a client that reads
+	// one and fetches the other must not find them disagreeing.
+	pl, tracks, err := lists.Playlist(t.Context(), "edu", mixID)
+	if err != nil {
+		t.Fatal(err)
 	}
-	// The same validator from both methods, or a client comparing them decides
-	// the file changed.
-	if mix["getetag"] != body.Header().Get("ETag") {
-		t.Errorf("PROPFIND etag %q, GET etag %q", mix["getetag"], body.Header().Get("ETag"))
+	if want := strconv.Itoa(len(music.M3U8(pl, tracks, "/files/"))); mix["getcontentlength"] != want {
+		t.Errorf("getcontentlength = %q, the generated file is %s bytes", mix["getcontentlength"], want)
+	}
+	if mix["getetag"] == "" {
+		t.Error("no validator on a generated file")
 	}
 }
 
@@ -151,7 +120,7 @@ func TestAnEditShowsAtOnce(t *testing.T) {
 	t.Parallel()
 	h, lists, meta, ids := playlistServer(t)
 	mkPlaylist(t, lists, "Mix", ids["loose.flac"], ids["music/Homogenic/01 Hunter.flac"])
-	before := do(t, h, http.MethodGet, "/playlists/Mix.m3u8", "")
+	before := propsOf(t, do(t, h, "PROPFIND", "/playlists/", "", "Depth", "1").Body.String())
 
 	if err := meta.MoveFile(t.Context(), "edu", "loose.flac", "renamed.flac"); err != nil {
 		t.Fatal(err)
@@ -160,12 +129,13 @@ func TestAnEditShowsAtOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	after := do(t, h, http.MethodGet, "/playlists/Mix.m3u8", "")
-	if body := after.Body.String(); !strings.Contains(body, "/files/renamed.flac\n") || strings.Contains(body, "Hunter") {
-		t.Errorf("after a rename and a delete =\n%s", body)
-	}
-	if before.Header().Get("ETag") == after.Header().Get("ETag") {
+	after := propsOf(t, do(t, h, "PROPFIND", "/playlists/", "", "Depth", "1").Body.String())
+	b, a := before["/playlists/Mix.m3u8"], after["/playlists/Mix.m3u8"]
+	if b["getetag"] == a["getetag"] {
 		t.Error("the ETag did not move with the file")
+	}
+	if b["getcontentlength"] == a["getcontentlength"] {
+		t.Error("the file is the same length after losing a track")
 	}
 }
 
@@ -189,9 +159,9 @@ func TestTheMountIsReadOnly(t *testing.T) {
 			t.Errorf("%s Allow = %q", method, got)
 		}
 	}
-	if got := do(t, h, http.MethodGet, "/playlists/Mix.m3u8", "").Body.String(); got != "#EXTM3U\n#PLAYLIST:Mix\n" {
-		t.Errorf("after the refused writes the file is %q", got)
-	}
+	// Still there, and still empty, after everything that was refused.
+	wantHrefs(t, hrefs(t, do(t, h, "PROPFIND", "/playlists/", "", "Depth", "1")),
+		"/playlists/", "/playlists/Mix.m3u8")
 }
 
 func TestTheMountRefusesWhatTheOtherDoes(t *testing.T) {
@@ -202,18 +172,20 @@ func TestTheMountRefusesWhatTheOtherDoes(t *testing.T) {
 	if rec := do(t, h, "PROPFIND", "/playlists/", ""); rec.Code != http.StatusForbidden {
 		t.Errorf("PROPFIND with no Depth = %d, want the 403 /files/ answers", rec.Code)
 	}
-	if rec := do(t, h, http.MethodGet, "/playlists/Nothing.m3u8", ""); rec.Code != http.StatusNotFound {
-		t.Errorf("GET of a playlist that is not there = %d", rec.Code)
-	}
-	if rec := do(t, h, http.MethodHead, "/playlists/Mix.m3u8", ""); rec.Code != http.StatusOK {
-		t.Errorf("HEAD = %d", rec.Code)
+	if rec := do(t, h, "PROPFIND", "/playlists/Nothing.m3u8", "", "Depth", "0"); rec.Code != http.StatusNotFound {
+		t.Errorf("PROPFIND of a playlist that is not there = %d", rec.Code)
 	}
 	if rec := do(t, h, "PROPFIND", "/playlists/Mix.m3u8", "", "Depth", "0"); rec.Code != http.StatusMultiStatus {
 		t.Errorf("PROPFIND of one file = %d", rec.Code)
 	}
+	// The bytes are the browser half's, and this half says so (#279) while
+	// still advertising the method: see Allow above.
+	if rec := do(t, h, http.MethodGet, "/playlists/Mix.m3u8", ""); rec.Code != http.StatusMethodNotAllowed {
+		t.Errorf("GET straight to the mount = %d, want 405", rec.Code)
+	}
 
 	bare := dav.Playlists(playlistsPrefix, "/files/", lists)
-	if rec := do(t, bare, http.MethodGet, "/playlists/", ""); rec.Code != http.StatusUnauthorized {
+	if rec := do(t, bare, "PROPFIND", "/playlists/", ""); rec.Code != http.StatusUnauthorized {
 		t.Errorf("with nobody authenticated = %d, want 401", rec.Code)
 	}
 }
@@ -261,30 +233,14 @@ func TestAFailureIsNotANotFound(t *testing.T) {
 
 	for _, call := range []string{"Playlists", "Playlist"} {
 		h := withUser(dav.Playlists(playlistsPrefix, "/files/", failingSource{PlaylistSource: lists, fail: call}), "edu")
-		if rec := do(t, h, http.MethodGet, "/playlists/Mix.m3u8", ""); rec.Code != http.StatusInternalServerError {
-			t.Errorf("GET with %s broken = %d, want 500", call, rec.Code)
-		}
-		if rec := do(t, h, "PROPFIND", "/playlists/", "", "Depth", "1"); rec.Code == http.StatusMultiStatus && call == "Playlists" {
-			t.Errorf("PROPFIND with %s broken = 207", call)
+		if rec := do(t, h, "PROPFIND", "/playlists/", "", "Depth", "1"); rec.Code != http.StatusInternalServerError {
+			t.Errorf("PROPFIND with %s broken = %d, want 500", call, rec.Code)
 		}
 	}
 
 	// Listed and then gone before it was read: a 404, not a 500.
 	gone := withUser(dav.Playlists(playlistsPrefix, "/files/", failingSource{PlaylistSource: lists, delete: true}), "edu")
-	if rec := do(t, gone, http.MethodGet, "/playlists/Mix.m3u8", ""); rec.Code != http.StatusNotFound {
-		t.Errorf("GET of a playlist deleted mid-request = %d, want 404", rec.Code)
-	}
-}
-
-// TestANewlineCannotForgeAnEntry: every line of an .m3u8 that is not a comment
-// is a URL a player will fetch, so a newline in a name must not start one.
-func TestANewlineCannotForgeAnEntry(t *testing.T) {
-	t.Parallel()
-	h, lists, _, _ := playlistServer(t)
-	mkPlaylist(t, lists, "Side A\nhttp://elsewhere/")
-
-	rec := do(t, h, http.MethodGet, "/playlists/Side%20A_http___elsewhere_.m3u8", "")
-	if got := rec.Body.String(); got != "#EXTM3U\n#PLAYLIST:Side A http://elsewhere/\n" {
-		t.Errorf("body = %q", got)
+	if rec := do(t, gone, "PROPFIND", "/playlists/Mix.m3u8", "", "Depth", "0"); rec.Code != http.StatusNotFound {
+		t.Errorf("PROPFIND of a playlist deleted mid-request = %d, want 404", rec.Code)
 	}
 }

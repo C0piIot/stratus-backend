@@ -454,7 +454,10 @@ Hard constraints, in the same spirit as the rest of the project:
 
   The EXIF date carries no zone and the reader keeps the camera's clock as if
   it were UTC, so a month is taken in UTC and New Year's Eve stays in December.
-- **Music has a library at `/music`, read from the tags** (#212): artists,
+- **Music has a library at `/music/`, read from the tags** (#212, #279), and
+  the same addresses are a WebDAV collection: a track's own URL is its bytes,
+  an album's is the page, and `?cover=<px>` on it is the picture. The names are
+  `internal/music`'s, shared with the mount. Details below: artists,
   their albums, and an album with an `<audio preload="none">` per track over
   the file's own `/files/` URL, so ranges are `ServeContent`'s. Built over
   `db.Music` with one `AnnotationsOf` per page, like the Subsonic adapter, and
@@ -1056,7 +1059,7 @@ internal/db/dbtest/       conformance suite every adapter must pass
 
 internal/files/           cross-protocol file invariants
 internal/incoming/        the import folder on local disk, swept into the library
-internal/music/           playlist edits, in one transaction each
+internal/music/           playlist edits in one transaction each, and the library as folders by tag
 internal/calendar/        collections, objects, recurrence            -- not yet
 internal/media/           EXIF/tag extraction, thumbnails, ffprobe
 internal/photos/          the library as folders by date, for the two adapters that serve it
@@ -1204,11 +1207,25 @@ Restraint here is principle 3, not laziness:
   this server had handed out changed. The cost of doing it later was every
   URL anybody had saved.
 
-  **The second half landed for the photographs**: `/photos/` answers HTML as
-  well, `/gallery/photos` is retired, and the tree and its naming moved into
-  `internal/photos` so the page and the mount cannot drift. What is left of
-  #279 is `/playlists/`, where the question is not the same one -- a playlist
-  is not an album, and what the music pages should become is its own call.
+  **The second half landed in two pieces, and #279 is closed.** `/photos/`
+  answers HTML as well and `/gallery/photos` retired, with the tree and its
+  naming in `internal/photos`; then `/music/` became a collection whose browser
+  half is the album pages that were already at those URLs, and `/playlists/`
+  gained the pages a playlist had never had -- both naming through
+  `internal/music`, so neither page can drift from the collection behind it.
+
+  **The music half was taken knowing it duplicates a protocol.** OpenSubsonic
+  already serves these tags to a music client, so `/music/` is a second way to
+  browse what `/rest/` answers -- unlike `/photos/`, which exists because
+  nothing else covers photographs. What it buys is the clients that speak only
+  WebDAV and a root collection with no dead end in it, and that trade was made
+  deliberately rather than overlooked.
+
+  **A tag is not a filename**, which is the one thing this half had that the
+  photographs' did not: an artist called `AC/DC` cannot be a collection, so the
+  segment is generated and the pages link to the generated one. The cover moved
+  off the path and onto the album's address as `?cover=`, because it is derived
+  and a name inside the collection would be a name no track could have.
 
   **And it missed one surface, which is worth knowing why** (#285). Every URL
   moved a level up; tus's `Upload-Metadata: filename` did not, because it is

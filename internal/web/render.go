@@ -40,50 +40,54 @@ const (
 	pageSearch = "search.html"
 	// pageRows and pageTile are not pages: they are the listing's rows and one
 	// cell of a grid of photographs, each of them shown by two pages.
-	pageRows    = "rows.html"
-	pageTile    = "tile.html"
-	pageRename  = "rename.html"
-	pageInfo    = "info.html"
-	pageDelete  = "delete.html"
-	pageStatus  = "status.html"
-	pageTrash   = "trash.html"
-	pageDestroy = "destroy.html"
-	pageShare   = "share.html"
-	pageShared  = "shared.html"
-	pageError   = "error.html"
-	pagePhotos  = "photos.html"
-	pagePhoto   = "photo.html"
-	pageMonths  = "months.html"
-	pagePlay    = "play.html"
-	pageArtists = "artists.html"
-	pageArtist  = "artist.html"
-	pageAlbum   = "album.html"
-	pageCrumbs  = "crumbs.html"
+	pageRows      = "rows.html"
+	pageTile      = "tile.html"
+	pageRename    = "rename.html"
+	pageInfo      = "info.html"
+	pageDelete    = "delete.html"
+	pageStatus    = "status.html"
+	pageTrash     = "trash.html"
+	pageDestroy   = "destroy.html"
+	pageShare     = "share.html"
+	pageShared    = "shared.html"
+	pageError     = "error.html"
+	pagePhotos    = "photos.html"
+	pagePhoto     = "photo.html"
+	pageMonths    = "months.html"
+	pagePlay      = "play.html"
+	pageArtists   = "artists.html"
+	pageArtist    = "artist.html"
+	pageAlbum     = "album.html"
+	pageCrumbs    = "crumbs.html"
+	pagePlaylists = "playlists.html"
+	pagePlaylist  = "playlist.html"
 )
 
 // Each page is parsed with the layout into a set of its own. One set for all of
 // them cannot work: every page defines the same "content" template, which is
 // what lets the layout call it.
 var pages = map[string]*template.Template{
-	pageLogin:   parse(pageLogin),
-	pageFiles:   parse(pageFiles, pageRows, pageCrumbs),
-	pageSearch:  parse(pageSearch, pageRows, pageTile),
-	pageRename:  parse(pageRename),
-	pageInfo:    parse(pageInfo),
-	pageDelete:  parse(pageDelete),
-	pageStatus:  parse(pageStatus),
-	pageTrash:   parse(pageTrash),
-	pageDestroy: parse(pageDestroy),
-	pageShare:   parse(pageShare),
-	pageShared:  parse(pageShared),
-	pageError:   parse(pageError),
-	pagePhotos:  parse(pagePhotos, pageTile, pageCrumbs),
-	pagePhoto:   parse(pagePhoto),
-	pageMonths:  parse(pageMonths, pageCrumbs),
-	pagePlay:    parse(pagePlay),
-	pageArtists: parse(pageArtists),
-	pageArtist:  parse(pageArtist),
-	pageAlbum:   parse(pageAlbum),
+	pageLogin:     parse(pageLogin),
+	pageFiles:     parse(pageFiles, pageRows, pageCrumbs),
+	pageSearch:    parse(pageSearch, pageRows, pageTile),
+	pageRename:    parse(pageRename),
+	pageInfo:      parse(pageInfo),
+	pageDelete:    parse(pageDelete),
+	pageStatus:    parse(pageStatus),
+	pageTrash:     parse(pageTrash),
+	pageDestroy:   parse(pageDestroy),
+	pageShare:     parse(pageShare),
+	pageShared:    parse(pageShared),
+	pageError:     parse(pageError),
+	pagePhotos:    parse(pagePhotos, pageTile, pageCrumbs),
+	pagePhoto:     parse(pagePhoto),
+	pageMonths:    parse(pageMonths, pageCrumbs),
+	pagePlay:      parse(pagePlay),
+	pageArtists:   parse(pageArtists),
+	pageArtist:    parse(pageArtist),
+	pageAlbum:     parse(pageAlbum),
+	pagePlaylists: parse(pagePlaylists),
+	pagePlaylist:  parse(pagePlaylist),
 }
 
 // parse builds one page's template set: the layout, the page, and whatever
@@ -191,6 +195,9 @@ type view struct {
 	Artists []artistRow
 	Albums  []albumRow
 	Album   *albumView
+	// Playlists is the list of them and Playlist the one being shown.
+	Playlists []playlistRow
+	Playlist  *playlistView
 
 	// Deletions is a page of the trash, TrashSize what it is holding onto in
 	// all, and Kept how many days a deletion is given.

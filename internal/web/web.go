@@ -67,6 +67,14 @@ type Index interface {
 	db.Photos
 	db.Finder
 	Library
+	PlaylistReader
+}
+
+// PlaylistReader is the playlist half of Index: reading, and nothing else.
+// What an edit means is internal/music's, and no page here makes one.
+type PlaylistReader interface {
+	Playlists(ctx context.Context, owner string) ([]db.Playlist, error)
+	PlaylistTracks(ctx context.Context, owner string, id int64) ([]db.Track, error)
 }
 
 // Library is the music half of Index.
@@ -102,6 +110,8 @@ type handler struct {
 	// finder is what the search box asks, which is neither of those two: it
 	// answers across the tree and the tags at once.
 	finder db.Finder
+	// playlists is read for the pages at /playlists/, which write nothing.
+	playlists PlaylistReader
 	// video is the player and HLS, and a zero one means neither is offered.
 	video Video
 }
@@ -118,7 +128,7 @@ func Handler(version, buildDate string, v auth.Verifier, s *auth.Sessions, share
 ) http.Handler {
 	h := &handler{
 		version: version, buildDate: buildDate, verifier: v, sessions: s, shares: shares,
-		files: service, thumbs: thumbs, photoIndex: index, library: index, finder: index,
+		files: service, thumbs: thumbs, photoIndex: index, library: index, finder: index, playlists: index,
 		indexing: indexing, imports: imports, video: video,
 	}
 
@@ -143,10 +153,8 @@ func Handler(version, buildDate string, v auth.Verifier, s *auth.Sessions, share
 	// library is not what a link to one folder authorises.
 	mux.HandleFunc("GET "+searchPrefix, h.signedIn(h.search))
 	mux.HandleFunc("GET "+photosPrefix+"{path...}", h.signedIn(h.photos))
-	mux.HandleFunc("GET "+musicPrefix, h.signedIn(h.artists))
-	mux.HandleFunc("GET "+musicPrefix+"/{artist}", h.signedIn(h.artist))
-	mux.HandleFunc("GET "+musicPrefix+"/{artist}/{album}", h.signedIn(h.album))
-	mux.HandleFunc("GET "+musicPrefix+"/{artist}/{album}/cover", h.signedIn(h.cover))
+	mux.HandleFunc("GET "+musicPrefix+"{path...}", h.signedIn(h.music))
+	mux.HandleFunc("GET "+playlistsPrefix+"{path...}", h.signedIn(h.playlistPages))
 	mux.HandleFunc("POST /files/{path...}", h.signedIn(h.upload))
 	mux.HandleFunc("POST /folders/{path...}", h.signedIn(h.newFolder))
 	mux.HandleFunc("GET /share/{path...}", h.signedIn(h.shareForm))

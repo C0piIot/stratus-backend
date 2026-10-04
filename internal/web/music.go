@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"path"
 	"strconv"
 	"strings"
@@ -13,18 +14,37 @@ import (
 
 	"github.com/C0piIot/stratus-backend/internal/db"
 	"github.com/C0piIot/stratus-backend/internal/media"
+	"github.com/C0piIot/stratus-backend/internal/music"
 	"github.com/C0piIot/stratus-backend/internal/storage"
 )
 
-// The music library (#212): artists, their albums, and an album with a player
-// per track. It reads the index by tag, like the gallery reads it by date, so
-// how the files are filed does not matter.
+// The music library (#212, #279): artists, their albums, and an album with a
+// player per track. It reads the index by tag, like the gallery reads it by
+// date, so how the files are filed does not matter.
+//
+// **One address, both protocols**, like the photographs: these are the same
+// URLs the WebDAV mount answers for, and the composition root sends a
+// browser's methods here. A track's own address is the track, downloaded; an
+// album's is the page, and `?cover=<px>` on it is the picture -- a query
+// because the cover is derived and not one of the album's files, which keeps
+// the collection's names exactly the tracks.
+//
+// The names in those addresses are internal/music's, shared with the mount: an
+// artist called AC/DC is a tag, a collection cannot have a slash in its name,
+// and a link that spelled it differently would 404 against the collection
+// behind it.
 //
 // A play is the one thing it does not count itself: the page asks OpenSubsonic,
 // with scrobble and the session as its credential (#234), rather than grow an
 // endpoint the protocol already has.
 const (
-	musicPrefix = "/music"
+	musicPrefix = "/music/"
+	// coverParam is how a page asks for an album's picture.
+	coverParam = "cover"
+	// artistParam and albumParam are how a caller holding tags reaches the
+	// address they are served at: see musicByTag.
+	artistParam = "artist"
+	albumParam  = "album"
 	// subsonicPrefix is where app mounts OpenSubsonic, under the same condition
 	// as this surface: configured credentials.
 	subsonicPrefix = "/rest/"
@@ -84,11 +104,55 @@ type trackRow struct {
 	Plays    int64
 }
 
-func (h *handler) artists(w http.ResponseWriter, r *http.Request, user string) {
-	list, err := h.library.Artists(r.Context(), user)
+// music is every address under /music/, split by what is at it. Resolution is
+// internal/music's, which is what makes a 404 here and a 404 from the mount
+// the same 404.
+func (h *handler) music(w http.ResponseWriter, r *http.Request, user string) {
+	tree := music.NewTree(h.library, user)
+	raw := strings.Trim(r.PathValue("path"), "/")
+
+	if raw == "" {
+		if tag := r.URL.Query().Get(artistParam); tag != "" {
+			h.musicByTag(w, r, user, tree, tag, r.URL.Query().Get(albumParam))
+			return
+		}
+	}
+
+	n, err := tree.Resolve(r.Context(), raw)
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		h.fail(w, r, user, db.ErrNotFound)
+		return
+	case err != nil:
+		h.fail(w, r, user, err)
+		return
+	}
+
+	switch {
+	case n.ArtistName == "":
+		h.artists(w, r, user, tree)
+	case n.AlbumName == "":
+		h.artist(w, r, user, tree, n)
+	case n.TrackName == "" && r.URL.Query().Has(coverParam):
+		h.cover(w, r, user, n)
+	case n.TrackName == "":
+		h.album(w, r, user, tree, n)
+	default:
+		// A track's own address is the track, like a file's is under /files/.
+		// This is also the GET a WebDAV client makes.
+		h.download(w, r, user, n.Track.File)
+	}
+}
+
+func (h *handler) artists(w http.ResponseWriter, r *http.Request, user string, tree *music.Tree) {
+	children, err := tree.Children(r.Context(), music.Node{Dir: true})
 	if err != nil {
 		h.fail(w, r, user, err)
 		return
+	}
+	list := make([]db.Artist, 0, len(children))
+	for _, c := range children {
+		list = append(list, c.Artist)
 	}
 	subjects := make([]db.Subject, len(list))
 	for i, a := range list {
@@ -102,42 +166,41 @@ func (h *handler) artists(w http.ResponseWriter, r *http.Request, user string) {
 	rows := make([]artistRow, len(list))
 	for i, a := range list {
 		rows[i] = artistRow{
-			Name: a.Name, Href: musicLink(a.Name), Albums: a.AlbumCount,
+			Name: a.Name, Href: musicHref(children[i].Path(), true), Albums: a.AlbumCount,
 			Starred: !notes[subjects[i]].Starred.IsZero(),
 		}
 	}
 	h.render(w, http.StatusOK, pageArtists, view{Title: "Music", User: user, Artists: rows})
 }
 
-func (h *handler) artist(w http.ResponseWriter, r *http.Request, user string) {
-	name := r.PathValue("artist")
-	list, err := h.library.Albums(r.Context(), user, name)
+func (h *handler) artist(w http.ResponseWriter, r *http.Request, user string, tree *music.Tree, n music.Node) {
+	children, err := tree.Children(r.Context(), n)
 	if err != nil {
 		h.fail(w, r, user, err)
 		return
 	}
-	if len(list) == 0 {
-		h.fail(w, r, user, db.ErrNotFound)
-		return
-	}
-	rows := make([]albumRow, len(list))
-	for i, a := range list {
+	rows := make([]albumRow, len(children))
+	for i, c := range children {
 		rows[i] = albumRow{
-			Name: a.Name, Href: musicLink(a.Artist, a.Name), Year: a.Year,
-			Cover: coverURL(a.Artist, a.Name, coverTile),
+			Name: c.Album.Name, Href: musicHref(c.Path(), true), Year: c.Album.Year,
+			Cover: coverHref(c.Path(), coverTile),
 		}
 	}
 	h.render(w, http.StatusOK, pageArtist, view{
-		Title: name, User: user, Name: name, Albums: rows, Back: musicPrefix,
+		Title: n.Artist.Name, User: user, Name: n.Artist.Name, Albums: rows, Back: musicPrefix,
 	})
 }
 
-func (h *handler) album(w http.ResponseWriter, r *http.Request, user string) {
-	artist, name := r.PathValue("artist"), r.PathValue("album")
-	tracks, err := h.library.Tracks(r.Context(), user, artist, name)
+func (h *handler) album(w http.ResponseWriter, r *http.Request, user string, tree *music.Tree, n music.Node) {
+	artist, name := n.Artist.Name, n.Album.Name
+	children, err := tree.Children(r.Context(), n)
 	if err != nil {
 		h.fail(w, r, user, err)
 		return
+	}
+	tracks := make([]db.Track, 0, len(children))
+	for _, c := range children {
+		tracks = append(tracks, c.Track)
 	}
 	if len(tracks) == 0 {
 		h.fail(w, r, user, db.ErrNotFound)
@@ -156,13 +219,13 @@ func (h *handler) album(w http.ResponseWriter, r *http.Request, user string) {
 	}
 
 	av := &albumView{
-		Artist: artist, ArtistHref: musicLink(artist),
-		Cover:   coverURL(artist, name, coverAlbum),
+		Artist: artist, ArtistHref: musicHref(n.ArtistName, true),
+		Cover:   coverHref(n.Path(), coverAlbum),
 		Starred: !notes[album].Starred.IsZero(),
 		Rating:  stars(notes[album].Rating),
 	}
 	var total int64
-	for _, t := range tracks {
+	for i, t := range tracks {
 		m, note := t.Media, notes[db.TrackSubject(t.File.ID)]
 		title := m.Title
 		if title == "" {
@@ -170,7 +233,10 @@ func (h *handler) album(w http.ResponseWriter, r *http.Request, user string) {
 		}
 		av.Tracks = append(av.Tracks, trackRow{
 			Number: m.TrackNo, Title: title, Duration: clock(m.DurationMS),
-			Src:      href(t.File.Path),
+			// The track's own address here, not the file's under /files/:
+			// this page is the collection's other half, and one URL per thing
+			// is what the rest of this adapter promises.
+			Src:      musicHref(children[i].Path(), false),
 			Scrobble: scrobbleURL(t.File.ID),
 			Starred:  !note.Starred.IsZero(), Rating: stars(note.Rating), Plays: note.PlayCount,
 		})
@@ -192,8 +258,13 @@ func (h *handler) album(w http.ResponseWriter, r *http.Request, user string) {
 
 // cover is an album's picture: from the folder its first track is in, beside
 // the tracks or inside one, which is where getCoverArt finds it too.
-func (h *handler) cover(w http.ResponseWriter, r *http.Request, user string) {
-	tracks, err := h.library.Tracks(r.Context(), user, r.PathValue("artist"), r.PathValue("album"))
+//
+// A query on the album's own address rather than a name inside it, because it
+// is derived: a file called "cover" in the collection would be a name no track
+// could have, and a listing would have to ask the thumbnailer about every
+// album to know whether to show it.
+func (h *handler) cover(w http.ResponseWriter, r *http.Request, user string, n music.Node) {
+	tracks, err := h.library.Tracks(r.Context(), user, n.Artist.Name, n.Album.Name)
 	if err != nil {
 		h.fail(w, r, user, err)
 		return
@@ -203,7 +274,7 @@ func (h *handler) cover(w http.ResponseWriter, r *http.Request, user string) {
 		return
 	}
 	size := coverTile
-	if px, perr := strconv.Atoi(r.URL.Query().Get("size")); perr == nil && px > 0 {
+	if px, perr := strconv.Atoi(r.URL.Query().Get(coverParam)); perr == nil && px > 0 {
 		size = px
 	}
 
@@ -225,19 +296,59 @@ func (h *handler) cover(w http.ResponseWriter, r *http.Request, user string) {
 	_, _ = io.Copy(w, body)
 }
 
-// musicLink escapes each tag as one segment, so an artist called AC/DC is one
-// step down and not two.
-func musicLink(tags ...string) string {
-	var b strings.Builder
-	b.WriteString(musicPrefix)
-	for _, t := range tags {
-		b.WriteString("/" + url.PathEscape(t))
+// musicByTag sends a caller holding tags to the address they are served at.
+//
+// A redirect rather than a second page, for the reason the photographs have
+// one: a search result is a row of the index, and working out the generated
+// name of every row on a page would be a query per row. One resolves when one
+// is clicked.
+func (h *handler) musicByTag(w http.ResponseWriter, r *http.Request, user string, tree *music.Tree, artist, album string) {
+	var (
+		at  string
+		err error
+	)
+	if album == "" {
+		at, err = tree.PathOfArtist(r.Context(), artist)
+	} else {
+		at, err = tree.PathOfAlbum(r.Context(), artist, album)
 	}
-	return b.String()
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		h.fail(w, r, user, db.ErrNotFound)
+		return
+	case err != nil:
+		h.fail(w, r, user, err)
+		return
+	}
+	redirectLocal(w, r, musicHref(at, true))
 }
 
-func coverURL(artist, album string, px int) string {
-	return musicLink(artist, album) + "/cover?size=" + strconv.Itoa(px)
+// musicByTagHref is that redirect, for the pages that hold tags.
+func musicByTagHref(artist, album string) string {
+	q := url.Values{artistParam: {artist}}
+	if album != "" {
+		q.Set(albumParam, album)
+	}
+	return musicPrefix + "?" + q.Encode()
+}
+
+// musicHref is the URL of a place in the library tree. The path is already one
+// segment per name, because internal/music made it so; a collection ends in a
+// slash, as a collection's URL does, and a track does not.
+func musicHref(p string, dir bool) string {
+	if p == "" {
+		return musicPrefix
+	}
+	at := link(musicPrefix, p)
+	if dir {
+		at += "/"
+	}
+	return at
+}
+
+// coverHref is an album's picture, at the album's own address.
+func coverHref(album string, px int) string {
+	return musicHref(album, true) + "?" + coverParam + "=" + strconv.Itoa(px)
 }
 
 func scrobbleURL(fileID int64) string {

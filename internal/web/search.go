@@ -235,7 +235,7 @@ type foundAlbum struct {
 func foundArtists(artists []db.Artist) []foundArtist {
 	out := make([]foundArtist, 0, len(artists))
 	for _, a := range artists {
-		out = append(out, foundArtist{Name: a.Name, Href: musicLink(a.Name), Albums: a.AlbumCount})
+		out = append(out, foundArtist{Name: a.Name, Href: musicByTagHref(a.Name, ""), Albums: a.AlbumCount})
 	}
 	return out
 }
@@ -244,8 +244,8 @@ func foundAlbums(albums []db.Album) []foundAlbum {
 	out := make([]foundAlbum, 0, len(albums))
 	for _, a := range albums {
 		out = append(out, foundAlbum{
-			Name: a.Name, Href: musicLink(a.Artist, a.Name),
-			Artist: a.Artist, ArtistHref: musicLink(a.Artist),
+			Name: a.Name, Href: musicByTagHref(a.Artist, a.Name),
+			Artist: a.Artist, ArtistHref: musicByTagHref(a.Artist, ""),
 			Songs: a.SongCount, Year: a.Year,
 		})
 	}
@@ -291,7 +291,7 @@ func foundTracks(tracks []db.Track) []foundTrack {
 			Duration: duration(t.Media.DurationMS),
 		}
 		if t.Media.AlbumArtist != "" && t.Media.Album != "" {
-			row.Album = musicLink(t.Media.AlbumArtist, t.Media.Album)
+			row.Album = musicByTagHref(t.Media.AlbumArtist, t.Media.Album)
 		}
 		out = append(out, row)
 	}
