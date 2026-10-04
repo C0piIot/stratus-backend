@@ -197,19 +197,34 @@ func TestVideoEncoding(t *testing.T) {
 	}
 }
 
-// TestHLSOr: a read asking for HLS goes to HLS, and every other request --
-// a plain GET, a PROPFIND that happens to carry the parameter -- to WebDAV.
-func TestHLSOr(t *testing.T) {
+// TestDavOrBrowser is the whole of #279 in one table: one URL, and which half
+// answers it decided by the method alone. A browser cannot produce any of the
+// ones on the WebDAV side, and a WebDAV client asks for a listing with
+// PROPFIND rather than with GET, so nothing here is a guess about the client.
+func TestDavOrBrowser(t *testing.T) {
 	t.Parallel()
 	mark := func(name string) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, name) })
 	}
-	h := hlsOr(mark("hls"), mark("dav"))
+	h := davOrBrowser(mark("dav"), mark("browser"))
 	for _, c := range []struct{ method, target, want string }{
-		{http.MethodGet, "/dav/film.mkv?hls=index.m3u8&k=x", "hls"},
-		{http.MethodHead, "/dav/film.mkv?hls=index.m3u8", "hls"},
-		{http.MethodGet, "/dav/film.mkv?k=x", "dav"},
-		{"PROPFIND", "/dav/film.mkv?hls=index.m3u8", "dav"},
+		{http.MethodGet, "/files/holiday/", "browser"},
+		{http.MethodGet, "/files/film.mkv?hls=index.m3u8", "browser"},
+		{http.MethodHead, "/files/notes.txt", "browser"},
+		// The uploads and the deletes the UI's forms make.
+		{http.MethodPost, "/files/holiday/", "browser"},
+		{"PROPFIND", "/files/holiday/", "dav"},
+		{"PROPPATCH", "/files/notes.txt", "dav"},
+		{"MKCOL", "/files/new/", "dav"},
+		{"COPY", "/files/notes.txt", "dav"},
+		{"MOVE", "/files/notes.txt", "dav"},
+		{"LOCK", "/files/notes.txt", "dav"},
+		{"UNLOCK", "/files/notes.txt", "dav"},
+		{http.MethodPut, "/files/notes.txt", "dav"},
+		{http.MethodDelete, "/files/notes.txt", "dav"},
+		// Asked of the half that speaks the protocol, so that what a client
+		// is told about the resource is true.
+		{http.MethodOptions, "/files/", "dav"},
 	} {
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), c.method, c.target, nil))

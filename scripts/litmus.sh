@@ -80,7 +80,7 @@ done
 printf '%slitmus %s against %s%s\n' "$bold" "${LITMUS_IMAGE#*:}" "$IMAGE" "$off"
 for suite in "${SUITES[@]}"; do
     out="$(docker run --rm --network "$NET" "$LITMUS_IMAGE" \
-        "$suite" "http://$NAME:8080/dav/" "$DAV_USER" "$DAV_PASS" 2>&1 || true)"
+        "$suite" "http://$NAME:8080/files/" "$DAV_USER" "$DAV_PASS" 2>&1 || true)"
     summary="$(grep -o 'of [0-9]* tests run: [0-9]* passed' <<<"$out" | tail -1)"
     got="$(awk '{print $5}' <<<"$summary")"
     want="${EXPECTED[$suite]}"

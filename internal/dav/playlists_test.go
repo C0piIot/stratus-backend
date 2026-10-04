@@ -54,7 +54,7 @@ func playlistServer(t *testing.T) (http.Handler, *music.Service, *sqlite.Store, 
 	}
 
 	lists := music.New(meta)
-	return withUser(dav.Playlists(playlistsPrefix, "/dav/", lists), "edu"), lists, meta, ids
+	return withUser(dav.Playlists(playlistsPrefix, "/files/", lists), "edu"), lists, meta, ids
 }
 
 func mkPlaylist(t *testing.T, lists *music.Service, name string, fileIDs ...int64) db.Playlist {
@@ -86,12 +86,12 @@ func TestAPlaylistIsAnM3U8(t *testing.T) {
 		"#EXTINF:255,Autechre - Rotar\n" +
 		// Escaped, because a player reads this line as a URL: the ampersand
 		// and the question mark would otherwise end the path.
-		"/dav/music/Tri%20Repetae/01%20Rotar%20&%20Stud%3F.flac\n" +
+		"/files/music/Tri%20Repetae/01%20Rotar%20&%20Stud%3F.flac\n" +
 		"#EXTINF:255,Björk - Hunter\n" +
-		"/dav/music/Homogenic/01%20Hunter.flac\n" +
+		"/files/music/Homogenic/01%20Hunter.flac\n" +
 		// No tags at all: the file name is the title.
 		"#EXTINF:255,loose.flac\n" +
-		"/dav/loose.flac\n"
+		"/files/loose.flac\n"
 	if got := rec.Body.String(); got != want {
 		t.Errorf("body =\n%s\nwant\n%s", got, want)
 	}
@@ -161,7 +161,7 @@ func TestAnEditShowsAtOnce(t *testing.T) {
 	}
 
 	after := do(t, h, http.MethodGet, "/playlists/Mix.m3u8", "")
-	if body := after.Body.String(); !strings.Contains(body, "/dav/renamed.flac\n") || strings.Contains(body, "Hunter") {
+	if body := after.Body.String(); !strings.Contains(body, "/files/renamed.flac\n") || strings.Contains(body, "Hunter") {
 		t.Errorf("after a rename and a delete =\n%s", body)
 	}
 	if before.Header().Get("ETag") == after.Header().Get("ETag") {
@@ -200,7 +200,7 @@ func TestTheMountRefusesWhatTheOtherDoes(t *testing.T) {
 	mkPlaylist(t, lists, "Mix")
 
 	if rec := do(t, h, "PROPFIND", "/playlists/", ""); rec.Code != http.StatusForbidden {
-		t.Errorf("PROPFIND with no Depth = %d, want the 403 /dav/ answers", rec.Code)
+		t.Errorf("PROPFIND with no Depth = %d, want the 403 /files/ answers", rec.Code)
 	}
 	if rec := do(t, h, http.MethodGet, "/playlists/Nothing.m3u8", ""); rec.Code != http.StatusNotFound {
 		t.Errorf("GET of a playlist that is not there = %d", rec.Code)
@@ -212,7 +212,7 @@ func TestTheMountRefusesWhatTheOtherDoes(t *testing.T) {
 		t.Errorf("PROPFIND of one file = %d", rec.Code)
 	}
 
-	bare := dav.Playlists(playlistsPrefix, "/dav/", lists)
+	bare := dav.Playlists(playlistsPrefix, "/files/", lists)
 	if rec := do(t, bare, http.MethodGet, "/playlists/", ""); rec.Code != http.StatusUnauthorized {
 		t.Errorf("with nobody authenticated = %d, want 401", rec.Code)
 	}
@@ -224,7 +224,7 @@ func TestOwnersSeeTheirOwn(t *testing.T) {
 	_, lists, _, _ := playlistServer(t)
 	mkPlaylist(t, lists, "Mix")
 
-	theirs := withUser(dav.Playlists(playlistsPrefix, "/dav/", lists), "someone-else")
+	theirs := withUser(dav.Playlists(playlistsPrefix, "/files/", lists), "someone-else")
 	wantHrefs(t, hrefs(t, do(t, theirs, "PROPFIND", "/playlists/", "", "Depth", "1")), "/playlists/")
 }
 
@@ -260,7 +260,7 @@ func TestAFailureIsNotANotFound(t *testing.T) {
 	mkPlaylist(t, lists, "Mix")
 
 	for _, call := range []string{"Playlists", "Playlist"} {
-		h := withUser(dav.Playlists(playlistsPrefix, "/dav/", failingSource{PlaylistSource: lists, fail: call}), "edu")
+		h := withUser(dav.Playlists(playlistsPrefix, "/files/", failingSource{PlaylistSource: lists, fail: call}), "edu")
 		if rec := do(t, h, http.MethodGet, "/playlists/Mix.m3u8", ""); rec.Code != http.StatusInternalServerError {
 			t.Errorf("GET with %s broken = %d, want 500", call, rec.Code)
 		}
@@ -270,7 +270,7 @@ func TestAFailureIsNotANotFound(t *testing.T) {
 	}
 
 	// Listed and then gone before it was read: a 404, not a 500.
-	gone := withUser(dav.Playlists(playlistsPrefix, "/dav/", failingSource{PlaylistSource: lists, delete: true}), "edu")
+	gone := withUser(dav.Playlists(playlistsPrefix, "/files/", failingSource{PlaylistSource: lists, delete: true}), "edu")
 	if rec := do(t, gone, http.MethodGet, "/playlists/Mix.m3u8", ""); rec.Code != http.StatusNotFound {
 		t.Errorf("GET of a playlist deleted mid-request = %d, want 404", rec.Code)
 	}

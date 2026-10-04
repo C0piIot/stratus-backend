@@ -109,10 +109,10 @@ func TestPropfindStillSaysWhatItSaid(t *testing.T) {
 	t.Parallel()
 
 	for name, req := range map[string]struct{ target, depth, body string }{
-		"depth1-allprop": {"/dav/album", "1", ""},
-		"depth0-allprop": {"/dav/album", "0", ""},
-		"file-allprop":   {"/dav/album/one.txt", "0", ""},
-		"named-props": {"/dav/album/one.txt", "0", `<?xml version="1.0" encoding="utf-8"?>
+		"depth1-allprop": {"/files/album", "1", ""},
+		"depth0-allprop": {"/files/album", "0", ""},
+		"file-allprop":   {"/files/album/one.txt", "0", ""},
+		"named-props": {"/files/album/one.txt", "0", `<?xml version="1.0" encoding="utf-8"?>
 <D:propfind xmlns:D="DAV:"><D:prop>
 <D:getcontentlength/><D:getetag/><D:resourcetype/><D:displayname/>
 </D:prop></D:propfind>`},
@@ -166,10 +166,10 @@ func TestPropfindStillSaysWhatItSaid(t *testing.T) {
 func baselineTree(t *testing.T) http.Handler {
 	t.Helper()
 	h := server(t)
-	do(t, h, "MKCOL", "/dav/album", "")
-	do(t, h, "MKCOL", "/dav/album/raw", "")
-	do(t, h, http.MethodPut, "/dav/album/one.txt", "one")
-	do(t, h, http.MethodPut, "/dav/album/a%20b%23c%20caf%C3%A9.txt", "escaped")
+	do(t, h, "MKCOL", "/files/album", "")
+	do(t, h, "MKCOL", "/files/album/raw", "")
+	do(t, h, http.MethodPut, "/files/album/one.txt", "one")
+	do(t, h, http.MethodPut, "/files/album/a%20b%23c%20caf%C3%A9.txt", "escaped")
 	return h
 }
 
@@ -202,14 +202,14 @@ func TestPropfindDoesNotAskOncePerChild(t *testing.T) {
 	counted := &countingStore{Store: meta}
 	h := withUser(dav.Handler(prefix, files.New(blobs, counted)), "edu")
 
-	do(t, h, "MKCOL", "/dav/album", "")
+	do(t, h, "MKCOL", "/files/album", "")
 	const children = 50
 	for i := range children {
-		do(t, h, http.MethodPut, "/dav/album/file-"+strconv.Itoa(i)+".txt", "x")
+		do(t, h, http.MethodPut, "/files/album/file-"+strconv.Itoa(i)+".txt", "x")
 	}
 
 	counted.lookups = 0
-	if rec := do(t, h, "PROPFIND", "/dav/album", "", "Depth", "1",
+	if rec := do(t, h, "PROPFIND", "/files/album", "", "Depth", "1",
 		"Content-Type", "application/xml"); rec.Code != http.StatusMultiStatus {
 		t.Fatalf("PROPFIND = %d", rec.Code)
 	}
@@ -245,12 +245,12 @@ func (c *countingStore) FileByPath(ctx context.Context, owner, path string) (db.
 func TestPropfindListsAPhotograph(t *testing.T) {
 	t.Parallel()
 	h := server(t)
-	do(t, h, "MKCOL", "/dav/camera", "")
+	do(t, h, "MKCOL", "/files/camera", "")
 	for _, name := range []string{"IMG_0001.HEIC", "clip.mp4", "song.flac", "raw.dng", "nameless"} {
-		do(t, h, http.MethodPut, "/dav/camera/"+name, "bytes")
+		do(t, h, http.MethodPut, "/files/camera/"+name, "bytes")
 	}
 
-	rec := do(t, h, "PROPFIND", "/dav/camera", "", "Depth", "1", "Content-Type", "application/xml")
+	rec := do(t, h, "PROPFIND", "/files/camera", "", "Depth", "1", "Content-Type", "application/xml")
 	if rec.Code != http.StatusMultiStatus {
 		t.Fatalf("PROPFIND = %d", rec.Code)
 	}
@@ -263,13 +263,13 @@ func TestPropfindListsAPhotograph(t *testing.T) {
 
 	props := propsOf(t, body)
 	for _, name := range []string{"IMG_0001.HEIC", "clip.mp4", "song.flac", "raw.dng", "nameless"} {
-		if _, there := props["/dav/camera/"+name]; !there {
+		if _, there := props["/files/camera/"+name]; !there {
 			t.Errorf("%s is not in the listing", name)
 		}
 	}
 	// And the type is the row's, which internal/files decided from the bytes,
 	// rather than a second guess from the first 512.
-	if got := props["/dav/camera/IMG_0001.HEIC"]["getcontenttype"]; got == "" {
+	if got := props["/files/camera/IMG_0001.HEIC"]["getcontenttype"]; got == "" {
 		t.Error("a photograph has no content type in the listing")
 	}
 }
@@ -282,7 +282,7 @@ func TestPropfindNamesARowWithNoTypeByItsExtension(t *testing.T) {
 	t.Parallel()
 	svc, _ := service(t)
 	h := withUser(dav.Handler(prefix, svc), "edu")
-	do(t, h, "MKCOL", "/dav/camera", "")
+	do(t, h, "MKCOL", "/files/camera", "")
 
 	// Nothing a sniff recognises, and nothing declared: the row is left empty.
 	body := []byte{0x00, 0x01, 0x02, 0x03}
@@ -297,8 +297,8 @@ func TestPropfindNamesARowWithNoTypeByItsExtension(t *testing.T) {
 		t.Fatalf("CompleteUpload = %q, %v; the case needs a row with no type", f.MIMEType, err)
 	}
 
-	rec := do(t, h, "PROPFIND", "/dav/camera", "", "Depth", "1", "Content-Type", "application/xml")
-	if got := propsOf(t, rec.Body.String())["/dav/camera/IMG_0002.HEIC"]["getcontenttype"]; got != "image/heic" {
+	rec := do(t, h, "PROPFIND", "/files/camera", "", "Depth", "1", "Content-Type", "application/xml")
+	if got := propsOf(t, rec.Body.String())["/files/camera/IMG_0002.HEIC"]["getcontenttype"]; got != "image/heic" {
 		t.Errorf("getcontenttype = %q, want image/heic", got)
 	}
 }
@@ -314,11 +314,11 @@ func TestPropfindNamesARowWithNoTypeByItsExtension(t *testing.T) {
 func TestPropfindAgreesWithGetAboutTheETag(t *testing.T) {
 	t.Parallel()
 	h := server(t)
-	do(t, h, http.MethodPut, "/dav/notes.txt", "notes")
+	do(t, h, http.MethodPut, "/files/notes.txt", "notes")
 
-	listed := propsOf(t, do(t, h, "PROPFIND", "/dav/notes.txt", "", "Depth", "0",
-		"Content-Type", "application/xml").Body.String())["/dav/notes.txt"]["getetag"]
-	served := do(t, h, http.MethodGet, "/dav/notes.txt", "").Header().Get("ETag")
+	listed := propsOf(t, do(t, h, "PROPFIND", "/files/notes.txt", "", "Depth", "0",
+		"Content-Type", "application/xml").Body.String())["/files/notes.txt"]["getetag"]
+	served := do(t, h, http.MethodGet, "/files/notes.txt", "").Header().Get("ETag")
 
 	if listed == "" || served == "" {
 		t.Fatalf("a validator went missing: listed %q, served %q", listed, served)
@@ -338,22 +338,22 @@ func TestPropfindAgreesWithGetAboutTheETag(t *testing.T) {
 func TestPropfindAnswersHasPreview(t *testing.T) {
 	t.Parallel()
 	h := server(t)
-	do(t, h, "MKCOL", "/dav/album", "")
-	do(t, h, http.MethodPut, "/dav/album/photo.jpg", "not really a photograph")
-	do(t, h, http.MethodPut, "/dav/album/notes.txt", "nothing to draw")
+	do(t, h, "MKCOL", "/files/album", "")
+	do(t, h, http.MethodPut, "/files/album/photo.jpg", "not really a photograph")
+	do(t, h, http.MethodPut, "/files/album/notes.txt", "nothing to draw")
 
-	props := propsOf(t, do(t, h, "PROPFIND", "/dav/album", "", "Depth", "1",
+	props := propsOf(t, do(t, h, "PROPFIND", "/files/album", "", "Depth", "1",
 		"Content-Type", "application/xml").Body.String())
 
-	if got := props["/dav/album/photo.jpg"]["has-preview"]; got != "true" {
+	if got := props["/files/album/photo.jpg"]["has-preview"]; got != "true" {
 		t.Errorf("a photograph = %q, want true", got)
 	}
-	if got := props["/dav/album/notes.txt"]["has-preview"]; got != "false" {
+	if got := props["/files/album/notes.txt"]["has-preview"]; got != "false" {
 		t.Errorf("a text file = %q, want false", got)
 	}
 	// Not on a collection: there is no picture of a folder, and a property that
 	// answered anyway would be a third state a client has to interpret.
-	if _, there := props["/dav/album"]["has-preview"]; there {
+	if _, there := props["/files/album"]["has-preview"]; there {
 		t.Error("a collection claims to have a preview")
 	}
 }
@@ -364,12 +364,12 @@ func TestPropfindAnswersHasPreview(t *testing.T) {
 func TestPropfindAnswersQuota(t *testing.T) {
 	t.Parallel()
 	h := server(t)
-	do(t, h, "MKCOL", "/dav/album", "")
-	do(t, h, http.MethodPut, "/dav/album/one.txt", "twelve bytes")
-	do(t, h, http.MethodPut, "/dav/outside.txt", "not under the album")
+	do(t, h, "MKCOL", "/files/album", "")
+	do(t, h, http.MethodPut, "/files/album/one.txt", "twelve bytes")
+	do(t, h, http.MethodPut, "/files/outside.txt", "not under the album")
 
-	props := propsOf(t, do(t, h, "PROPFIND", "/dav/album", "", "Depth", "0",
-		"Content-Type", "application/xml").Body.String())["/dav/album"]
+	props := propsOf(t, do(t, h, "PROPFIND", "/files/album", "", "Depth", "0",
+		"Content-Type", "application/xml").Body.String())["/files/album"]
 
 	// Used is what is under this collection and nothing else, which is the half
 	// of RFC 4331 that a prefix match gets wrong.
@@ -381,8 +381,8 @@ func TestPropfindAnswersQuota(t *testing.T) {
 		t.Errorf("quota-available-bytes = %q", props["quota-available-bytes"])
 	}
 	// And they are collection properties: a file has neither.
-	file := propsOf(t, do(t, h, "PROPFIND", "/dav/album/one.txt", "", "Depth", "0",
-		"Content-Type", "application/xml").Body.String())["/dav/album/one.txt"]
+	file := propsOf(t, do(t, h, "PROPFIND", "/files/album/one.txt", "", "Depth", "0",
+		"Content-Type", "application/xml").Body.String())["/files/album/one.txt"]
 	if _, there := file["quota-used-bytes"]; there {
 		t.Error("a file answers a collection's quota")
 	}
@@ -393,9 +393,9 @@ func TestPropfindAnswersQuota(t *testing.T) {
 func TestPropfindPropname(t *testing.T) {
 	t.Parallel()
 	h := server(t)
-	do(t, h, http.MethodPut, "/dav/photo.jpg", "not really a photograph")
+	do(t, h, http.MethodPut, "/files/photo.jpg", "not really a photograph")
 
-	body := do(t, h, "PROPFIND", "/dav/photo.jpg", `<?xml version="1.0" encoding="utf-8"?>
+	body := do(t, h, "PROPFIND", "/files/photo.jpg", `<?xml version="1.0" encoding="utf-8"?>
 <D:propfind xmlns:D="DAV:"><D:propname/></D:propfind>`,
 		"Depth", "0", "Content-Type", "application/xml").Body.String()
 
@@ -412,9 +412,9 @@ func TestPropfindPropname(t *testing.T) {
 func TestPropfindOfSomethingMissing(t *testing.T) {
 	t.Parallel()
 	h := server(t)
-	do(t, h, http.MethodPut, "/dav/notes.txt", "notes")
+	do(t, h, http.MethodPut, "/files/notes.txt", "notes")
 
-	body := do(t, h, "PROPFIND", "/dav/notes.txt", `<?xml version="1.0" encoding="utf-8"?>
+	body := do(t, h, "PROPFIND", "/files/notes.txt", `<?xml version="1.0" encoding="utf-8"?>
 <D:propfind xmlns:D="DAV:"><D:prop><D:getetag/><D:nonesuch/></D:prop></D:propfind>`,
 		"Depth", "0", "Content-Type", "application/xml").Body.String()
 

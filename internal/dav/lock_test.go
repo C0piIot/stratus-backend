@@ -21,9 +21,9 @@ const lockRequest = `<?xml version="1.0" encoding="utf-8"?>
 func TestOptionsAdvertisesClassTwo(t *testing.T) {
 	t.Parallel()
 	h := server(t)
-	do(t, h, http.MethodPut, "/dav/notes.txt", "hello")
+	do(t, h, http.MethodPut, "/files/notes.txt", "hello")
 
-	rec := do(t, h, http.MethodOptions, "/dav/notes.txt", "")
+	rec := do(t, h, http.MethodOptions, "/files/notes.txt", "")
 	dav := rec.Header().Get("DAV")
 
 	// Finder looks for a 2 and mounts read-only without it. The 1 and the 3
@@ -41,9 +41,9 @@ func TestOptionsAdvertisesClassTwo(t *testing.T) {
 func TestLockExistingFile(t *testing.T) {
 	t.Parallel()
 	h := server(t)
-	do(t, h, http.MethodPut, "/dav/notes.txt", "hello")
+	do(t, h, http.MethodPut, "/files/notes.txt", "hello")
 
-	rec := do(t, h, "LOCK", "/dav/notes.txt", lockRequest)
+	rec := do(t, h, "LOCK", "/files/notes.txt", lockRequest)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("LOCK on an existing file = %d, want 200", rec.Code)
 	}
@@ -68,7 +68,7 @@ func TestLockExistingFile(t *testing.T) {
 	}
 	// The lockroot has to name the resource as the client addressed it, prefix
 	// and all, or it points at something the client cannot reach.
-	if !strings.Contains(body, "<D:href>/dav/notes.txt</D:href>") {
+	if !strings.Contains(body, "<D:href>/files/notes.txt</D:href>") {
 		t.Errorf("the lockroot is not the URL the client used:\n%s", body)
 	}
 	// The token in the header and the one in the body have to be the same one.
@@ -86,10 +86,10 @@ func TestLockOnNothing(t *testing.T) {
 	t.Parallel()
 	h := server(t)
 
-	if got := do(t, h, "LOCK", "/dav/new.txt", lockRequest).Code; got != http.StatusNotFound {
+	if got := do(t, h, "LOCK", "/files/new.txt", lockRequest).Code; got != http.StatusNotFound {
 		t.Errorf("LOCK on a path with nothing at it = %d, want 404", got)
 	}
-	if got := do(t, h, http.MethodGet, "/dav/new.txt", "").Code; got != http.StatusNotFound {
+	if got := do(t, h, http.MethodGet, "/files/new.txt", "").Code; got != http.StatusNotFound {
 		t.Errorf("GET after the refused LOCK = %d, want 404", got)
 	}
 }
@@ -119,10 +119,10 @@ func ifHeader(token string) string { return "(" + token + ")" }
 func TestARefreshKeepsTheSameLock(t *testing.T) {
 	t.Parallel()
 	h := server(t)
-	do(t, h, http.MethodPut, "/dav/notes.txt", "hello")
-	token := lockFile(t, h, "/dav/notes.txt")
+	do(t, h, http.MethodPut, "/files/notes.txt", "hello")
+	token := lockFile(t, h, "/files/notes.txt")
 
-	rec := do(t, h, "LOCK", "/dav/notes.txt", "", "If", ifHeader(token))
+	rec := do(t, h, "LOCK", "/files/notes.txt", "", "If", ifHeader(token))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("a refresh = %d, want 200: %s", rec.Code, rec.Body)
 	}
@@ -130,7 +130,7 @@ func TestARefreshKeepsTheSameLock(t *testing.T) {
 		t.Errorf("a refresh answered %q, want the same lock %q", got, token)
 	}
 	// And the lock it refreshed is still the one that opens a write.
-	if got := do(t, h, http.MethodPut, "/dav/notes.txt", "again", "If", ifHeader(token)).Code; got != http.StatusNoContent {
+	if got := do(t, h, http.MethodPut, "/files/notes.txt", "again", "If", ifHeader(token)).Code; got != http.StatusNoContent {
 		t.Errorf("a PUT with the refreshed token = %d", got)
 	}
 }
@@ -139,12 +139,12 @@ func TestARefreshKeepsTheSameLock(t *testing.T) {
 func TestARefreshOfNothing(t *testing.T) {
 	t.Parallel()
 	h := server(t)
-	do(t, h, http.MethodPut, "/dav/notes.txt", "hello")
+	do(t, h, http.MethodPut, "/files/notes.txt", "hello")
 
-	if got := do(t, h, "LOCK", "/dav/notes.txt", "", "If", "(<opaquelocktoken:invented>)").Code; got != http.StatusPreconditionFailed {
+	if got := do(t, h, "LOCK", "/files/notes.txt", "", "If", "(<opaquelocktoken:invented>)").Code; got != http.StatusPreconditionFailed {
 		t.Errorf("a refresh of a lock nobody holds = %d, want 412", got)
 	}
-	if got := do(t, h, "LOCK", "/dav/notes.txt", "").Code; got != http.StatusBadRequest {
+	if got := do(t, h, "LOCK", "/files/notes.txt", "").Code; got != http.StatusBadRequest {
 		t.Errorf("a refresh naming no lock at all = %d, want 400", got)
 	}
 }
@@ -153,7 +153,7 @@ func TestLockRejectsNonsense(t *testing.T) {
 	t.Parallel()
 	h := server(t)
 
-	if got := do(t, h, "LOCK", "/dav/notes.txt", "this is not xml").Code; got != http.StatusBadRequest {
+	if got := do(t, h, "LOCK", "/files/notes.txt", "this is not xml").Code; got != http.StatusBadRequest {
 		t.Errorf("LOCK with a malformed body = %d, want 400", got)
 	}
 }
@@ -161,27 +161,27 @@ func TestLockRejectsNonsense(t *testing.T) {
 func TestUnlock(t *testing.T) {
 	t.Parallel()
 	h := server(t)
-	do(t, h, http.MethodPut, "/dav/notes.txt", "hello")
-	token := lockFile(t, h, "/dav/notes.txt")
+	do(t, h, http.MethodPut, "/files/notes.txt", "hello")
+	token := lockFile(t, h, "/files/notes.txt")
 
-	if got := do(t, h, "UNLOCK", "/dav/notes.txt", "", "Lock-Token", token).Code; got != http.StatusNoContent {
+	if got := do(t, h, "UNLOCK", "/files/notes.txt", "", "Lock-Token", token).Code; got != http.StatusNoContent {
 		t.Errorf("UNLOCK = %d, want 204", got)
 	}
 	// And the file is writable again with nothing submitted.
-	if got := do(t, h, http.MethodPut, "/dav/notes.txt", "after").Code; got != http.StatusNoContent {
+	if got := do(t, h, http.MethodPut, "/files/notes.txt", "after").Code; got != http.StatusNoContent {
 		t.Errorf("a PUT after the UNLOCK = %d", got)
 	}
 
 	// Releasing something nobody holds is a conflict with the state the client
 	// believes in (RFC 4918 9.11.1), and it can be answered now: while nothing
 	// was recorded, a 204 was the only honest thing to say.
-	if got := do(t, h, "UNLOCK", "/dav/notes.txt", "", "Lock-Token", token).Code; got != http.StatusConflict {
+	if got := do(t, h, "UNLOCK", "/files/notes.txt", "", "Lock-Token", token).Code; got != http.StatusConflict {
 		t.Errorf("UNLOCK of a lock already released = %d, want 409", got)
 	}
-	if got := do(t, h, "UNLOCK", "/dav/notes.txt", "", "Lock-Token", "<opaquelocktoken:invented>").Code; got != http.StatusConflict {
+	if got := do(t, h, "UNLOCK", "/files/notes.txt", "", "Lock-Token", "<opaquelocktoken:invented>").Code; got != http.StatusConflict {
 		t.Errorf("UNLOCK of a token this server never minted = %d, want 409", got)
 	}
-	if got := do(t, h, "UNLOCK", "/dav/notes.txt", "").Code; got != http.StatusBadRequest {
+	if got := do(t, h, "UNLOCK", "/files/notes.txt", "").Code; got != http.StatusBadRequest {
 		t.Errorf("UNLOCK with no token = %d, want 400", got)
 	}
 }
@@ -192,21 +192,21 @@ func TestUnlock(t *testing.T) {
 func TestAWriteNeedsTheToken(t *testing.T) {
 	t.Parallel()
 	h := server(t)
-	do(t, h, http.MethodPut, "/dav/notes.txt", "hello")
-	token := lockFile(t, h, "/dav/notes.txt")
+	do(t, h, http.MethodPut, "/files/notes.txt", "hello")
+	token := lockFile(t, h, "/files/notes.txt")
 
-	if got := do(t, h, http.MethodPut, "/dav/notes.txt", "from somebody else").Code; got != dav.StatusLocked {
+	if got := do(t, h, http.MethodPut, "/files/notes.txt", "from somebody else").Code; got != dav.StatusLocked {
 		t.Errorf("a PUT over a lock = %d, want 423", got)
 	}
-	if got := do(t, h, http.MethodPut, "/dav/notes.txt", "from the owner", "If", ifHeader(token)).Code; got != http.StatusNoContent {
+	if got := do(t, h, http.MethodPut, "/files/notes.txt", "from the owner", "If", ifHeader(token)).Code; got != http.StatusNoContent {
 		t.Errorf("a PUT with the token = %d, want it to succeed", got)
 	}
-	if got := do(t, h, http.MethodGet, "/dav/notes.txt", "").Body.String(); got != "from the owner" {
+	if got := do(t, h, http.MethodGet, "/files/notes.txt", "").Body.String(); got != "from the owner" {
 		t.Errorf("the file reads %q", got)
 	}
 	// A token that is not the one held is 412: the client made a claim about
 	// the state of the resource and the claim was false.
-	if got := do(t, h, http.MethodPut, "/dav/notes.txt", "nope", "If", "(<opaquelocktoken:invented>)").Code; got != http.StatusPreconditionFailed {
+	if got := do(t, h, http.MethodPut, "/files/notes.txt", "nope", "If", "(<opaquelocktoken:invented>)").Code; got != http.StatusPreconditionFailed {
 		t.Errorf("a PUT with somebody else's token = %d, want 412", got)
 	}
 }
@@ -216,23 +216,23 @@ func TestAWriteNeedsTheToken(t *testing.T) {
 func TestEveryWriteIsGated(t *testing.T) {
 	t.Parallel()
 	h := server(t)
-	do(t, h, http.MethodPut, "/dav/notes.txt", "hello")
-	token := lockFile(t, h, "/dav/notes.txt")
+	do(t, h, http.MethodPut, "/files/notes.txt", "hello")
+	token := lockFile(t, h, "/files/notes.txt")
 
-	if got := do(t, h, http.MethodDelete, "/dav/notes.txt", "").Code; got != dav.StatusLocked {
+	if got := do(t, h, http.MethodDelete, "/files/notes.txt", "").Code; got != dav.StatusLocked {
 		t.Errorf("DELETE over a lock = %d, want 423", got)
 	}
-	if got := do(t, h, "MOVE", "/dav/notes.txt", "", "Destination", "/dav/moved.txt").Code; got != dav.StatusLocked {
+	if got := do(t, h, "MOVE", "/files/notes.txt", "", "Destination", "/files/moved.txt").Code; got != dav.StatusLocked {
 		t.Errorf("MOVE over a lock = %d, want 423", got)
 	}
-	if got := do(t, h, "PROPPATCH", "/dav/notes.txt", `<?xml version="1.0"?><D:propertyupdate xmlns:D="DAV:"/>`).Code; got != dav.StatusLocked {
+	if got := do(t, h, "PROPPATCH", "/files/notes.txt", `<?xml version="1.0"?><D:propertyupdate xmlns:D="DAV:"/>`).Code; got != dav.StatusLocked {
 		t.Errorf("PROPPATCH over a lock = %d, want 423", got)
 	}
 
 	// And a MOVE with the token works, onto a destination nobody has locked --
 	// which the lock system on its own would refuse, since it asks for every
 	// named resource to be covered by a claimed lock.
-	if got := do(t, h, "MOVE", "/dav/notes.txt", "", "Destination", "/dav/moved.txt", "If", ifHeader(token)).Code; got != http.StatusCreated {
+	if got := do(t, h, "MOVE", "/files/notes.txt", "", "Destination", "/files/moved.txt", "If", ifHeader(token)).Code; got != http.StatusCreated {
 		t.Errorf("MOVE with the token = %d, want 201", got)
 	}
 }
@@ -246,15 +246,15 @@ func TestEveryWriteIsGated(t *testing.T) {
 func TestACopyIsAskedAboutItsSource(t *testing.T) {
 	t.Parallel()
 	h := server(t)
-	do(t, h, http.MethodPut, "/dav/one.txt", "one")
-	token := lockFile(t, h, "/dav/one.txt")
+	do(t, h, http.MethodPut, "/files/one.txt", "one")
+	token := lockFile(t, h, "/files/one.txt")
 
-	if got := do(t, h, "COPY", "/dav/one.txt", "", "Destination", "/dav/copy.txt", "If", ifHeader(token)).Code; got != http.StatusCreated {
+	if got := do(t, h, "COPY", "/files/one.txt", "", "Destination", "/files/copy.txt", "If", ifHeader(token)).Code; got != http.StatusCreated {
 		t.Errorf("COPY carrying the source's token = %d, want 201", got)
 	}
 	// And a claim about the source that is not true is still 412, even though
 	// the source is not what the copy writes to.
-	if got := do(t, h, "COPY", "/dav/one.txt", "", "Destination", "/dav/other.txt", "If", "(<opaquelocktoken:invented>)").Code; got != http.StatusPreconditionFailed {
+	if got := do(t, h, "COPY", "/files/one.txt", "", "Destination", "/files/other.txt", "If", "(<opaquelocktoken:invented>)").Code; got != http.StatusPreconditionFailed {
 		t.Errorf("COPY with a false claim about the source = %d, want 412", got)
 	}
 }
@@ -264,14 +264,14 @@ func TestACopyIsAskedAboutItsSource(t *testing.T) {
 func TestALockedDestinationRefusesAWrite(t *testing.T) {
 	t.Parallel()
 	h := server(t)
-	do(t, h, http.MethodPut, "/dav/one.txt", "one")
-	do(t, h, http.MethodPut, "/dav/two.txt", "two")
-	lockFile(t, h, "/dav/two.txt")
+	do(t, h, http.MethodPut, "/files/one.txt", "one")
+	do(t, h, http.MethodPut, "/files/two.txt", "two")
+	lockFile(t, h, "/files/two.txt")
 
-	if got := do(t, h, "MOVE", "/dav/one.txt", "", "Destination", "/dav/two.txt").Code; got != dav.StatusLocked {
+	if got := do(t, h, "MOVE", "/files/one.txt", "", "Destination", "/files/two.txt").Code; got != dav.StatusLocked {
 		t.Errorf("MOVE onto a locked destination = %d, want 423", got)
 	}
-	if got := do(t, h, "COPY", "/dav/one.txt", "", "Destination", "/dav/two.txt").Code; got != dav.StatusLocked {
+	if got := do(t, h, "COPY", "/files/one.txt", "", "Destination", "/files/two.txt").Code; got != dav.StatusLocked {
 		t.Errorf("COPY onto a locked destination = %d, want 423", got)
 	}
 }
@@ -282,10 +282,10 @@ func TestALockedDestinationRefusesAWrite(t *testing.T) {
 func TestCopyLeavesItsSourceAlone(t *testing.T) {
 	t.Parallel()
 	h := server(t)
-	do(t, h, http.MethodPut, "/dav/one.txt", "one")
-	lockFile(t, h, "/dav/one.txt")
+	do(t, h, http.MethodPut, "/files/one.txt", "one")
+	lockFile(t, h, "/files/one.txt")
 
-	if got := do(t, h, "COPY", "/dav/one.txt", "", "Destination", "/dav/copy.txt").Code; got != http.StatusCreated {
+	if got := do(t, h, "COPY", "/files/one.txt", "", "Destination", "/files/copy.txt").Code; got != http.StatusCreated {
 		t.Errorf("COPY out of a locked file = %d, want 201", got)
 	}
 }
@@ -295,19 +295,19 @@ func TestCopyLeavesItsSourceAlone(t *testing.T) {
 func TestALockCoversWhatIsUnderIt(t *testing.T) {
 	t.Parallel()
 	h := server(t)
-	do(t, h, "MKCOL", "/dav/album", "")
-	do(t, h, http.MethodPut, "/dav/album/one.txt", "one")
-	token := lockFile(t, h, "/dav/album")
+	do(t, h, "MKCOL", "/files/album", "")
+	do(t, h, http.MethodPut, "/files/album/one.txt", "one")
+	token := lockFile(t, h, "/files/album")
 
-	if got := do(t, h, http.MethodPut, "/dav/album/two.txt", "two").Code; got != dav.StatusLocked {
+	if got := do(t, h, http.MethodPut, "/files/album/two.txt", "two").Code; got != dav.StatusLocked {
 		t.Errorf("a PUT inside a locked collection = %d, want 423", got)
 	}
-	if got := do(t, h, http.MethodPut, "/dav/album/two.txt", "two", "If", ifHeader(token)).Code; got != http.StatusCreated {
+	if got := do(t, h, http.MethodPut, "/files/album/two.txt", "two", "If", ifHeader(token)).Code; got != http.StatusCreated {
 		t.Errorf("a PUT inside a locked collection with the token = %d", got)
 	}
 	// Both ends of a move inside it are the same lock, and claiming it twice
 	// must not be what refuses the request.
-	if got := do(t, h, "MOVE", "/dav/album/one.txt", "", "Destination", "/dav/album/three.txt", "If", ifHeader(token)).Code; got != http.StatusCreated {
+	if got := do(t, h, "MOVE", "/files/album/one.txt", "", "Destination", "/files/album/three.txt", "If", ifHeader(token)).Code; got != http.StatusCreated {
 		t.Errorf("a MOVE inside a locked collection with the token = %d", got)
 	}
 }
@@ -317,13 +317,13 @@ func TestALockCoversWhatIsUnderIt(t *testing.T) {
 func TestReadsAreNeverBlocked(t *testing.T) {
 	t.Parallel()
 	h := server(t)
-	do(t, h, http.MethodPut, "/dav/notes.txt", "hello")
-	lockFile(t, h, "/dav/notes.txt")
+	do(t, h, http.MethodPut, "/files/notes.txt", "hello")
+	lockFile(t, h, "/files/notes.txt")
 
-	if got := do(t, h, http.MethodGet, "/dav/notes.txt", "").Code; got != http.StatusOK {
+	if got := do(t, h, http.MethodGet, "/files/notes.txt", "").Code; got != http.StatusOK {
 		t.Errorf("GET of a locked file = %d", got)
 	}
-	if got := do(t, h, "PROPFIND", "/dav/notes.txt", "", "Depth", "0").Code; got != http.StatusMultiStatus {
+	if got := do(t, h, "PROPFIND", "/files/notes.txt", "", "Depth", "0").Code; got != http.StatusMultiStatus {
 		t.Errorf("PROPFIND of a locked file = %d", got)
 	}
 }
@@ -335,19 +335,19 @@ func TestReadsAreNeverBlocked(t *testing.T) {
 func TestATaggedListHasToNameThisRequest(t *testing.T) {
 	t.Parallel()
 	h := server(t)
-	do(t, h, http.MethodPut, "/dav/mine.txt", "mine")
-	do(t, h, http.MethodPut, "/dav/theirs.txt", "theirs")
-	mine := lockFile(t, h, "/dav/mine.txt")
-	lockFile(t, h, "/dav/theirs.txt")
+	do(t, h, http.MethodPut, "/files/mine.txt", "mine")
+	do(t, h, http.MethodPut, "/files/theirs.txt", "theirs")
+	mine := lockFile(t, h, "/files/mine.txt")
+	lockFile(t, h, "/files/theirs.txt")
 
-	tagged := "<http://example.com/dav/mine.txt> " + ifHeader(mine)
-	if got := do(t, h, http.MethodPut, "/dav/theirs.txt", "not mine to write", "If", tagged).Code; got == http.StatusNoContent {
+	tagged := "<http://example.com/files/mine.txt> " + ifHeader(mine)
+	if got := do(t, h, http.MethodPut, "/files/theirs.txt", "not mine to write", "If", tagged).Code; got == http.StatusNoContent {
 		t.Error("a lock on one file opened a write to another")
 	}
 	// The same list, tagged with the resource it is actually about, works --
 	// including as a relative reference, which the grammar allows.
-	relative := "</dav/mine.txt> " + ifHeader(mine)
-	if got := do(t, h, http.MethodPut, "/dav/mine.txt", "mine to write", "If", relative).Code; got != http.StatusNoContent {
+	relative := "</files/mine.txt> " + ifHeader(mine)
+	if got := do(t, h, http.MethodPut, "/files/mine.txt", "mine to write", "If", relative).Code; got != http.StatusNoContent {
 		t.Errorf("a tagged list naming its own resource = %d", got)
 	}
 }
@@ -359,19 +359,19 @@ func TestATaggedListHasToNameThisRequest(t *testing.T) {
 func TestAnETagConditionIsChecked(t *testing.T) {
 	t.Parallel()
 	h := server(t)
-	do(t, h, http.MethodPut, "/dav/notes.txt", "hello")
-	etag := do(t, h, http.MethodGet, "/dav/notes.txt", "").Header().Get("ETag")
+	do(t, h, http.MethodPut, "/files/notes.txt", "hello")
+	etag := do(t, h, http.MethodGet, "/files/notes.txt", "").Header().Get("ETag")
 	if etag == "" {
 		t.Fatal("no ETag to condition on")
 	}
-	token := lockFile(t, h, "/dav/notes.txt")
+	token := lockFile(t, h, "/files/notes.txt")
 
 	both := "(" + token + " [" + etag + "])"
-	if got := do(t, h, http.MethodPut, "/dav/notes.txt", "still mine", "If", both).Code; got != http.StatusNoContent {
+	if got := do(t, h, http.MethodPut, "/files/notes.txt", "still mine", "If", both).Code; got != http.StatusNoContent {
 		t.Errorf("a PUT with the token and the right ETag = %d", got)
 	}
 	// The write above changed the bytes, so the same condition is now false.
-	if got := do(t, h, http.MethodPut, "/dav/notes.txt", "stale", "If", both).Code; got != http.StatusPreconditionFailed {
+	if got := do(t, h, http.MethodPut, "/files/notes.txt", "stale", "If", both).Code; got != http.StatusPreconditionFailed {
 		t.Errorf("a PUT with a stale ETag = %d, want 412", got)
 	}
 }
@@ -384,18 +384,18 @@ func TestAnETagConditionIsChecked(t *testing.T) {
 func TestASharedLockIsRefused(t *testing.T) {
 	t.Parallel()
 	h := server(t)
-	do(t, h, http.MethodPut, "/dav/notes.txt", "hello")
+	do(t, h, http.MethodPut, "/files/notes.txt", "hello")
 
 	const shared = `<?xml version="1.0" encoding="utf-8"?>
 <D:lockinfo xmlns:D="DAV:">
   <D:lockscope><D:shared/></D:lockscope>
   <D:locktype><D:write/></D:locktype>
 </D:lockinfo>`
-	if got := do(t, h, "LOCK", "/dav/notes.txt", shared).Code; got != http.StatusNotImplemented {
+	if got := do(t, h, "LOCK", "/files/notes.txt", shared).Code; got != http.StatusNotImplemented {
 		t.Errorf("a shared LOCK = %d, want 501", got)
 	}
 	// And nothing was taken: an exclusive one still works.
-	if got := do(t, h, "LOCK", "/dav/notes.txt", lockRequest).Code; got != http.StatusOK {
+	if got := do(t, h, "LOCK", "/files/notes.txt", lockRequest).Code; got != http.StatusOK {
 		t.Errorf("an exclusive LOCK after the refusal = %d", got)
 	}
 }
@@ -407,11 +407,11 @@ func TestASharedLockIsRefused(t *testing.T) {
 func TestATaggedCollectionCoversAFileInIt(t *testing.T) {
 	t.Parallel()
 	h := server(t)
-	do(t, h, "MKCOL", "/dav/album", "")
-	token := lockFile(t, h, "/dav/album")
+	do(t, h, "MKCOL", "/files/album", "")
+	token := lockFile(t, h, "/files/album")
 
-	tagged := "<http://example.com/dav/album/> " + ifHeader(token)
-	if got := do(t, h, http.MethodPut, "/dav/album/one.txt", "one", "If", tagged).Code; got != http.StatusCreated {
+	tagged := "<http://example.com/files/album/> " + ifHeader(token)
+	if got := do(t, h, http.MethodPut, "/files/album/one.txt", "one", "If", tagged).Code; got != http.StatusCreated {
 		t.Errorf("a PUT under a collection whose token was submitted for it = %d", got)
 	}
 }
@@ -426,11 +426,11 @@ func TestARestartForgetsALock(t *testing.T) {
 	t.Parallel()
 	svc, _ := service(t)
 	before := withUser(dav.Handler(prefix, svc), "edu")
-	do(t, before, http.MethodPut, "/dav/notes.txt", "hello")
-	lockFile(t, before, "/dav/notes.txt")
+	do(t, before, http.MethodPut, "/files/notes.txt", "hello")
+	lockFile(t, before, "/files/notes.txt")
 
 	after := withUser(dav.Handler(prefix, svc), "edu")
-	if got := do(t, after, http.MethodPut, "/dav/notes.txt", "after the restart").Code; got != http.StatusNoContent {
+	if got := do(t, after, http.MethodPut, "/files/notes.txt", "after the restart").Code; got != http.StatusNoContent {
 		t.Errorf("a PUT after a restart = %d, want 204: the lock went with the process", got)
 	}
 }

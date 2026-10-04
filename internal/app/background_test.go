@@ -49,7 +49,7 @@ func TestCollectorRuns(t *testing.T) {
 	})
 	defer stop()
 
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodPut, base+"/dav/notes.txt", strings.NewReader("one"))
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPut, base+"/files/notes.txt", strings.NewReader("one"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,7 +195,7 @@ func TestCollectorDisabled(t *testing.T) {
 		"STRATUS_GC_INTERVAL": "0",
 	})
 
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodPut, base+"/dav/notes.txt", strings.NewReader("one"))
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPut, base+"/files/notes.txt", strings.NewReader("one"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -267,7 +267,7 @@ func TestIndexerRuns(t *testing.T) {
 	})
 	defer stop()
 
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodPut, base+"/dav/notes.txt", strings.NewReader("indexed"))
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPut, base+"/files/notes.txt", strings.NewReader("indexed"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -349,7 +349,7 @@ func TestIndexerFindsWhatNobodyAnnounced(t *testing.T) {
 	})
 	defer stop()
 
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodPut, base+"/dav/notes.txt", strings.NewReader("indexed"))
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPut, base+"/files/notes.txt", strings.NewReader("indexed"))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -29,12 +29,13 @@ import (
 // shutdownTimeout bounds how long in-flight requests get to finish.
 const shutdownTimeout = 15 * time.Second
 
-// davPrefix is where the file surface lives. Not "/" so that the web UI and the
-// other protocol surfaces have somewhere to go later.
-const davPrefix = "/dav/"
-
-// davRealm is what a client shows when it asks for a password.
-const davRealm = "Stratus"
+// filesPrefix is where the file surface lives, and it is **one prefix for two
+// protocols** (#279): the same URL the web UI has always served a directory
+// and a file at now answers WebDAV as well. What tells the two apart is the
+// method and nothing else -- a browser never sends PROPFIND, and a WebDAV
+// client never asks for a listing with GET -- so there is no negotiation here
+// and no header to sniff.
+const filesPrefix = "/files/"
 
 // tusPrefix is where resumable uploads live. A prefix of its own rather than a
 // corner of davPrefix: every upload in progress has a URL there, and those are
@@ -49,6 +50,7 @@ const subsonicPrefix = "/rest/"
 // photosPrefix is where photos are served by year and month, a read-only
 // mount of its own for the reason playlistsPrefix is one (#213). The web
 // gallery of the same photos is /gallery/photos, so the two cannot collide.
+// Converging those two the way /files/ converged is the second half of #279.
 const photosPrefix = "/photos/"
 
 // playlistsPrefix is where playlists are served as .m3u8 files. A mount of its
@@ -151,11 +153,21 @@ func (a *App) Handler(deps Deps) http.Handler {
 		// protocols rather than grow an API of its own: see auth.Session, and
 		// why the cookie counts only on a request the browser calls its own.
 		sessions := auth.NewSessions(creds, auth.DefaultSessionTTL)
-		mux.Handle(davPrefix, dav.SignedLinks(davPrefix, shares, auth.Session(sessions,
-			auth.Basic(davRealm, verifier, hlsOr(web.HLS(davPrefix, service, films(deps)), dav.Handler(davPrefix, service))))))
+		browser := web.Handler(a.version, a.buildDate, verifier, sessions, shares, service, deps.Thumbs, deps.Database,
+			web.Indexing{Index: deps.Database, Interval: a.cfg.IndexInterval}, imports(deps), films(deps))
+
+		// One URL, two protocols, split by method (#279). The browser half is
+		// the handler mounted at "/" below -- it already routes /files/ and is
+		// handed the whole path -- and the WebDAV half is this one. A signed
+		// link needs no wrapper here: it authorises GET and HEAD, which are
+		// the browser's side of the split, and the page that verifies it is
+		// the one that serves them.
+		mux.Handle(filesPrefix, davOrBrowser(
+			auth.Session(sessions, auth.Basic(auth.Realm, verifier, dav.Handler(filesPrefix, service))),
+			browser))
 		// The same realm and the same throttle: it is the same credentials, and
 		// a second budget of guesses would be a second way in.
-		mux.Handle(tusPrefix, auth.Session(sessions, auth.Basic(davRealm, verifier, tus.Handler(tusPrefix, service))))
+		mux.Handle(tusPrefix, auth.Session(sessions, auth.Basic(auth.Realm, verifier, tus.Handler(tusPrefix, service))))
 		// The same verifier, deliberately. Subsonic authenticates per request
 		// from the query string rather than through auth.Basic, and a second
 		// NewThrottle here would give an attacker a second budget of guesses at
@@ -167,17 +179,26 @@ func (a *App) Handler(deps Deps) http.Handler {
 		playlists := music.New(deps.Database)
 		mux.Handle(subsonicPrefix, auth.Session(sessions,
 			subsonic.Handler(subsonicPrefix, a.version, verifier, deps.Database, service, playlists, thumbs, transcoder(deps))))
-		// The same realm and throttle as /dav/, for the reason tus shares them.
+		// The same realm and throttle as the file surface, for the reason tus
+		// shares them.
 		mux.Handle(playlistsPrefix, auth.Session(sessions,
-			auth.Basic(davRealm, verifier, dav.Playlists(playlistsPrefix, davPrefix, playlists))))
-		mux.Handle(photosPrefix, auth.Session(sessions, auth.Basic(davRealm, verifier, dav.Photos(photosPrefix, deps.Database, service))))
+			auth.Basic(auth.Realm, verifier, dav.Playlists(playlistsPrefix, filesPrefix, playlists))))
+		mux.Handle(photosPrefix, auth.Session(sessions, auth.Basic(auth.Realm, verifier, dav.Photos(photosPrefix, deps.Database, service))))
 
 		// The browser surface, at the root, so everything the prefixes above did
 		// not claim is a page rather than a bare 404. Same verifier again, and
 		// the same sessions: see auth.Sessions for what that buys and what it
 		// costs.
-		mux.Handle("/", web.Handler(a.version, a.buildDate, verifier, sessions, shares, service, thumbs, deps.Database,
-			web.Indexing{Index: deps.Database, Interval: a.cfg.IndexInterval}, imports(deps), films(deps)))
+		//
+		// And in front of it, the collection the whole server is (#279): a
+		// WebDAV method at the origin is answered by a synthetic listing of
+		// the three mounts, while everything else is the page it always was.
+		// It is also what the Windows redirector probes before it will mount
+		// anything at all (#281).
+		mux.Handle("/", davOrBrowser(
+			auth.Session(sessions, auth.Basic(auth.Realm, verifier,
+				dav.Root("/", "files", "photos", "playlists"))),
+			browser))
 	}
 	// The log is outside the compression so that the bytes it counts are the
 	// bytes that went out rather than the ones the handler wrote, and the
@@ -309,20 +330,25 @@ func films(deps Deps) web.Video {
 	return v
 }
 
-// hlsOr sends a read that asks for HLS to hls and everything else to next.
+// davOrBrowser sends a request to the WebDAV handler or to the browser one,
+// by method.
 //
-// It is how a film is streamed as HLS from a WebDAV URL (#50): the app casts
-// from /dav/, since a client should depend on the protocol surface rather
-// than on the web UI's URLs (stratus-app#66), and a Chromecast fetches the
-// playlist and its segments itself with nothing but the share link's
-// signature. Routed here, in the composition root, because neither adapter
-// may import the other; the HLS is the web adapter's, behind WebDAV's gates.
-func hlsOr(hls, next http.Handler) http.Handler {
+// The methods a browser can produce go to the pages; everything else is
+// WebDAV's. PUT and DELETE are on the WebDAV side without ambiguity because
+// the UI uploads and deletes with a form POST, and OPTIONS is there so that
+// what a client is told about the resource comes from the half that speaks
+// the protocol.
+//
+// It lives here because inbound adapters do not import each other, which is
+// the same reason hlsOr does, and because deciding which protocol a request
+// is in is wiring rather than either adapter's business.
+func davOrBrowser(dav, browser http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if (r.Method == http.MethodGet || r.Method == http.MethodHead) && r.URL.Query().Has(web.HLSParam) {
-			hls.ServeHTTP(w, r)
-			return
+		switch r.Method {
+		case http.MethodGet, http.MethodHead, http.MethodPost:
+			browser.ServeHTTP(w, r)
+		default:
+			dav.ServeHTTP(w, r)
 		}
-		next.ServeHTTP(w, r)
 	})
 }

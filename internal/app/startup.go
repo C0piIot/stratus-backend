@@ -146,7 +146,7 @@ func (a *App) open(ctx context.Context) (deps Deps, err error) {
 	}
 
 	if credentials(a.cfg).Configured() {
-		slog.Info("webdav ready", "prefix", davPrefix, "user", a.cfg.Username)
+		slog.Info("webdav ready", "prefix", filesPrefix, "user", a.cfg.Username)
 	} else {
 		slog.Warn("webdav disabled", "reason", "STRATUS_USERNAME and STRATUS_PASSWORD are not set")
 	}
