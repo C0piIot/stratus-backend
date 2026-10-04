@@ -586,7 +586,7 @@ if wait_serving "$davname"; then
   # that two PATCHes work -- the unit tests cover that -- but that an upload
   # survives being interrupted in the one place it has to: between requests,
   # with nothing held in memory and the offset read back from the server.
-  tus_meta="filename $(printf '%s' 'resumed.txt' | base64 -w0),filetype $(printf '%s' 'text/plain' | base64 -w0)"
+  tus_meta="filename $(printf '%s' 'files/resumed.txt' | base64 -w0),filetype $(printf '%s' 'text/plain' | base64 -w0)"
   tus_location="$(curl -fsS -D - -o /dev/null -u "$davuser:$davpass" -X POST \
     -H 'Tus-Resumable: 1.0.0' -H 'Upload-Length: 10' -H "Upload-Metadata: $tus_meta" \
     "http://$davhost/tus/" 2>/dev/null | tr -d '\r' | sed -n 's/^[Ll]ocation: //p')"
@@ -624,6 +624,22 @@ if wait_serving "$davname"; then
   else
     bad "a resumed upload lands as a file WebDAV can read" "got '$resumed'"
   fi
+
+  # A filename is a path from the origin, so one without the collection on it
+  # names nothing (#285). Asserted out here because this is the kind of thing
+  # a client gets wrong and then retries for ever: the answer has to be a
+  # refusal it can read, not a 404 that looks like a missing folder.
+  for bad_name in 'resumed.txt' 'photos/2026/01/a.jpg'; do
+    tus_bad="$(curl -s -o /dev/null -w '%{http_code}' -u "$davuser:$davpass" -X POST \
+      -H 'Tus-Resumable: 1.0.0' -H 'Upload-Length: 1' \
+      -H "Upload-Metadata: filename $(printf '%s' "$bad_name" | base64 -w0)" \
+      "http://$davhost/tus/" 2>/dev/null || true)"
+    if [ "$tus_bad" = "400" ]; then
+      ok "a tus filename outside files/ is refused ($bad_name)"
+    else
+      bad "a tus filename outside files/ is refused ($bad_name)" "POST = $tus_bad, want 400"
+    fi
+  done
 
   # The other protocol surface, in the image that has to serve it. Token auth
   # rather than the password, because it is the scheme every current client
