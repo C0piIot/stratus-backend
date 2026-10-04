@@ -112,3 +112,22 @@ func TestTheRootRefusesTheWholeTree(t *testing.T) {
 		t.Errorf("PROPFIND / with Depth: infinity = %d, want 403", rec.Code)
 	}
 }
+
+// TestTheRootIsOnePathAndNotASubtree: this handler sits on the catch-all, so
+// everything WebDAV that nothing else claimed reaches it -- including a URL
+// that was retired. Answering the root's listing there would tell a client
+// that every address on this server is a collection holding three others.
+func TestTheRootIsOnePathAndNotASubtree(t *testing.T) {
+	t.Parallel()
+	for _, target := range []string{"/dav/", "/nothing-here/", "/login"} {
+		for _, method := range []string{"PROPFIND", http.MethodOptions} {
+			req := httptest.NewRequestWithContext(t.Context(), method, target, nil)
+			req.Header.Set("Depth", "1")
+			rec := httptest.NewRecorder()
+			root(t).ServeHTTP(rec, req)
+			if rec.Code != http.StatusNotFound {
+				t.Errorf("%s %s = %d, want 404", method, target, rec.Code)
+			}
+		}
+	}
+}

@@ -106,7 +106,7 @@ printf '\n\033[1mUploading to %s\033[0m\n' "$BASE"
 # path, and a 405 means somebody already made it.
 while read -r dir; do
 	[ "$dir" = "." ] && continue
-	code="$(curl -s -o /dev/null -w '%{http_code}' -u "$USER:$PASS" -X MKCOL "$BASE/dav/$(encode "$dir")")"
+	code="$(curl -s -o /dev/null -w '%{http_code}' -u "$USER:$PASS" -X MKCOL "$BASE/files/$(encode "$dir")")"
 	case "$code" in
 	201 | 405) ;;
 	*) die "MKCOL $dir answered $code" ;;
@@ -114,7 +114,7 @@ while read -r dir; do
 done < <(cd "$work/media" && find . -type d | sed 's|^\./||' | sort)
 
 while read -r f; do
-	dav -T "$work/media/$f" -H "Content-Type: $(content_type "$f")" "$BASE/dav/$(encode "$f")" >/dev/null ||
+	dav -T "$work/media/$f" -H "Content-Type: $(content_type "$f")" "$BASE/files/$(encode "$f")" >/dev/null ||
 		die "PUT $f failed"
 done <<<"$files"
 ok "$count files in"
@@ -122,7 +122,7 @@ ok "$count files in"
 printf '\n\033[1mWhat the server says about it\033[0m\n'
 listed=0
 while read -r f; do
-	dav -o /dev/null "$BASE/dav/$(encode "$f")" && listed=$((listed + 1))
+	dav -o /dev/null "$BASE/files/$(encode "$f")" && listed=$((listed + 1))
 done <<<"$files"
 [ "$listed" -eq "$count" ] || die "only $listed of $count files read back over WebDAV"
 ok "every file reads back over WebDAV"
@@ -186,7 +186,7 @@ esac
 
 # Range requests are what a player uses to seek, and the video is here for them.
 code="$(curl -s -o /dev/null -w '%{http_code}' -u "$USER:$PASS" -r 0-1023 \
-	"$BASE/dav/$(encode "Video/sintel-trailer.mp4")")"
+	"$BASE/files/$(encode "Video/sintel-trailer.mp4")")"
 [ "$code" = "206" ] || die "a range request for the video answered $code"
 ok "the video answers a range request"
 
