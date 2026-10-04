@@ -8,6 +8,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/C0piIot/stratus-backend/internal/app"
 	"github.com/C0piIot/stratus-backend/internal/config"
+	"github.com/C0piIot/stratus-backend/internal/nextcloud"
 	"github.com/C0piIot/stratus-backend/internal/report"
 )
 
@@ -35,6 +37,18 @@ var (
 )
 
 func main() {
+	// A subcommand is taken before the flag package sees anything: `import`
+	// has flags of its own, and the default FlagSet would refuse them as the
+	// server's. The server itself stays the bare `stratus`, so nothing that
+	// runs this image today has to change.
+	if len(os.Args) > 1 && os.Args[1] == "import" {
+		if err := runImport(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "import:", err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	// Distroless images ship no shell and no curl, so the binary probes itself
 	// for the container healthcheck.
 	healthcheck := flag.Bool("healthcheck", false, "probe the local health endpoint and exit")
@@ -86,4 +100,45 @@ func main() {
 		}
 		flush()
 	}
+}
+
+// runImport is `stratus import nextcloud`: the survey half of #24, which reads
+// somebody else's instance and writes nothing at all.
+//
+// It is a survey rather than a flag on an importer because the thing worth
+// knowing first is whether the database and the bucket still agree. Nextcloud's
+// own well-known failure is that they drift, and finding that out after the
+// rows are written is a data loss event rather than a migration.
+func runImport(args []string) error {
+	if len(args) == 0 || args[0] != "nextcloud" {
+		return errors.New("usage: stratus import nextcloud --db <path> [--user <name>]")
+	}
+
+	fs := flag.NewFlagSet("stratus import nextcloud", flag.ExitOnError)
+	var opts nextcloud.Options
+	fs.StringVar(&opts.DBPath, "db", "", "path to the Nextcloud SQLite database (read-only)")
+	fs.StringVar(&opts.User, "user", "", "whose files, when the instance has more than one user")
+	fs.StringVar(&opts.TablePrefix, "table-prefix", nextcloud.DefaultTablePrefix, "Nextcloud's dbtableprefix")
+	fs.StringVar(&opts.ObjectPrefix, "object-prefix", nextcloud.DefaultObjectPrefix,
+		"objectstore.arguments.objectPrefix from config.php, which is not in the database")
+	fs.IntVar(&opts.Workers, "workers", nextcloud.DefaultWorkers, "how many objects to ask the bucket about at once")
+	if err := fs.Parse(args[1:]); err != nil {
+		return err
+	}
+	if opts.DBPath == "" {
+		return errors.New("--db is required: the path to the Nextcloud SQLite database")
+	}
+
+	cfg, err := config.Load(os.Getenv)
+	if err != nil {
+		return fmt.Errorf("configuration: %w", err)
+	}
+
+	// The blob store is this server's, from the same STRATUS_STORAGE_DSN the
+	// server runs on: the question being asked is whether that bucket already
+	// holds what Nextcloud's database claims.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	return app.SurveyNextcloud(ctx, cfg, opts, os.Stdout)
 }

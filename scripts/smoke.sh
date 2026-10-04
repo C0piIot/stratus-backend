@@ -287,6 +287,45 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+section "Importing from Nextcloud"
+# ---------------------------------------------------------------------------
+# The survey is the one subcommand this binary has, and it is the half of #24
+# that runs before anybody migrates: it reads a Nextcloud database read-only
+# and asks the configured bucket whether the objects it names are there. Driven
+# from here because an image with no shell in it is exactly where a second
+# entry point breaks without anybody noticing.
+ncdir="$(mktmp)"
+cp scripts/testdata/nextcloud.db "$ncdir/nextcloud.db"
+mkdir -p "$ncdir/blobs"
+# The fixture claims two files. Only this one is in the bucket.
+printf 'held.js' > "$ncdir/blobs/urn:oid:3"
+
+out="$(docker run --rm ${cover_args[@]+"${cover_args[@]}"} \
+  -u "$(id -u):$(id -g)" -v "$ncdir:/nc" \
+  -e STRATUS_STORAGE_DSN="file:///nc/blobs" \
+  "$RUN_REF" import nextcloud --db /nc/nextcloud.db 2>&1 || true)"
+
+if printf '%s' "$out" | grep -q "urn:oid:4"; then
+  ok "the survey names the object the bucket does not have"
+else
+  bad "the survey names the object the bucket does not have" "$out"
+fi
+if printf '%s' "$out" | grep -q "Nothing was written"; then
+  ok "the survey says it wrote nothing"
+else
+  bad "the survey says it wrote nothing" "$out"
+fi
+# An unreadable instance has to be an exit code, not a report full of zeroes.
+if docker run --rm ${cover_args[@]+"${cover_args[@]}"} \
+  -u "$(id -u):$(id -g)" -v "$ncdir:/nc" \
+  -e STRATUS_STORAGE_DSN="file:///nc/blobs" \
+  "$RUN_REF" import nextcloud --db /nc/not-there.db >/dev/null 2>&1; then
+  bad "the survey fails on a database that is not there" "it exited 0"
+else
+  ok "the survey fails on a database that is not there"
+fi
+
+# ---------------------------------------------------------------------------
 section "Startup: happy path"
 # ---------------------------------------------------------------------------
 datadir="$(mktmp)"
