@@ -163,9 +163,15 @@ type refusing struct{ err error }
 
 func (r refusing) Verify(context.Context, string, string) error { return r.err }
 
+// get is a browser asking for a page, and it says so: since #279 one URL
+// serves both a browser and a WebDAV client, and what tells a request without
+// credentials which refusal to get -- the login page or a challenge -- is the
+// header a browser sends when it is navigating. A test that left it out would
+// be asking as a client and expecting to be answered as a browser.
 func get(t *testing.T, h http.Handler, target string, cookies ...*http.Cookie) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, target, nil)
+	req.Header.Set("Sec-Fetch-Mode", "navigate")
 	for _, c := range cookies {
 		req.AddCookie(c)
 	}
@@ -174,10 +180,13 @@ func get(t *testing.T, h http.Handler, target string, cookies ...*http.Cookie) *
 	return rec
 }
 
+// post is a browser submitting one of the UI's forms, which is a navigation
+// like the get above and says so for the same reason.
 func post(t *testing.T, h http.Handler, target string, form url.Values, cookies ...*http.Cookie) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, target, strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Sec-Fetch-Mode", "navigate")
 	for _, c := range cookies {
 		req.AddCookie(c)
 	}

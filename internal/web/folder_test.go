@@ -16,6 +16,7 @@ func newFolder(t *testing.T, h http.Handler, in string, cookie *http.Cookie, nam
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/folders/"+in,
 		strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Sec-Fetch-Mode", "navigate")
 	if cookie != nil {
 		req.AddCookie(cookie)
 	}

@@ -6,6 +6,26 @@ import (
 	"strings"
 )
 
+// Realm is what a client shows when it asks for a password. One name for every
+// surface, because it is one password: a second realm would make a browser
+// hold two sets of credentials for one server and ask for the other one at
+// the worst moment.
+const Realm = "Stratus"
+
+// Challenge is the WWW-Authenticate value for realm.
+//
+// Exported because the page surface has to be able to send exactly this
+// (#279): now that one URL answers both a browser and a WebDAV client, the
+// half that serves pages has to be able to ask for a password in the same
+// words as the half that serves the protocol.
+//
+// A realm reaches the client inside a quoted string, so a quote in it would
+// produce a header the client cannot parse. It comes from us, not from a
+// request, and stripping is enough to keep that true.
+func Challenge(realm string) string {
+	return `Basic realm="` + strings.NewReplacer(`"`, "", `\`, "").Replace(realm) + `", charset="UTF-8"`
+}
+
 // Basic wraps h with HTTP Basic authentication.
 //
 // Basic rather than anything cleverer because it is what the clients speak:
@@ -14,10 +34,7 @@ import (
 // this project exists to serve. It is only ever safe over TLS, which is the
 // deployment's job.
 func Basic(realm string, v Verifier, h http.Handler) http.Handler {
-	// A realm reaches the client inside a quoted string, so a quote in it would
-	// produce a header the client cannot parse. It comes from us, not from a
-	// request, and stripping is enough to keep that true.
-	challenge := `Basic realm="` + strings.NewReplacer(`"`, "", `\`, "").Replace(realm) + `", charset="UTF-8"`
+	challenge := Challenge(realm)
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Somebody upstream already said who this is -- a signed link, today.

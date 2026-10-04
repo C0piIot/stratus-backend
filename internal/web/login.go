@@ -35,6 +35,22 @@ func (h *handler) signedIn(page func(http.ResponseWriter, *http.Request, string)
 		user, sent, err := auth.BasicUser(r, h.verifier)
 		switch {
 		case !sent:
+			// Nobody said who they are, and what to answer depends on who is
+			// asking -- which since #279 is a real question, because one URL
+			// now serves a browser and a WebDAV client.
+			//
+			// A browser navigating needs the login page; a client needs the
+			// challenge, or it never sends credentials at all. The
+			// discriminator is the one #234 already trusts: only a browser
+			// sends Sec-Fetch-*, and it says what the request is for. A
+			// request that is not a navigation -- an <img>, a fetch, a WebDAV
+			// GET -- gets the challenge, which for the image means a broken
+			// picture rather than a login page rendered inside one.
+			if r.Header.Get("Sec-Fetch-Mode") != "navigate" {
+				w.Header().Set("WWW-Authenticate", auth.Challenge(auth.Realm))
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
 			redirectLocal(w, r, "/login?next="+url.QueryEscape(r.URL.RequestURI()))
 			return
 		case errors.Is(err, auth.ErrTooManyAttempts):

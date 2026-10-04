@@ -301,7 +301,7 @@ func TestWebDAVIsWiredAndAuthenticated(t *testing.T) {
 	defer stop()
 
 	// Without credentials the surface exists and refuses.
-	resp, err := http.Get(base + "/dav/") //nolint:noctx // the request context adds nothing here
+	resp, err := http.Get(base + "/files/") //nolint:noctx // the request context adds nothing here
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -314,7 +314,7 @@ func TestWebDAVIsWiredAndAuthenticated(t *testing.T) {
 	}
 
 	// With them, a file survives a round trip through storage and the database.
-	put, err := http.NewRequestWithContext(t.Context(), http.MethodPut, base+"/dav/notes.txt", strings.NewReader("hello"))
+	put, err := http.NewRequestWithContext(t.Context(), http.MethodPut, base+"/files/notes.txt", strings.NewReader("hello"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -327,7 +327,7 @@ func TestWebDAVIsWiredAndAuthenticated(t *testing.T) {
 		t.Fatalf("PUT = %d, want 201", resp.StatusCode)
 	}
 
-	get, err := http.NewRequestWithContext(t.Context(), http.MethodGet, base+"/dav/notes.txt", nil)
+	get, err := http.NewRequestWithContext(t.Context(), http.MethodGet, base+"/files/notes.txt", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -354,7 +354,7 @@ func TestWebDAVIsNotMountedWithoutCredentials(t *testing.T) {
 	base, stop := liveServer(t, map[string]string{})
 	defer stop()
 
-	resp, err := http.Get(base + "/dav/notes.txt") //nolint:noctx // as above
+	resp, err := http.Get(base + "/files/notes.txt") //nolint:noctx // as above
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -425,7 +425,7 @@ func TestSubsonicSharesTheRateLimitWithWebDAV(t *testing.T) {
 	// Spend the burst on WebDAV. auth.DefaultThrottle answers three failures
 	// without waiting, so these are instant.
 	for i := range 3 {
-		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, base+"/dav/", nil)
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, base+"/files/", nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -538,12 +538,17 @@ func TestWebUIIsNotMountedWithoutCredentials(t *testing.T) {
 
 // request is a bare GET that does not follow redirects: where the server sends
 // a browser is half of what these tests are about.
+// request is a browser navigating, which is what the pages are asked for here
+// -- and since #279 it has to say so: the same URL answers a WebDAV client,
+// and what decides which refusal an unauthenticated request gets is the header
+// only a browser sends.
 func request(t *testing.T, method, target string) *http.Response {
 	t.Helper()
 	req, err := http.NewRequestWithContext(t.Context(), method, target, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
+	req.Header.Set("Sec-Fetch-Mode", "navigate")
 	client := http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
 		return http.ErrUseLastResponse
 	}}
@@ -579,7 +584,7 @@ func answer(t *testing.T, target string) string {
 }
 
 // TestTheSessionOpensEveryProtocolFromItsOwnPages is #234's acceptance: the web
-// UI's cookie authenticates /rest/ and /dav/ when the browser says the request
+// UI's cookie authenticates /rest/ and /files/ when the browser says the request
 // is its own, and never when another site started it -- OpenSubsonic deletes a
 // playlist over GET, and SameSite=Lax sends the cookie on any link.
 func TestTheSessionOpensEveryProtocolFromItsOwnPages(t *testing.T) {
@@ -646,10 +651,10 @@ func TestTheSessionOpensEveryProtocolFromItsOwnPages(t *testing.T) {
 		t.Errorf("deletePlaylist from the web UI = %s, want ok", body)
 	}
 
-	if code, _ := withCookie("PROPFIND", "/dav/", "same-origin"); code != http.StatusMultiStatus {
-		t.Errorf("PROPFIND /dav/ from the web UI = %d, want 207", code)
+	if code, _ := withCookie("PROPFIND", "/files/", "same-origin"); code != http.StatusMultiStatus {
+		t.Errorf("PROPFIND /files/ from the web UI = %d, want 207", code)
 	}
-	if code, _ := withCookie("PROPFIND", "/dav/", "cross-site"); code != http.StatusUnauthorized {
+	if code, _ := withCookie("PROPFIND", "/files/", "cross-site"); code != http.StatusUnauthorized {
 		t.Errorf("a cross-site PROPFIND with the cookie = %d, want 401", code)
 	}
 }

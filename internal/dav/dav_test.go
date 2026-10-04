@@ -18,7 +18,7 @@ import (
 	"github.com/C0piIot/stratus-backend/internal/storage/disk"
 )
 
-const prefix = "/dav/"
+const prefix = "/files/"
 
 // server drives the real handler over the real backends. A WebDAV adapter that
 // is only tested against fakes tests the fakes.
@@ -80,15 +80,15 @@ func TestPutGetDelete(t *testing.T) {
 	t.Parallel()
 	h := server(t)
 
-	if got := do(t, h, http.MethodPut, "/dav/notes.txt", "hello").Code; got != http.StatusCreated {
+	if got := do(t, h, http.MethodPut, "/files/notes.txt", "hello").Code; got != http.StatusCreated {
 		t.Errorf("PUT = %d, want 201", got)
 	}
 	// A second PUT replaces rather than creates.
-	if got := do(t, h, http.MethodPut, "/dav/notes.txt", "hello again").Code; got != http.StatusNoContent {
+	if got := do(t, h, http.MethodPut, "/files/notes.txt", "hello again").Code; got != http.StatusNoContent {
 		t.Errorf("PUT over an existing file = %d, want 204", got)
 	}
 
-	rec := do(t, h, http.MethodGet, "/dav/notes.txt", "")
+	rec := do(t, h, http.MethodGet, "/files/notes.txt", "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("GET = %d, want 200", rec.Code)
 	}
@@ -99,10 +99,10 @@ func TestPutGetDelete(t *testing.T) {
 		t.Error("no ETag, so a client cannot tell whether it changed")
 	}
 
-	if got := do(t, h, http.MethodDelete, "/dav/notes.txt", "").Code; got != http.StatusNoContent {
+	if got := do(t, h, http.MethodDelete, "/files/notes.txt", "").Code; got != http.StatusNoContent {
 		t.Errorf("DELETE = %d, want 204", got)
 	}
-	if got := do(t, h, http.MethodGet, "/dav/notes.txt", "").Code; got != http.StatusNotFound {
+	if got := do(t, h, http.MethodGet, "/files/notes.txt", "").Code; got != http.StatusNotFound {
 		t.Errorf("GET after DELETE = %d, want 404", got)
 	}
 }
@@ -112,9 +112,9 @@ func TestPutGetDelete(t *testing.T) {
 func TestRangeRequest(t *testing.T) {
 	t.Parallel()
 	h := server(t)
-	do(t, h, http.MethodPut, "/dav/alphabet", "abcdefghijklmnopqrstuvwxyz")
+	do(t, h, http.MethodPut, "/files/alphabet", "abcdefghijklmnopqrstuvwxyz")
 
-	rec := do(t, h, http.MethodGet, "/dav/alphabet", "", "Range", "bytes=2-4")
+	rec := do(t, h, http.MethodGet, "/files/alphabet", "", "Range", "bytes=2-4")
 	if rec.Code != http.StatusPartialContent {
 		t.Fatalf("ranged GET = %d, want 206", rec.Code)
 	}
@@ -130,7 +130,7 @@ func TestRangeRequest(t *testing.T) {
 // sent them.
 //
 // Parsed rather than grepped because strings.Contains cannot answer the
-// question this file asks: "/dav/album" is a substring of "/dav/album/one.txt",
+// question this file asks: "/files/album" is a substring of "/files/album/one.txt",
 // so a listing that omits the collection looks exactly like one that includes
 // it -- and that difference is the whole of #126. It cannot see a duplicate
 // either.
@@ -186,16 +186,16 @@ func wantHrefs(t *testing.T, got []string, want ...string) {
 func TestPropfind(t *testing.T) {
 	t.Parallel()
 	h := server(t)
-	do(t, h, "MKCOL", "/dav/album", "")
-	do(t, h, http.MethodPut, "/dav/album/one.txt", "one")
-	do(t, h, http.MethodPut, "/dav/album/two.txt", "two")
+	do(t, h, "MKCOL", "/files/album", "")
+	do(t, h, http.MethodPut, "/files/album/one.txt", "one")
+	do(t, h, http.MethodPut, "/files/album/two.txt", "two")
 
-	got := hrefs(t, do(t, h, "PROPFIND", "/dav/album", "", "Depth", "1"))
-	wantHrefs(t, got, "/dav/album/", "/dav/album/one.txt", "/dav/album/two.txt")
+	got := hrefs(t, do(t, h, "PROPFIND", "/files/album", "", "Depth", "1"))
+	wantHrefs(t, got, "/files/album/", "/files/album/one.txt", "/files/album/two.txt")
 
 	// First, which is where mod_dav, sabre/dav and go-webdav's own local
 	// backend put it, and what a client that takes response[0] expects.
-	if len(got) > 0 && got[0] != "/dav/album/" {
+	if len(got) > 0 && got[0] != "/files/album/" {
 		t.Errorf("hrefs[0] = %q, want the collection itself", got[0])
 	}
 }
@@ -205,10 +205,10 @@ func TestPropfind(t *testing.T) {
 func TestPropfindDepthZero(t *testing.T) {
 	t.Parallel()
 	h := server(t)
-	do(t, h, "MKCOL", "/dav/album", "")
-	do(t, h, http.MethodPut, "/dav/album/one.txt", "one")
+	do(t, h, "MKCOL", "/files/album", "")
+	do(t, h, http.MethodPut, "/files/album/one.txt", "one")
 
-	wantHrefs(t, hrefs(t, do(t, h, "PROPFIND", "/dav/album", "", "Depth", "0")), "/dav/album/")
+	wantHrefs(t, hrefs(t, do(t, h, "PROPFIND", "/files/album", "", "Depth", "0")), "/files/album/")
 }
 
 // TestPropfindOfAnEmptyCollection is the other half of #126, and the pair is the
@@ -218,11 +218,11 @@ func TestPropfindDepthZero(t *testing.T) {
 func TestPropfindOfAnEmptyCollection(t *testing.T) {
 	t.Parallel()
 	h := server(t)
-	do(t, h, "MKCOL", "/dav/empty", "")
+	do(t, h, "MKCOL", "/files/empty", "")
 
-	wantHrefs(t, hrefs(t, do(t, h, "PROPFIND", "/dav/empty", "", "Depth", "1")), "/dav/empty/")
+	wantHrefs(t, hrefs(t, do(t, h, "PROPFIND", "/files/empty", "", "Depth", "1")), "/files/empty/")
 
-	if code := do(t, h, "PROPFIND", "/dav/missing", "", "Depth", "1").Code; code != http.StatusNotFound {
+	if code := do(t, h, "PROPFIND", "/files/missing", "", "Depth", "1").Code; code != http.StatusNotFound {
 		t.Errorf("PROPFIND of a missing collection = %d, want 404", code)
 	}
 }
@@ -235,11 +235,11 @@ func TestPropfindOfAnEmptyCollection(t *testing.T) {
 func TestPropfindOfTheRoot(t *testing.T) {
 	t.Parallel()
 	h := server(t)
-	do(t, h, "MKCOL", "/dav/album", "")
-	do(t, h, http.MethodPut, "/dav/notes.txt", "notes")
+	do(t, h, "MKCOL", "/files/album", "")
+	do(t, h, http.MethodPut, "/files/notes.txt", "notes")
 
-	wantHrefs(t, hrefs(t, do(t, h, "PROPFIND", "/dav/", "", "Depth", "1")),
-		"/dav/", "/dav/album/", "/dav/notes.txt")
+	wantHrefs(t, hrefs(t, do(t, h, "PROPFIND", "/files/", "", "Depth", "1")),
+		"/files/", "/files/album/", "/files/notes.txt")
 }
 
 // TestPropfindOfAFile pins that none of this reaches a resource that is not a
@@ -247,9 +247,9 @@ func TestPropfindOfTheRoot(t *testing.T) {
 func TestPropfindOfAFile(t *testing.T) {
 	t.Parallel()
 	h := server(t)
-	do(t, h, http.MethodPut, "/dav/notes.txt", "notes")
+	do(t, h, http.MethodPut, "/files/notes.txt", "notes")
 
-	wantHrefs(t, hrefs(t, do(t, h, "PROPFIND", "/dav/notes.txt", "", "Depth", "1")), "/dav/notes.txt")
+	wantHrefs(t, hrefs(t, do(t, h, "PROPFIND", "/files/notes.txt", "", "Depth", "1")), "/files/notes.txt")
 }
 
 // TestPropfindEscapesTheSelfHref: the collection's own href goes through the
@@ -258,11 +258,11 @@ func TestPropfindOfAFile(t *testing.T) {
 func TestPropfindEscapesTheSelfHref(t *testing.T) {
 	t.Parallel()
 	h := server(t)
-	do(t, h, "MKCOL", "/dav/rock%20&%20roll", "")
-	do(t, h, http.MethodPut, "/dav/rock%20&%20roll/song.mp3", "song")
+	do(t, h, "MKCOL", "/files/rock%20&%20roll", "")
+	do(t, h, http.MethodPut, "/files/rock%20&%20roll/song.mp3", "song")
 
-	wantHrefs(t, hrefs(t, do(t, h, "PROPFIND", "/dav/rock%20&%20roll", "", "Depth", "1")),
-		"/dav/rock & roll/", "/dav/rock & roll/song.mp3")
+	wantHrefs(t, hrefs(t, do(t, h, "PROPFIND", "/files/rock%20&%20roll", "", "Depth", "1")),
+		"/files/rock & roll/", "/files/rock & roll/song.mp3")
 }
 
 // TestMoveACollectionWithThingsInIt is #101 over WebDAV: renaming a folder is
@@ -271,31 +271,31 @@ func TestPropfindEscapesTheSelfHref(t *testing.T) {
 func TestMoveACollectionWithThingsInIt(t *testing.T) {
 	t.Parallel()
 	h := server(t)
-	do(t, h, "MKCOL", "/dav/album", "")
-	do(t, h, "MKCOL", "/dav/album/raw", "")
-	do(t, h, http.MethodPut, "/dav/album/one.txt", "one")
-	do(t, h, http.MethodPut, "/dav/album/raw/deep.txt", "deep")
+	do(t, h, "MKCOL", "/files/album", "")
+	do(t, h, "MKCOL", "/files/album/raw", "")
+	do(t, h, http.MethodPut, "/files/album/one.txt", "one")
+	do(t, h, http.MethodPut, "/files/album/raw/deep.txt", "deep")
 
 	// 201 and not 204: RFC 4918 9.9.4 keeps them apart by whether the
-	// destination existed, and nothing was at /dav/archive.
-	if got := do(t, h, "MOVE", "/dav/album", "", "Destination", "/dav/archive").Code; got != http.StatusCreated {
+	// destination existed, and nothing was at /files/archive.
+	if got := do(t, h, "MOVE", "/files/album", "", "Destination", "/files/archive").Code; got != http.StatusCreated {
 		t.Fatalf("MOVE of a collection = %d, want 201", got)
 	}
 
 	// Everything came with it, which is what a listing of the new name shows.
-	wantHrefs(t, hrefs(t, do(t, h, "PROPFIND", "/dav/archive", "", "Depth", "1")),
-		"/dav/archive/", "/dav/archive/one.txt", "/dav/archive/raw/")
-	if body := do(t, h, http.MethodGet, "/dav/archive/raw/deep.txt", "").Body.String(); body != "deep" {
+	wantHrefs(t, hrefs(t, do(t, h, "PROPFIND", "/files/archive", "", "Depth", "1")),
+		"/files/archive/", "/files/archive/one.txt", "/files/archive/raw/")
+	if body := do(t, h, http.MethodGet, "/files/archive/raw/deep.txt", "").Body.String(); body != "deep" {
 		t.Errorf("the deepest file reads %q after the move", body)
 	}
-	if got := do(t, h, http.MethodGet, "/dav/album/one.txt", "").Code; got != http.StatusNotFound {
+	if got := do(t, h, http.MethodGet, "/files/album/one.txt", "").Code; got != http.StatusNotFound {
 		t.Errorf("the old path still answers: %d", got)
 	}
 
 	// And the one rename that cannot be done, because the destination is inside
 	// what is being moved.
-	do(t, h, "MKCOL", "/dav/photos", "")
-	if got := do(t, h, "MOVE", "/dav/photos", "", "Destination", "/dav/photos/inner").Code; got != http.StatusConflict {
+	do(t, h, "MKCOL", "/files/photos", "")
+	if got := do(t, h, "MOVE", "/files/photos", "", "Destination", "/files/photos/inner").Code; got != http.StatusConflict {
 		t.Errorf("MOVE of a collection into itself = %d, want 409", got)
 	}
 }
@@ -303,16 +303,16 @@ func TestMoveACollectionWithThingsInIt(t *testing.T) {
 func TestPropfindRefusesAnInfiniteDepth(t *testing.T) {
 	t.Parallel()
 	h := server(t)
-	do(t, h, "MKCOL", "/dav/album", "")
-	do(t, h, "MKCOL", "/dav/album/raw", "")
-	do(t, h, http.MethodPut, "/dav/album/raw/deep.txt", "deep")
+	do(t, h, "MKCOL", "/files/album", "")
+	do(t, h, "MKCOL", "/files/album/raw", "")
+	do(t, h, http.MethodPut, "/files/album/raw/deep.txt", "deep")
 
 	// RFC 4918 9.1 lets a server refuse the whole tree at once, and 14.5 says
 	// what it has to answer so that a client knows to walk it a level at a
 	// time instead of retrying the same thing. Measured at 44 MB of XML built
 	// inside 300 MB of heap for a hundred thousand files, and linear (#160).
 	for _, depth := range []string{"infinity", ""} {
-		rec := do(t, h, "PROPFIND", "/dav/", "", "Depth", depth)
+		rec := do(t, h, "PROPFIND", "/files/", "", "Depth", depth)
 		if rec.Code != http.StatusForbidden {
 			t.Errorf("PROPFIND with Depth %q = %d, want 403", depth, rec.Code)
 		}
@@ -327,36 +327,36 @@ func TestPropfindRefusesAnInfiniteDepth(t *testing.T) {
 	// a client the tree is four entries deep when it is not.
 
 	// And a level at a time still works, which is the way through.
-	wantHrefs(t, hrefs(t, do(t, h, "PROPFIND", "/dav/", "", "Depth", "1")),
-		"/dav/", "/dav/album/")
-	wantHrefs(t, hrefs(t, do(t, h, "PROPFIND", "/dav/album/raw", "", "Depth", "1")),
-		"/dav/album/raw/", "/dav/album/raw/deep.txt")
+	wantHrefs(t, hrefs(t, do(t, h, "PROPFIND", "/files/", "", "Depth", "1")),
+		"/files/", "/files/album/")
+	wantHrefs(t, hrefs(t, do(t, h, "PROPFIND", "/files/album/raw", "", "Depth", "1")),
+		"/files/album/raw/", "/files/album/raw/deep.txt")
 }
 
 func TestCollections(t *testing.T) {
 	t.Parallel()
 	h := server(t)
 
-	if got := do(t, h, "MKCOL", "/dav/album", "").Code; got != http.StatusCreated {
+	if got := do(t, h, "MKCOL", "/files/album", "").Code; got != http.StatusCreated {
 		t.Errorf("MKCOL = %d, want 201", got)
 	}
 	// RFC 4918 9.3.1.
-	if got := do(t, h, "MKCOL", "/dav/album", "").Code; got != http.StatusMethodNotAllowed {
+	if got := do(t, h, "MKCOL", "/files/album", "").Code; got != http.StatusMethodNotAllowed {
 		t.Errorf("MKCOL over an existing collection = %d, want 405", got)
 	}
-	if got := do(t, h, "MKCOL", "/dav/missing/inner", "").Code; got != http.StatusConflict {
+	if got := do(t, h, "MKCOL", "/files/missing/inner", "").Code; got != http.StatusConflict {
 		t.Errorf("MKCOL with no parent = %d, want 409", got)
 	}
 	// RFC 4918 9.7.1: same rule for PUT.
-	if got := do(t, h, http.MethodPut, "/dav/missing/file.txt", "x").Code; got != http.StatusConflict {
+	if got := do(t, h, http.MethodPut, "/files/missing/file.txt", "x").Code; got != http.StatusConflict {
 		t.Errorf("PUT with no parent = %d, want 409", got)
 	}
 
-	do(t, h, http.MethodPut, "/dav/album/one.txt", "one")
-	if got := do(t, h, http.MethodDelete, "/dav/album", "").Code; got != http.StatusNoContent {
+	do(t, h, http.MethodPut, "/files/album/one.txt", "one")
+	if got := do(t, h, http.MethodDelete, "/files/album", "").Code; got != http.StatusNoContent {
 		t.Errorf("DELETE on a collection = %d, want 204", got)
 	}
-	if got := do(t, h, http.MethodGet, "/dav/album/one.txt", "").Code; got != http.StatusNotFound {
+	if got := do(t, h, http.MethodGet, "/files/album/one.txt", "").Code; got != http.StatusNotFound {
 		t.Error("the collection was deleted but its contents survived")
 	}
 }
@@ -364,17 +364,17 @@ func TestCollections(t *testing.T) {
 func TestMove(t *testing.T) {
 	t.Parallel()
 	h := server(t)
-	do(t, h, "MKCOL", "/dav/album", "")
-	do(t, h, http.MethodPut, "/dav/photo.jpg", "bytes")
+	do(t, h, "MKCOL", "/files/album", "")
+	do(t, h, http.MethodPut, "/files/photo.jpg", "bytes")
 
-	rec := do(t, h, "MOVE", "/dav/photo.jpg", "", "Destination", "/dav/album/photo.jpg")
+	rec := do(t, h, "MOVE", "/files/photo.jpg", "", "Destination", "/files/album/photo.jpg")
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("MOVE = %d, want 201", rec.Code)
 	}
-	if got := do(t, h, http.MethodGet, "/dav/album/photo.jpg", "").Body.String(); got != "bytes" {
+	if got := do(t, h, http.MethodGet, "/files/album/photo.jpg", "").Body.String(); got != "bytes" {
 		t.Errorf("the moved file reads %q", got)
 	}
-	if got := do(t, h, http.MethodGet, "/dav/photo.jpg", "").Code; got != http.StatusNotFound {
+	if got := do(t, h, http.MethodGet, "/files/photo.jpg", "").Code; got != http.StatusNotFound {
 		t.Errorf("the old path still resolves: %d", got)
 	}
 }
@@ -382,26 +382,26 @@ func TestMove(t *testing.T) {
 func TestCopy(t *testing.T) {
 	t.Parallel()
 	h := server(t)
-	do(t, h, http.MethodPut, "/dav/one.txt", "content")
+	do(t, h, http.MethodPut, "/files/one.txt", "content")
 
-	if got := do(t, h, "COPY", "/dav/one.txt", "", "Destination", "/dav/two.txt").Code; got != http.StatusCreated {
+	if got := do(t, h, "COPY", "/files/one.txt", "", "Destination", "/files/two.txt").Code; got != http.StatusCreated {
 		t.Errorf("COPY = %d, want 201", got)
 	}
-	if got := do(t, h, http.MethodGet, "/dav/two.txt", "").Body.String(); got != "content" {
+	if got := do(t, h, http.MethodGet, "/files/two.txt", "").Body.String(); got != "content" {
 		t.Errorf("the copy reads %q", got)
 	}
 	// The original is untouched.
-	if got := do(t, h, http.MethodGet, "/dav/one.txt", "").Body.String(); got != "content" {
+	if got := do(t, h, http.MethodGet, "/files/one.txt", "").Body.String(); got != "content" {
 		t.Errorf("the source reads %q", got)
 	}
 
 	// And a collection, with everything under it (#43).
-	do(t, h, "MKCOL", "/dav/album", "")
-	do(t, h, http.MethodPut, "/dav/album/deep.txt", "deep")
-	if got := do(t, h, "COPY", "/dav/album", "", "Destination", "/dav/copy").Code; got != http.StatusCreated {
+	do(t, h, "MKCOL", "/files/album", "")
+	do(t, h, http.MethodPut, "/files/album/deep.txt", "deep")
+	if got := do(t, h, "COPY", "/files/album", "", "Destination", "/files/copy").Code; got != http.StatusCreated {
 		t.Errorf("COPY of a collection = %d, want 201", got)
 	}
-	if got := do(t, h, http.MethodGet, "/dav/copy/deep.txt", "").Body.String(); got != "deep" {
+	if got := do(t, h, http.MethodGet, "/files/copy/deep.txt", "").Body.String(); got != "deep" {
 		t.Errorf("the copied tree reads %q", got)
 	}
 }
@@ -414,16 +414,16 @@ func TestPathTraversal(t *testing.T) {
 	h := server(t)
 
 	// One level up from the collection root lands back at the collection root.
-	if got := do(t, h, http.MethodPut, "/dav/../notes.txt", "in the tree").Code; got != http.StatusCreated {
+	if got := do(t, h, http.MethodPut, "/files/../notes.txt", "in the tree").Code; got != http.StatusCreated {
 		t.Fatalf("PUT = %d, want 201", got)
 	}
-	if got := do(t, h, http.MethodGet, "/dav/notes.txt", "").Body.String(); got != "in the tree" {
+	if got := do(t, h, http.MethodGet, "/files/notes.txt", "").Body.String(); got != "in the tree" {
 		t.Errorf("it did not land at the root of the tree: %q", got)
 	}
 
 	// And a deeper escape is not an escape either: it becomes a path inside the
 	// tree whose parent does not exist.
-	if got := do(t, h, http.MethodPut, "/dav/../../etc/passwd", "pwned").Code; got != http.StatusConflict {
+	if got := do(t, h, http.MethodPut, "/files/../../etc/passwd", "pwned").Code; got != http.StatusConflict {
 		t.Errorf("PUT = %d, want 409: it should be a path in the tree with no parent", got)
 	}
 }
@@ -431,21 +431,21 @@ func TestPathTraversal(t *testing.T) {
 func TestConditionalPut(t *testing.T) {
 	t.Parallel()
 	h := server(t)
-	do(t, h, http.MethodPut, "/dav/notes.txt", "first")
+	do(t, h, http.MethodPut, "/files/notes.txt", "first")
 
 	// If-None-Match: * means "only if it does not exist yet".
-	if got := do(t, h, http.MethodPut, "/dav/notes.txt", "second", "If-None-Match", "*").Code; got != http.StatusPreconditionFailed {
+	if got := do(t, h, http.MethodPut, "/files/notes.txt", "second", "If-None-Match", "*").Code; got != http.StatusPreconditionFailed {
 		t.Errorf("PUT with If-None-Match: * over an existing file = %d, want 412", got)
 	}
-	if got := do(t, h, http.MethodGet, "/dav/notes.txt", "").Body.String(); got != "first" {
+	if got := do(t, h, http.MethodGet, "/files/notes.txt", "").Body.String(); got != "first" {
 		t.Errorf("the refused PUT wrote anyway: %q", got)
 	}
 
-	etag := do(t, h, http.MethodGet, "/dav/notes.txt", "").Header().Get("ETag")
-	if got := do(t, h, http.MethodPut, "/dav/notes.txt", "third", "If-Match", etag).Code; got != http.StatusNoContent {
+	etag := do(t, h, http.MethodGet, "/files/notes.txt", "").Header().Get("ETag")
+	if got := do(t, h, http.MethodPut, "/files/notes.txt", "third", "If-Match", etag).Code; got != http.StatusNoContent {
 		t.Errorf("PUT with a matching If-Match = %d, want 204", got)
 	}
-	if got := do(t, h, http.MethodPut, "/dav/notes.txt", "fourth", "If-Match", `"stale"`).Code; got != http.StatusPreconditionFailed {
+	if got := do(t, h, http.MethodPut, "/files/notes.txt", "fourth", "If-Match", `"stale"`).Code; got != http.StatusPreconditionFailed {
 		t.Errorf("PUT with a stale If-Match = %d, want 412", got)
 	}
 }
@@ -453,23 +453,23 @@ func TestConditionalPut(t *testing.T) {
 func TestMoveEdges(t *testing.T) {
 	t.Parallel()
 	h := server(t)
-	do(t, h, http.MethodPut, "/dav/one.txt", "one")
-	do(t, h, http.MethodPut, "/dav/two.txt", "two")
+	do(t, h, http.MethodPut, "/files/one.txt", "one")
+	do(t, h, http.MethodPut, "/files/two.txt", "two")
 
 	// RFC 4918 9.9.4: a destination outside this collection is not ours to
 	// write to.
-	if got := do(t, h, "MOVE", "/dav/one.txt", "", "Destination", "/elsewhere/one.txt").Code; got != http.StatusBadGateway {
+	if got := do(t, h, "MOVE", "/files/one.txt", "", "Destination", "/elsewhere/one.txt").Code; got != http.StatusBadGateway {
 		t.Errorf("MOVE outside the collection = %d, want 502", got)
 	}
 	// Overwrite: F means do not clobber.
-	if got := do(t, h, "MOVE", "/dav/one.txt", "", "Destination", "/dav/two.txt", "Overwrite", "F").Code; got != http.StatusPreconditionFailed {
+	if got := do(t, h, "MOVE", "/files/one.txt", "", "Destination", "/files/two.txt", "Overwrite", "F").Code; got != http.StatusPreconditionFailed {
 		t.Errorf("MOVE with Overwrite: F onto an existing file = %d, want 412", got)
 	}
 	// And with overwrite allowed it replaces, answering 204 rather than 201.
-	if got := do(t, h, "MOVE", "/dav/one.txt", "", "Destination", "/dav/two.txt").Code; got != http.StatusNoContent {
+	if got := do(t, h, "MOVE", "/files/one.txt", "", "Destination", "/files/two.txt").Code; got != http.StatusNoContent {
 		t.Errorf("MOVE over an existing file = %d, want 204", got)
 	}
-	if got := do(t, h, http.MethodGet, "/dav/two.txt", "").Body.String(); got != "one" {
+	if got := do(t, h, http.MethodGet, "/files/two.txt", "").Body.String(); got != "one" {
 		t.Errorf("the destination reads %q, want the moved content", got)
 	}
 }
@@ -478,14 +478,14 @@ func TestMissingAndInvalid(t *testing.T) {
 	t.Parallel()
 	h := server(t)
 
-	if got := do(t, h, "PROPFIND", "/dav/nothing/", "", "Depth", "1").Code; got != http.StatusNotFound {
+	if got := do(t, h, "PROPFIND", "/files/nothing/", "", "Depth", "1").Code; got != http.StatusNotFound {
 		t.Errorf("PROPFIND on a missing collection = %d, want 404", got)
 	}
-	if got := do(t, h, http.MethodDelete, "/dav/nothing.txt", "").Code; got != http.StatusNotFound {
+	if got := do(t, h, http.MethodDelete, "/files/nothing.txt", "").Code; got != http.StatusNotFound {
 		t.Errorf("DELETE of a missing file = %d, want 404", got)
 	}
 	// The root is not a row and is not deletable.
-	if got := do(t, h, http.MethodDelete, "/dav/", "").Code; got != http.StatusForbidden {
+	if got := do(t, h, http.MethodDelete, "/files/", "").Code; got != http.StatusForbidden {
 		t.Errorf("DELETE of the collection root = %d, want 403", got)
 	}
 }
@@ -495,9 +495,9 @@ func TestContentTypeComesFromTheExtension(t *testing.T) {
 	h := server(t)
 	// A distroless image has no /etc/mime.types, so the table this relies on is
 	// the one pinned in the package.
-	do(t, h, http.MethodPut, "/dav/photo.heic", "not really a heic")
+	do(t, h, http.MethodPut, "/files/photo.heic", "not really a heic")
 
-	if got := do(t, h, http.MethodGet, "/dav/photo.heic", "").Header().Get("Content-Type"); got != "image/heic" {
+	if got := do(t, h, http.MethodGet, "/files/photo.heic", "").Header().Get("Content-Type"); got != "image/heic" {
 		t.Errorf("Content-Type = %q, want image/heic", got)
 	}
 }
@@ -544,10 +544,10 @@ func TestWithoutAnAuthenticatedUser(t *testing.T) {
 		// before this package looks at who is asking -- in the server that
 		// cannot happen, since auth.Basic is in front of the whole handler.
 		{method: "PROPFIND", headers: []string{"Depth", "1"}},
-		{method: "MOVE", headers: []string{"Destination", "/dav/moved.txt"}},
-		{method: "COPY", headers: []string{"Destination", "/dav/copied.txt"}},
+		{method: "MOVE", headers: []string{"Destination", "/files/moved.txt"}},
+		{method: "COPY", headers: []string{"Destination", "/files/copied.txt"}},
 	} {
-		rec := do(t, h, tt.method, "/dav/notes.txt", tt.body, tt.headers...)
+		rec := do(t, h, tt.method, "/files/notes.txt", tt.body, tt.headers...)
 		if rec.Code != http.StatusUnauthorized {
 			t.Errorf("%s with no user = %d, want 401", tt.method, rec.Code)
 		}
@@ -561,20 +561,20 @@ func TestWithoutAnAuthenticatedUser(t *testing.T) {
 func TestConditionalDelete(t *testing.T) {
 	t.Parallel()
 	h := server(t)
-	do(t, h, http.MethodPut, "/dav/notes.txt", "first")
-	etag := do(t, h, http.MethodGet, "/dav/notes.txt", "").Header().Get("ETag")
+	do(t, h, http.MethodPut, "/files/notes.txt", "first")
+	etag := do(t, h, http.MethodGet, "/files/notes.txt", "").Header().Get("ETag")
 
-	if got := do(t, h, http.MethodDelete, "/dav/notes.txt", "", "If-Match", `"stale"`).Code; got != http.StatusPreconditionFailed {
+	if got := do(t, h, http.MethodDelete, "/files/notes.txt", "", "If-Match", `"stale"`).Code; got != http.StatusPreconditionFailed {
 		t.Errorf("DELETE with a stale If-Match = %d, want 412", got)
 	}
-	if got := do(t, h, http.MethodGet, "/dav/notes.txt", "").Code; got != http.StatusOK {
+	if got := do(t, h, http.MethodGet, "/files/notes.txt", "").Code; got != http.StatusOK {
 		t.Error("the refused DELETE removed the file anyway")
 	}
 
-	if got := do(t, h, http.MethodDelete, "/dav/notes.txt", "", "If-Match", etag).Code; got != http.StatusNoContent {
+	if got := do(t, h, http.MethodDelete, "/files/notes.txt", "", "If-Match", etag).Code; got != http.StatusNoContent {
 		t.Errorf("DELETE with a matching If-Match = %d, want 204", got)
 	}
-	if got := do(t, h, http.MethodGet, "/dav/notes.txt", "").Code; got != http.StatusNotFound {
+	if got := do(t, h, http.MethodGet, "/files/notes.txt", "").Code; got != http.StatusNotFound {
 		t.Error("the file survived a delete that was allowed")
 	}
 }
@@ -584,38 +584,38 @@ func TestConditionalDelete(t *testing.T) {
 func TestCopyEdges(t *testing.T) {
 	t.Parallel()
 	h := server(t)
-	do(t, h, "MKCOL", "/dav/album", "")
-	do(t, h, http.MethodPut, "/dav/album/one.txt", "one")
-	do(t, h, http.MethodPut, "/dav/two.txt", "two")
+	do(t, h, "MKCOL", "/files/album", "")
+	do(t, h, http.MethodPut, "/files/album/one.txt", "one")
+	do(t, h, http.MethodPut, "/files/two.txt", "two")
 
 	// Depth: 0 on a collection is the collection and not its members, which is
 	// RFC 4918 9.8.3 and the one copy that moves no bytes at all.
-	if got := do(t, h, "COPY", "/dav/album", "", "Destination", "/dav/shallow", "Depth", "0").Code; got != http.StatusCreated {
+	if got := do(t, h, "COPY", "/files/album", "", "Destination", "/files/shallow", "Depth", "0").Code; got != http.StatusCreated {
 		t.Errorf("COPY of a collection at Depth 0 = %d, want 201", got)
 	}
-	if got := do(t, h, http.MethodGet, "/dav/shallow/one.txt", "").Code; got != http.StatusNotFound {
-		t.Errorf("Depth 0 copied a member: /dav/shallow/one.txt = %d, want 404", got)
+	if got := do(t, h, http.MethodGet, "/files/shallow/one.txt", "").Code; got != http.StatusNotFound {
+		t.Errorf("Depth 0 copied a member: /files/shallow/one.txt = %d, want 404", got)
 	}
 	// A destination that does not exist yet is created, which is 201.
-	if got := do(t, h, "COPY", "/dav/two.txt", "", "Destination", "/dav/three.txt").Code; got != http.StatusCreated {
+	if got := do(t, h, "COPY", "/files/two.txt", "", "Destination", "/files/three.txt").Code; got != http.StatusCreated {
 		t.Errorf("COPY to a new path = %d, want 201", got)
 	}
 	// Over something that does exist it is 204, and the bytes are the source's.
-	if got := do(t, h, "COPY", "/dav/album/one.txt", "", "Destination", "/dav/three.txt").Code; got != http.StatusNoContent {
+	if got := do(t, h, "COPY", "/files/album/one.txt", "", "Destination", "/files/three.txt").Code; got != http.StatusNoContent {
 		t.Errorf("COPY over an existing file = %d, want 204", got)
 	}
-	if got := do(t, h, http.MethodGet, "/dav/three.txt", "").Body.String(); got != "one" {
+	if got := do(t, h, http.MethodGet, "/files/three.txt", "").Body.String(); got != "one" {
 		t.Errorf("the copy reads %q, want the source", got)
 	}
 	// And Overwrite: F refuses rather than replacing.
-	if got := do(t, h, "COPY", "/dav/two.txt", "", "Destination", "/dav/three.txt", "Overwrite", "F").Code; got != http.StatusPreconditionFailed {
+	if got := do(t, h, "COPY", "/files/two.txt", "", "Destination", "/files/three.txt", "Overwrite", "F").Code; got != http.StatusPreconditionFailed {
 		t.Errorf("COPY with Overwrite: F onto an existing file = %d, want 412", got)
 	}
-	if got := do(t, h, http.MethodGet, "/dav/three.txt", "").Body.String(); got != "one" {
+	if got := do(t, h, http.MethodGet, "/files/three.txt", "").Body.String(); got != "one" {
 		t.Errorf("the refused COPY wrote anyway: %q", got)
 	}
 	// The source is still there, which is the whole difference from MOVE.
-	if got := do(t, h, http.MethodGet, "/dav/album/one.txt", "").Code; got != http.StatusOK {
+	if got := do(t, h, http.MethodGet, "/files/album/one.txt", "").Code; got != http.StatusOK {
 		t.Error("COPY removed the source")
 	}
 }
@@ -628,26 +628,26 @@ func TestCopyEdges(t *testing.T) {
 func TestMoveOntoACollection(t *testing.T) {
 	t.Parallel()
 	h := server(t)
-	do(t, h, "MKCOL", "/dav/album", "")
-	do(t, h, http.MethodPut, "/dav/album/one.txt", "one")
-	do(t, h, http.MethodPut, "/dav/two.txt", "two")
+	do(t, h, "MKCOL", "/files/album", "")
+	do(t, h, http.MethodPut, "/files/album/one.txt", "one")
+	do(t, h, http.MethodPut, "/files/two.txt", "two")
 
 	// Overwrite: F is how a client says it did not mean that.
-	if got := do(t, h, "MOVE", "/dav/two.txt", "", "Destination", "/dav/album", "Overwrite", "F").Code; got != http.StatusPreconditionFailed {
+	if got := do(t, h, "MOVE", "/files/two.txt", "", "Destination", "/files/album", "Overwrite", "F").Code; got != http.StatusPreconditionFailed {
 		t.Errorf("MOVE with Overwrite: F onto a collection = %d, want 412", got)
 	}
-	if got := do(t, h, http.MethodGet, "/dav/album/one.txt", "").Code; got != http.StatusOK {
+	if got := do(t, h, http.MethodGet, "/files/album/one.txt", "").Code; got != http.StatusOK {
 		t.Fatal("the refused MOVE deleted the collection anyway")
 	}
 
-	if got := do(t, h, "MOVE", "/dav/two.txt", "", "Destination", "/dav/album").Code; got != http.StatusNoContent {
+	if got := do(t, h, "MOVE", "/files/two.txt", "", "Destination", "/files/album").Code; got != http.StatusNoContent {
 		t.Fatalf("MOVE onto a collection = %d, want 204", got)
 	}
-	if got := do(t, h, http.MethodGet, "/dav/album", "").Body.String(); got != "two" {
+	if got := do(t, h, http.MethodGet, "/files/album", "").Body.String(); got != "two" {
 		t.Errorf("the destination reads %q, want the moved file", got)
 	}
 	// And nothing is left underneath a path that is now a file.
-	if got := do(t, h, http.MethodGet, "/dav/album/one.txt", "").Code; got != http.StatusNotFound {
+	if got := do(t, h, http.MethodGet, "/files/album/one.txt", "").Code; got != http.StatusNotFound {
 		t.Errorf("a row survived under the replaced collection: GET = %d", got)
 	}
 }
@@ -658,9 +658,9 @@ func TestMoveOntoACollection(t *testing.T) {
 func TestCopyOutsideTheCollection(t *testing.T) {
 	t.Parallel()
 	h := server(t)
-	do(t, h, http.MethodPut, "/dav/one.txt", "one")
+	do(t, h, http.MethodPut, "/files/one.txt", "one")
 
-	if got := do(t, h, "COPY", "/dav/one.txt", "", "Destination", "/elsewhere/one.txt").Code; got != http.StatusBadGateway {
+	if got := do(t, h, "COPY", "/files/one.txt", "", "Destination", "/elsewhere/one.txt").Code; got != http.StatusBadGateway {
 		t.Errorf("COPY outside the collection = %d, want 502", got)
 	}
 }
@@ -675,17 +675,17 @@ func TestCopyOutsideTheCollection(t *testing.T) {
 func TestLockDepth(t *testing.T) {
 	t.Parallel()
 	h := server(t)
-	do(t, h, http.MethodPut, "/dav/deep.txt", "one")
-	do(t, h, http.MethodPut, "/dav/shallow.txt", "one")
+	do(t, h, http.MethodPut, "/files/deep.txt", "one")
+	do(t, h, http.MethodPut, "/files/shallow.txt", "one")
 
 	const body = `<?xml version="1.0"?><D:lockinfo xmlns:D="DAV:">` +
 		`<D:lockscope><D:exclusive/></D:lockscope><D:locktype><D:write/></D:locktype></D:lockinfo>`
 
-	deep := do(t, h, "LOCK", "/dav/deep.txt", body, "Content-Type", "application/xml")
+	deep := do(t, h, "LOCK", "/files/deep.txt", body, "Content-Type", "application/xml")
 	if !strings.Contains(deep.Body.String(), "<D:depth>infinity</D:depth>") {
 		t.Errorf("LOCK with no Depth header answered %s", deep.Body.String())
 	}
-	shallow := do(t, h, "LOCK", "/dav/shallow.txt", body, "Content-Type", "application/xml", "Depth", "0")
+	shallow := do(t, h, "LOCK", "/files/shallow.txt", body, "Content-Type", "application/xml", "Depth", "0")
 	if !strings.Contains(shallow.Body.String(), "<D:depth>0</D:depth>") {
 		t.Errorf("LOCK with Depth: 0 answered %s", shallow.Body.String())
 	}
@@ -700,7 +700,7 @@ func TestLockOfANameThatNeedsEscaping(t *testing.T) {
 	h := server(t)
 	// Percent-encoded because a raw space is not a request target; the
 	// ampersand is legal in a path and is the character under test.
-	const target = "/dav/rock%20&%20roll.txt"
+	const target = "/files/rock%20&%20roll.txt"
 	do(t, h, http.MethodPut, target, "one")
 
 	const body = `<?xml version="1.0"?><D:lockinfo xmlns:D="DAV:">` +
@@ -723,9 +723,9 @@ func TestLockOfANameThatNeedsEscaping(t *testing.T) {
 func TestContentTypeIgnoresTheCaseOfTheExtension(t *testing.T) {
 	t.Parallel()
 	h := server(t)
-	do(t, h, http.MethodPut, "/dav/IMG_0001.HEIC", "not really a heic")
+	do(t, h, http.MethodPut, "/files/IMG_0001.HEIC", "not really a heic")
 
-	if got := do(t, h, http.MethodGet, "/dav/IMG_0001.HEIC", "").Header().Get("Content-Type"); got != "image/heic" {
+	if got := do(t, h, http.MethodGet, "/files/IMG_0001.HEIC", "").Header().Get("Content-Type"); got != "image/heic" {
 		t.Errorf("Content-Type = %q, want image/heic", got)
 	}
 }

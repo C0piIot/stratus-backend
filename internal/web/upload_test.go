@@ -273,6 +273,7 @@ func TestUploadRefuses(t *testing.T) {
 		body, contentType := form(t, "img.jpg", "pixels")
 		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/files/", body)
 		req.Header.Set("Content-Type", contentType)
+		req.Header.Set("Sec-Fetch-Mode", "navigate")
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, req)
 		if rec.Code != http.StatusSeeOther || !strings.HasPrefix(rec.Header().Get("Location"), "/login") {

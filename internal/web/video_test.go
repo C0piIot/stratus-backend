@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -309,48 +308,5 @@ func TestAFilmOnlyReEncodingCanPlay(t *testing.T) {
 	}
 	if page := get(t, c, "/files/vp9.mkv?play", cookie).Body.String(); !strings.Contains(page, "data-hls=") {
 		t.Error("the player does not offer a film it could play re-encoded")
-	}
-}
-
-// TestHLSOnAnotherSurface: web.HLS serves the same playlist under a prefix of
-// its own for a request whose user another surface's gate has already put on
-// it -- which is how /dav/ streams a film -- and a request with nobody on it,
-// or for something that is not a film, gets nothing.
-func TestHLSOnAnotherSurface(t *testing.T) {
-	t.Parallel()
-	c := newCinema(t)
-	c.film(t, "film.mkv", "gop.mkv", ac3Film)
-	write(t, c.files, "notes.txt", "hello")
-	h := web.HLS("/dav/", c.files, web.Video{Media: c.meta, Segments: c.segments})
-
-	serve := func(target string, withUser bool) *httptest.ResponseRecorder {
-		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, target, nil)
-		if withUser {
-			req = req.WithContext(auth.WithUser(req.Context(), username))
-		}
-		rec := httptest.NewRecorder()
-		h.ServeHTTP(rec, req)
-		return rec
-	}
-
-	rec := serve("/dav/film.mkv?hls=index.m3u8&k=signature", true)
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "\n?hls=0-6023-150-0.ts&k=signature\n") {
-		t.Errorf("playlist on /dav/ = %d:\n%s", rec.Code, rec.Body.String())
-	}
-	if got := rec.Header().Get("X-Content-Type-Options"); got != "nosniff" {
-		t.Errorf("nosniff on /dav/ = %q", got)
-	}
-	if rec := serve("/dav/film.mkv?hls=0-6023-150-0.ts", true); rec.Header().Get("Content-Type") != "video/mp2t" {
-		t.Errorf("a segment on /dav/ = %d %q", rec.Code, rec.Header().Get("Content-Type"))
-	}
-	for target, withUser := range map[string]bool{
-		"/dav/film.mkv?hls=index.m3u8":  false,
-		"/dav/notes.txt?hls=index.m3u8": true,
-		"/dav/gone.mkv?hls=index.m3u8":  true,
-		"/dav/a%01b?hls=index.m3u8":     true,
-	} {
-		if rec := serve(target, withUser); rec.Code != http.StatusNotFound {
-			t.Errorf("%s (user %v) = %d, want 404", target, withUser, rec.Code)
-		}
 	}
 }

@@ -36,7 +36,7 @@ func capture(t *testing.T, level slog.Level, target string, h http.Handler) map[
 }
 
 func TestLogRequests(t *testing.T) {
-	line := capture(t, slog.LevelInfo, "/dav/photo.jpg", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	line := capture(t, slog.LevelInfo, "/files/photo.jpg", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusConflict)
 		_, _ = w.Write([]byte("nope"))
 	}))
@@ -44,7 +44,7 @@ func TestLogRequests(t *testing.T) {
 		t.Fatal("nothing was logged")
 	}
 
-	if line["method"] != "GET" || line["path"] != "/dav/photo.jpg" {
+	if line["method"] != "GET" || line["path"] != "/files/photo.jpg" {
 		t.Errorf("got %v", line)
 	}
 	// The status is the whole point: a 409 nobody can see is a support ticket.
@@ -65,7 +65,7 @@ func TestLogRequests(t *testing.T) {
 // TestLogRequestsDefaultsToOK covers a handler that writes a body without ever
 // calling WriteHeader, which is what http.ServeContent does on the happy path.
 func TestLogRequestsDefaultsToOK(t *testing.T) {
-	line := capture(t, slog.LevelInfo, "/dav/notes.txt", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	line := capture(t, slog.LevelInfo, "/files/notes.txt", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("hello"))
 	}))
 	if line["status"] != float64(http.StatusOK) {
@@ -87,7 +87,7 @@ func TestHealthzIsQuiet(t *testing.T) {
 }
 
 func TestServerErrorsLogAsErrors(t *testing.T) {
-	line := capture(t, slog.LevelError, "/dav/x", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	line := capture(t, slog.LevelError, "/files/x", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	if line == nil {
@@ -127,7 +127,7 @@ func TestNoCredentialsInTheLog(t *testing.T) {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
 	t.Cleanup(func() { slog.SetDefault(previous) })
 
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/dav/x?token=super-secret", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/files/x?token=super-secret", nil)
 	req.SetBasicAuth("edu", "an example password")
 	logRequests(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})).ServeHTTP(httptest.NewRecorder(), req)
 
@@ -147,7 +147,7 @@ func TestRecoverPanicsLogsAndAborts(t *testing.T) {
 	t.Cleanup(func() { slog.SetDefault(previous) })
 
 	h := recoverPanics(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { panic("boom") }))
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/dav/x", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/files/x", nil)
 
 	defer func() {
 		//nolint:errorlint // a panic value
@@ -158,7 +158,7 @@ func TestRecoverPanicsLogsAndAborts(t *testing.T) {
 		if err := json.Unmarshal(bytes.TrimSpace(buf.Bytes()), &line); err != nil {
 			t.Fatalf("the log line is not JSON: %v\n%s", err, buf.String())
 		}
-		if line["level"] != "ERROR" || line["err"] != "boom" || line["path"] != "/dav/x" {
+		if line["level"] != "ERROR" || line["err"] != "boom" || line["path"] != "/files/x" {
 			t.Errorf("got %v", line)
 		}
 		if !strings.Contains(line["stack"].(string), "TestRecoverPanicsLogsAndAborts") {

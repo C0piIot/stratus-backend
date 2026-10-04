@@ -464,7 +464,7 @@ if wait_serving "$davname"; then
     bad "/readyz reports both dependencies" "got $(printf '%s' "$ready" | tr '\n' ' ')"
   fi
 
-  code="$(curl -s -o /dev/null -w '%{http_code}' -X PUT --data-binary 'smoke' "http://$davhost/dav/notes.txt")"
+  code="$(curl -s -o /dev/null -w '%{http_code}' -X PUT --data-binary 'smoke' "http://$davhost/files/notes.txt")"
   if [ "$code" = "401" ]; then
     ok "an unauthenticated PUT is refused"
   else
@@ -472,14 +472,14 @@ if wait_serving "$davname"; then
   fi
 
   code="$(curl -s -o /dev/null -w '%{http_code}' -u "$davuser:$davpass" \
-    -X PUT --data-binary 'smoke' "http://$davhost/dav/notes.txt")"
+    -X PUT --data-binary 'smoke' "http://$davhost/files/notes.txt")"
   if [ "$code" = "201" ]; then
     ok "PUT stores a file"
   else
     bad "PUT stores a file" "got $code"
   fi
 
-  body="$(curl -fsS -u "$davuser:$davpass" "http://$davhost/dav/notes.txt" 2>/dev/null || true)"
+  body="$(curl -fsS -u "$davuser:$davpass" "http://$davhost/files/notes.txt" 2>/dev/null || true)"
   if [ "$body" = "smoke" ]; then
     ok "GET reads it back through storage and the database"
   else
@@ -495,9 +495,27 @@ if wait_serving "$davname"; then
     bad "the bytes are a blob and the name is a row" "$(find "$davdir" -maxdepth 2 | tr '\n' ' ')"
   fi
 
+  # The origin itself answers WebDAV, which is what the Windows redirector
+  # probes for before it will mount anything at all (#281): it asks here and
+  # not at the path it was given.
+  root_dav="$(curl -s -o /dev/null -D - -u "$davuser:$davpass" -X OPTIONS "http://$davhost/" | grep -i '^dav:' | tr -d '\r')"
+  case "$root_dav" in
+    *2*) ok "OPTIONS / advertises WebDAV at the origin" ;;
+    *)   bad "OPTIONS / advertises WebDAV at the origin" "got '$root_dav'" ;;
+  esac
+
+  # And it lists the mounts, which is the whole point of one namespace: a
+  # client that mounts the origin finds the photo folders and the playlists
+  # without being told their URLs.
+  root_list="$(curl -s -u "$davuser:$davpass" -H 'Depth: 1' -X PROPFIND "http://$davhost/" 2>/dev/null || true)"
+  case "$root_list" in
+    *'>/files/<'*'>/photos/<'*'>/playlists/<'*) ok "PROPFIND / lists the three collections" ;;
+    *) bad "PROPFIND / lists the three collections" "$(head -c 200 <<<"$root_list")" ;;
+  esac
+
   # Finder mounts read-only unless the server says class 2, so the header is
   # asserted rather than assumed.
-  dav_header="$(curl -s -o /dev/null -D - -u "$davuser:$davpass" -X OPTIONS "http://$davhost/dav/" | grep -i '^dav:' | tr -d '\r')"
+  dav_header="$(curl -s -o /dev/null -D - -u "$davuser:$davpass" -X OPTIONS "http://$davhost/files/" | grep -i '^dav:' | tr -d '\r')"
   case "$dav_header" in
     *2*) ok "OPTIONS advertises locking" ;;
     *)   bad "OPTIONS advertises locking" "got '$dav_header'" ;;
@@ -506,7 +524,7 @@ if wait_serving "$davname"; then
   lock_status="$(curl -s -o /dev/null -w '%{http_code}' -u "$davuser:$davpass" -X LOCK \
     -H 'Content-Type: application/xml' \
     --data '<?xml version="1.0"?><D:lockinfo xmlns:D="DAV:"><D:lockscope><D:exclusive/></D:lockscope><D:locktype><D:write/></D:locktype></D:lockinfo>' \
-    "http://$davhost/dav/notes.txt")"
+    "http://$davhost/files/notes.txt")"
   if [ "$lock_status" = "200" ]; then
     ok "LOCK answers with a token"
   else
@@ -514,7 +532,7 @@ if wait_serving "$davname"; then
   fi
 
   code="$(curl -s -o /dev/null -w '%{http_code}' -u "$davuser:$davpass" \
-    -H 'Depth: 1' -X PROPFIND "http://$davhost/dav/")"
+    -H 'Depth: 1' -X PROPFIND "http://$davhost/files/")"
   if [ "$code" = "207" ]; then
     ok "PROPFIND answers a multistatus"
   else
@@ -527,7 +545,7 @@ if wait_serving "$davname"; then
   # outside because it is a header this project reads for itself -- the library
   # would have answered 207 and built the answer in memory first.
   finite="$(mktmp)/body"
-  refused="$(curl -s -u "$davuser:$davpass" -X PROPFIND "http://$davhost/dav/" \
+  refused="$(curl -s -u "$davuser:$davpass" -X PROPFIND "http://$davhost/files/" \
     -o "$finite" -w '%{http_code}')"
   if [ "$refused" = "403" ] && grep -q 'propfind-finite-depth' "$finite"; then
     ok "a PROPFIND for the whole tree is refused with a precondition"
@@ -539,12 +557,12 @@ if wait_serving "$davname"; then
   # The body this time, because #126 was a 207 with the wrong thing in it: a
   # Depth 1 listing has to carry the collection it was asked about, not only its
   # members. Matched on the element content rather than a namespace prefix the
-  # library is free to change, and /dav/ is the one href in the document that is
-  # exactly that -- every member is /dav/something.
+  # library is free to change, and /files/ is the one href in the document that is
+  # exactly that -- every member is /files/something.
   propfind="$(curl -fsS -u "$davuser:$davpass" -H 'Depth: 1' \
-    -X PROPFIND "http://$davhost/dav/" 2>/dev/null || true)"
+    -X PROPFIND "http://$davhost/files/" 2>/dev/null || true)"
   case "$propfind" in
-    *'>/dav/<'*) ok "a PROPFIND listing includes the collection itself" ;;
+    *'>/files/<'*) ok "a PROPFIND listing includes the collection itself" ;;
     *)           bad "a PROPFIND listing includes the collection itself" "no self entry in the multistatus" ;;
   esac
 
@@ -552,12 +570,12 @@ if wait_serving "$davname"; then
   # A whole folder copied, which is the thing #43 left at 501 and the only
   # WebDAV method that writes a tree. From outside because what is being checked
   # is the tree that comes back, not the loop that made it.
-  curl -fsS -o /dev/null -u "$davuser:$davpass" -X MKCOL "http://$davhost/dav/album" 2>/dev/null || true
-  curl -fsS -o /dev/null -u "$davuser:$davpass" -T - "http://$davhost/dav/album/deep.txt" \
+  curl -fsS -o /dev/null -u "$davuser:$davpass" -X MKCOL "http://$davhost/files/album" 2>/dev/null || true
+  curl -fsS -o /dev/null -u "$davuser:$davpass" -T - "http://$davhost/files/album/deep.txt" \
     <<<'inside the album' 2>/dev/null || true
   copied="$(curl -s -o /dev/null -w '%{http_code}' -u "$davuser:$davpass" -X COPY \
-    -H "Destination: http://$davhost/dav/album-copy" "http://$davhost/dav/album")"
-  copy_body="$(curl -s -u "$davuser:$davpass" "http://$davhost/dav/album-copy/deep.txt")"
+    -H "Destination: http://$davhost/files/album-copy" "http://$davhost/files/album")"
+  copy_body="$(curl -s -u "$davuser:$davpass" "http://$davhost/files/album-copy/deep.txt")"
   if [ "$copied" = "201" ] && [ "$copy_body" = "inside the album" ]; then
     ok "a collection copies with everything under it"
   else
@@ -600,7 +618,7 @@ if wait_serving "$davname"; then
     "http://$davhost$tus_location" >/dev/null 2>&1 || true
 
   # And the file is a file, over the protocol that did not upload it.
-  resumed="$(curl -fsS -u "$davuser:$davpass" "http://$davhost/dav/resumed.txt" 2>/dev/null || true)"
+  resumed="$(curl -fsS -u "$davuser:$davpass" "http://$davhost/files/resumed.txt" 2>/dev/null || true)"
   if [ "$resumed" = "half again" ]; then
     ok "a resumed upload lands as a file WebDAV can read"
   else
@@ -633,7 +651,7 @@ if wait_serving "$davname"; then
   # an extension the indexer recognises and waits for it to be read: what is
   # asserted is the whole loop -- upload, extract, browse, stream.
   curl -fsS -u "$davuser:$davpass" -X PUT --data-binary @- \
-    "http://$davhost/dav/track.mp3" >/dev/null 2>&1 <<'TRACK'
+    "http://$davhost/files/track.mp3" >/dev/null 2>&1 <<'TRACK'
 not really an mp3, and that is the point: the row is what browsing reads
 TRACK
   browsed=""
@@ -665,7 +683,7 @@ TRACK
   # be an MP3 -- an ID3 tag or a frame sync, not the fLaC it was -- and a second
   # in, less of one, which is what transcodeOffset promises.
   curl -fsS -u "$davuser:$davpass" -X PUT --data-binary "@scripts/testdata/tone.flac" \
-    "http://$davhost/dav/tone.flac" >/dev/null 2>&1
+    "http://$davhost/files/tone.flac" >/dev/null 2>&1
   tone_id=""
   for _ in $(seq 1 50); do
     body="$(curl -fsS "http://$davhost/rest/getIndexes.view?c=smoke&u=$davuser&t=$token&s=$salt" 2>/dev/null || true)"
@@ -733,7 +751,7 @@ TRACK
   # asserted is the whole path from outside the container: a picture found in a
   # folder by name, decoded, reduced and served.
   curl -fsS -u "$davuser:$davpass" -X PUT --data-binary "@scripts/testdata/cover.jpg" \
-    "http://$davhost/dav/cover.jpg" >/dev/null 2>&1
+    "http://$davhost/files/cover.jpg" >/dev/null 2>&1
   coverfile="$(mktmp)/cover.jpg"
   code="$(curl -s -o "$coverfile" -w '%{http_code} %{content_type}' \
     "http://$davhost/rest/getCoverArt.view?c=smoke&u=$davuser&t=$token&s=$salt&id=d-&size=96")"
@@ -758,7 +776,7 @@ TRACK
     >/dev/null 2>&1
   body="$(curl -fsS -u "$davuser:$davpass" "http://$davhost/playlists/Smoke.m3u8" 2>/dev/null || true)"
   case "$body" in
-    '#EXTM3U'*'/dav/'*) ok "a playlist is an .m3u8 over WebDAV" ;;
+    '#EXTM3U'*'/files/'*) ok "a playlist is an .m3u8 over WebDAV" ;;
     *)                  bad "a playlist is an .m3u8 over WebDAV" "got '$(head -c 120 <<<"$body")'" ;;
   esac
   code="$(curl -s -o /dev/null -w '%{http_code}' "http://$davhost/playlists/Smoke.m3u8")"
@@ -773,7 +791,11 @@ TRACK
   # here is the whole round trip through the shipped binary.
   jar="$(mktmp)/cookies"
 
-  code="$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' "http://$davhost/files/")"
+  # As a browser: since #279 the same URL answers a WebDAV client, and what
+  # decides which refusal an unauthenticated request gets is the header only a
+  # browser sends. Without it this is a client, and a client gets a challenge.
+  code="$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' \
+    -H 'Sec-Fetch-Mode: navigate' "http://$davhost/files/")"
   case "$code" in
     "303 http://$davhost/login?next=%2Ffiles%2F") ok "the tree asks a browser to sign in" ;;
     *) bad "the tree asks a browser to sign in" "got '$code'" ;;
@@ -884,21 +906,21 @@ TRACK
   # The video is also what the indexer reads out of its own container over
   # ranges (#48), which the status assertions further down are about.
   curl -fsS -u "$davuser:$davpass" -X PUT --data-binary "@scripts/testdata/photo.heic" \
-    "http://$davhost/dav/photo.heic" >/dev/null 2>&1
+    "http://$davhost/files/photo.heic" >/dev/null 2>&1
   curl -fsS -u "$davuser:$davpass" -X PUT --data-binary "@scripts/testdata/clip.mp4" \
-    "http://$davhost/dav/clip.mp4" >/dev/null 2>&1
+    "http://$davhost/files/clip.mp4" >/dev/null 2>&1
 
   # And a Matroska, which is read out of its own elements the way the MP4 is
   # read out of its boxes (#145). Its thumbnail is ffmpeg's either way.
   curl -fsS -u "$davuser:$davpass" -X PUT --data-binary "@scripts/testdata/film.mkv" \
-    "http://$davhost/dav/film.mkv" >/dev/null 2>&1
+    "http://$davhost/files/film.mkv" >/dev/null 2>&1
 
   # The two properties that made PROPFIND change libraries (#136): whether a
   # file has a preview, and how much room is left, both in the listing a client
   # was making anyway. Asserted from outside, because what matters is the
   # document a client reads.
   props="$(curl -fsS -u "$davuser:$davpass" -H 'Depth: 1' \
-    -X PROPFIND "http://$davhost/dav/" 2>/dev/null || true)"
+    -X PROPFIND "http://$davhost/files/" 2>/dev/null || true)"
 
   # First, that it carries every member. The self entry is written before the
   # walk begins, so an assertion that only looks for it cannot tell a listing
@@ -907,7 +929,7 @@ TRACK
   # .txt, whose type Go knows without opening the file.
   missing=""
   for f in cover.jpg track.mp3 photo.heic clip.mp4 film.mkv; do
-    case "$props" in *"/dav/$f<"*) ;; *) missing="$missing $f" ;; esac
+    case "$props" in *"/files/$f<"*) ;; *) missing="$missing $f" ;; esac
   done
   case "$props" in *"Internal Server Error"*) missing="$missing (and the walk died)" ;; esac
   if [ -z "$missing" ]; then
@@ -930,14 +952,14 @@ TRACK
   # deployment to do it -- principle 1 -- so it is asserted here, on the shipped
   # image, rather than assumed.
   plain="$(curl -fsS -u "$davuser:$davpass" -H 'Depth: 1' -X PROPFIND \
-    -o /dev/null -w '%{size_download}' "http://$davhost/dav/" 2>/dev/null || echo 0)"
+    -o /dev/null -w '%{size_download}' "http://$davhost/files/" 2>/dev/null || echo 0)"
   # curl only decodes for --compressed, so asking for the header by hand is
   # what counts the bytes that were actually on the wire.
   zipped="$(curl -fsS -u "$davuser:$davpass" -H 'Depth: 1' -H 'Accept-Encoding: gzip' \
     -X PROPFIND -o /dev/null -w '%{size_download}' \
-    "http://$davhost/dav/" 2>/dev/null || echo 0)"
+    "http://$davhost/files/" 2>/dev/null || echo 0)"
   headers="$(curl -fsS -u "$davuser:$davpass" -H 'Depth: 1' -H 'Accept-Encoding: gzip' \
-    -X PROPFIND -D - -o /dev/null "http://$davhost/dav/" 2>/dev/null || true)"
+    -X PROPFIND -D - -o /dev/null "http://$davhost/files/" 2>/dev/null || true)"
   if [ "$zipped" -gt 0 ] && [ "$plain" -gt "$((zipped * 3))" ]; then
     ok "a listing is compressed on the wire ($plain to $zipped bytes)"
   else
@@ -952,7 +974,7 @@ TRACK
   # And a photograph is not compressed: it already is, so the only thing gzip
   # could do is spend CPU making it slightly larger.
   blob="$(curl -fsS -u "$davuser:$davpass" -H 'Accept-Encoding: gzip' \
-    -D - -o /dev/null "http://$davhost/dav/cover.jpg" 2>/dev/null || true)"
+    -D - -o /dev/null "http://$davhost/files/cover.jpg" 2>/dev/null || true)"
   case "$blob" in
     *[Cc]ontent-[Ee]ncoding*) bad "a photograph is served as it is" "it was encoded" ;;
     *) ok "a photograph is served as it is" ;;
@@ -962,9 +984,9 @@ TRACK
   # itself wrongly. Video seeking is made of these, and a text file is what
   # proves it, since anything gzip would decline is not a test of the branch.
   head -c 4000 /dev/zero | tr '\0' 'a' | curl -fsS -u "$davuser:$davpass" \
-    -T - "http://$davhost/dav/ranges.txt" >/dev/null 2>&1
+    -T - "http://$davhost/files/ranges.txt" >/dev/null 2>&1
   ranged="$(curl -fsS -u "$davuser:$davpass" -H 'Accept-Encoding: gzip' \
-    -H 'Range: bytes=10-40' -D - -o /dev/null "http://$davhost/dav/ranges.txt" 2>/dev/null || true)"
+    -H 'Range: bytes=10-40' -D - -o /dev/null "http://$davhost/files/ranges.txt" 2>/dev/null || true)"
   case "$ranged" in
     *[Cc]ontent-[Ee]ncoding*) bad "a range is never compressed" "it was encoded" ;;
     *206*) ok "a range is never compressed" ;;
@@ -1025,7 +1047,7 @@ TRACK
   # STRATUS_VIDEO_TRANSCODE=on, so the answer does not depend on how many CPUs
   # the runner has.
   curl -fsS -u "$davuser:$davpass" -X PUT --data-binary "@scripts/testdata/hlg.mp4" \
-    "http://$davhost/dav/hlg.mp4" >/dev/null 2>&1
+    "http://$davhost/files/hlg.mp4" >/dev/null 2>&1
   master=""
   for _ in $(seq 1 50); do
     master="$(curl -fsS -b "$jar" "http://$davhost/files/hlg.mp4?hls=index.m3u8" 2>/dev/null || true)"
@@ -1085,7 +1107,7 @@ TRACK
   printf 'from the browser' > "$updir/upload.txt"
   code="$(curl -s -o /dev/null -w '%{http_code}' -b "$jar" \
     -F "file=@$updir/upload.txt" "http://$davhost/files/")"
-  back="$(curl -fsS -u "$davuser:$davpass" "http://$davhost/dav/upload.txt" 2>/dev/null || true)"
+  back="$(curl -fsS -u "$davuser:$davpass" "http://$davhost/files/upload.txt" 2>/dev/null || true)"
   if [ "$code" = "303" ] && [ "$back" = "from the browser" ]; then
     ok "a file uploaded in the browser is there over WebDAV"
   else
@@ -1097,7 +1119,7 @@ TRACK
   code="$(curl -s -o /dev/null -w '%{http_code}' -b "$jar" \
     --data-urlencode "name=made here" "http://$davhost/folders/")"
   put="$(curl -s -o /dev/null -w '%{http_code}' -u "$davuser:$davpass" \
-    -X PUT --data-binary 'inside' "http://$davhost/dav/made%20here/inside.txt")"
+    -X PUT --data-binary 'inside' "http://$davhost/files/made%20here/inside.txt")"
   if [ "$code" = "303" ] && [ "$put" = "201" ]; then
     ok "a folder made in the browser is a collection over WebDAV"
   else
@@ -1109,8 +1131,8 @@ TRACK
   # other door each time: one thing's whole life, seen from both sides.
   code="$(curl -s -o /dev/null -w '%{http_code}' -b "$jar" \
     --data-urlencode "name=renamed.txt" "http://$davhost/rename/upload.txt")"
-  old="$(curl -s -o /dev/null -w '%{http_code}' -u "$davuser:$davpass" "http://$davhost/dav/upload.txt")"
-  new="$(curl -fsS -u "$davuser:$davpass" "http://$davhost/dav/renamed.txt" 2>/dev/null || true)"
+  old="$(curl -s -o /dev/null -w '%{http_code}' -u "$davuser:$davpass" "http://$davhost/files/upload.txt")"
+  new="$(curl -fsS -u "$davuser:$davpass" "http://$davhost/files/renamed.txt" 2>/dev/null || true)"
   if [ "$code" = "303" ] && [ "$old" = "404" ] && [ "$new" = "from the browser" ]; then
     ok "a file renamed in the browser has the new name over WebDAV"
   else
@@ -1122,11 +1144,11 @@ TRACK
   # #101: the rename is one form post and every path underneath moves with it.
   curl -s -o /dev/null -b "$jar" --data-urlencode "name=holiday" "http://$davhost/folders/"
   curl -s -o /dev/null -u "$davuser:$davpass" -X PUT --data-binary 'inside' \
-    "http://$davhost/dav/holiday/inside.txt"
+    "http://$davhost/files/holiday/inside.txt"
   code="$(curl -s -o /dev/null -w '%{http_code}' -b "$jar" \
     --data-urlencode "name=archive" "http://$davhost/rename/holiday")"
-  moved="$(curl -s -o /dev/null -w '%{http_code}' -u "$davuser:$davpass" "http://$davhost/dav/archive/inside.txt")"
-  left="$(curl -s -o /dev/null -w '%{http_code}' -u "$davuser:$davpass" "http://$davhost/dav/holiday/inside.txt")"
+  moved="$(curl -s -o /dev/null -w '%{http_code}' -u "$davuser:$davpass" "http://$davhost/files/archive/inside.txt")"
+  left="$(curl -s -o /dev/null -w '%{http_code}' -u "$davuser:$davpass" "http://$davhost/files/holiday/inside.txt")"
   if [ "$code" = "303" ] && [ "$moved" = "200" ] && [ "$left" = "404" ]; then
     ok "a folder renamed in the browser takes its contents with it"
   else
@@ -1135,7 +1157,7 @@ TRACK
   fi
 
   code="$(curl -s -o /dev/null -w '%{http_code}' -b "$jar" -X POST "http://$davhost/delete/renamed.txt")"
-  gone="$(curl -s -o /dev/null -w '%{http_code}' -u "$davuser:$davpass" "http://$davhost/dav/renamed.txt")"
+  gone="$(curl -s -o /dev/null -w '%{http_code}' -u "$davuser:$davpass" "http://$davhost/files/renamed.txt")"
   if [ "$code" = "303" ] && [ "$gone" = "404" ]; then
     ok "a file deleted in the browser is gone over WebDAV"
   else
@@ -1148,7 +1170,7 @@ TRACK
   # video is reading it (#146).
   printf 'import { Stratus } from "./stratus"\nexport const backup = 1\n' |
     curl -fsS -u "$davuser:$davpass" -X PUT --data-binary @- \
-      "http://$davhost/dav/backup.ts" >/dev/null 2>&1
+      "http://$davhost/files/backup.ts" >/dev/null 2>&1
 
   # The library reports on itself, which is the only way to see a first pass
   # over an adopted bucket getting anywhere. Everything this script uploaded has
@@ -1194,39 +1216,38 @@ TRACK
       "link '$share_link', body '$shared_body', a file beside it answered $shared_above"
   fi
 
-  # And the same link on the protocol surface, which is what the app needs: it
-  # speaks WebDAV and has to hand a Chromecast a URL, and a receiver cannot send
-  # an Authorization header. Same token, the address the app already builds, no
-  # credentials on the request at all.
-  dav_link="${share_link/\/files\//\/dav\/}"
-  dav_shared="$(curl -s "$dav_link")"
+  # The same link is the WebDAV address as well since #279, so what used to be
+  # two checks is this one: a receiver cannot send an Authorization header, and
+  # the one URL the app hands it is the one the page produced. Asked for as a
+  # client -- no Sec-Fetch at all -- to prove the signature is what admits it
+  # rather than anything about browsers.
+  dav_shared="$(curl -s -H 'User-Agent: not-a-browser' "$share_link")"
   if [ "$dav_shared" = "smoke" ]; then
-    ok "a shared link works on the WebDAV surface too"
+    ok "a shared link is the WebDAV address too"
   else
-    bad "a shared link works on the WebDAV surface too" "'$dav_link' served '$dav_shared'"
+    bad "a shared link is the WebDAV address too" "'$share_link' served '$dav_shared'"
   fi
 
   # And a film cast the way the app casts one: a share link for the Matroska
-  # film, on /dav/ with ?hls=, fetched with nothing but the signature -- the
+  # film with ?hls= on it, fetched with nothing but the signature -- the
   # playlist, and the segment it names with the same signature on it (#50).
   film_page="$(curl -fsS -b "$jar" -X POST --data-urlencode 'life=1d' \
     "http://$davhost/share/film.mkv" 2>/dev/null || true)"
   film_link="$(grep -o 'value="https\?://[^"]*"' <<<"$film_page" |
     head -1 | sed -e 's/^value="//' -e 's/"$//' -e 's/&amp;/\&/g')"
-  film_dav="${film_link/\/files\//\/dav\/}"
-  cast_list="$(curl -s "$film_dav&hls=index.m3u8")"
+  cast_list="$(curl -s "$film_link&hls=index.m3u8")"
   cast_seg="$(grep -m1 '^?hls=' <<<"$cast_list" || true)"
   cast_file="$(mktmp)/cast.ts"
-  curl -s -o "$cast_file" "http://$davhost/dav/film.mkv$cast_seg" || true
+  curl -s -o "$cast_file" "http://$davhost/files/film.mkv$cast_seg" || true
   cast_magic="$( (head -c 1 "$cast_file" 2>/dev/null || true) | od -An -tx1 | tr -d ' \n')"
   case "$cast_seg" in
     *'&k='*)
       if [ "$cast_magic" = "47" ]; then
-        ok "a film casts as HLS from a signed WebDAV link, with no credentials"
+        ok "a film casts as HLS from a signed link, with no credentials"
       else
-        bad "a film casts as HLS from a signed WebDAV link" "segment '$cast_seg' started '$cast_magic'"
+        bad "a film casts as HLS from a signed link" "segment '$cast_seg' started '$cast_magic'"
       fi ;;
-    *) bad "a film casts as HLS from a signed WebDAV link" "playlist '$(head -c 160 <<<"$cast_list")' from '$film_dav'" ;;
+    *) bad "a film casts as HLS from a signed link" "playlist '$(head -c 160 <<<"$cast_list")' from '$film_link'" ;;
   esac
 
   # Indexed is not the same as read: an extraction that failed still counts as
@@ -1336,7 +1357,7 @@ TRACK
   # `docker logs` will show yet.
   logged=""
   for _ in $(seq 1 25); do
-    if docker logs "$davname" 2>&1 | grep -q '"msg":"request".*"path":"/dav/notes.txt"'; then
+    if docker logs "$davname" 2>&1 | grep -q '"msg":"request".*"path":"/files/notes.txt"'; then
       logged=yes
       break
     fi

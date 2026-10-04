@@ -11,9 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/C0piIot/stratus-backend/internal/auth"
 	"github.com/C0piIot/stratus-backend/internal/db"
-	"github.com/C0piIot/stratus-backend/internal/files"
 	"github.com/C0piIot/stratus-backend/internal/media"
 )
 
@@ -117,42 +115,6 @@ func (h *handler) play(w http.ResponseWriter, r *http.Request, user string, f db
 	w.Header().Set("Content-Security-Policy", playerPolicy)
 	h.render(w, http.StatusOK, pagePlay, v)
 }
-
-// HLS serves the same playlists and segments at prefix+path, for a surface
-// other than this one -- WebDAV, where the app casts from, since a client
-// should depend on the protocol surface and not on the web UI's URLs
-// (stratus-app#66). It is mounted behind that surface's own gates, so the
-// request arrives with a user already on it: a share link's owner, or whoever
-// signed in with Basic. The playlist writes the same signature onto every
-// segment, which is how a Chromecast is let in.
-func HLS(prefix string, service *files.Service, video Video) http.Handler {
-	h := &handler{files: service, video: video}
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		user, ok := auth.User(r.Context())
-		if !ok || video.Media == nil {
-			http.Error(w, "not found", http.StatusNotFound)
-			return
-		}
-		p, err := toPath(strings.TrimPrefix(r.URL.Path, prefix))
-		if err != nil {
-			http.Error(w, "not found", http.StatusNotFound)
-			return
-		}
-		f, err := service.Stat(r.Context(), user, p)
-		if err != nil || f.IsDir || !media.IsVideo(f.Path) {
-			http.Error(w, "there is no film here", http.StatusNotFound)
-			return
-		}
-		// The web UI's own middleware sets this for its routes; this one is
-		// mounted outside it.
-		w.Header().Set("X-Content-Type-Options", "nosniff")
-		h.hls(w, r, f, r.URL.Query().Get(hlsParam))
-	})
-}
-
-// HLSParam is the query parameter that asks for a playlist or a segment, for
-// the surface that mounts HLS to route by.
-const HLSParam = hlsParam
 
 // encoding is a film's re-encode, when this machine makes them and the film
 // both needs one and can have one.

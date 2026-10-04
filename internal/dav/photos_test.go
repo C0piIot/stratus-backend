@@ -134,7 +134,7 @@ func TestAPhotoIsTheOriginal(t *testing.T) {
 	if got := rec.Header().Get("Content-Type"); got != "image/heic" {
 		t.Errorf("Content-Type = %q, want the row's", got)
 	}
-	// The same validator /dav/ sends for the same file.
+	// The same validator /files/ sends for the same file.
 	if got := rec.Header().Get("ETag"); got != strconv.Quote(f.ETag) {
 		t.Errorf("ETag = %q, want %q", got, strconv.Quote(f.ETag))
 	}

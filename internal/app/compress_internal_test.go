@@ -17,7 +17,7 @@ func xmlBody(entries int) string {
 	var b strings.Builder
 	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?><D:multistatus xmlns:D="DAV:">`)
 	for i := range entries {
-		b.WriteString(`<D:response><D:href>/dav/photo-` + strconv.Itoa(i) +
+		b.WriteString(`<D:response><D:href>/files/photo-` + strconv.Itoa(i) +
 			`.jpg</D:href><D:propstat><D:prop><D:getcontentlength>8</D:getcontentlength>` +
 			`</D:prop><D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response>`)
 	}
@@ -37,7 +37,7 @@ func answering(t *testing.T, accept string, header map[string]string, status int
 		_, _ = io.WriteString(w, body)
 	}))
 
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/dav/album/", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/files/album/", nil)
 	if accept != "" {
 		req.Header.Set("Accept-Encoding", accept)
 	}
@@ -105,7 +105,7 @@ func TestABlobIsNeverCompressed(t *testing.T) {
 // TestARangeIsNeverCompressed is the one that would corrupt a download rather
 // than merely waste time: Content-Range counts bytes of the original
 // representation, so a compressed 206 describes itself wrongly. Video seeking
-// over /dav/ and /files/ is made of these.
+// over /files/ and /files/ is made of these.
 func TestARangeIsNeverCompressed(t *testing.T) {
 	t.Parallel()
 	res := answering(t, "gzip", map[string]string{
@@ -190,7 +190,7 @@ func TestAHeadIsLeftAlone(t *testing.T) {
 		w.Header().Set("Content-Type", "text/xml")
 		w.Header().Set("Content-Length", "138822")
 	}))
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodHead, "/dav/album/", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodHead, "/files/album/", nil)
 	req.Header.Set("Accept-Encoding", "gzip")
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -243,7 +243,7 @@ func TestAFlushReachesTheClient(t *testing.T) {
 			t.Errorf("flush: %v", err)
 		}
 	}))
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/dav/album/", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/files/album/", nil)
 	req.Header.Set("Accept-Encoding", "gzip")
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)

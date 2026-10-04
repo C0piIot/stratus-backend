@@ -57,14 +57,38 @@ that does.
 
 ## WebDAV
 
-Mounted at `/dav/`, behind HTTP Basic, and only when `STRATUS_USERNAME` and
-`STRATUS_PASSWORD` are both set — an install nobody has configured is not a file
-server.
+**The whole server is one WebDAV namespace.** Mount the origin and you get a
+read-only collection holding everything there is:
+
+```
+/                 files/, photos/, playlists/
+/files/           your tree — read and write, locks and all
+/photos/          your photographs by year and month, generated, read-only
+/playlists/       your playlists as .m3u8, generated, read-only
+```
+
+Behind HTTP Basic, and only when `STRATUS_USERNAME` and `STRATUS_PASSWORD` are
+both set — an install nobody has configured is not a file server.
 
 ```sh
-rclone mount :webdav: /mnt/stratus --webdav-url http://localhost:8080/dav/ \
+# Everything, with the generated folders in it:
+rclone mount :webdav: /mnt/stratus --webdav-url http://localhost:8080/ \
+  --webdav-user edu --webdav-pass "$(rclone obscure "$STRATUS_PASSWORD")"
+
+# Or just your files, which is the same tree one level down:
+rclone mount :webdav: /mnt/stratus --webdav-url http://localhost:8080/files/ \
   --webdav-user edu --webdav-pass "$(rclone obscure "$STRATUS_PASSWORD")"
 ```
+
+Those two are not two servers. A mount is a URL, so pointing a client at
+`/files/` gives it exactly the tree and nothing else — and it is the honest
+one to use for a client that writes, because the `OPTIONS` it asks at its own
+root then describes a collection that really is writable.
+
+**`/files/` is the same URL the web interface serves**, which is the point: one
+address per thing, whether a browser or a file manager is asking. What tells
+them apart is the method — a browser never sends `PROPFIND`, and a WebDAV
+client never asks for a listing with `GET`.
 
 Automatic camera-roll backup is the thinnest part of this, and it is a client
 problem rather than a server one. On Android, FolderSync schedules the camera
@@ -511,16 +535,16 @@ their own with the same credentials, so a player that has never heard of
 Subsonic -- VLC, foobar2000, anything that opens a playlist by URL -- can play
 them. Three things are worth knowing:
 
-- **It is a separate mount on purpose.** Your files under `/dav/` are yours, and
-  a generated `Mix.m3u8` in there could collide with one you uploaded. Nothing
-  of yours can ever be at `/playlists/`.
+- **It is a collection of its own on purpose.** Your files under `/files/` are
+  yours, and a generated `Mix.m3u8` in there could collide with one you
+  uploaded. Nothing of yours can ever be at `/playlists/`.
 - **It is read-only.** The files are generated from the database on every read,
   so they are never stale -- a renamed track is in the next read -- and there
   is nothing for a write to mean. Finder mounts it read-only; everything that
   writes is refused. Editing happens over OpenSubsonic.
-- **Each entry is a URL on this server**, `/dav/music/...`. That works for a
+- **Each entry is a URL on this server**, `/files/music/...`. That works for a
   player that opens the playlist from here, and not for a copy synced to a local
-  disk, where `/dav/` is not a path. Two playlists with the same name, or names
+  disk, where `/files/` is not a path. Two playlists with the same name, or names
   that differ only in case, become `Mix.m3u8` and `Mix (2).m3u8`, the older one
   keeping the plain name; characters a file name cannot hold become `_`.
 
@@ -620,8 +644,8 @@ natively, and anything else through hls.js, which is loaded for that page and
 that film only. With no JavaScript the player still plays whatever the browser
 plays. The same HLS is what a Chromecast is sent: `?hls=index.m3u8` on the
 file's URL, or on its share link, since a receiver cannot sign in. It answers
-under `/dav/` too, on the WebDAV address of the film with the same signature,
-which is where `stratus-app` casts from.
+on the film's own URL with the same signature, which is where `stratus-app`
+casts from — and that address is the WebDAV one as well now.
 
 **There is a search box in the bar at the top.** It finds a file or a folder by
 its **name** -- not its path, so a word in a folder finds the folder and not the
@@ -786,9 +810,9 @@ without JavaScript the field is still there to copy by hand.
 
 A link can be given a life of a day, a week, a month, or none — which lasts
 until the password changes. Making one needs an account; opening one does not.
-**The same link also works under `/dav/`**, for reading, which is what lets a
-phone hand a video to a Chromecast: the receiver fetches it itself and cannot
-send a password.
+The link is read-only wherever it is presented, which is what lets a phone
+hand a video to a Chromecast: the receiver fetches it itself and cannot send a
+password. One URL does both now, so there is no second address to pick.
 A client that already has the password can also derive one for itself without
 asking the server, which is how the mobile app hands a video to a Chromecast:
 the format is in `CLAUDE.md`.
@@ -850,7 +874,7 @@ CSRF is that `SameSite=Lax` plus the standard library's
 `http.CrossOriginProtection`, which refuses a state-changing request the browser
 itself reports as cross-site.
 
-**The session opens every other surface too** — `/dav/`, `/tus/`, `/rest/`,
+**The session opens every other surface too** — `/files/`, `/tus/`, `/rest/`,
 `/playlists/`, `/photos/` — so a page can use the protocols instead of an API of
 its own, and HTTP Basic opens the web UI. On those surfaces the cookie counts
 only when the browser says the request came from one of this server's pages or
@@ -889,7 +913,7 @@ docker run --rm -p 8080:8080 \
 ```
 
 The backend listens on <http://localhost:8080>, and that is a working WebDAV
-server at `/dav/` — mount it with the `rclone` line above.
+server at `/files/` — mount it with the `rclone` line above.
 
 `--user` and a directory you own are not decoration: the container runs as a
 non-root user and refuses to start rather than come up healthy and fail on your
@@ -1220,7 +1244,7 @@ a name, a DSN or a byte of content.
 ## Status
 
 Single user, and usable from a WebDAV client today: files go in and come out
-over `/dav/`, with metadata extracted in the background and orphaned blobs swept
+over WebDAV, with metadata extracted in the background and orphaned blobs swept
 up.
 
 Working now:

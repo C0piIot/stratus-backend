@@ -295,3 +295,47 @@ func TestBasicFromAnotherSiteIsRefused(t *testing.T) {
 		t.Errorf("cross-site Basic = %d, want 403", rec.Code)
 	}
 }
+
+// TestWhichRefusalDependsOnWhoIsAsking is what makes one URL serve a browser
+// and a WebDAV client at once (#279). A browser navigating needs the login
+// page; a client needs a challenge, or it never sends credentials at all.
+func TestWhichRefusalDependsOnWhoIsAsking(t *testing.T) {
+	t.Parallel()
+	h := newHandler(t, nil)
+
+	// A WebDAV client, or anything else that is not a browser: no Sec-Fetch-*
+	// at all. The challenge is what it can act on.
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/files/notes.txt", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("a client with no credentials = %d, want 401", rec.Code)
+	}
+	if got := rec.Header().Get("WWW-Authenticate"); !strings.HasPrefix(got, `Basic realm="Stratus"`) {
+		t.Errorf("WWW-Authenticate = %q, want the same challenge every surface sends", got)
+	}
+
+	// A browser navigating: the login page, as it always was.
+	nav := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/files/notes.txt", nil)
+	nav.Header.Set("Sec-Fetch-Mode", "navigate")
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, nav)
+	if rec.Code != http.StatusSeeOther || !strings.HasPrefix(rec.Header().Get("Location"), "/login") {
+		t.Errorf("a browser with no session = %d to %q, want the login form",
+			rec.Code, rec.Header().Get("Location"))
+	}
+	if rec.Header().Get("WWW-Authenticate") != "" {
+		t.Error("a browser was offered the native dialog the login page exists to avoid")
+	}
+
+	// A page element rather than a navigation -- an <img> on a page whose
+	// session has expired. The challenge, so the picture breaks instead of a
+	// login form being rendered inside it.
+	img := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/thumb/photo.jpg", nil)
+	img.Header.Set("Sec-Fetch-Mode", "no-cors")
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, img)
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("an image with no session = %d, want 401", rec.Code)
+	}
+}

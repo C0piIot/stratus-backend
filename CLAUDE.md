@@ -138,11 +138,12 @@ Hard constraints, in the same spirit as the rest of the project:
   It is not a surface. `/files/<path>` already streams a file's bytes through
   `http.ServeContent` -- ranges included, which is what casting turns on -- and
   renders a folder as HTML for the most universal client there is, so a link is
-  that URL with `?k=` on the end and a browser is told nothing new. **WebDAV was
-  the obvious home and it is the wrong one**: a signed `/dav/` URL serves the
-  same bytes, but its listing is `PROPFIND`, which no browser issues and no
-  receiver speaks, and no WebDAV client will put a query string on every request
-  -- so a folder link there would open onto nothing.
+  that URL with `?k=` on the end and a browser is told nothing new. **A
+  signature authorises a read and not a protocol**: the same URL answers
+  WebDAV now (#279), and a link on it still opens what a person can read --
+  `GET` and `HEAD` -- while a `PROPFIND` carrying one is simply not
+  authenticated by it and is asked for a password like any other. A folder
+  link opening onto a multistatus no receiver speaks was never the point.
 
   **Read-only is which gate the route goes through, not a check somebody
   remembers.** `readable` wraps the routes that read and accepts a
@@ -158,22 +159,15 @@ Hard constraints, in the same spirit as the rest of the project:
   that was offered and refused is `403` rather than a redirect, because somebody
   sent a dead link needs to be told and a receiver needs a status code.
 
-  **A link works on `/dav/` too, for a plain read.** The app speaks WebDAV and
-  nothing else, and what it needs is a URL a Chromecast can fetch -- a receiver
-  gets the media itself and cannot send an `Authorization` header. Making it
-  derive the browser surface's URL instead would have worked and is the worse
-  trade: `/files/` is the web UI, the thing most likely to change shape, while
-  `/dav/` is a mount that will not move, and a client should depend on the
-  protocol surface.
-
-  It widens no authority. The signature already authorises reading that path,
-  and a `GET` there is the same bytes through the same `ServeContent` with the
-  same ranges; what changes is the address it can be presented at. `GET` and
-  `HEAD` only -- not `PROPFIND`, so a folder link opens nothing there and stays
-  what it is, something for a person on the surface that renders HTML. The gate
-  is `internal/dav/signed.go`, and `auth.Basic` now passes through a request
-  that already carries a user, which is safe for the reason the context key is
-  unexported: nothing outside `internal/auth` can claim to be somebody.
+  **There is one address to present it at, which is what #279 settled.** The
+  app speaks WebDAV and needs a URL a Chromecast can fetch -- a receiver gets
+  the media itself and cannot send an `Authorization` header -- and it used to
+  need a second gate on `/dav/` to get one. With the two surfaces on one URL
+  the question is gone: `/files/<path>?k=` is the WebDAV address *and* the
+  browser's, so `internal/dav/signed.go` was deleted rather than moved. The
+  gate is `readable` in `internal/web`, which was always the one that verified
+  a token, and the split by method is what keeps a link read-only: `GET` and
+  `HEAD` go to it, and everything a write could be does not.
 
   The owner authorises the read and is not shown for it: a shared page carries
   no name, no Sign out and no way back to the share's own root -- the
@@ -205,6 +199,11 @@ Hard constraints, in the same spirit as the rest of the project:
   the composition root, so a caller that forgot it would not lose the defence
   with nothing to show for it. No synchroniser token, so no new form can forget
   to carry one.
+- **A page and a WebDAV collection at one URL** (#279): `/files/` is both, and
+  the half that answers is chosen by the method in the composition root. What
+  that cost the UI is one branch -- `signedIn` answers a challenge rather than
+  the login page when the request is not a browser navigating. See the tech
+  decision for the whole of it.
 - **The session opens every protocol surface, and Basic opens the UI** (#234),
   so a page can call `/rest/scrobble` rather than grow an endpoint of its own.
   `auth.Session` wraps each surface in the composition root and puts the
@@ -1149,6 +1148,52 @@ Restraint here is principle 3, not laziness:
 ## Tech decisions
 
 - Go, `net/http` from stdlib, **no web framework**.
+- **One namespace for the whole origin, and one URL per thing** (#279). The
+  server is a WebDAV collection: a synthetic, read-only root listing `files/`,
+  `photos/` and `playlists/`, with the user's tree at `/files/` -- which is
+  where the web UI has served it since it existed. `/dav/` is gone.
+
+  **What tells a browser from a WebDAV client is the method, and nothing
+  else.** A browser cannot produce `PROPFIND`, `PROPPATCH`, `MKCOL`, `COPY`,
+  `MOVE`, `LOCK` or `UNLOCK`, and a client does not ask for a listing with
+  `GET` -- it asks with `PROPFIND`. The only ambiguous requests are `GET` and
+  `HEAD` on a collection, which RFC 4918 deliberately leaves undefined so that
+  a server may answer an HTML listing, and `OPTIONS`, which goes to the half
+  that speaks the protocol. So there is no content negotiation here and
+  nothing to sniff: `Accept` could not do it anyway, since clients variously
+  send `*/*`, `text/xml` or nothing, and `User-Agent` is not on the table.
+
+  `davOrBrowser` in the composition root is the whole mechanism, beside where
+  `hlsOr` was and for the same reason: inbound adapters do not import each
+  other, and deciding which protocol a request is in is wiring.
+
+  **What it took was deciding which refusal an unauthenticated request gets.**
+  A browser needs `303` to `/login`; a client needs `401` with a challenge, or
+  it never sends credentials at all -- and a `401` reaching a browser raises
+  the native dialog the login page exists to avoid. `signedIn` already took
+  both credentials; what it did wrong was always redirecting. It now looks at
+  `Sec-Fetch-Mode`, which is #234's decision read the other way round: only a
+  browser sends those headers, and they say what the request is for. A
+  navigation gets the page, everything else gets the challenge -- so an
+  `<img>` on a page whose session expired breaks rather than rendering a login
+  form inside itself.
+
+  Three things fell out of it. `dav.SignedLinks` is **deleted**: a link
+  authorises `GET` and `HEAD`, which are the browser half, and `readable`
+  already verified tokens -- a `PROPFIND` carrying one is simply not
+  authenticated by it. `web.HLS` and `hlsOr` went with the second prefix they
+  existed for. And the root answering `OPTIONS` with `DAV: 1, 2` is what the
+  Windows redirector probes for before it will mount anything (#281), which is
+  now true by construction rather than by a special case.
+
+  The price was paid once, deliberately, before there was a release: every URL
+  this server had handed out changed. The cost of doing it later was every
+  URL anybody had saved.
+
+  The second half is still to do: `/photos/` and `/playlists/` answering HTML
+  as well, which retires `/gallery/photos` and the album pages' own URLs. It
+  was decided with this one because this is the half that breaks addresses.
+
 - **Two WebDAV libraries, split by method.** `github.com/emersion/go-webdav`
   answers everything except `PROPFIND`, which is
   `golang.org/x/net/webdav`'s. The rule in one line: **the one that can express
@@ -1240,7 +1285,7 @@ Restraint here is principle 3, not laziness:
   Subsonic browse calls and the folder-cover lookup were paying it.
 - **Playlists are `.m3u8` files on a mount of their own**, `/playlists/`
   (#203), read-only WebDAV from `internal/dav/playlists.go`. **Not a folder in
-  the tree, and that is the design:** `/dav/` is the user's namespace, and a
+  the tree, and that is the design:** `/files/` is the user's namespace, and a
   generated file there -- a reserved `.playlists` folder, or an `.m3u8` beside
   the tracks -- can collide with a real one, which would mean refusing a path
   that has always been legal, including in a library adopted from elsewhere.
@@ -1720,13 +1765,12 @@ Restraint here is principle 3, not laziness:
   segments carry `Access-Control-Allow-Origin: *`, which the receiver
   requires; the gate is the signature, and a wildcard never admits a cookie.
 
-  **And at the film's WebDAV address**, `/dav/<path>?hls=`, for the same
-  reason a share link works there: the app speaks WebDAV and casts from it,
-  and a client should depend on the protocol surface rather than on the web
-  UI's URLs. `web.HLS` is the same handler mounted under that prefix, and
-  `hlsOr` in the composition root sends it a `GET` or `HEAD` that asks for
-  HLS and everything else to WebDAV; it runs behind that mount's gates, a
-  signature or Basic, so it has a user by the time it is reached.
+  **The film's WebDAV address is the same one** since #279, so there is
+  nothing to mount twice: `?hls=` is a `GET`, and a `GET` on `/files/` is the
+  browser half, which is where this handler already lived. `web.HLS` and the
+  `hlsOr` that used to route to it under `/dav/` are gone with the second
+  prefix they existed for. The app casts from the URL it browses, and that is
+  now the protocol surface as well.
 
   **How many run at once comes from the machine**, like the thumbnails: four
   per CPU, because a transcode encodes faster than anybody listens and spends
