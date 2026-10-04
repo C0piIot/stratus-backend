@@ -41,6 +41,17 @@ func Root(prefix string, children ...string) http.Handler {
 	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// One path and not a subtree. This handler is mounted on the mux's
+		// catch-all, so every WebDAV method that nothing else claimed arrives
+		// here -- and answering the root's listing to a PROPFIND of some other
+		// path would tell a client that every address on this server is a
+		// collection holding three others. Which is how the demo's reseed
+		// found it: it asked for a retired URL and was handed the root.
+		if r.URL.Path != prefix {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+
 		switch r.Method {
 		case http.MethodOptions:
 			// Class 2 at the root although nothing here locks: it is the

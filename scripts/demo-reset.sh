@@ -56,7 +56,9 @@ version="$(curl -fsS "$BASE/rest/ping.view" | sed -n 's/.*serverVersion="\([^"]*
 [ -n "$version" ] || { echo "the instance did not say what it is running" >&2; exit 1; }
 user="$(setting STRATUS_USERNAME)"
 
-listing="$(curl -fsS -u "$user:$version" -X PROPFIND -H "Depth: 1" "$BASE/dav/")"
+# The writable tree, which is what a reseed would be writing into -- not the
+# origin, whose listing is the three collections and is never empty (#279).
+listing="$(curl -fsS -u "$user:$version" -X PROPFIND -H "Depth: 1" "$BASE/files/")"
 if [ "$(grep -o '<D:href>' <<<"$listing" | wc -l)" -ne 1 ]; then
 	echo "the tree is not empty after the reset; not seeding on top of it:" >&2
 	grep -o '<D:href>[^<]*' <<<"$listing" >&2
