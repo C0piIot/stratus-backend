@@ -8,6 +8,11 @@
 *.db
 *.db-shm
 *.db-wal
+# ...except the Nextcloud instance the import survey is tested against. It is a
+# database on purpose: the survey reads a real schema, and a fixture built by
+# the tests would mean opening a SQLite file somewhere the architecture rules
+# say nothing may (#24).
+!scripts/testdata/nextcloud.db
 .env
 
 # go

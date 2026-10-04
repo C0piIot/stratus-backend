@@ -44,13 +44,20 @@ linters:
         # package". These rules make a leak a build failure instead of a note in
         # a markdown file. The target packages do not exist yet; the rules are
         # in place so the first violation is caught the day it is written.
+        # internal/nextcloud is the second exception and the only one: it reads
+        # somebody else's SQLite file -- a Nextcloud database, which is an
+        # external system and not this server's metadata seam (#24). The rule
+        # it is exempt from is about the seam not leaking its driver, and an
+        # importer that cannot open the database it imports from would be the
+        # rule enforcing a shape nobody meant.
         db-driver:
           list-mode: lax
           files:
             - "!**/internal/db/sqlite/**"
+            - "!**/internal/nextcloud/**"
           deny:
             - pkg: modernc.org/sqlite
-              desc: only internal/db/sqlite may import the SQLite driver
+              desc: only internal/db/sqlite and internal/nextcloud may import the SQLite driver
         db-driver-postgres:
           list-mode: lax
           files:
@@ -134,6 +141,7 @@ linters:
             - "**/internal/sniff/**"
             - "**/internal/auth/**"
             - "**/internal/config/**"
+            - "**/internal/nextcloud/**"
           deny:
             - pkg: github.com/C0piIot/stratus-backend/internal/dav$
               desc: dependencies point inwards; a port or feature must not import a protocol adapter

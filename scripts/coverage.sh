@@ -48,6 +48,13 @@
 # month, the viewer's neighbours and the by-path redirect each have a case
 # where the second read is the one that breaks.
 #
+# internal/nextcloud starts at 88. What is left uncovered is the half of a
+# survey that needs the foreign database to fail mid-read: a scan that refuses
+# after the rows have started arriving, and the context being cancelled between
+# two files. Both are reachable only by breaking SQLite underneath a query that
+# is already running, and the fixture is a real Nextcloud schema precisely so
+# that nothing in between can be faked.
+#
 # internal/incoming starts at 86. What is left uncovered is the half of a sweep
 # that needs the filesystem to misbehave: a directory that cannot be read, a
 # relative path that cannot be computed, a hundred names taken in a row. The
@@ -74,6 +81,7 @@ internal/incoming:86
 internal/media:89
 internal/music:100
 internal/photos:92
+internal/nextcloud:88
 internal/db:63
 internal/db/postgres:93
 internal/db/sqlite:94

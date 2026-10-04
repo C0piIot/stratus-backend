@@ -1060,6 +1060,7 @@ internal/db/dbtest/       conformance suite every adapter must pass
 internal/files/           cross-protocol file invariants
 internal/incoming/        the import folder on local disk, swept into the library
 internal/music/           playlist edits in one transaction each, and the library as folders by tag
+internal/nextcloud/       reads somebody else's instance, so its bucket can be adopted
 internal/calendar/        collections, objects, recurrence            -- not yet
 internal/media/           EXIF/tag extraction, thumbnails, ffprobe
 internal/photos/          the library as folders by date, for the two adapters that serve it
@@ -1141,7 +1142,11 @@ are `depguard` rules in `.golangci.yml`, so the first violation fails the build:
 
 - Inbound adapters do not import each other.
 - Ports, features, `media` and `auth` do not import inbound adapters, nor `app`.
-- No driver-specific import outside its own adapter package.
+- No driver-specific import outside its own adapter package. `internal/nextcloud`
+  is the one exception and it is written into the rule: it opens a Nextcloud
+  SQLite file, which is an external system rather than this server's metadata
+  seam, and an importer that may not open the database it imports from would be
+  the rule enforcing a shape nobody meant (#24).
 
 ### Not created until something actually needs it
 

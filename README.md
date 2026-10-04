@@ -489,6 +489,55 @@ per upload in flight in memory, and the largest object one request can upload
 is 156 GiB, which is S3's ten thousand parts. An install that used an earlier
 version can delete `.uploads/` from its data directory.
 
+## Coming from Nextcloud
+
+**A Nextcloud instance on S3 primary storage can be adopted without moving a
+byte** — in principle. Nextcloud builds its bucket the way this server does:
+the object is named `urn:oid:<fileid>`, the bucket is flat, nothing in it is
+human readable, and every name, path and folder lives in the database. Neither
+side ever parses a blob key, so the objects can stay exactly where they are,
+under the names they already have, and the import becomes a read of one
+database and a batch of row inserts. No copy, no egress bill, no window where
+half a library is in two places.
+
+What decides whether that is true of *your* instance is whether its database and
+its bucket still agree, and Nextcloud's own well-known failure is that they
+drift. So the first half shipped is the survey, which writes nothing anywhere:
+
+```sh
+STRATUS_STORAGE_DSN=s3://key:secret@s3.example.com/my-bucket \
+  stratus import nextcloud --db /var/www/nextcloud/data/owncloud.db
+```
+
+It opens Nextcloud's SQLite database **read-only** — the instance can still be
+running — reads the user's `files/` tree out of `oc_filecache`, and asks the
+bucket in `STRATUS_STORAGE_DSN` about every object that tree claims. What comes
+back is a count of what is present, what is missing, what is there at the wrong
+length, and what could not be asked about at all, with the first names of each.
+Versions, trash and chunked uploads are counted separately and left behind.
+
+Two things stop an adoption in place, and the survey says so before anything
+else:
+
+- **Server-side encryption.** If Nextcloud encrypted the objects, they are
+  ciphertext under keys this server does not have. The survey reports it and
+  does not walk the library — counting a hundred thousand files as "present"
+  would be true and completely misleading.
+- **A bucket per user.** Multibucket instances map each user to their own
+  bucket at account creation; this server is configured with one.
+
+Flags, when the defaults are wrong: `--user` picks whose files on an instance
+with more than one, `--table-prefix` is Nextcloud's `dbtableprefix` (`oc_`),
+`--object-prefix` is `objectstore.arguments.objectPrefix` from `config.php`
+(`urn:oid:`) — which is in that file and not in the database, so it is the one
+thing you have to look up — and `--workers` is how many objects are asked about
+at once.
+
+**The half that writes the rows is not built yet**
+([#24](https://github.com/C0piIot/stratus-backend/issues/24)). Today this
+command is a survey and nothing else: it never writes to the bucket, never to
+Nextcloud's database, and never to this server's.
+
 ## OpenSubsonic
 
 Mounted at `/rest/`, with the same credentials as WebDAV and, like it, only when
