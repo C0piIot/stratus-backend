@@ -69,11 +69,17 @@ that does.
 read-only collection holding everything there is:
 
 ```
-/                 files/, photos/, playlists/
+/                 files/, music/, photos/, playlists/
 /files/           your tree — read and write, locks and all
+/music/           your library by artist and album, generated, read-only
 /photos/          your photographs by year and month, generated, read-only
 /playlists/       your playlists as .m3u8, generated, read-only
 ```
+
+**Every one of those addresses answers a browser too.** The generated
+collections are the web UI's own pages at exactly the same URLs — the server
+tells a browser from a WebDAV client by the method, not by the address — so a
+link somebody sends and a folder somebody mounts are the same thing.
 
 Behind HTTP Basic, and only when `STRATUS_USERNAME` and `STRATUS_PASSWORD` are
 both set — an install nobody has configured is not a file server.
@@ -541,15 +547,19 @@ nothing at all.
 **The same playlists are `.m3u8` files at `/playlists/`**, a WebDAV mount of
 their own with the same credentials, so a player that has never heard of
 Subsonic -- VLC, foobar2000, anything that opens a playlist by URL -- can play
-them. Three things are worth knowing:
+them. `/playlists/` is also a page listing them, and a playlist's own URL with
+`?view` shows what is in it with a player per track -- which is the first time
+a playlist has been visible from a browser at all. Three things are worth
+knowing:
 
 - **It is a collection of its own on purpose.** Your files under `/files/` are
   yours, and a generated `Mix.m3u8` in there could collide with one you
   uploaded. Nothing of yours can ever be at `/playlists/`.
-- **It is read-only.** The files are generated from the database on every read,
-  so they are never stale -- a renamed track is in the next read -- and there
-  is nothing for a write to mean. Finder mounts it read-only; everything that
-  writes is refused. Editing happens over OpenSubsonic.
+- **It is read-only, pages included.** The files are generated from the
+  database on every read, so they are never stale -- a renamed track is in the
+  next read -- and there is nothing for a write to mean. Finder mounts it
+  read-only; everything that writes is refused, and the page has no forms.
+  Creating and editing happen over OpenSubsonic.
 - **Each entry is a URL on this server**, `/files/music/...`. That works for a
   player that opens the playlist from here, and not for a copy synced to a local
   disk, where `/files/` is not a path. Two playlists with the same name, or names
@@ -720,16 +730,29 @@ a click away. A HEIC shows in every browser, not only Safari, because what is
 shown is a JPEG made from it. A photo appears once the indexer has read it,
 like a track in the music library.
 
-**Music has a library of its own at `/music`**: the artists, each one's albums
-with their covers, and an album page where every track is a player of its own.
-Read from the tags rather than the tree, like the gallery, and a track appears
-once the indexer has read it. Stars, ratings and play counts show as a Subsonic
+**Music has a library of its own at `/music/`**, which is both a set of pages
+and a WebDAV collection: the artists, each one's albums with their covers, and
+an album page where every track is a player of its own. A track's own URL —
+`/music/Autechre/Amber/01.flac` — is the track, downloaded, and that is the
+same URL a client mounting `/music/` finds it at. Read from the tags rather
+than the tree, like the gallery, and a track appears once the indexer has read
+it. Stars, ratings and play counts show as a Subsonic
 client left them; they are set from one, not here. A track played to the end in
 the browser counts as a play: the page makes the same `scrobble` call a
 Subsonic client does, to `/rest/`, with the session as its credential. With
 JavaScript off a track still plays and is not counted. Tracks play one at a
 time and do not follow on from each other, and a format the browser cannot
 decode does not play.
+
+**A tag is not a filename**, so the names under `/music/` are generated: an
+artist called `AC/DC` is one collection called `AC_DC`, because a folder cannot
+hold a slash, and two tracks in an album with the same filename become `01.flac`
+and `01 (2).flac`. The pages link to exactly those names — they and the mount
+generate them in the same place — and a search result, which holds tags rather
+than names, goes through `/music/?artist=…` and is redirected to the right one.
+What is not under `/music/` is the album's cover: it is derived rather than one
+of the album's files, so it hangs off the album's own address as
+`?cover=<pixels>`, and nothing that is not a track appears in the collection.
 
 **What a WebDAV client sees at `/photos/` is the same tree**, read-only and
 class 1: `/photos/2024/06/` is June 2024 and the files in it are the originals,
@@ -893,7 +916,7 @@ CSRF is that `SameSite=Lax` plus the standard library's
 itself reports as cross-site.
 
 **The session opens every other surface too** — `/files/`, `/tus/`, `/rest/`,
-`/playlists/`, `/photos/` — so a page can use the protocols instead of an API of
+`/music/`, `/playlists/`, `/photos/` — so a page can use the protocols instead of an API of
 its own, and HTTP Basic opens the web UI. On those surfaces the cookie counts
 only when the browser says the request came from one of this server's pages or
 from the address bar (`Sec-Fetch-Site: same-origin` or `none`): OpenSubsonic

@@ -30,7 +30,7 @@ func TestTheBoxIsOnEveryPageAndKeepsWhatWasTyped(t *testing.T) {
 	h := newHandler(t, nil)
 	cookie := signIn(t, h)
 
-	for _, target := range []string{"/files/", "/status", "/photos/", "/music"} {
+	for _, target := range []string{"/files/", "/status", "/photos/", "/music/", "/playlists/"} {
 		body := get(t, h, target, cookie).Body.String()
 		has(t, body, `action="/search"`, `name="q"`)
 	}
@@ -38,7 +38,7 @@ func TestTheBoxIsOnEveryPageAndKeepsWhatWasTyped(t *testing.T) {
 	// The sign-out form is still there, outside the search form: a form does
 	// not nest, and the links used to live inside that one.
 	listing := get(t, h, "/files/", cookie).Body.String()
-	has(t, listing, `action="/logout"`, `href="/music"`)
+	has(t, listing, `action="/logout"`, `href="/music/"`)
 
 	result := get(t, h, "/search?q=holiday", cookie).Body.String()
 	has(t, result, `value="holiday"`)
@@ -94,7 +94,10 @@ func TestASearchFindsNamesAndTags(t *testing.T) {
 	// The music half is the tags and not the names: a word in a filename finds
 	// the file above, and a track's own title finds the track here.
 	tagged := get(t, h, "/search?q=montreal", cookie).Body.String()
-	has(t, tagged, ">Montreal<", "Autechre", "/music/Autechre/Amber")
+	// A result is a row of the index and holds tags, not the names the
+	// library tree generates, so it links through the redirect that turns
+	// one into the other.
+	has(t, tagged, ">Montreal<", "Autechre", "/music/?album=Amber&amp;artist=Autechre")
 
 	// A folder is found by its own name, and what is inside it is not dragged
 	// along: that is what the port promises and what the page shows.
@@ -119,7 +122,7 @@ func TestAnArtistIsOneLineAndNotTheirDiscography(t *testing.T) {
 	}
 
 	body := get(t, h, "/search?q=autechre", cookie).Body.String()
-	has(t, body, `href="/music/Autechre"`, "1 album")
+	has(t, body, `href="/music/?artist=Autechre"`, "1 album")
 	for _, title := range []string{">Montreal<", ">Nine<", ">Silverside<"} {
 		if strings.Contains(body, title) {
 			t.Errorf("an artist's tracks came back with them (%s):\n%s", title, body)
@@ -128,7 +131,7 @@ func TestAnArtistIsOneLineAndNotTheirDiscography(t *testing.T) {
 
 	// And an album is its own line too, with who it is by under it.
 	album := get(t, h, "/search?q=amber", cookie).Body.String()
-	has(t, album, `href="/music/Autechre/Amber"`, "3 tracks")
+	has(t, album, `href="/music/?album=Amber&amp;artist=Autechre"`, "3 tracks")
 }
 
 // TestTheTwoNameBucketsPage: artists and albums resume by name, which is a

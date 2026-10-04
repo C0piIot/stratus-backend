@@ -45,7 +45,7 @@ func homework(t *testing.T, s *files.Service, meta db.Store) (db.File, db.File) 
 func TestMusicNeedsASession(t *testing.T) {
 	t.Parallel()
 	h := newHandler(t, nil)
-	for _, target := range []string{"/music", "/music/a", "/music/a/b"} {
+	for _, target := range []string{"/music/", "/music/a/", "/music/a/b/"} {
 		rec := get(t, h, target)
 		if rec.Code != http.StatusSeeOther || !strings.HasPrefix(rec.Header().Get("Location"), "/login") {
 			t.Errorf("%s with no session = %d %q, want the login form", target, rec.Code, rec.Header().Get("Location"))
@@ -73,28 +73,31 @@ func TestAnAlbumCanBeOpenedAndPlayed(t *testing.T) {
 		}
 	}
 
-	artists := get(t, h, "/music", cookie).Body.String()
-	// One segment, however many slashes the name has.
-	for _, want := range []string{`href="/music/AC%2FDC"`, "1 album<", "♥"} {
+	artists := get(t, h, "/music/", cookie).Body.String()
+	// The slash in the name is replaced rather than escaped: this address is
+	// also a WebDAV collection, and one of those cannot hold a slash (#279).
+	for _, want := range []string{`href="/music/AC_DC/"`, "1 album<", "♥"} {
 		if !strings.Contains(artists, want) {
 			t.Errorf("the artists page has no %q:\n%s", want, artists)
 		}
 	}
 
-	artist := get(t, h, "/music/AC%2FDC", cookie).Body.String()
-	for _, want := range []string{`href="/music/AC%2FDC/High%20Voltage"`, `src="/music/AC%2FDC/High%20Voltage/cover?size=300"`, "1976"} {
+	artist := get(t, h, "/music/AC_DC/", cookie).Body.String()
+	for _, want := range []string{`href="/music/AC_DC/High%20Voltage/"`, `src="/music/AC_DC/High%20Voltage/?cover=300"`, "1976"} {
 		if !strings.Contains(artist, want) {
 			t.Errorf("the artist page has no %q:\n%s", want, artist)
 		}
 	}
 
-	rec := get(t, h, "/music/AC%2FDC/High%20Voltage", cookie)
+	rec := get(t, h, "/music/AC_DC/High%20Voltage/", cookie)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("the album = %d", rec.Code)
 	}
 	album := htmlstd.UnescapeString(rec.Body.String())
 	for _, want := range []string{
-		`src="/files/01.flac"`,
+		// The track's own address in this tree, which is the one the
+		// collection answers for too.
+		`src="/music/AC_DC/High%20Voltage/01.flac"`,
 		`hx-get="/rest/scrobble?c=stratus-web&id=tr-`,
 		`hx-trigger="ended"`,
 		"It's a Long Way", "02.flac", "5:01", "9:11", "Rock", "★★★★☆", "3 plays",
@@ -108,12 +111,55 @@ func TestAnAlbumCanBeOpenedAndPlayed(t *testing.T) {
 	}
 }
 
+// TestATracksOwnAddressIsTheTrack, like a file's is under /files/. This is
+// also the GET a WebDAV client makes against the same URL.
+func TestATracksOwnAddressIsTheTrack(t *testing.T) {
+	t.Parallel()
+	h, s, meta := browserOver(t)
+	cookie := signIn(t, h)
+	one, _ := homework(t, s, meta)
+
+	rec := get(t, h, "/music/AC_DC/High%20Voltage/01.flac", cookie)
+	if rec.Code != http.StatusOK || rec.Body.String() != "sound" {
+		t.Fatalf("GET = %d %q, want the original", rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get("ETag"); got == "" || !strings.Contains(got, one.ETag) {
+		t.Errorf("ETag = %q, want the file's %q", got, one.ETag)
+	}
+	if rec := get(t, h, "/music/AC_DC/High%20Voltage/nothing.flac", cookie); rec.Code != http.StatusNotFound {
+		t.Errorf("a track that is not there = %d", rec.Code)
+	}
+}
+
+// TestASearchResultReachesTheLibraryByItsTags: a result is a row of the index
+// and has no generated name, so it comes through the redirect.
+func TestASearchResultReachesTheLibraryByItsTags(t *testing.T) {
+	t.Parallel()
+	h, s, meta := browserOver(t)
+	cookie := signIn(t, h)
+	homework(t, s, meta)
+
+	rec := get(t, h, "/music/?artist=AC%2FDC", cookie)
+	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/music/AC_DC/" {
+		t.Errorf("by artist = %d %q", rec.Code, rec.Header().Get("Location"))
+	}
+	rec = get(t, h, "/music/?artist=AC%2FDC&album=High+Voltage", cookie)
+	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/music/AC_DC/High%20Voltage/" {
+		t.Errorf("by album = %d %q", rec.Code, rec.Header().Get("Location"))
+	}
+	for _, target := range []string{"/music/?artist=Nobody", "/music/?artist=AC%2FDC&album=Nothing"} {
+		if rec := get(t, h, target, cookie); rec.Code != http.StatusNotFound {
+			t.Errorf("%s = %d, want 404", target, rec.Code)
+		}
+	}
+}
+
 func TestMusicThatIsNotThereIsNotFound(t *testing.T) {
 	t.Parallel()
 	h, s, meta := browserOver(t)
 	cookie := signIn(t, h)
 	homework(t, s, meta)
-	for _, target := range []string{"/music/Nobody", "/music/AC%2FDC/Nothing"} {
+	for _, target := range []string{"/music/Nobody/", "/music/AC_DC/Nothing/"} {
 		if rec := get(t, h, target, cookie); rec.Code != http.StatusNotFound {
 			t.Errorf("%s = %d, want 404", target, rec.Code)
 		}
@@ -123,7 +169,7 @@ func TestMusicThatIsNotThereIsNotFound(t *testing.T) {
 func TestAnEmptyLibrarySaysSo(t *testing.T) {
 	t.Parallel()
 	h := newHandler(t, nil)
-	if body := get(t, h, "/music", signIn(t, h)).Body.String(); !strings.Contains(body, "No music yet") {
+	if body := get(t, h, "/music/", signIn(t, h)).Body.String(); !strings.Contains(body, "No music yet") {
 		t.Errorf("an empty library =\n%s", body)
 	}
 }
@@ -132,13 +178,12 @@ func TestAnEmptyLibrarySaysSo(t *testing.T) {
 func TestABrokenIndexIsNotAnEmptyLibrary(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct{ call, target string }{
-		{"Artists", "/music"},
-		{"AnnotationsOf", "/music"},
-		{"Albums", "/music/AC%2FDC"},
-		{"Tracks", "/music/AC%2FDC/High%20Voltage"},
-		{"AnnotationsOf", "/music/AC%2FDC/High%20Voltage"},
-		{"Tracks", "/music/AC%2FDC/High%20Voltage/cover"},
-		{"ListFiles", "/music/AC%2FDC/High%20Voltage/cover"},
+		{"Artists", "/music/"},
+		{"AnnotationsOf", "/music/"},
+		{"Albums", "/music/AC_DC/"},
+		{"Tracks", "/music/AC_DC/High%20Voltage/"},
+		{"AnnotationsOf", "/music/AC_DC/High%20Voltage/"},
+		{"ListFiles", "/music/AC_DC/High%20Voltage/?cover=96"},
 	} {
 		t.Run(tc.call+tc.target, func(t *testing.T) {
 			t.Parallel()
@@ -167,15 +212,15 @@ func TestAnAlbumHasItsFoldersCover(t *testing.T) {
 	homework(t, s, meta)
 	addTrack(t, s, meta, "Bare.flac", db.Media{AlbumArtist: "Nobody", Album: "Bare", Title: "One"})
 
-	if rec := get(t, h, "/music/Nobody/Bare/cover", cookie); rec.Code != http.StatusNotFound {
+	if rec := get(t, h, "/music/Nobody/Bare/?cover=96", cookie); rec.Code != http.StatusNotFound {
 		t.Errorf("an album with no picture = %d, want 404", rec.Code)
 	}
-	if rec := get(t, h, "/music/Nobody/Nothing/cover", cookie); rec.Code != http.StatusNotFound {
+	if rec := get(t, h, "/music/Nobody/Nothing/?cover=96", cookie); rec.Code != http.StatusNotFound {
 		t.Errorf("no such album = %d, want 404", rec.Code)
 	}
 
 	write(t, s, "cover.jpg", photoJPEG(t))
-	rec := get(t, h, "/music/AC%2FDC/High%20Voltage/cover?size=96", cookie)
+	rec := get(t, h, "/music/AC_DC/High%20Voltage/?cover=96", cookie)
 	if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "image/jpeg" {
 		t.Errorf("the folder's cover = %d %q", rec.Code, rec.Header().Get("Content-Type"))
 	}

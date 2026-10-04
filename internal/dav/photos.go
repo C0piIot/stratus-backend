@@ -108,22 +108,19 @@ func Photos(prefix string, source photos.Source) http.Handler {
 // itself -- what is where, and what it is called -- is internal/photos'; what
 // is here is the shape x/net asks for.
 type photoFS struct {
+	refusesWrites
 	// ctx is the request's, for the calls x/net's File interface gives no
 	// context to.
 	ctx  context.Context
 	tree *photos.Tree
 }
 
-func (p *photoFS) Mkdir(context.Context, string, os.FileMode) error { return errReadOnly }
-func (p *photoFS) RemoveAll(context.Context, string) error          { return errReadOnly }
-func (p *photoFS) Rename(context.Context, string, string) error     { return errReadOnly }
-
 func (p *photoFS) Stat(ctx context.Context, name string) (os.FileInfo, error) {
 	n, err := p.tree.Resolve(ctx, name)
 	if err != nil {
 		return nil, err
 	}
-	return photoInfo{n}, nil
+	return photoInfo{n: n}, nil
 }
 
 func (p *photoFS) OpenFile(ctx context.Context, name string, flag int, _ os.FileMode) (xnet.File, error) {
@@ -142,18 +139,11 @@ func (p *photoFS) OpenFile(ctx context.Context, name string, flag int, _ os.File
 // half's. A read here would mean this handler had been mounted without that
 // half, which is a wiring mistake and says so.
 type photoFile struct {
+	noBytes
 	fs   *photoFS
 	node photos.Node
 	read bool
 }
-
-func (f *photoFile) Read([]byte) (int, error) { return 0, errNoBytesHere }
-
-func (f *photoFile) Seek(int64, int) (int64, error) { return 0, errNoBytesHere }
-
-func (f *photoFile) Close() error { return nil }
-
-func (f *photoFile) Write([]byte) (int, error) { return 0, errReadOnly }
 
 func (f *photoFile) Readdir(count int) ([]os.FileInfo, error) {
 	if !f.node.Dir {
@@ -169,24 +159,22 @@ func (f *photoFile) Readdir(count int) ([]os.FileInfo, error) {
 	}
 	out := make([]os.FileInfo, 0, len(children))
 	for _, c := range children {
-		out = append(out, photoInfo{c})
+		out = append(out, photoInfo{n: c})
 	}
 	return out, nil
 }
 
-func (f *photoFile) Stat() (os.FileInfo, error) { return photoInfo{f.node}, nil }
-
-// errNoBytesHere is what a read of a photograph through this handler is: see
-// photoFile.
-var errNoBytesHere = errors.New("dav: photo bytes are served by the browser half of this address")
+func (f *photoFile) Stat() (os.FileInfo, error) { return photoInfo{n: f.node}, nil }
 
 // photoInfo is x/net's FileInfo, ETager and ContentTyper for one resource: the
 // original's own validator and type, for the reasons rowInfo gives.
-type photoInfo struct{ n photos.Node }
+type photoInfo struct {
+	noSys
+	n photos.Node
+}
 
 func (i photoInfo) Name() string { return i.n.Base() }
 func (i photoInfo) IsDir() bool  { return i.n.Dir }
-func (i photoInfo) Sys() any     { return nil }
 
 func (i photoInfo) Size() int64 {
 	if i.n.Dir {

@@ -27,6 +27,12 @@
 # inject one wraps the repository, a layer above these. The other two drivers
 # carry the same code and stayed over their floors; this one had the least room.
 #
+# internal/music stays at 100 through #279, which doubled it: the playlist
+# service it was, plus the library as folders by tag and the names all three
+# generated collections are served under. Everything in it is a pure function
+# of what the index answered, and the index is a three-method interface a test
+# can break on purpose, so there is nothing in it that cannot be reached.
+#
 # internal/photos starts at 92. It is the date tree both the WebDAV mount and
 # the browser pages read, and what is left uncovered in it is the half of a
 # read that needs the index to answer differently the second time.

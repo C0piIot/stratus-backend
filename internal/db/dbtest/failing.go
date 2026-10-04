@@ -37,7 +37,7 @@ var repoMethods = []string{
 	"PutFile", "CreateDir", "FileByPath", "ListFiles", "ListFilesPage", "MoveFile", "DeleteFile",
 	"BlobKeys", "PutMedia", "MediaByFile", "MediaCounts", "MediaStates",
 	"PutUpload", "UploadByID", "DeleteUpload", "ExpiredUploads",
-	"Find", "TrackByFile", "CreatePlaylist", "PlaylistByID", "LockPlaylist", "PlaylistTracks",
+	"Find", "TrackByFile", "CreatePlaylist", "Playlists", "PlaylistByID", "LockPlaylist", "PlaylistTracks",
 	"UpdatePlaylist", "SetPlaylistTracks", "PhotoTimeline", "PhotoAround", "PhotoMonths",
 	"Artists", "Albums", "Tracks", "AnnotationsOf",
 	"Trash", "TrashBatches", "TrashTotals", "TrashedIn", "ExpiredTrash",
@@ -306,6 +306,14 @@ func (f *failingRepo) CreatePlaylist(ctx context.Context, p db.Playlist) (db.Pla
 		return db.Playlist{}, err
 	}
 	return f.Repo.CreatePlaylist(ctx, p)
+}
+
+// Playlists implements db.Repo.
+func (f *failingRepo) Playlists(ctx context.Context, owner string) ([]db.Playlist, error) {
+	if err := f.fails("Playlists"); err != nil {
+		return nil, err
+	}
+	return f.Repo.Playlists(ctx, owner)
 }
 
 // PlaylistByID implements db.Repo.

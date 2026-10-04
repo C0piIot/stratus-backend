@@ -1,0 +1,23 @@
+{{/* The playlists, which until now were visible only from a Subsonic client.
+     Read-only: what a playlist is lives in the database and is edited in one
+     transaction, from a client that speaks the protocol for it. */}}
+{{define "content" -}}
+<h1 class="h4 mb-3">Playlists</h1>
+{{if .Playlists}}
+<div class="list-group">
+  {{range .Playlists}}
+  <div class="list-group-item d-flex justify-content-between align-items-center">
+    <a href="{{.Href}}" class="text-decoration-none">{{.Name}}</a>
+    <a href="{{.File}}" class="link-secondary small text-decoration-none">.m3u8</a>
+  </div>
+  {{end}}
+</div>
+{{else}}
+<div class="card">
+  <div class="card-body text-body-secondary">
+    No playlists yet. They are made from a music client — Symfonium, Substreamer,
+    DSub — and show up here and as <code>.m3u8</code> files any player can open.
+  </div>
+</div>
+{{end}}
+{{- end}}

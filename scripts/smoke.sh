@@ -505,12 +505,12 @@ if wait_serving "$davname"; then
   esac
 
   # And it lists the mounts, which is the whole point of one namespace: a
-  # client that mounts the origin finds the photo folders and the playlists
-  # without being told their URLs.
+  # client that mounts the origin finds the library, the photo folders and the
+  # playlists without being told their URLs.
   root_list="$(curl -s -u "$davuser:$davpass" -H 'Depth: 1' -X PROPFIND "http://$davhost/" 2>/dev/null || true)"
   case "$root_list" in
-    *'>/files/<'*'>/photos/<'*'>/playlists/<'*) ok "PROPFIND / lists the three collections" ;;
-    *) bad "PROPFIND / lists the three collections" "$(head -c 200 <<<"$root_list")" ;;
+    *'>/files/<'*'>/music/<'*'>/photos/<'*'>/playlists/<'*) ok "PROPFIND / lists the four collections" ;;
+    *) bad "PROPFIND / lists the four collections" "$(head -c 200 <<<"$root_list")" ;;
   esac
 
   # Finder mounts read-only unless the server says class 2, so the header is
@@ -1317,6 +1317,38 @@ TRACK
   else
     bad "a photo is the original under /photos/<year>/<month>/" "month '$month'"
   fi
+
+  # The library by tag is the last of the generated collections to speak both
+  # (#279): the same URL is a page to a browser and a collection to a client.
+  # The grep is guarded rather than piped into the next command, because an
+  # untagged library is an empty one and `set -e` would end the suite.
+  music_page="$(curl -fsS -b "$jar" "http://$davhost/music/" 2>/dev/null || true)"
+  music_code="$(curl -s -o /dev/null -w '%{http_code}' -u "$davuser:$davpass" \
+    -X PROPFIND -H 'Depth: 1' "http://$davhost/music/" || true)"
+  case "$music_page:$music_code" in
+    *'<!doctype html>'*:207) ok "the library by tag is a page and a collection at one URL" ;;
+    *) bad "the library by tag is a page and a collection at one URL" "PROPFIND $music_code" ;;
+  esac
+
+  # And down to an album, when the library has one with tags on it.
+  artist="$(curl -s -u "$davuser:$davpass" -X PROPFIND -H 'Depth: 1' "http://$davhost/music/" |
+    grep -o '/music/[^<]*/' | grep -v '^/music/$' | head -1 || true)"
+  if [ -n "$artist" ]; then
+    album="$(curl -s -u "$davuser:$davpass" -X PROPFIND -H 'Depth: 1' "http://$davhost$artist" |
+      grep -o "${artist}[^<]*/" | grep -v "^${artist}$" | head -1 || true)"
+    page="$(curl -fsS -b "$jar" "http://$davhost$album" 2>/dev/null || true)"
+    case "$page" in
+      *'<!doctype html>'*'<audio'*) ok "an album is a page with a player per track" ;;
+      *) bad "an album is a page with a player per track" "album '$album': $(head -c 120 <<<"$page")" ;;
+    esac
+  fi
+
+  # And the playlists, which a browser could not see at all until now.
+  lists="$(curl -fsS -b "$jar" "http://$davhost/playlists/" 2>/dev/null || true)"
+  case "$lists" in
+    *'<h1 class="h4 mb-3">Playlists</h1>'*) ok "the playlists are a page" ;;
+    *) bad "the playlists are a page" "$(head -c 120 <<<"$lists")" ;;
+  esac
 
   # One address, two protocols: the month a DAV client just walked is a page
   # to a browser, and it links to the photograph by the name the multistatus
