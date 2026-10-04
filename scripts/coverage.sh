@@ -27,6 +27,21 @@
 # inject one wraps the repository, a layer above these. The other two drivers
 # carry the same code and stayed over their floors; this one had the least room.
 #
+# internal/photos starts at 92. It is the date tree both the WebDAV mount and
+# the browser pages read, and what is left uncovered in it is the half of a
+# read that needs the index to answer differently the second time.
+#
+# internal/web went 98 -> 97 with the photographs converging on one address
+# (#279). The page now asks internal/photos for each photograph's name, which
+# is a read of the month it is in -- and by then the request has already been
+# resolved against the same months, so the cached call cannot fail. The
+# statements that handle it failing are the honest shape of a function that
+# returns an error, and reaching them would need a store that answers twice
+# differently about the same question. The failures that *can* happen are
+# tested, with dbtest.FailAfter, which exists for exactly this: the grid, the
+# month, the viewer's neighbours and the by-path redirect each have a case
+# where the second read is the one that breaks.
+#
 # internal/incoming starts at 86. What is left uncovered is the half of a sweep
 # that needs the filesystem to misbehave: a directory that cannot be read, a
 # relative path that cannot be computed, a hundred names taken in a row. The
@@ -52,6 +67,7 @@ internal/files:92
 internal/incoming:86
 internal/media:89
 internal/music:100
+internal/photos:92
 internal/db:63
 internal/db/postgres:93
 internal/db/sqlite:94
@@ -63,7 +79,7 @@ internal/storage/disk:90
 internal/storage/s3:88
 internal/subsonic:100
 internal/tus:94
-internal/web:98
+internal/web:97
 "
 
 # Not gated, and why:

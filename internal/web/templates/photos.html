@@ -1,5 +1,6 @@
 {{define "content" -}}
-<h1 class="h4 mb-3">Photos</h1>
+{{if .Crumbs}}{{template "crumbs" .}}{{end}}
+<h1 class="h4 mb-3">{{.Title}}</h1>
 {{if .Tiles}}
 <div class="row g-1">
   {{template "tiles" .}}
@@ -21,7 +22,7 @@
      open a new one. */}}
 {{define "tiles" -}}
 {{range .Tiles}}
-{{if .Heading}}<h2 class="col-12 h6 text-body-secondary mt-3 mb-1">{{.Heading}}</h2>{{end}}
+{{if .Heading}}<h2 class="col-12 h6 mt-3 mb-1"><a class="link-secondary text-decoration-none" href="{{.HeadingHref}}">{{.Heading}}</a></h2>{{end}}
 {{template "tile" .}}
 {{end}}
 {{if .NextPage}}

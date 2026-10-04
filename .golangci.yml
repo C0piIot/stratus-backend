@@ -130,6 +130,7 @@ linters:
             - "**/internal/music/**"
             - "**/internal/calendar/**"
             - "**/internal/media/**"
+            - "**/internal/photos/**"
             - "**/internal/sniff/**"
             - "**/internal/auth/**"
             - "**/internal/config/**"

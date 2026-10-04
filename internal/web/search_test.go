@@ -30,7 +30,7 @@ func TestTheBoxIsOnEveryPageAndKeepsWhatWasTyped(t *testing.T) {
 	h := newHandler(t, nil)
 	cookie := signIn(t, h)
 
-	for _, target := range []string{"/files/", "/status", "/gallery/photos", "/music"} {
+	for _, target := range []string{"/files/", "/status", "/photos/", "/music"} {
 		body := get(t, h, target, cookie).Body.String()
 		has(t, body, `action="/search"`, `name="q"`)
 	}
@@ -339,7 +339,9 @@ func TestASearchFindsAPhotographByItsCamera(t *testing.T) {
 	addPhoto(t, s, meta, "IMG_0043.jpg", time.Date(2019, 8, 9, 10, 0, 0, 0, time.UTC), "Canon EOS R6")
 
 	body := get(t, h, "/search?q=olympus", cookie).Body.String()
-	has(t, body, "Photos", `/gallery/photos/IMG_0042.jpg`, "/thumb/IMG_0042.jpg?size=300")
+	// A result row is a file, so the tile goes through the redirect that
+	// turns a path in the tree into the one address a photograph has.
+	has(t, body, "Photos", `/photos/?file=IMG_0042.jpg`, "/thumb/IMG_0042.jpg?size=300")
 	if strings.Contains(body, "IMG_0043") {
 		t.Errorf("a photograph from another camera is in the results:\n%s", body)
 	}
