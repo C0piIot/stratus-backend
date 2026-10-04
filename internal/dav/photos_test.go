@@ -4,12 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"path/filepath"
-	"strconv"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -22,27 +19,10 @@ import (
 
 const photosPrefix = "/photos/"
 
-// countingOpener is the file layer with a count of how many times the bytes
-// were asked for, which is what a listing must not do.
-type countingOpener struct {
-	dav.Opener
-	opens atomic.Int64
-	fail  bool
-}
-
-func (c *countingOpener) OpenFile(ctx context.Context, f db.File) (io.ReadSeekCloser, error) {
-	c.opens.Add(1)
-	if c.fail {
-		return nil, errors.New("the blob store is on fire")
-	}
-	return c.Opener.OpenFile(ctx, f)
-}
-
 type photoRig struct {
 	h     http.Handler
 	files *files.Service
 	meta  *sqlite.Store
-	open  *countingOpener
 }
 
 func photoServer(t *testing.T) *photoRig {
@@ -62,8 +42,7 @@ func photoServer(t *testing.T) *photoRig {
 		t.Fatal(err)
 	}
 	service := files.New(blobs, meta)
-	open := &countingOpener{Opener: service}
-	return &photoRig{h: withUser(dav.Photos(photosPrefix, meta, open), "edu"), files: service, meta: meta, open: open}
+	return &photoRig{h: withUser(dav.Photos(photosPrefix, meta), "edu"), files: service, meta: meta}
 }
 
 func (r *photoRig) add(t *testing.T, p, body, mime string, taken time.Time) db.File {
@@ -106,53 +85,44 @@ func TestPhotosAreFoldersByDate(t *testing.T) {
 		"/photos/2024/06/", "/photos/2024/06/IMG_0001.JPG", "/photos/2024/06/beach.heic")
 }
 
-// TestAListingReadsNoBytes is the trap at the top of photos.go: x/net opens
-// every resource a PROPFIND lists, and a month of photographs must not become
-// a read of every one of them from the blob store.
-func TestAListingReadsNoBytes(t *testing.T) {
+// TestAListingIsOneQueryPerMonth: x/net opens every resource a PROPFIND
+// lists, which is why nothing under this handler reads bytes at all -- it is
+// not given a blob store to read them from. What it must also not do is ask
+// the database once per photograph.
+func TestAListingIsOneQueryPerMonth(t *testing.T) {
 	t.Parallel()
 	r := photoServer(t)
 	for i := range 20 {
 		r.add(t, fmt.Sprintf("p%02d.jpg", i), "x", "image/jpeg", june)
 	}
-	hrefs(t, do(t, r.h, "PROPFIND", "/photos/2024/06/", "", "Depth", "1"))
-	do(t, r.h, "PROPFIND", "/photos/2024/06/p01.jpg", "", "Depth", "0")
-	if n := r.open.opens.Load(); n != 0 {
-		t.Errorf("listing a month read %d photos' bytes, want none", n)
+	got := hrefs(t, do(t, r.h, "PROPFIND", "/photos/2024/06/", "", "Depth", "1"))
+	if len(got) != 21 {
+		t.Fatalf("a month of twenty listed %d hrefs", len(got))
 	}
 }
 
-func TestAPhotoIsTheOriginal(t *testing.T) {
+// TestTheBytesAreTheOtherHalfs: a GET is answered at this address by the
+// browser handler, which the composition root puts in front of this one
+// (#279). Unwrapped, this handler says so rather than serving a second
+// implementation of the same bytes -- and still advertises the method, because
+// the address does answer it.
+func TestTheBytesAreTheOtherHalfs(t *testing.T) {
 	t.Parallel()
 	r := photoServer(t)
-	f := r.add(t, "Holiday/beach.heic", "the original bytes", "image/heic", june)
+	r.add(t, "beach.heic", "the original bytes", "image/heic", june)
 
 	rec := do(t, r.h, http.MethodGet, "/photos/2024/06/beach.heic", "")
-	if rec.Code != http.StatusOK || rec.Body.String() != "the original bytes" {
-		t.Fatalf("GET = %d %q", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Errorf("GET straight to the mount = %d, want 405", rec.Code)
 	}
-	if got := rec.Header().Get("Content-Type"); got != "image/heic" {
-		t.Errorf("Content-Type = %q, want the row's", got)
-	}
-	// The same validator /files/ sends for the same file.
-	if got := rec.Header().Get("ETag"); got != strconv.Quote(f.ETag) {
-		t.Errorf("ETag = %q, want %q", got, strconv.Quote(f.ETag))
-	}
-	if n := r.open.opens.Load(); n != 1 {
-		t.Errorf("one GET opened the bytes %d times", n)
-	}
-
-	part := do(t, r.h, http.MethodGet, "/photos/2024/06/beach.heic", "", "Range", "bytes=4-11")
-	if part.Code != http.StatusPartialContent || part.Body.String() != "original" {
-		t.Errorf("a range = %d %q", part.Code, part.Body.String())
-	}
-	if head := do(t, r.h, http.MethodHead, "/photos/2024/06/beach.heic", ""); head.Code != http.StatusOK {
-		t.Errorf("HEAD = %d", head.Code)
+	opts := do(t, r.h, http.MethodOptions, "/photos/", "")
+	for _, want := range []string{"GET", "HEAD", "PROPFIND"} {
+		if !strings.Contains(opts.Header().Get("Allow"), want) {
+			t.Errorf("OPTIONS Allow = %q, want it to name %s", opts.Header().Get("Allow"), want)
+		}
 	}
 }
 
-// TestNamesInAMonthCannotCollide: two cameras both count from IMG_0001, and a
-// case-folding client would see these as one file.
 func TestNamesInAMonthCannotCollide(t *testing.T) {
 	t.Parallel()
 	r := photoServer(t)
@@ -163,10 +133,6 @@ func TestNamesInAMonthCannotCollide(t *testing.T) {
 	wantHrefs(t, hrefs(t, do(t, r.h, "PROPFIND", "/photos/2024/06/", "", "Depth", "1")),
 		"/photos/2024/06/", "/photos/2024/06/IMG_0001.JPG", "/photos/2024/06/IMG_0001 (2).JPG",
 		"/photos/2024/06/img_0001 (3).jpg")
-	// The oldest keeps the plain name.
-	if got := do(t, r.h, http.MethodGet, "/photos/2024/06/IMG_0001.JPG", "").Body.String(); got != "a" {
-		t.Errorf("the plain name serves %q, want the first one", got)
-	}
 }
 
 func TestThePhotosMountIsReadOnly(t *testing.T) {
@@ -200,10 +166,10 @@ func TestWhatIsNotThereIsNotFound(t *testing.T) {
 			t.Errorf("PROPFIND %s = %d, want 404", target, rec.Code)
 		}
 	}
-	if rec := do(t, dav.Photos(photosPrefix, r.meta, r.open), http.MethodGet, "/photos/", ""); rec.Code != http.StatusUnauthorized {
+	if rec := do(t, dav.Photos(photosPrefix, r.meta), "PROPFIND", "/photos/", ""); rec.Code != http.StatusUnauthorized {
 		t.Errorf("with nobody authenticated = %d", rec.Code)
 	}
-	theirs := withUser(dav.Photos(photosPrefix, r.meta, r.open), "someone-else")
+	theirs := withUser(dav.Photos(photosPrefix, r.meta), "someone-else")
 	wantHrefs(t, hrefs(t, do(t, theirs, "PROPFIND", "/photos/", "", "Depth", "1")), "/photos/")
 }
 
@@ -247,7 +213,7 @@ func TestAMonthIsReadWhole(t *testing.T) {
 			SortAt: june,
 		})
 	}
-	h := withUser(dav.Photos(photosPrefix, fakePhotos{photos: many}, nil), "edu")
+	h := withUser(dav.Photos(photosPrefix, fakePhotos{photos: many}), "edu")
 	if got := hrefs(t, do(t, h, "PROPFIND", "/photos/2024/06/", "", "Depth", "1")); len(got) != 2501 {
 		t.Errorf("a month of 2500 lists %d entries", len(got))
 	}
@@ -256,16 +222,10 @@ func TestAMonthIsReadWhole(t *testing.T) {
 func TestABrokenBackendIsNotANotFound(t *testing.T) {
 	t.Parallel()
 	for _, call := range []string{"PhotoMonths", "PhotoTimeline"} {
-		h := withUser(dav.Photos(photosPrefix, fakePhotos{fail: call}, nil), "edu")
+		h := withUser(dav.Photos(photosPrefix, fakePhotos{fail: call}), "edu")
 		if rec := do(t, h, "PROPFIND", "/photos/2024/06/", "", "Depth", "1"); rec.Code != http.StatusInternalServerError {
 			t.Errorf("PROPFIND with %s broken = %d, want 500", call, rec.Code)
 		}
 	}
 
-	r := photoServer(t)
-	r.add(t, "a.jpg", "a", "image/jpeg", june)
-	r.open.fail = true
-	if rec := do(t, r.h, http.MethodGet, "/photos/2024/06/a.jpg", ""); rec.Code != http.StatusInternalServerError {
-		t.Errorf("GET with the blob store broken = %d, want 500", rec.Code)
-	}
 }

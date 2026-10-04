@@ -1,15 +1,5 @@
 {{define "content" -}}
-<nav aria-label="breadcrumb">
-  <ol class="breadcrumb">
-    {{range .Crumbs}}
-    {{if .Last}}
-    <li class="breadcrumb-item active" aria-current="page">{{.Name}}</li>
-    {{else}}
-    <li class="breadcrumb-item"><a href="{{.Href}}">{{.Name}}</a></li>
-    {{end}}
-    {{end}}
-  </ol>
-</nav>
+{{template "crumbs" .}}
 
 {{if not .Shared}}
 {{if .Notice}}

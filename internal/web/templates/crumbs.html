@@ -1,0 +1,17 @@
+{{/* The trail above a page that is somewhere in a tree: the file listing, and
+     the photographs by year and month. One partial because the three draw the
+     same thing from the same []crumb, and a fourth copy of this markup would
+     be where they start to differ. */}}
+{{define "crumbs" -}}
+<nav aria-label="breadcrumb">
+  <ol class="breadcrumb">
+    {{range .Crumbs}}
+    {{if .Last}}
+    <li class="breadcrumb-item active" aria-current="page">{{.Name}}</li>
+    {{else}}
+    <li class="breadcrumb-item"><a href="{{.Href}}">{{.Name}}</a></li>
+    {{end}}
+    {{end}}
+  </ol>
+</nav>
+{{- end}}

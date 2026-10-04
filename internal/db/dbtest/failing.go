@@ -5,6 +5,7 @@ import (
 	"errors"
 	"iter"
 	"slices"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -37,7 +38,7 @@ var repoMethods = []string{
 	"BlobKeys", "PutMedia", "MediaByFile", "MediaCounts", "MediaStates",
 	"PutUpload", "UploadByID", "DeleteUpload", "ExpiredUploads",
 	"Find", "TrackByFile", "CreatePlaylist", "PlaylistByID", "LockPlaylist", "PlaylistTracks",
-	"UpdatePlaylist", "SetPlaylistTracks", "PhotoTimeline", "PhotoAround",
+	"UpdatePlaylist", "SetPlaylistTracks", "PhotoTimeline", "PhotoAround", "PhotoMonths",
 	"Artists", "Albums", "Tracks", "AnnotationsOf",
 	"Trash", "TrashBatches", "TrashTotals", "TrashedIn", "ExpiredTrash",
 }
@@ -51,11 +52,26 @@ type Failing struct {
 
 // FailOn wraps store so that method returns ErrInjected.
 func FailOn(t *testing.T, store db.Store, method string) *Failing {
+	return FailAfter(t, store, method, 0)
+}
+
+// FailAfter is FailOn from the (after+1)th call onwards.
+//
+// It exists for the branch a page has when it reads the same thing twice: the
+// photo grid asks for a page of the timeline and then, to name each
+// photograph the way the WebDAV mount names it, for the month it is in. A
+// store that failed the first call would never reach the second, so the
+// failure has to be able to arrive late.
+func FailAfter(t *testing.T, store db.Store, method string, after int) *Failing {
 	t.Helper()
 	if !slices.Contains(repoMethods, method) {
 		t.Fatalf("dbtest: cannot fail %q; it is one of %v", method, repoMethods)
 	}
-	return &Failing{failingRepo: failingRepo{Repo: store, on: method}, store: store}
+	f := &Failing{store: store}
+	f.Repo = store
+	f.on = method
+	f.after = after
+	return f
 }
 
 // Tx implements db.Store. The repository handed to fn fails the same call the
@@ -120,13 +136,20 @@ func (f *failingRepo) ExpiredTrash(ctx context.Context, before time.Time) iter.S
 type failingRepo struct {
 	db.Repo
 	on string
+	// after is how many calls to on go through before the rest fail. Zero
+	// fails every one of them.
+	after int
+	calls atomic.Int64
 }
 
 func (f *failingRepo) fails(method string) error {
-	if f.on == method {
-		return ErrInjected
+	if f.on != method {
+		return nil
 	}
-	return nil
+	if f.calls.Add(1) <= int64(f.after) {
+		return nil
+	}
+	return ErrInjected
 }
 
 // PutFile implements db.Repo.
@@ -331,6 +354,14 @@ func (f *failingRepo) PhotoTimeline(ctx context.Context, owner string, pf db.Pho
 		return nil, err
 	}
 	return f.Repo.PhotoTimeline(ctx, owner, pf)
+}
+
+// PhotoMonths implements db.Repo.
+func (f *failingRepo) PhotoMonths(ctx context.Context, owner string) ([]db.PhotoMonth, error) {
+	if err := f.fails("PhotoMonths"); err != nil {
+		return nil, err
+	}
+	return f.Repo.PhotoMonths(ctx, owner)
 }
 
 // PhotoAround implements db.Repo.

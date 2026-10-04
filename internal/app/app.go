@@ -47,15 +47,18 @@ const tusPrefix = "/tus/"
 // URL it is given.
 const subsonicPrefix = "/rest/"
 
-// photosPrefix is where photos are served by year and month, a read-only
-// mount of its own for the reason playlistsPrefix is one (#213). The web
-// gallery of the same photos is /gallery/photos, so the two cannot collide.
-// Converging those two the way /files/ converged is the second half of #279.
+// photosPrefix is where photos are served by year and month, a mount of its
+// own for the reason playlistsPrefix is one (#213) -- and one address for both
+// protocols since #279: the pages and the collection are the same URLs, split
+// by method below.
 const photosPrefix = "/photos/"
 
 // playlistsPrefix is where playlists are served as .m3u8 files. A mount of its
-// own and not a folder under davPrefix: that tree is the user's, and a
-// generated file there could collide with a real one (#203).
+// own and not a folder under filesPrefix: that tree is the user's, and a
+// generated file there could collide with a real one (#203). It is the one
+// collection that still answers WebDAV alone -- converging it the way
+// /photos/ converged is what is left of #279, and the question there is not
+// the same one: a playlist is not an album.
 const playlistsPrefix = "/playlists/"
 
 // App holds the wired application. Construction is pure: no I/O happens until
@@ -183,7 +186,13 @@ func (a *App) Handler(deps Deps) http.Handler {
 		// shares them.
 		mux.Handle(playlistsPrefix, auth.Session(sessions,
 			auth.Basic(auth.Realm, verifier, dav.Playlists(playlistsPrefix, filesPrefix, playlists))))
-		mux.Handle(photosPrefix, auth.Session(sessions, auth.Basic(auth.Realm, verifier, dav.Photos(photosPrefix, deps.Database, service))))
+		// The photographs by date are one address and two protocols, like the
+		// tree above (#279): the browser's methods are answered with the grid,
+		// a year, a month or the photograph itself, and everything else by the
+		// mount. The byte-serving half is the browser's -- see dav.Photos.
+		mux.Handle(photosPrefix, davOrBrowser(
+			auth.Session(sessions, auth.Basic(auth.Realm, verifier, dav.Photos(photosPrefix, deps.Database))),
+			browser))
 
 		// The browser surface, at the root, so everything the prefixes above did
 		// not claim is a page rather than a bare 404. Same verifier again, and

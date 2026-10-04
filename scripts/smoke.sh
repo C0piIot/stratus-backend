@@ -1295,16 +1295,18 @@ TRACK
   # over WebDAV is a photo once it has been read, wherever it was put (#211).
   gallery=""
   for _ in $(seq 1 50); do
-    gallery="$(curl -fsS -b "$jar" "http://$davhost/gallery/photos" 2>/dev/null || true)"
-    case "$gallery" in *'href="/gallery/photos/cover.jpg"'*) break ;; esac
+    gallery="$(curl -fsS -b "$jar" "http://$davhost/photos/" 2>/dev/null || true)"
+    case "$gallery" in *'/thumb/cover.jpg?size=300'*) break ;; esac
     sleep 0.2
   done
   case "$gallery" in
-    *'href="/gallery/photos/cover.jpg"'*'/thumb/cover.jpg?size=300'*) ok "the gallery shows the photo WebDAV uploaded" ;;
+    *'/thumb/cover.jpg?size=300'*) ok "the gallery shows the photo WebDAV uploaded" ;;
     *) bad "the gallery shows the photo WebDAV uploaded" "$(head -c 120 <<<"$gallery")" ;;
   esac
 
-  # And the same photo by date over WebDAV, from a mount of its own (#213).
+  # And the same photo by date over WebDAV, from the same addresses (#213,
+  # #279): the client walks years and months with PROPFIND, and the original
+  # is at the leaf.
   month="$(curl -s -u "$davuser:$davpass" -X PROPFIND -H 'Depth: 1' "http://$davhost/photos/" |
     grep -o '/photos/[0-9]\{4\}/' | grep -v '^/photos/$' | head -1)"
   month="$(curl -s -u "$davuser:$davpass" -X PROPFIND -H 'Depth: 1' "http://$davhost$month" |
@@ -1315,6 +1317,15 @@ TRACK
   else
     bad "a photo is the original under /photos/<year>/<month>/" "month '$month'"
   fi
+
+  # One address, two protocols: the month a DAV client just walked is a page
+  # to a browser, and it links to the photograph by the name the multistatus
+  # gave it.
+  page="$(curl -fsS -b "$jar" "http://$davhost$month" 2>/dev/null || true)"
+  case "$page" in
+    *'<!doctype html>'*"${month}cover.jpg?view"*) ok "a month is a page and a collection at one URL" ;;
+    *) bad "a month is a page and a collection at one URL" "$(head -c 160 <<<"$page")" ;;
+  esac
 
   # The CSRF defence, from outside: a form on somebody else's page carries the
   # cookie and must still be refused.

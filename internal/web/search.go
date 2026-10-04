@@ -258,7 +258,7 @@ func foundAlbums(albums []db.Album) []foundAlbum {
 func shots(photos []db.File) []tile {
 	out := make([]tile, 0, len(photos))
 	for _, p := range photos {
-		cell := tile{Href: link(photoPrefix, p.Path), Name: path.Base(p.Path)}
+		cell := tile{Href: photoByFileHref(p.Path), Name: path.Base(p.Path)}
 		if media.CanThumbnail(p.Path, p.Size) {
 			cell.Thumb = thumbURL(p, tileThumb)
 		}

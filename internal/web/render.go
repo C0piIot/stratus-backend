@@ -53,10 +53,12 @@ const (
 	pageError   = "error.html"
 	pagePhotos  = "photos.html"
 	pagePhoto   = "photo.html"
+	pageMonths  = "months.html"
 	pagePlay    = "play.html"
 	pageArtists = "artists.html"
 	pageArtist  = "artist.html"
 	pageAlbum   = "album.html"
+	pageCrumbs  = "crumbs.html"
 )
 
 // Each page is parsed with the layout into a set of its own. One set for all of
@@ -64,7 +66,7 @@ const (
 // what lets the layout call it.
 var pages = map[string]*template.Template{
 	pageLogin:   parse(pageLogin),
-	pageFiles:   parse(pageFiles, pageRows),
+	pageFiles:   parse(pageFiles, pageRows, pageCrumbs),
 	pageSearch:  parse(pageSearch, pageRows, pageTile),
 	pageRename:  parse(pageRename),
 	pageInfo:    parse(pageInfo),
@@ -75,8 +77,9 @@ var pages = map[string]*template.Template{
 	pageShare:   parse(pageShare),
 	pageShared:  parse(pageShared),
 	pageError:   parse(pageError),
-	pagePhotos:  parse(pagePhotos, pageTile),
+	pagePhotos:  parse(pagePhotos, pageTile, pageCrumbs),
 	pagePhoto:   parse(pagePhoto),
+	pageMonths:  parse(pageMonths, pageCrumbs),
 	pagePlay:    parse(pagePlay),
 	pageArtists: parse(pageArtists),
 	pageArtist:  parse(pageArtist),
@@ -176,9 +179,10 @@ type view struct {
 	// opens under it.
 	Info *infoView
 	// Tiles is one page of the photo grid, and Photo the one photograph the
-	// viewer shows.
-	Tiles []tile
-	Photo *photoView
+	// viewer shows. Months is a year's, on the page between the two.
+	Tiles  []tile
+	Photo  *photoView
+	Months []crumb
 	// Film is the player page, and PlayerScripts the two scripts it loads
 	// when it needs HLS: hls.js and this project's own that starts it.
 	Film          *filmView

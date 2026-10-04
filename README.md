@@ -704,13 +704,21 @@ back in path order and every match has to be sorted before the first fifty can
 be taken. The index costs about 10 MiB per hundred thousand files in the data
 directory, and makes moving a folder of that size about a fifth slower.
 
-**Photos have a gallery of their own at `/gallery/photos`**: every image in the
-library, newest first by when the camera says it was taken and grouped by month,
-wherever it was filed. An image with no camera date -- a screenshot, a download
--- is placed by when it arrived, and says so. Opening one shows it large, with
-the ones either side a click away and a link to the original; a HEIC shows in
-every browser, not only Safari, because what is shown is a JPEG made from it. A
-photo appears once the indexer has read it, like a track in the music library.
+**The photographs are at `/photos/`, and that one address answers both
+protocols.** A browser gets pages and a WebDAV client gets the collection, at
+exactly the same URLs — the server tells them apart by the method, the way
+`/files/` does.
+
+What a browser sees: `/photos/` is every image in the library, newest first by
+when the camera says it was taken and grouped by month, wherever it was filed.
+Each month's heading is the way into it, so `/photos/2024/` is that year's
+months and `/photos/2024/06/` is June. An image with no camera date -- a
+screenshot, a download -- is placed by when it arrived, and says so. A
+photograph's own URL is the photograph, downloaded, like a file's is under
+`/files/`; the same URL with `?view` shows it large, with the ones either side
+a click away. A HEIC shows in every browser, not only Safari, because what is
+shown is a JPEG made from it. A photo appears once the indexer has read it,
+like a track in the music library.
 
 **Music has a library of its own at `/music`**: the artists, each one's albums
 with their covers, and an album page where every track is a player of its own.
@@ -723,12 +731,14 @@ JavaScript off a track still plays and is not counted. Tracks play one at a
 time and do not follow on from each other, and a format the browser cannot
 decode does not play.
 
-**The same photos are folders by date over WebDAV, at `/photos/`** --
-`/photos/2024/06/` is June 2024 -- on a read-only mount of its own, for the reason
-`/playlists/` is one: nothing generated can land in your own tree. The files are
-the originals, with ranges. Two photos with the same name in one month, from two
-cameras both counting from `IMG_0001`, become `IMG_0001.JPG` and
-`IMG_0001 (2).JPG`, the older keeping the plain name.
+**What a WebDAV client sees at `/photos/` is the same tree**, read-only and
+class 1: `/photos/2024/06/` is June 2024 and the files in it are the originals,
+with ranges. It is a mount of its own rather than a folder in your tree, for
+the reason `/playlists/` is one: nothing generated can land among your own
+files. Two photos with the same name in one month, from two cameras both
+counting from `IMG_0001`, become `IMG_0001.JPG` and `IMG_0001 (2).JPG`, the
+older keeping the plain name — and a page links to exactly those names, because
+the page and the mount generate them in the same place.
 
 **Uploading replaces**, exactly as a `PUT` over WebDAV does: a file whose name is
 already in that folder is overwritten, and the blob it leaves behind is swept up

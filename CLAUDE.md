@@ -423,11 +423,18 @@ Hard constraints, in the same spirit as the rest of the project:
   was a verdict on the file rather than on our reach (#157). It reads
   `MediaByFile`, which the port already had -- this page added nothing to it.
 
-- **Photos have a gallery at `/gallery/photos`, read from the index and not the
-  tree** (#211): every image, screenshots included, newest first by the
-  camera's date and grouped by month, with a viewer that links the photos
-  either side. Under `/gallery/` because `/photos/` is the WebDAV mount of the
-  same photographs, and videos will sit beside these. Paged by a keyset cursor
+- **Photos are at `/photos/`, read from the index and not the tree** (#211,
+  #279): every image, screenshots included, newest first by the camera's date
+  and grouped by month, with a viewer that links the photos either side. The
+  same addresses the WebDAV mount answers for, split by method in the
+  composition root -- `/photos/2024/` is a year, `/photos/2024/06/` a month, a
+  photograph's own URL is its bytes and that URL with `?view` is the page about
+  it. The names in those addresses come from `internal/photos`, shared with the
+  mount, because a link that guessed which `IMG_0001.JPG` it meant would 404
+  against the collection behind it. A search result is a file and has no date
+  to build an address from, so its tiles go through `/photos/?file=<path>`,
+  which resolves one when one is clicked rather than a hundred to draw a grid.
+  Paged by a keyset cursor
   like the listing, with htmx extending it and a plain link without it; a
   fragment is told the month the page before it ended in, so a month split
   across two pages is headed once, while a whole page always heads its first.
@@ -1052,6 +1059,7 @@ internal/incoming/        the import folder on local disk, swept into the librar
 internal/music/           playlist edits, in one transaction each
 internal/calendar/        collections, objects, recurrence            -- not yet
 internal/media/           EXIF/tag extraction, thumbnails, ffprobe
+internal/photos/          the library as folders by date, for the two adapters that serve it
 internal/auth/            credential verification, per-protocol adapters
 
 internal/dav/             inbound adapter: WebDAV (CalDAV not yet)
@@ -1141,8 +1149,14 @@ Restraint here is principle 3, not laziness:
   vs Subsonic error codes vs an HTML page). The only shared part is the
   classification, which is already the sentinel errors. Create it when two
   handlers genuinely duplicate something.
-- **`photos`.** Photo backup is files plus EXIF indexing; the photo-ness lives in
-  `media` and in date queries.
+- **`photos`** was on this list until the day it had a reason, which is the test
+  this list is for. The date tree is served twice -- as a WebDAV collection and
+  as pages at the same addresses (#279) -- and the two have to generate the same
+  names, because two photographs in a month can share a filename and a link that
+  guessed would 404 against the mount behind it. An adapter may not import
+  another, so the agreement could not live in either. What is in it is the tree
+  and the naming; the photo-ness is still `media`'s and the queries are still
+  the port's.
 - **Any job framework.** The indexer is a goroutine started by `app`.
 
 ## Tech decisions
@@ -1190,9 +1204,11 @@ Restraint here is principle 3, not laziness:
   this server had handed out changed. The cost of doing it later was every
   URL anybody had saved.
 
-  The second half is still to do: `/photos/` and `/playlists/` answering HTML
-  as well, which retires `/gallery/photos` and the album pages' own URLs. It
-  was decided with this one because this is the half that breaks addresses.
+  **The second half landed for the photographs**: `/photos/` answers HTML as
+  well, `/gallery/photos` is retired, and the tree and its naming moved into
+  `internal/photos` so the page and the mount cannot drift. What is left of
+  #279 is `/playlists/`, where the question is not the same one -- a playlist
+  is not an album, and what the music pages should become is its own call.
 
   **And it missed one surface, which is worth knowing why** (#285). Every URL
   moved a level up; tus's `Upload-Metadata: filename` did not, because it is

@@ -1,0 +1,10 @@
+{{/* A year: the months with photographs in them. The page between the grid and
+     a month, and the one a WebDAV client sees as a collection of twelve. */}}
+{{define "content" -}}
+{{template "crumbs" .}}
+<h1 class="h4 mb-3">{{.Title}}</h1>
+<div class="list-group">
+  {{range .Months}}<a class="list-group-item list-group-item-action" href="{{.Href}}">{{.Name}}</a>
+  {{end}}
+</div>
+{{- end}}

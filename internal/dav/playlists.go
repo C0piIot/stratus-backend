@@ -41,9 +41,9 @@ import (
 // there is nothing for a write to mean, and importing one is decided against:
 // see CLAUDE.md.
 //
-// Every entry is a URL rooted at the server -- /dav/music/... -- so a player
+// Every entry is a URL rooted at the server -- /files/music/... -- so a player
 // that opens the playlist from here resolves it against the same host. What
-// that does not serve is a copy synced to a local disk, where /dav/ is not a
+// that does not serve is a copy synced to a local disk, where that is not a
 // path, and it is not meant to.
 
 // PlaylistSource is what this mount needs from internal/music.
