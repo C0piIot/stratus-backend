@@ -115,6 +115,9 @@ type view struct {
 	// HTMX is where the vendored script lives, beside Assets rather than under
 	// it: two libraries, two versions, two paths.
 	HTMX string
+	// Favicon carries the build on the end for the same reason the scripts do:
+	// it sits under the immutable cache header with no version in its path.
+	Favicon string
 	// Scripts are this project's own, with the build on the end so a new one is
 	// a new URL. Two of them, on every page: copy.js and dialog.js.
 	Scripts []string
@@ -235,6 +238,7 @@ func (h *handler) renderTemplate(w http.ResponseWriter, status int, page, name s
 	v.Assets, v.HTMX, v.Version, v.BuildDate = assetPrefix, htmxPrefix, h.version, h.buildDate
 	build := "?v=" + url.QueryEscape(h.version)
 	v.Scripts = []string{ownPrefix + "/copy.js" + build, ownPrefix + "/dialog.js" + build}
+	v.Favicon = ownPrefix + "/favicon.svg" + build
 
 	var buf bytes.Buffer
 	if err := pages[page].ExecuteTemplate(&buf, name, v); err != nil {

@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Stratus">
+  <title>Stratus</title>
+  <!-- A tab strip is light or dark and the favicon is told which by nothing
+       else, so the colour is a media query rather than a second file. -->
+  <style>
+    .mark { fill: #2c6fb5 }
+    @media (prefers-color-scheme: dark) { .mark { fill: #8ec3f5 } }
+  </style>
+  <g class="mark">
+    <rect x="26" y="14" width="28" height="9" rx="4.5"/>
+    <rect x="10" y="27" width="44" height="9" rx="4.5"/>
+    <rect x="10" y="40" width="28" height="9" rx="4.5"/>
+  </g>
+</svg>

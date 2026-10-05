@@ -424,3 +424,29 @@ func TestCrossSiteFormsAreRefused(t *testing.T) {
 		t.Errorf("a same-origin POST = %d, want 303", rec.Code)
 	}
 }
+
+// TestMarkAndFavicon: the one picture this project draws itself. The favicon
+// has no version in its path, so the build on the end is what keeps the
+// immutable header above honest when the shapes change.
+func TestMarkAndFavicon(t *testing.T) {
+	t.Parallel()
+	h := newHandler(t, nil)
+
+	body := get(t, h, "/login").Body.String()
+	if !strings.Contains(body, `<link rel="icon" href="/static/stratus/favicon.svg?v=`) {
+		t.Error("the layout links no favicon")
+	}
+	// Inline, so it is the same colour as the word beside it without a second
+	// request: the attribute is what says so.
+	if !strings.Contains(body, `viewBox="0 0 64 64" fill="currentColor"`) {
+		t.Error("the navbar does not carry the mark")
+	}
+
+	rec := get(t, h, "/static/stratus/favicon.svg?v="+version)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET the favicon = %d, want 200", rec.Code)
+	}
+	if got := rec.Header().Get("Content-Type"); !strings.HasPrefix(got, "image/svg+xml") {
+		t.Errorf("the favicon is served as %q, want image/svg+xml", got)
+	}
+}
