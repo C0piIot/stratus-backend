@@ -102,31 +102,41 @@ func main() {
 	}
 }
 
-// runImport is `stratus import nextcloud`: the survey half of #24, which reads
-// somebody else's instance and writes nothing at all.
+// runImport is `stratus import nextcloud`: the two halves of #24.
 //
-// It is a survey rather than a flag on an importer because the thing worth
-// knowing first is whether the database and the bucket still agree. Nextcloud's
-// own well-known failure is that they drift, and finding that out after the
-// rows are written is a data loss event rather than a migration.
+// The survey is what it does by default, and that is the dry run being the
+// default rather than a flag somebody has to remember. The thing worth knowing
+// first is whether the database and the bucket still agree -- Nextcloud's own
+// well-known failure is that they drift -- and finding that out after the rows
+// are written is a data loss event rather than a migration. `--write` is the
+// only thing here that writes, and it runs the survey again on its way.
 func runImport(args []string) error {
 	if len(args) == 0 || args[0] != "nextcloud" {
-		return errors.New("usage: stratus import nextcloud --db <path> [--user <name>]")
+		return errors.New("usage: stratus import nextcloud --db <path or DSN> [--write]")
 	}
 
 	fs := flag.NewFlagSet("stratus import nextcloud", flag.ExitOnError)
-	var opts nextcloud.Options
-	fs.StringVar(&opts.DBPath, "db", "", "path to the Nextcloud SQLite database (read-only)")
+	var opts nextcloud.ImportOptions
+	var write bool
+	fs.StringVar(&opts.Source, "db", "",
+		"Nextcloud's database, read-only: a path to its SQLite file, or a postgres:// or mysql:// DSN")
 	fs.StringVar(&opts.User, "user", "", "whose files, when the instance has more than one user")
 	fs.StringVar(&opts.TablePrefix, "table-prefix", nextcloud.DefaultTablePrefix, "Nextcloud's dbtableprefix")
 	fs.StringVar(&opts.ObjectPrefix, "object-prefix", nextcloud.DefaultObjectPrefix,
 		"objectstore.arguments.objectPrefix from config.php, which is not in the database")
 	fs.IntVar(&opts.Workers, "workers", nextcloud.DefaultWorkers, "how many objects to ask the bucket about at once")
+	fs.BoolVar(&write, "write", false, "write the rows; without it this is a survey and touches nothing")
+	fs.StringVar(&opts.Into, "into", "", "adopt the library under this path instead of at the root of the tree")
+	fs.BoolVar(&opts.ETag, "etag", false,
+		"read every object to compute its ETag, which Nextcloud has no hash to give")
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
 	}
-	if opts.DBPath == "" {
-		return errors.New("--db is required: the path to the Nextcloud SQLite database")
+	if opts.Source == "" {
+		return errors.New("--db is required: Nextcloud's database, as a path or a DSN")
+	}
+	if !write && (opts.Into != "" || opts.ETag) {
+		return errors.New("--into and --etag only mean something with --write")
 	}
 
 	cfg, err := config.Load(os.Getenv)
@@ -140,5 +150,8 @@ func runImport(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	return app.SurveyNextcloud(ctx, cfg, opts, os.Stdout)
+	if write {
+		return app.ImportNextcloud(ctx, cfg, opts, os.Stdout)
+	}
+	return app.SurveyNextcloud(ctx, cfg, opts.Options, os.Stdout)
 }

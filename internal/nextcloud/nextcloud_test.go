@@ -11,6 +11,7 @@ import (
 	"github.com/C0piIot/stratus-backend/internal/nextcloud"
 	"github.com/C0piIot/stratus-backend/internal/storage"
 	"github.com/C0piIot/stratus-backend/internal/storage/disk"
+	"github.com/C0piIot/stratus-backend/internal/storage/storagetest"
 )
 
 // The fixture is a real Nextcloud schema, cut down to the columns this reads.
@@ -21,24 +22,25 @@ CREATE TABLE oc_storages (numeric_id INTEGER PRIMARY KEY, id TEXT NOT NULL);
 CREATE TABLE oc_mimetypes (id INTEGER PRIMARY KEY, mimetype TEXT NOT NULL);
 CREATE TABLE oc_filecache (
 	fileid INTEGER PRIMARY KEY, storage INTEGER NOT NULL, path TEXT NOT NULL,
-	size INTEGER NOT NULL, mimetype INTEGER, encrypted INTEGER NOT NULL DEFAULT 0);
+	size INTEGER NOT NULL, mtime INTEGER NOT NULL DEFAULT 0,
+	mimetype INTEGER, encrypted INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE oc_appconfig (appid TEXT NOT NULL, configkey TEXT NOT NULL, configvalue TEXT);
 CREATE TABLE oc_preferences (
 	userid TEXT NOT NULL, appid TEXT NOT NULL, configkey TEXT NOT NULL, configvalue TEXT);
 
 INSERT INTO oc_mimetypes VALUES (1, 'httpd/unix-directory'), (2, 'image/jpeg'), (3, 'video/quicktime'), (4, 'text/plain');
 INSERT INTO oc_storages VALUES (1, 'object::user:edu');
-INSERT INTO oc_filecache (fileid, storage, path, size, mimetype) VALUES
-	(100, 1, '',                          0,    1),
-	(101, 1, 'files',                     0,    1),
-	(102, 1, 'files/Photos',              0,    1),
-	(103, 1, 'files/Photos/a.jpg',        1000, 2),
-	(104, 1, 'files/Photos/b.jpg',        2000, 2),
-	(105, 1, 'files/Photos/c.mov',        3000, 3),
-	(106, 1, 'files_versions/Photos/a.jpg', 500, 2),
-	(107, 1, 'files_trashbin/files/x.jpg',  700, 2),
-	(108, 1, 'uploads/chunk',               100, 4),
-	(109, 1, 'files/notes.txt',              -1, 4);
+INSERT INTO oc_filecache (fileid, storage, path, size, mtime, mimetype) VALUES
+	(100, 1, '',                            0,    0,          1),
+	(101, 1, 'files',                       0,    1700000000, 1),
+	(102, 1, 'files/Photos',                0,    1700000001, 1),
+	(103, 1, 'files/Photos/a.jpg',          1000, 1700000002, 2),
+	(104, 1, 'files/Photos/b.jpg',          2000, 1700000003, 2),
+	(105, 1, 'files/Photos/c.mov',          3000, 1700000004, 3),
+	(106, 1, 'files_versions/Photos/a.jpg', 500,  1700000005, 2),
+	(107, 1, 'files_trashbin/files/x.jpg',  700,  1700000006, 2),
+	(108, 1, 'uploads/chunk',               100,  1700000007, 4),
+	(109, 1, 'files/notes.txt',             -1,   1700000008, 4);
 `
 
 // instance writes a Nextcloud database and returns its path.
@@ -82,7 +84,7 @@ func bucket(t *testing.T, objects map[string]int) storage.Storage {
 // survey is the fixture above against the bucket above.
 func survey(t *testing.T, db string, store storage.Storage, opts nextcloud.Options) *nextcloud.Report {
 	t.Helper()
-	opts.DBPath = db
+	opts.Source = db
 	report, err := nextcloud.Survey(t.Context(), store, opts)
 	if err != nil {
 		t.Fatalf("survey: %v", err)
@@ -201,7 +203,7 @@ func TestMoreThanOneUserHasToBeNamed(t *testing.T) {
 		INSERT INTO oc_filecache (fileid, storage, path, size, mimetype)
 			VALUES (200, 2, 'files/hers.jpg', 10, 2);`)
 
-	_, err := nextcloud.Survey(t.Context(), bucket(t, nil), nextcloud.Options{DBPath: db})
+	_, err := nextcloud.Survey(t.Context(), bucket(t, nil), nextcloud.Options{Source: db})
 	if err == nil {
 		t.Fatal("two users and no --user was accepted")
 	}
@@ -266,7 +268,7 @@ func TestATablePrefixThatIsNotAnIdentifierIsRefused(t *testing.T) {
 	// The prefix is concatenated into every query, because SQL has no
 	// placeholder for a table name. This is the check that stands in for one.
 	_, err := nextcloud.Survey(t.Context(), bucket(t, nil), nextcloud.Options{
-		DBPath:      instance(t),
+		Source:      instance(t),
 		TablePrefix: "oc_; DROP TABLE oc_filecache; --",
 	})
 	if err == nil {
@@ -288,14 +290,14 @@ func TestADatabaseThatIsNotNextcloudsIsAnError(t *testing.T) {
 	}
 	_ = conn.Close()
 
-	if _, err := nextcloud.Survey(t.Context(), bucket(t, nil), nextcloud.Options{DBPath: empty}); err == nil {
+	if _, err := nextcloud.Survey(t.Context(), bucket(t, nil), nextcloud.Options{Source: empty}); err == nil {
 		t.Fatal("a database with none of Nextcloud's tables was accepted")
 	}
 }
 
 func TestAMissingDatabaseIsAnError(t *testing.T) {
 	_, err := nextcloud.Survey(t.Context(), bucket(t, nil), nextcloud.Options{
-		DBPath: filepath.Join(t.TempDir(), "nothing-here.db"),
+		Source: filepath.Join(t.TempDir(), "nothing-here.db"),
 	})
 	if err == nil {
 		t.Fatal("a database that is not there was accepted")
@@ -348,5 +350,79 @@ func TestAnEncryptedReportStopsAtTheReason(t *testing.T) {
 	}
 	if strings.Contains(out.String(), "The bucket, asked about") {
 		t.Errorf("the report walked the library anyway:\n%s", out.String())
+	}
+}
+
+// The sweep lists the whole bucket and puts what no row claims into the trash,
+// so what an import would leave behind is a number to have before the import
+// rather than a month after it.
+func TestTheSurveyCountsWhatTheImportWouldLeaveInTheBucket(t *testing.T) {
+	report := survey(t, instance(t), bucket(t, map[string]int{
+		"urn:oid:103": 1000, "urn:oid:104": 2000, "urn:oid:105": 3000, "urn:oid:109": 42,
+		// A version and a trashed file: Nextcloud's, in the same bucket, and
+		// adopted by nothing.
+		"urn:oid:106": 500, "urn:oid:107": 700,
+	}), nextcloud.Options{})
+
+	if report.UnclaimedCount != 2 {
+		t.Errorf("unclaimed = %d, want 2", report.UnclaimedCount)
+	}
+	if report.UnclaimedBytes != 1200 {
+		t.Errorf("unclaimed bytes = %d, want 1200", report.UnclaimedBytes)
+	}
+	if report.UnclaimedErr != "" {
+		t.Errorf("unclaimed err = %q", report.UnclaimedErr)
+	}
+
+	var out strings.Builder
+	if err := report.Render(&out); err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	for _, want := range []string{"The rest of the bucket", "urn:oid:106", "thirty days"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("the report does not say %q:\n%s", want, out.String())
+		}
+	}
+}
+
+func TestASurveyOfABucketWithNothingElseInItSaysSo(t *testing.T) {
+	report := survey(t, instance(t), bucket(t, map[string]int{
+		"urn:oid:103": 1000, "urn:oid:104": 2000, "urn:oid:105": 3000, "urn:oid:109": 42,
+	}), nextcloud.Options{})
+
+	if report.UnclaimedCount != 0 {
+		t.Fatalf("unclaimed = %d, want 0", report.UnclaimedCount)
+	}
+	var out strings.Builder
+	if err := report.Render(&out); err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	if !strings.Contains(out.String(), "nothing else is in it") {
+		t.Errorf("the report does not say the bucket is clean:\n%s", out.String())
+	}
+}
+
+// A bucket that cannot be listed is a worse report, not a failed survey: the
+// drift question has already been answered by then, and a zero that means "not
+// asked" would read as "nothing there".
+func TestASurveyReportsABucketItCannotList(t *testing.T) {
+	store := storagetest.FailOn(t, bucket(t, map[string]int{
+		"urn:oid:103": 1000, "urn:oid:104": 2000, "urn:oid:105": 3000, "urn:oid:109": 42,
+	}), "List")
+
+	report := survey(t, instance(t), store, nextcloud.Options{})
+	if report.UnclaimedErr == "" {
+		t.Fatal("the survey did not say the bucket could not be listed")
+	}
+	if !report.Adoptable() {
+		t.Error("a bucket that could not be listed stopped an adoption it should not have")
+	}
+
+	var out strings.Builder
+	if err := report.Render(&out); err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	if !strings.Contains(out.String(), "could not be listed") {
+		t.Errorf("the report does not say so:\n%s", out.String())
 	}
 }

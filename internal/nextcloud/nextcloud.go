@@ -8,13 +8,16 @@
 // nothing on either side parses a blob key, which is why internal/files says
 // so where the key is made.
 //
-// What is here today is the survey, and it is the half worth having first.
-// Nextcloud's own well-known failure is a database and a bucket that have
-// drifted apart, and discovering that after the rows are written is a data
-// loss event rather than a migration. So nothing here writes anything: not to
-// the bucket, not to this server's database, and not to Nextcloud's, which is
-// opened read-only because the instance being surveyed is probably still
-// running.
+// Two halves, in the order they have to happen. The survey reads the instance
+// and asks the bucket about every object it names, because Nextcloud's own
+// well-known failure is a database and a bucket that have drifted apart and
+// discovering that after the rows are written is a data loss event rather than
+// a migration. The import then writes the rows, and nothing else: not one byte
+// is put, copied or deleted, and the instance it came from is never written to
+// at all -- it is opened read-only, since it is probably still running.
+//
+// Whichever of SQLite, PostgreSQL and MySQL that instance runs on, which are
+// the three this server already speaks. See source.go.
 package nextcloud
 
 import (
@@ -22,13 +25,10 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"net/url"
 	"path"
 	"strconv"
 	"strings"
 	"sync"
-
-	_ "modernc.org/sqlite" // the foreign database is SQLite; see Options.DBPath
 
 	"github.com/C0piIot/stratus-backend/internal/storage"
 )
@@ -61,8 +61,11 @@ const userFiles = "files"
 
 // Options says which instance to read and how it names its objects.
 type Options struct {
-	// DBPath is the Nextcloud SQLite file.
-	DBPath string
+	// Source is the Nextcloud database: a path to its SQLite file, or a
+	// `postgres://` or `mysql://` DSN. Those three are what Nextcloud runs on
+	// and what this server already speaks, so there is no fourth shape and no
+	// instance this cannot be pointed at.
+	Source string
 	// TablePrefix is Nextcloud's, not ours. Empty means DefaultTablePrefix.
 	TablePrefix string
 	// User selects the home storage to read. Empty is allowed only when the
@@ -105,8 +108,8 @@ func (o Options) workers() int {
 // out at all. The one exception is encryption, which is reported and then
 // refused: see Report.Blocked.
 func Survey(ctx context.Context, blobs storage.Storage, opts Options) (*Report, error) {
-	if opts.DBPath == "" {
-		return nil, errors.New("nextcloud: the path to the database is required")
+	if opts.Source == "" {
+		return nil, errors.New("nextcloud: the database to read is required")
 	}
 	// A table name cannot be a bind parameter, so the prefix is concatenated
 	// into every query below and is checked here instead -- once, before any
@@ -116,14 +119,14 @@ func Survey(ctx context.Context, blobs storage.Storage, opts Options) (*Report, 
 		return nil, err
 	}
 
-	conn, err := open(opts.DBPath)
+	conn, err := open(ctx, opts.Source)
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = conn.Close() }()
+	defer func() { _ = conn.close() }()
 
 	rep := &Report{
-		Database:     opts.DBPath,
+		Database:     conn.name,
 		TablePrefix:  opts.tablePrefix(),
 		ObjectPrefix: opts.objectPrefix(),
 	}
@@ -152,39 +155,18 @@ func Survey(ctx context.Context, blobs storage.Storage, opts Options) (*Report, 
 	return rep, nil
 }
 
-// open connects to the foreign database read-only.
-//
-// Built through url.URL for the reason internal/db/sqlite builds its own that
-// way: a path with a space or a question mark in it still has to produce a DSN
-// the driver can parse. `mode=ro` is the promise this package makes about
-// somebody's live instance, and the busy timeout is because that instance may
-// be writing while we read.
-func open(dbPath string) (*sql.DB, error) {
-	dsn := url.URL{Scheme: "file", Opaque: dbPath}
-	query := url.Values{}
-	query.Set("mode", "ro")
-	query.Add("_pragma", "busy_timeout(5000)")
-	dsn.RawQuery = query.Encode()
-
-	conn, err := sql.Open("sqlite", dsn.String())
-	if err != nil {
-		return nil, fmt.Errorf("nextcloud: open %s: %w", dbPath, err)
-	}
-	return conn, nil
-}
-
 // readEncryption asks the instance three questions about encryption and keeps
 // all three answers. The setting and the app can each be on without the other,
 // and the filecache rows are the only one of the three that is a fact about
 // the bytes rather than about the configuration.
-func readEncryption(ctx context.Context, conn *sql.DB, prefix string) (Encryption, error) {
+func readEncryption(ctx context.Context, conn *source, prefix string) (Encryption, error) {
 	var enc Encryption
 
 	//nolint:gosec // G202: the prefix is checked by validPrefix
 	query := "SELECT appid, configkey, configvalue FROM " + prefix + "appconfig" +
 		" WHERE (appid = 'core' AND configkey = 'encryption_enabled')" +
 		" OR (appid = 'encryption' AND configkey = 'enabled')"
-	rows, err := conn.QueryContext(ctx, query)
+	rows, err := conn.q.QueryContext(ctx, query)
 	if err != nil {
 		return enc, fmt.Errorf("nextcloud: read appconfig: %w", err)
 	}
@@ -206,7 +188,7 @@ func readEncryption(ctx context.Context, conn *sql.DB, prefix string) (Encryptio
 		return enc, fmt.Errorf("nextcloud: read appconfig: %w", err)
 	}
 
-	if err := conn.QueryRowContext(ctx,
+	if err := conn.q.QueryRowContext(ctx,
 		"SELECT COUNT(*) FROM "+prefix+"filecache WHERE encrypted <> 0").Scan(&enc.Rows); err != nil {
 		return enc, fmt.Errorf("nextcloud: count encrypted rows: %w", err)
 	}
@@ -218,11 +200,11 @@ func readEncryption(ctx context.Context, conn *sql.DB, prefix string) (Encryptio
 // Nextcloud assigns those at account creation and records them here, so an
 // empty result is the single-bucket case -- which is what an adoption in place
 // needs, since this server is configured with exactly one bucket.
-func readBuckets(ctx context.Context, conn *sql.DB, prefix string) ([]UserBucket, error) {
+func readBuckets(ctx context.Context, conn *source, prefix string) ([]UserBucket, error) {
 	//nolint:gosec // G202: the prefix is checked by validPrefix
 	query := "SELECT userid, configvalue FROM " + prefix + "preferences" +
 		" WHERE appid = 'homeobjectstore' AND configkey = 'bucket' ORDER BY userid"
-	rows, err := conn.QueryContext(ctx, query)
+	rows, err := conn.q.QueryContext(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("nextcloud: read per-user buckets: %w", err)
 	}
@@ -248,9 +230,9 @@ func readBuckets(ctx context.Context, conn *sql.DB, prefix string) ([]UserBucket
 // `object::user:<user>` on one with an object store, and those are the only
 // two shapes that hold somebody's own files; everything else in the table is
 // an external mount or a shared storage, which this does not import.
-func pickStorage(ctx context.Context, conn *sql.DB, prefix, user string) (Storage, error) {
+func pickStorage(ctx context.Context, conn *source, prefix, user string) (Storage, error) {
 	//nolint:gosec // G202: the prefix is checked by validPrefix
-	rows, err := conn.QueryContext(ctx, "SELECT numeric_id, id FROM "+prefix+"storages ORDER BY numeric_id")
+	rows, err := conn.q.QueryContext(ctx, "SELECT numeric_id, id FROM "+prefix+"storages ORDER BY numeric_id")
 	if err != nil {
 		return Storage{}, fmt.Errorf("nextcloud: read storages: %w", err)
 	}
@@ -326,17 +308,24 @@ func validPrefix(prefix string) error {
 // The rows are streamed rather than collected: a filecache has a row per file
 // and this has to work on a library too big to hold in memory, which is the
 // same rule the storage port states for List.
-func (r *Report) walk(ctx context.Context, conn *sql.DB, blobs storage.Storage, opts Options) error {
+func (r *Report) walk(ctx context.Context, conn *source, blobs storage.Storage, opts Options) error {
 	prefix := opts.tablePrefix()
 	//nolint:gosec // G202: the prefix is checked by validPrefix
 	query := "SELECT f.fileid, f.path, f.size, COALESCE(m.mimetype, '') FROM " + prefix + "filecache f" +
 		" LEFT JOIN " + prefix + "mimetypes m ON m.id = f.mimetype" +
-		" WHERE f.storage = ? ORDER BY f.fileid"
-	rows, err := conn.QueryContext(ctx, query, r.Storage.NumericID)
+		" WHERE f.storage = " + conn.arg(1) + " ORDER BY f.fileid"
+	rows, err := conn.q.QueryContext(ctx, query, r.Storage.NumericID)
 	if err != nil {
 		return fmt.Errorf("nextcloud: read filecache: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
+
+	// Every key the import would write, kept so the bucket can be asked what
+	// else is in it. It is the one thing here held in memory rather than
+	// streamed, and it is worth it: a million files is some tens of megabytes
+	// in a command somebody runs once, and the alternative is not knowing what
+	// the sweep is going to find.
+	claimed := make(map[string]struct{})
 
 	entries := make(chan Entry)
 	results := make(chan result)
@@ -367,14 +356,46 @@ func (r *Report) walk(ctx context.Context, conn *sql.DB, blobs storage.Storage, 
 		}
 	}()
 
-	scanErr := r.feed(ctx, rows, entries, opts.objectPrefix())
+	scanErr := r.feed(ctx, rows, entries, opts.objectPrefix(), claimed)
 	close(entries)
 	<-collected
-	return scanErr
+	if scanErr != nil {
+		return scanErr
+	}
+	r.countUnclaimed(ctx, blobs, claimed)
+	return nil
+}
+
+// countUnclaimed asks the bucket what is in it that this import would not
+// adopt.
+//
+// The sweep in internal/files lists the whole store and puts every object no
+// row points at into the trash, so after an import the versions, the trash and
+// the other users Nextcloud keeps in the same bucket are on a thirty-day
+// clock. That is very often what somebody migrating wants; it is never what
+// they want to discover afterwards.
+//
+// A failure is recorded rather than returned: not being able to list is a
+// worse report, not a failed survey.
+func (r *Report) countUnclaimed(ctx context.Context, blobs storage.Storage, claimed map[string]struct{}) {
+	for info, err := range blobs.List(ctx, "") {
+		if err != nil {
+			r.UnclaimedErr = err.Error()
+			return
+		}
+		if _, ours := claimed[info.Key]; ours {
+			continue
+		}
+		r.UnclaimedCount++
+		r.UnclaimedBytes += max(info.Size, 0)
+		if len(r.Unclaimed) < maxSamples {
+			r.Unclaimed = append(r.Unclaimed, info.Key)
+		}
+	}
 }
 
 // feed classifies every row and sends the files on to be checked.
-func (r *Report) feed(ctx context.Context, rows *sql.Rows, entries chan<- Entry, objectPrefix string) error {
+func (r *Report) feed(ctx context.Context, rows *sql.Rows, entries chan<- Entry, objectPrefix string, claimed map[string]struct{}) error {
 	for rows.Next() {
 		var (
 			e    Entry
@@ -406,6 +427,7 @@ func (r *Report) feed(ctx context.Context, rows *sql.Rows, entries chan<- Entry,
 		e.Size = size
 		e.MIME = mime
 		e.Key = objectPrefix + strconv.FormatInt(e.FileID, 10)
+		claimed[e.Key] = struct{}{}
 		r.Files.add(size)
 
 		// A negative size is Nextcloud saying it has never scanned the file.

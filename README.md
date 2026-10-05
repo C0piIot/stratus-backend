@@ -493,29 +493,39 @@ version can delete `.uploads/` from its data directory.
 ## Coming from Nextcloud
 
 **A Nextcloud instance on S3 primary storage can be adopted without moving a
-byte** — in principle. Nextcloud builds its bucket the way this server does:
-the object is named `urn:oid:<fileid>`, the bucket is flat, nothing in it is
-human readable, and every name, path and folder lives in the database. Neither
-side ever parses a blob key, so the objects can stay exactly where they are,
-under the names they already have, and the import becomes a read of one
-database and a batch of row inserts. No copy, no egress bill, no window where
-half a library is in two places.
+byte.** Nextcloud builds its bucket the way this server does: the object is
+named `urn:oid:<fileid>`, the bucket is flat, nothing in it is human readable,
+and every name, path and folder lives in the database. Neither side ever parses
+a blob key, so the objects stay exactly where they are, under the names they
+already have, and the import is a read of one database and a batch of row
+inserts. No copy, no egress bill, no window where half a library is in two
+places.
 
-What decides whether that is true of *your* instance is whether its database and
+It reads the three databases Nextcloud runs on, which are the three this server
+speaks: SQLite as a path, PostgreSQL and MySQL/MariaDB as a DSN. Whichever it
+is, it is opened **read-only** and the instance can still be running — SQLite
+through `mode=ro`, the other two inside a read-only transaction, which also
+means the whole import sees one consistent picture of a library somebody may
+still be adding to.
+
+### Survey first
+
+What decides whether this works on *your* instance is whether its database and
 its bucket still agree, and Nextcloud's own well-known failure is that they
-drift. So the first half shipped is the survey, which writes nothing anywhere:
+drift. So that is what the command does by default, and it writes nothing
+anywhere:
 
 ```sh
 STRATUS_STORAGE_DSN=s3://key:secret@s3.example.com/my-bucket \
   stratus import nextcloud --db /var/www/nextcloud/data/owncloud.db
 ```
 
-It opens Nextcloud's SQLite database **read-only** — the instance can still be
-running — reads the user's `files/` tree out of `oc_filecache`, and asks the
-bucket in `STRATUS_STORAGE_DSN` about every object that tree claims. What comes
-back is a count of what is present, what is missing, what is there at the wrong
-length, and what could not be asked about at all, with the first names of each.
-Versions, trash and chunked uploads are counted separately and left behind.
+It reads the user's `files/` tree out of `oc_filecache` and asks the bucket in
+`STRATUS_STORAGE_DSN` — your Stratus storage DSN, pointed at Nextcloud's bucket
+— about every object that tree claims. What comes back is a count of what is
+present, what is missing, what is there at the wrong length, and what could not
+be asked about at all, with the first names of each. Versions, trash and chunked
+uploads are counted separately and left behind.
 
 Two things stop an adoption in place, and the survey says so before anything
 else:
@@ -527,17 +537,65 @@ else:
 - **A bucket per user.** Multibucket instances map each user to their own
   bucket at account creation; this server is configured with one.
 
-Flags, when the defaults are wrong: `--user` picks whose files on an instance
-with more than one, `--table-prefix` is Nextcloud's `dbtableprefix` (`oc_`),
-`--object-prefix` is `objectstore.arguments.objectPrefix` from `config.php`
-(`urn:oid:`) — which is in that file and not in the database, so it is the one
-thing you have to look up — and `--workers` is how many objects are asked about
-at once.
+It also counts **what the import would leave behind**: the objects in the bucket
+that no imported row would point at, which are Nextcloud's versions, its trash,
+another user's files and the instance's own `appdata`. They matter because
+[the sweep](#orphaned-blobs) lists the whole bucket and puts what no row claims
+into the trash, where it waits thirty days before it is freed. That is very
+often exactly what somebody migrating wants; it is never what they want to find
+out a month later.
 
-**The half that writes the rows is not built yet**
-([#24](https://github.com/C0piIot/stratus-backend/issues/24)). Today this
-command is a survey and nothing else: it never writes to the bucket, never to
-Nextcloud's database, and never to this server's.
+### Then write
+
+`--write` is the only thing here that writes, and it runs the survey again on
+its way: a library the survey will not pass is not imported.
+
+```sh
+STRATUS_USERNAME=edu STRATUS_PASSWORD=... \
+STRATUS_DB_DSN=sqlite:///data/stratus.db \
+STRATUS_STORAGE_DSN=s3://key:secret@s3.example.com/my-bucket \
+  stratus import nextcloud --db /var/www/nextcloud/data/owncloud.db --write
+```
+
+Run it **with the server stopped**, against the data directory the server will
+use. It opens this server's own database and migrates it exactly as the server
+does, so it works against an empty one; the library is filed under
+`STRATUS_USERNAME`, which is why that has to be set.
+
+Four things worth knowing before pointing it at anything:
+
+- **A path that is already taken is skipped, never replaced.** So an import
+  that was interrupted is finished by running it again, and one pointed at a
+  library that is already there does nothing.
+- **The rows carry no ETag unless you ask for one.** Nextcloud has no hash of
+  the content to hand over — `oc_filecache.checksum` is empty unless a client
+  volunteered one, and the `etag` column beside it is a change token rather
+  than a digest. An ETag here means SHA-256 of the bytes, so the honest import
+  writes none and WebDAV answers a validator made from the size and the
+  modification time instead. `--etag` reads every object out of the bucket and
+  computes the real one, which costs the egress of reading the library once.
+- **Nothing is indexed yet.** Photos by date, the music library and thumbnails
+  are all read from the media index, and the indexer finds the new rows on its
+  own — within the hour, or at the next startup. Until it has been through
+  them, `/files/` has the whole library and `/photos/`, `/videos/` and `/music/`
+  are empty. `/status` is where that progress is.
+- **A name this server cannot store is reported and skipped**, not fatal: one
+  impossible path out of a hundred thousand is not a reason to abandon a
+  migration.
+
+`--into <path>` hangs the whole library under a folder instead of the root of
+the tree, which is what to use when there is already something in it.
+
+### The flags
+
+`--user` picks whose files on an instance with more than one, `--table-prefix`
+is Nextcloud's `dbtableprefix` (`oc_`), `--object-prefix` is
+`objectstore.arguments.objectPrefix` from `config.php` (`urn:oid:`) — which is
+in that file and not in the database, so it is the one thing you have to look up
+— and `--workers` is how many objects are asked about at once.
+
+What it never does, in either mode: write to the bucket, and write to
+Nextcloud's database.
 
 ## OpenSubsonic
 
@@ -1365,6 +1423,8 @@ Working now:
 - EXIF, audio tags and video probing, indexed in the background and started by
   the upload itself, with a page saying how far it has got.
 - An import folder on local disk, swept into the library: `STRATUS_INCOMING_DIR`.
+- Adopting a Nextcloud instance on S3, surveyed first and then imported without
+  moving a byte, from its SQLite, PostgreSQL or MySQL database.
 - A search box over names, titles, artists, albums and what a camera
   recorded, paged by a cursor.
 - A web UI: sign in, walk the tree, open or download a file, upload one, make a folder,
@@ -1372,7 +1432,7 @@ Working now:
   folders by date over WebDAV -- and a music library to browse and play. A signed-cookie session and a CSP that allows nothing but
   the binary's own assets.
 - A request log, migrations applied at startup, and a container asserted from
-  the outside by 101 smoke checks.
+  the outside by 133 smoke checks.
 
 Not there yet: CalDAV and sharing. Work
 and the decisions behind it are tracked on the

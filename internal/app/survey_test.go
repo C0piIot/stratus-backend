@@ -43,7 +43,7 @@ func TestTheSurveyReadsTheConfiguredBucket(t *testing.T) {
 	cfg := config.Config{Storage: config.StorageDSN{Scheme: config.SchemeFile, Dir: bucket(t)}}
 
 	var out strings.Builder
-	if err := app.SurveyNextcloud(t.Context(), cfg, nextcloud.Options{DBPath: fixture}, &out); err != nil {
+	if err := app.SurveyNextcloud(t.Context(), cfg, nextcloud.Options{Source: fixture}, &out); err != nil {
 		t.Fatalf("survey: %v", err)
 	}
 
@@ -64,7 +64,7 @@ func TestTheSurveyNeedsABlobStoreItCanOpen(t *testing.T) {
 	cfg := config.Config{Storage: config.StorageDSN{Scheme: "nonesuch"}}
 
 	var out strings.Builder
-	err := app.SurveyNextcloud(t.Context(), cfg, nextcloud.Options{DBPath: fixture}, &out)
+	err := app.SurveyNextcloud(t.Context(), cfg, nextcloud.Options{Source: fixture}, &out)
 	if err == nil {
 		t.Fatal("a storage DSN with no backend behind it was accepted")
 	}
@@ -78,7 +78,7 @@ func TestTheSurveyReportsADatabaseItCannotRead(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "not-an-instance.db")
 
 	var out strings.Builder
-	if err := app.SurveyNextcloud(t.Context(), cfg, nextcloud.Options{DBPath: missing}, &out); err == nil {
+	if err := app.SurveyNextcloud(t.Context(), cfg, nextcloud.Options{Source: missing}, &out); err == nil {
 		t.Fatal("a database that is not there was accepted")
 	}
 }

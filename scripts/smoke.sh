@@ -325,6 +325,58 @@ else
   ok "the survey fails on a database that is not there"
 fi
 
+# The write half, end to end in the shipped image: adopt the fixture into a
+# data directory and then serve that same directory, because the only claim
+# worth checking from outside is that a row an import wrote is a file like any
+# other -- downloadable over WebDAV, under the folder it came in.
+ncwrite="$(mktmp)"
+ncuser="edu"
+ncpass="an example password for the smoke tests"
+mkdir -p "$ncwrite/blobs"
+cp scripts/testdata/nextcloud.db "$ncwrite/nextcloud.db"
+printf 'held.js'   > "$ncwrite/blobs/urn:oid:3"
+printf 'gone.jpeg' > "$ncwrite/blobs/urn:oid:4"
+printf 'inner'     > "$ncwrite/blobs/urn:oid:7"
+
+import_into() {
+  docker run --rm ${cover_args[@]+"${cover_args[@]}"} \
+    -u "$(id -u):$(id -g)" -v "$ncwrite:/data" \
+    -e STRATUS_USERNAME="$ncuser" -e STRATUS_PASSWORD="$ncpass" \
+    "$RUN_REF" import nextcloud --db /data/nextcloud.db --write 2>&1
+}
+
+out="$(import_into || true)"
+if printf '%s' "$out" | grep -q "Not a byte was moved"; then
+  ok "the import writes rows and says it moved nothing"
+else
+  bad "the import writes rows and says it moved nothing" "$out"
+fi
+
+# Running it again has to be safe: an interrupted migration is finished by
+# running it, not by starting over.
+out="$(import_into || true)"
+if printf '%s' "$out" | grep -q "already there"; then
+  ok "a second import skips what the first one wrote"
+else
+  bad "a second import skips what the first one wrote" "$out"
+fi
+
+ncname="stratus-smoke-imported"
+run_detached "$ncname" -u "$(id -u):$(id -g)" -v "$ncwrite:/data" \
+  -e STRATUS_USERNAME="$ncuser" -e STRATUS_PASSWORD="$ncpass" \
+  -e STRATUS_INDEX_INTERVAL=0
+if wait_serving "$ncname"; then
+  nchost="$(docker port "$ncname" 8080/tcp | head -1)"
+  body="$(curl -fsS -u "$ncuser:$ncpass" "http://$nchost/files/album/inner.jpg" 2>&1 || true)"
+  if [ "$body" = "inner" ]; then
+    ok "an adopted file downloads from the object Nextcloud already wrote"
+  else
+    bad "an adopted file downloads from the object Nextcloud already wrote" "got '$body'"
+  fi
+else
+  bad "the server starts on an imported library" "$(docker logs "$ncname" 2>&1 | tail -3)"
+fi
+
 # ---------------------------------------------------------------------------
 section "Startup: happy path"
 # ---------------------------------------------------------------------------
