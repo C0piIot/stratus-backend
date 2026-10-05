@@ -468,6 +468,15 @@ func TestLibrariesCollapse(t *testing.T) {
 	if !strings.Contains(body, `data-bs-toggle="dropdown"`) {
 		t.Error("the bar has no menu button")
 	}
+	// Signing out is a POST wherever it is offered. A dropdown-item that was a
+	// link would be a GET, and a GET that ends a session is one anybody can put
+	// in a page for somebody else to load.
+	if got := strings.Count(body, `action="/logout"`); got != 2 {
+		t.Errorf("sign out appears %d times, want twice: in the bar and in the menu", got)
+	}
+	if strings.Contains(body, `href="/logout"`) {
+		t.Error("sign out is offered as a link, which makes it a GET")
+	}
 	// Bootstrap's own component, so the policy needs no inline script and no
 	// inline style: the bundle is already served from here.
 	if strings.Contains(body, "<style") || strings.Contains(body, " style=") {

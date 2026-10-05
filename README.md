@@ -738,9 +738,11 @@ handlers do — it will never grow a private JSON API of its own.
 
 **The libraries are along the top, and behind a button where the bar is too
 narrow to hold them**: files, photos, videos, music, playlists and status. The
-menu is Bootstrap's own and therefore wants JavaScript, so with it turned off
-on a narrow window they are out of reach -- which is where they were at any
-width before there was a menu, rather than something the menu took away.
+menu sits at the end of the bar and holds signing out as well, and it is
+Bootstrap's own and therefore wants JavaScript: with it turned off on a narrow
+window neither the libraries nor signing out can be reached. The libraries were
+already out of reach at any width before there was a menu; **signing out was
+not**, and that is a thing this took away rather than one it inherited.
 
 **One URL per directory, and the same one per file**: `/files/photos/2026` is a
 page, `/files/photos/2026/img.jpg` is the picture. Opening a file leaves it to
