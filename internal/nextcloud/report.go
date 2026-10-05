@@ -30,6 +30,20 @@ type Report struct {
 	// Unscanned counts rows Nextcloud never sized, which it writes as -1.
 	Unscanned int64
 
+	// Unclaimed counts the objects in the bucket that no row this import
+	// would write points at: Nextcloud's versions and trash, another user's
+	// files, the instance's own appdata. They matter because this server's
+	// sweep lists the whole bucket and puts what no row claims into the
+	// trash, so they are a thing to know before the import rather than a
+	// month afterwards.
+	UnclaimedCount int64
+	UnclaimedBytes int64
+	Unclaimed      []string
+	// UnclaimedErr is why the bucket could not be listed, if it could not.
+	// Reported rather than swallowed: a zero that means "not asked" and a
+	// zero that means "nothing there" are different answers.
+	UnclaimedErr string
+
 	Present       Tally
 	MissingCount  int64
 	MissingBytes  int64
@@ -182,6 +196,23 @@ func (r *Report) Render(w io.Writer) error {
 	samples(b, "not answered", len(r.Failed), r.FailedCount, func(i int) string {
 		return fmt.Sprintf("%s  %s: %s", r.Failed[i].Key, r.Failed[i].Path, r.Failed[i].Err)
 	})
+
+	b.WriteString("\nThe rest of the bucket\n")
+	switch {
+	case r.UnclaimedErr != "":
+		fmt.Fprintf(b, "  could not be listed: %s\n", r.UnclaimedErr)
+	case r.UnclaimedCount == 0:
+		b.WriteString("  nothing else is in it\n")
+	default:
+		fmt.Fprintf(b, "  objects no imported row would claim  %s  %s\n",
+			count(r.UnclaimedCount), humanBytes(r.UnclaimedBytes))
+		samples(b, "unclaimed", len(r.Unclaimed), r.UnclaimedCount, func(i int) string {
+			return r.Unclaimed[i]
+		})
+		b.WriteString("\n  Those are Nextcloud's versions, its trash, another user's files or the\n")
+		b.WriteString("  instance's own appdata. This server's sweep lists the whole bucket and\n")
+		b.WriteString("  puts what no row claims into the trash, where it waits thirty days.\n")
+	}
 
 	if r.Adoptable() {
 		b.WriteString("\nEvery object the database claims is in the bucket at the length it claims.\n")

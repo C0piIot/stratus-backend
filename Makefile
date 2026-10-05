@@ -343,9 +343,13 @@ test-s3: | $(CACHE_DIR)
 		$(MAKE) --no-print-directory silo-down; exit $$status
 
 ## test-db: run the metadata conformance suite against PostgreSQL and MySQL
+#
+# internal/nextcloud is in here because Nextcloud runs on the same three
+# engines this server does, and a survey proved only against a SQLite fixture
+# has not been proved portable at all.
 test-db: | $(CACHE_DIR)
 	@$(MAKE) --no-print-directory postgres-up mysql-up
-	@$(GO_SVC) test $(TEST_FLAGS) ./internal/db/...; status=$$?; \
+	@$(GO_SVC) test $(TEST_FLAGS) ./internal/db/... ./internal/nextcloud/...; status=$$?; \
 		$(MAKE) --no-print-directory postgres-down mysql-down; exit $$status
 
 $(TEST_NET):

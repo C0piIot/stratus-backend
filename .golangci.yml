@@ -45,11 +45,13 @@ linters:
         # a markdown file. The target packages do not exist yet; the rules are
         # in place so the first violation is caught the day it is written.
         # internal/nextcloud is the second exception and the only one: it reads
-        # somebody else's SQLite file -- a Nextcloud database, which is an
-        # external system and not this server's metadata seam (#24). The rule
-        # it is exempt from is about the seam not leaking its driver, and an
-        # importer that cannot open the database it imports from would be the
-        # rule enforcing a shape nobody meant.
+        # somebody else's database -- a Nextcloud one, which is an external
+        # system and not this server's metadata seam (#24). The rule it is
+        # exempt from is about the seam not leaking its driver, and an importer
+        # that cannot open the database it imports from would be the rule
+        # enforcing a shape nobody meant. It is exempt from all three because
+        # Nextcloud runs on all three, and which one somebody's instance is on
+        # is not ours to choose.
         db-driver:
           list-mode: lax
           files:
@@ -62,16 +64,18 @@ linters:
           list-mode: lax
           files:
             - "!**/internal/db/postgres/**"
+            - "!**/internal/nextcloud/**"
           deny:
             - pkg: github.com/jackc/pgx
-              desc: only internal/db/postgres may import the PostgreSQL driver
+              desc: only internal/db/postgres and internal/nextcloud may import the PostgreSQL driver
         db-driver-mysql:
           list-mode: lax
           files:
             - "!**/internal/db/mysql/**"
+            - "!**/internal/nextcloud/**"
           deny:
             - pkg: github.com/go-sql-driver/mysql
-              desc: only internal/db/mysql may import the MySQL driver
+              desc: only internal/db/mysql and internal/nextcloud may import the MySQL driver
         storage-backend:
           list-mode: lax
           files:

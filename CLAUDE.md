@@ -621,11 +621,14 @@ belongs to a dead process, and an upload somebody will resume tomorrow is the
 opposite of that.
 
 **A blob key is an opaque string the database owns**, never derived from the
-path and never from a content hash. That is what would let a Nextcloud bucket be
+path and never from a content hash. That is what lets a Nextcloud bucket be
 adopted in place: its objects are already named `urn:oid:<fileid>` with the tree
 in its own database, so importing one is a batch of row inserts rather than a
 server-side copy of every byte. Content-addressing would spend that migration
-and buy nothing back.
+and buy nothing back. The claim is cashed rather than theoretical now --
+`files.Service.Adopt` writes rows for keys it did not choose and touches the
+blob store not at all, which is the one door in that package that does not
+(#24).
 
 Opaque to the code, not to a person. `newBlobKey` files an object under
 `<kind>/<year>/<month>/<day>/<id>[.<ext>]`, where the kind and the extension are
@@ -1151,10 +1154,12 @@ are `depguard` rules in `.golangci.yml`, so the first violation fails the build:
 - Inbound adapters do not import each other.
 - Ports, features, `media` and `auth` do not import inbound adapters, nor `app`.
 - No driver-specific import outside its own adapter package. `internal/nextcloud`
-  is the one exception and it is written into the rule: it opens a Nextcloud
-  SQLite file, which is an external system rather than this server's metadata
-  seam, and an importer that may not open the database it imports from would be
-  the rule enforcing a shape nobody meant (#24).
+  is the one exception and it is written into the rule: it opens somebody else's
+  Nextcloud database, which is an external system rather than this server's
+  metadata seam, and an importer that may not open the database it imports from
+  would be the rule enforcing a shape nobody meant (#24). It is exempt from all
+  three driver rules, because Nextcloud runs on all three engines and which one
+  an instance is on is not ours to choose.
 
 ### Not created until something actually needs it
 
@@ -1999,6 +2004,47 @@ Restraint here is principle 3, not laziness:
   attacker-influenced content, and there is none -- the session is a cookie and
   CSRF is `SameSite` plus `CrossOriginProtection`, so no page carries a token.
   The day a form grows one is the day this paragraph is a problem.
+
+- **Adopting a Nextcloud instance is rows and nothing else** (#24), and the
+  decision that made it possible was taken years before the code: a blob key is
+  opaque, so the objects keep the names Nextcloud gave them and the migration
+  never touches a byte. `stratus import nextcloud` is the whole of it, a
+  subcommand rather than a second binary because the binary already loads the
+  configuration it needs and principle 1 is about what gets deployed.
+
+  **The survey is what it does by default**, which is the dry run being the
+  default rather than a flag somebody has to remember. The thing worth knowing
+  first is whether the database and the bucket still agree -- Nextcloud's own
+  well-known failure is that they drift -- and `--write` runs it again on its
+  way rather than trusting that somebody did.
+
+  Four decisions in it are worth keeping:
+
+  - **It reads all three engines**, because Nextcloud runs on all three and
+    they are the three this server already speaks, so the drivers were linked
+    in anyway. What that cost was one placeholder -- `?` against `$1`, and
+    there is exactly one bound parameter in the package -- and the depguard
+    exemption that already existed for SQLite widened to its two siblings.
+    Read-only is kept honestly rather than promised: `mode=ro` on SQLite, and a
+    read-only transaction on the other two, which also buys one consistent
+    picture of a filecache somebody may still be writing to.
+  - **The rows carry no ETag.** Nextcloud has no hash of the content to hand
+    over -- `checksum` is empty unless a client volunteered one, and its `etag`
+    is a change token -- and an ETag here *means* SHA-256 of the bytes. Writing
+    its token into that column would be a lie `If-Match` would act on, so the
+    honest import writes nothing and WebDAV synthesises a validator from the
+    size and the mtime, which is the state the app already knows how to treat
+    as "cannot verify". `--etag` buys the real one for the price of reading the
+    library out of the bucket once.
+  - **A taken path is skipped, never replaced**, which is what makes an
+    interrupted migration finishable by running it again. An import is not a
+    write: the row that is there was put there by somebody.
+  - **The survey counts the other side of the bucket too.** The sweep lists the
+    whole store and trashes what no row claims, so everything the import does
+    not adopt -- versions, trash, another user, `appdata` -- is on a thirty-day
+    clock from the first pass. That is usually what a migration wants and never
+    what it wants to discover a month later, so the number is said before
+    anything is written.
 
 - **Principle 5 is a gate, not an intention.** `deps.allow` lists every module
   linked into the binary and `scripts/smoke.sh` checks it against the shipped
