@@ -182,11 +182,13 @@ type view struct {
 	// Info is what is known about one file: the page, and the row a listing
 	// opens under it.
 	Info *infoView
-	// Tiles is one page of the photo grid, and Photo the one photograph the
-	// viewer shows. Months is a year's, on the page between the two.
+	// Tiles is one page of a grid by date, and Photo the one photograph the
+	// viewer shows. Months is a year's, on the page between the two, and Empty
+	// is what a grid with nothing in it says -- which differs by library.
 	Tiles  []tile
 	Photo  *photoView
 	Months []crumb
+	Empty  string
 	// Film is the player page, and PlayerScripts the two scripts it loads
 	// when it needs HLS: hls.js and this project's own that starts it.
 	Film          *filmView

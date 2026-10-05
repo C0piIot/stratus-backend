@@ -33,9 +33,11 @@
 # of what the index answered, and the index is a three-method interface a test
 # can break on purpose, so there is nothing in it that cannot be reached.
 #
-# internal/photos starts at 92. It is the date tree both the WebDAV mount and
-# the browser pages read, and what is left uncovered in it is the half of a
-# read that needs the index to answer differently the second time.
+# internal/timeline starts at 92, as internal/photos, which is what it was
+# called until it grew a second kind to serve (#215). It is the date tree both
+# the WebDAV mount and the browser pages read, and what is left uncovered in it
+# is the half of a read that needs the index to answer differently the second
+# time.
 #
 # internal/web went 98 -> 97 with the photographs converging on one address
 # (#279). The page now asks internal/photos for each photograph's name, which
@@ -80,7 +82,7 @@ internal/files:92
 internal/incoming:86
 internal/media:89
 internal/music:100
-internal/photos:92
+internal/timeline:92
 internal/nextcloud:88
 internal/db:63
 internal/db/postgres:93

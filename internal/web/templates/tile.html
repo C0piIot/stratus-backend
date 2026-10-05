@@ -10,6 +10,10 @@
     {{if .Thumb}}<img src="{{.Thumb}}" alt="{{.Name}}" width="300" height="300" loading="lazy"
       class="object-fit-cover w-100 h-100">
     {{else}}<span class="d-flex align-items-center justify-content-center small text-body-secondary p-1 text-break">{{.Name}}</span>{{end}}
+    {{/* A video says how long it is, which is the one thing a still cannot
+         show. Positioned by Bootstrap's own utilities, since the policy drops
+         a style attribute. */}}
+    {{if .Duration}}<span class="position-absolute bottom-0 end-0 m-1 badge text-bg-dark opacity-75">{{.Duration}}</span>{{end}}
   </a>
 </div>
 {{- end}}

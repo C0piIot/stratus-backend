@@ -42,10 +42,17 @@ func photoServer(t *testing.T) *photoRig {
 		t.Fatal(err)
 	}
 	service := files.New(blobs, meta)
-	return &photoRig{h: withUser(dav.Photos(photosPrefix, meta), "edu"), files: service, meta: meta}
+	return &photoRig{h: withUser(dav.ByDate(photosPrefix, meta, db.KindImage), "edu"), files: service, meta: meta}
 }
 
 func (r *photoRig) add(t *testing.T, p, body, mime string, taken time.Time) db.File {
+	t.Helper()
+	return r.addKind(t, p, body, mime, taken, db.KindImage)
+}
+
+// addKind stores a file and the row the indexer would have written for it,
+// under the kind that decides which collection it lands in (#215).
+func (r *photoRig) addKind(t *testing.T, p, body, mime string, taken time.Time, kind db.Kind) db.File {
 	t.Helper()
 	if dir := p[:max(strings.LastIndex(p, "/"), 0)]; dir != "" {
 		var built string
@@ -60,7 +67,7 @@ func (r *photoRig) add(t *testing.T, p, body, mime string, taken time.Time) db.F
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := r.meta.PutMedia(t.Context(), db.Media{FileID: f.ID, Kind: db.KindImage, IndexedAt: time.Now(), Version: 1, TakenAt: taken}); err != nil {
+	if err := r.meta.PutMedia(t.Context(), db.Media{FileID: f.ID, Kind: kind, IndexedAt: time.Now(), Version: 1, TakenAt: taken}); err != nil {
 		t.Fatal(err)
 	}
 	return f
@@ -166,10 +173,10 @@ func TestWhatIsNotThereIsNotFound(t *testing.T) {
 			t.Errorf("PROPFIND %s = %d, want 404", target, rec.Code)
 		}
 	}
-	if rec := do(t, dav.Photos(photosPrefix, r.meta), "PROPFIND", "/photos/", ""); rec.Code != http.StatusUnauthorized {
+	if rec := do(t, dav.ByDate(photosPrefix, r.meta, db.KindImage), "PROPFIND", "/photos/", ""); rec.Code != http.StatusUnauthorized {
 		t.Errorf("with nobody authenticated = %d", rec.Code)
 	}
-	theirs := withUser(dav.Photos(photosPrefix, r.meta), "someone-else")
+	theirs := withUser(dav.ByDate(photosPrefix, r.meta, db.KindImage), "someone-else")
 	wantHrefs(t, hrefs(t, do(t, theirs, "PROPFIND", "/photos/", "", "Depth", "1")), "/photos/")
 }
 
@@ -180,7 +187,7 @@ type fakePhotos struct {
 	fail   string
 }
 
-func (f fakePhotos) PhotoMonths(context.Context, string) ([]db.PhotoMonth, error) {
+func (f fakePhotos) PhotoMonths(context.Context, string, db.Kind) ([]db.PhotoMonth, error) {
 	if f.fail == "PhotoMonths" {
 		return nil, errBroken
 	}
@@ -213,7 +220,7 @@ func TestAMonthIsReadWhole(t *testing.T) {
 			SortAt: june,
 		})
 	}
-	h := withUser(dav.Photos(photosPrefix, fakePhotos{photos: many}), "edu")
+	h := withUser(dav.ByDate(photosPrefix, fakePhotos{photos: many}, db.KindImage), "edu")
 	if got := hrefs(t, do(t, h, "PROPFIND", "/photos/2024/06/", "", "Depth", "1")); len(got) != 2501 {
 		t.Errorf("a month of 2500 lists %d entries", len(got))
 	}
@@ -222,10 +229,33 @@ func TestAMonthIsReadWhole(t *testing.T) {
 func TestABrokenBackendIsNotANotFound(t *testing.T) {
 	t.Parallel()
 	for _, call := range []string{"PhotoMonths", "PhotoTimeline"} {
-		h := withUser(dav.Photos(photosPrefix, fakePhotos{fail: call}), "edu")
+		h := withUser(dav.ByDate(photosPrefix, fakePhotos{fail: call}, db.KindImage), "edu")
 		if rec := do(t, h, "PROPFIND", "/photos/2024/06/", "", "Depth", "1"); rec.Code != http.StatusInternalServerError {
 			t.Errorf("PROPFIND with %s broken = %d, want 500", call, rec.Code)
 		}
 	}
 
+}
+
+// TestTheVideosAreTheirOwnCollection is #215: the same handler over the same
+// tree, told apart by the kind it was given. Neither collection carries the
+// other's files, which is what keeps a film out of somebody's camera roll.
+func TestTheVideosAreTheirOwnCollection(t *testing.T) {
+	t.Parallel()
+	r := photoServer(t)
+	r.add(t, "Camera/IMG_0001.JPG", "a still", "image/jpeg", june)
+	r.addKind(t, "Camera/VID_0002.MP4", "a recording", "video/mp4", june, db.KindVideo)
+
+	videos := withUser(dav.ByDate("/videos/", r.meta, db.KindVideo), "edu")
+	wantHrefs(t, hrefs(t, do(t, videos, "PROPFIND", "/videos/2024/06/", "", "Depth", "1")),
+		"/videos/2024/06/", "/videos/2024/06/VID_0002.MP4")
+
+	// And the gallery still holds only the still.
+	wantHrefs(t, hrefs(t, do(t, r.h, "PROPFIND", "/photos/2024/06/", "", "Depth", "1")),
+		"/photos/2024/06/", "/photos/2024/06/IMG_0001.JPG")
+
+	// A year with only video in it is not a year in the gallery at all.
+	if rec := do(t, r.h, "PROPFIND", "/photos/2024/06/VID_0002.MP4", "", "Depth", "0"); rec.Code != http.StatusNotFound {
+		t.Errorf("the recording answers under /photos/: %d", rec.Code)
+	}
 }

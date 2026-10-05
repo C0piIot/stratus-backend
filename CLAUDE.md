@@ -423,13 +423,19 @@ Hard constraints, in the same spirit as the rest of the project:
   was a verdict on the file rather than on our reach (#157). It reads
   `MediaByFile`, which the port already had -- this page added nothing to it.
 
-- **Photos are at `/photos/`, read from the index and not the tree** (#211,
-  #279): every image, screenshots included, newest first by the camera's date
-  and grouped by month, with a viewer that links the photos either side. The
+- **Photos are at `/photos/` and videos at `/videos/`, read from the index and
+  not the tree** (#211, #279, #215): every image, screenshots included, newest
+  first by the camera's date and grouped by month, with a viewer that links the
+  photos either side. The two are the same tree over the same column with a
+  different kind in it -- one handler, one mount, one `internal/timeline` --
+  and a video's page is the player #50 built rather than the viewer, at the
+  video's own address. **Every video is in the library and none in the
+  gallery**, which is #215's open decision taken by the first option it
+  listed: no duration threshold, no folder convention, no rule to get wrong. The
   same addresses the WebDAV mount answers for, split by method in the
   composition root -- `/photos/2024/` is a year, `/photos/2024/06/` a month, a
   photograph's own URL is its bytes and that URL with `?view` is the page about
-  it. The names in those addresses come from `internal/photos`, shared with the
+  it. The names in those addresses come from `internal/timeline`, shared with the
   mount, because a link that guessed which `IMG_0001.JPG` it meant would 404
   against the collection behind it. A search result is a file and has no date
   to build an address from, so its tiles go through `/photos/?file=<path>`,
@@ -1063,7 +1069,7 @@ internal/music/           playlist edits in one transaction each, and the librar
 internal/nextcloud/       reads somebody else's instance, so its bucket can be adopted
 internal/calendar/        collections, objects, recurrence            -- not yet
 internal/media/           EXIF/tag extraction, thumbnails, ffprobe
-internal/photos/          the library as folders by date, for the two adapters that serve it
+internal/timeline/        the library as folders by date, one kind at a time, for the two adapters that serve it
 internal/auth/            credential verification, per-protocol adapters
 
 internal/dav/             inbound adapter: WebDAV (CalDAV not yet)
@@ -1214,7 +1220,7 @@ Restraint here is principle 3, not laziness:
 
   **The second half landed in two pieces, and #279 is closed.** `/photos/`
   answers HTML as well and `/gallery/photos` retired, with the tree and its
-  naming in `internal/photos`; then `/music/` became a collection whose browser
+  naming in `internal/timeline`; then `/music/` became a collection whose browser
   half is the album pages that were already at those URLs, and `/playlists/`
   gained the pages a playlist had never had -- both naming through
   `internal/music`, so neither page can drift from the collection behind it.

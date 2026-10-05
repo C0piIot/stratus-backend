@@ -365,19 +365,19 @@ func (f *failingRepo) PhotoTimeline(ctx context.Context, owner string, pf db.Pho
 }
 
 // PhotoMonths implements db.Repo.
-func (f *failingRepo) PhotoMonths(ctx context.Context, owner string) ([]db.PhotoMonth, error) {
+func (f *failingRepo) PhotoMonths(ctx context.Context, owner string, kind db.Kind) ([]db.PhotoMonth, error) {
 	if err := f.fails("PhotoMonths"); err != nil {
 		return nil, err
 	}
-	return f.Repo.PhotoMonths(ctx, owner)
+	return f.Repo.PhotoMonths(ctx, owner, kind)
 }
 
 // PhotoAround implements db.Repo.
-func (f *failingRepo) PhotoAround(ctx context.Context, owner string, fileID int64) (db.PhotoAround, error) {
+func (f *failingRepo) PhotoAround(ctx context.Context, owner string, kind db.Kind, fileID int64) (db.PhotoAround, error) {
 	if err := f.fails("PhotoAround"); err != nil {
 		return db.PhotoAround{}, err
 	}
-	return f.Repo.PhotoAround(ctx, owner, fileID)
+	return f.Repo.PhotoAround(ctx, owner, kind, fileID)
 }
 
 // Artists implements db.Repo.

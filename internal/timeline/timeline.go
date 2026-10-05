@@ -1,17 +1,24 @@
-// Package photos is the library seen as folders by date: /2024/06/ holds every
-// image the camera says was taken in June 2024, wherever it was filed.
+// Package timeline is the library seen as folders by date: /2024/06/ holds
+// everything of one kind the camera says was made in June 2024, wherever it
+// was filed.
+//
+// **One kind at a time, and the kind is the caller's.** The photographs are a
+// tree and the videos are another (#215), identical in everything but what
+// they hold: the same ordering column, the same month seek, the same generated
+// names. One package rather than two, for the reason the port underneath it is
+// one.
 //
 // It exists because two adapters generate the same names. The WebDAV mount and
 // the browser pages are the same tree at the same addresses (#279), so a link
 // on a page and a PROPFIND of the collection behind it have to agree about
-// what a photograph is called -- and an adapter may not import another, so the
+// what a file is called -- and an adapter may not import another, so the
 // agreement cannot live in either. This is the case CLAUDE.md's own restraint
 // note asks for before a package is made: two handlers that would otherwise
 // duplicate something load-bearing.
 //
 // Nothing here writes. The tree is a view of the index, the names are
-// generated, and the bytes belong to the file the photograph already is.
-package photos
+// generated, and the bytes belong to the file already.
+package timeline
 
 import (
 	"cmp"
@@ -33,7 +40,7 @@ const monthBatch = 1000
 
 // Source is what the tree reads: the index by date, and nothing else.
 type Source interface {
-	PhotoMonths(ctx context.Context, owner string) ([]db.PhotoMonth, error)
+	PhotoMonths(ctx context.Context, owner string, kind db.Kind) ([]db.PhotoMonth, error)
 	PhotoTimeline(ctx context.Context, owner string, f db.PhotoFilter) ([]db.Photo, error)
 }
 
@@ -72,7 +79,8 @@ func (n Node) Path() string {
 	return fmt.Sprintf("%04d/%02d/%s", n.Year, n.Month, n.Name)
 }
 
-// Tree is one owner's photographs by date, for the length of one request.
+// Tree is one owner's files of one kind by date, for the length of one
+// request.
 //
 // It caches what it reads because a single request asks the same questions
 // several times -- resolving a path and then listing what is in it, or naming
@@ -83,14 +91,15 @@ func (n Node) Path() string {
 type Tree struct {
 	source Source
 	owner  string
+	kind   db.Kind
 
 	months []db.PhotoMonth
 	named  map[db.PhotoMonth]map[string]db.Photo
 }
 
-// New makes the tree for owner.
-func New(source Source, owner string) *Tree {
-	return &Tree{source: source, owner: owner, named: map[db.PhotoMonth]map[string]db.Photo{}}
+// New makes the tree over one kind for owner.
+func New(source Source, owner string, kind db.Kind) *Tree {
+	return &Tree{source: source, owner: owner, kind: kind, named: map[db.PhotoMonth]map[string]db.Photo{}}
 }
 
 // Resolve turns a path under the mount into what is at it, or os.ErrNotExist.
@@ -200,7 +209,7 @@ func (t *Tree) Months(ctx context.Context) ([]db.PhotoMonth, error) {
 	if t.months != nil {
 		return t.months, nil
 	}
-	months, err := t.source.PhotoMonths(ctx, t.owner)
+	months, err := t.source.PhotoMonths(ctx, t.owner, t.kind)
 	if err != nil {
 		return nil, err
 	}
@@ -214,7 +223,7 @@ func (t *Tree) Month(ctx context.Context, m db.PhotoMonth) (map[string]db.Photo,
 		return named, nil
 	}
 	var all []db.Photo
-	f := db.PhotoFilter{From: m.Start(), To: m.End(), Limit: monthBatch}
+	f := db.PhotoFilter{Kind: t.kind, From: m.Start(), To: m.End(), Limit: monthBatch}
 	for {
 		page, err := t.source.PhotoTimeline(ctx, t.owner, f)
 		if err != nil {

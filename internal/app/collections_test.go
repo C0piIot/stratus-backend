@@ -17,6 +17,93 @@ import (
 	"github.com/C0piIot/stratus-backend/internal/storage/disk"
 )
 
+// TestTheVideosAreTheirOwnCollection is #215 from outside both adapters: the
+// recording is in /videos/ and not in /photos/, at an address that answers a
+// multistatus to a client and a page to a browser.
+func TestTheVideosAreTheirOwnCollection(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	blobs, err := disk.New(filepath.Join(dir, "blobs"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = blobs.Close() })
+	meta, err := sqlite.New(t.Context(), filepath.Join(dir, "stratus.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = meta.Close() })
+	if err = meta.Migrate(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	service := files.New(blobs, meta)
+
+	taken := time.Date(2024, 6, 15, 10, 0, 0, 0, time.UTC)
+	for _, c := range []struct {
+		name string
+		kind db.Kind
+		mime string
+	}{
+		{"IMG_0001.jpg", db.KindImage, "image/jpeg"},
+		{"VID_0002.mp4", db.KindVideo, "video/mp4"},
+	} {
+		f, werr := service.Write(t.Context(), "edu", c.name, strings.NewReader("bytes"), 5, c.mime)
+		if werr != nil {
+			t.Fatal(werr)
+		}
+		if werr = meta.PutMedia(t.Context(), db.Media{
+			FileID: f.ID, Kind: c.kind, IndexedAt: time.Now(), Version: media.Version, TakenAt: taken,
+		}); werr != nil {
+			t.Fatal(werr)
+		}
+	}
+
+	const password = "an example password"
+	cfg := runConfig(t, map[string]string{"STRATUS_USERNAME": "edu", "STRATUS_PASSWORD": password})
+	h := app.New(cfg, "test", "2026-01-01T09:30:00Z").Handler(app.Deps{
+		Storage: blobs, Database: meta, Files: service,
+		Thumbs: media.NewThumbs(blobs, service, "ffmpeg", t.TempDir()),
+	})
+
+	client := func(method, target string, headers ...string) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequestWithContext(t.Context(), method, target, nil)
+		req.SetBasicAuth("edu", password)
+		for i := 0; i+1 < len(headers); i += 2 {
+			req.Header.Set(headers[i], headers[i+1])
+		}
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec
+	}
+
+	// The root leads to five collections now, the videos among them.
+	root := client("PROPFIND", "/", "Depth", "1")
+	if !strings.Contains(root.Body.String(), "/videos/") {
+		t.Errorf("the root does not list the videos:\n%s", root.Body.String())
+	}
+
+	videos := client("PROPFIND", "/videos/2024/06/", "Depth", "1")
+	if videos.Code != http.StatusMultiStatus {
+		t.Fatalf("PROPFIND of a month of video = %d", videos.Code)
+	}
+	if !strings.Contains(videos.Body.String(), "/videos/2024/06/VID_0002.mp4") {
+		t.Errorf("the recording is not in the videos:\n%s", videos.Body.String())
+	}
+	if strings.Contains(videos.Body.String(), "IMG_0001.jpg") {
+		t.Error("the photograph is in the videos")
+	}
+
+	photos := client("PROPFIND", "/photos/2024/06/", "Depth", "1")
+	if strings.Contains(photos.Body.String(), "VID_0002.mp4") {
+		t.Errorf("the recording is in the gallery:\n%s", photos.Body.String())
+	}
+
+	if bytes := client(http.MethodGet, "/videos/2024/06/VID_0002.mp4"); bytes.Body.String() != "bytes" {
+		t.Errorf("GET of the recording = %d %q", bytes.Code, bytes.Body.String())
+	}
+}
+
 // TestMusicIsOneAddressAndTwoProtocols is the music half of #279, and like
 // the photographs' it can only be asserted here: the split is made in this
 // package, so neither adapter's own tests can see that the browser's GET and
