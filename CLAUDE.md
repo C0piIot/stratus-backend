@@ -427,7 +427,9 @@ Hard constraints, in the same spirit as the rest of the project:
   not the tree** (#211, #279, #215): every image, screenshots included, newest
   first by the camera's date and grouped by month, with a viewer that links the
   photos either side. The two are the same tree over the same column with a
-  different kind in it -- one handler, one mount, one `internal/timeline` --
+  different kind in it -- one handler, one mount, one `internal/timeline` over
+  `db.Captures`, whose rows are captures rather than photographs because half
+  of them are films (#292) --
   and a video's page is the player #50 built rather than the viewer, at the
   video's own address. **Every video is in the library and none in the
   gallery**, which is #215's open decision taken by the first option it

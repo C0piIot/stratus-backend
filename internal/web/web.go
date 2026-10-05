@@ -64,7 +64,7 @@ const fileContentSecurityPolicy = "default-src 'none'; img-src 'self'; media-src
 // index by date and by tag, what the user has said about the music, and the
 // text search across both halves of the library.
 type Index interface {
-	db.Photos
+	db.Captures
 	db.Finder
 	Library
 	PlaylistReader
@@ -102,9 +102,9 @@ type handler struct {
 	indexing Indexing
 	// imports is the same for the import folder, and nil when there is none.
 	imports Imports
-	// photoIndex is what the gallery reads: the index by date rather than the
-	// tree by path.
-	photoIndex db.Photos
+	// captures is what the two grids by date read: the index by when a camera
+	// made something, rather than the tree by path.
+	captures db.Captures
 	// library is the same index by tag, for the music pages.
 	library Library
 	// finder is what the search box asks, which is neither of those two: it
@@ -128,7 +128,7 @@ func Handler(version, buildDate string, v auth.Verifier, s *auth.Sessions, share
 ) http.Handler {
 	h := &handler{
 		version: version, buildDate: buildDate, verifier: v, sessions: s, shares: shares,
-		files: service, thumbs: thumbs, photoIndex: index, library: index, finder: index, playlists: index,
+		files: service, thumbs: thumbs, captures: index, library: index, finder: index, playlists: index,
 		indexing: indexing, imports: imports, video: video,
 	}
 

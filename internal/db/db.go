@@ -229,7 +229,7 @@ type Repo interface {
 	Finder
 	Annotations
 	Playlists
-	Photos
+	Captures
 	Uploads
 	Trash
 }

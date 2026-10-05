@@ -76,9 +76,9 @@ var videoLibrary = library{
 	leaf:  playParam,
 }
 
-// photoPageSize is how many tiles one page of the grid holds, for the reason
+// gridPageSize is how many tiles one page of a grid holds, for the reason
 // listPageSize is a hundred: a phone's camera roll is tens of thousands.
-const photoPageSize = 100
+const gridPageSize = 100
 
 // Sizes on the thumbnail ladder: a grid cell, and a photograph filling a
 // screen. The large one is also what makes a HEIC viewable in a browser that
@@ -88,8 +88,8 @@ const (
 	viewerThumb = 1200
 )
 
-// photosFragment is the part of the grid htmx asks for when it extends it.
-const photosFragment = "tiles"
+// tilesFragment is the part of a grid htmx asks for when it extends it.
+const tilesFragment = "tiles"
 
 // tile is one cell of the grid. Heading is set on the first photo of a month,
 // and is what the template draws a month's title from; HeadingHref is that
@@ -142,7 +142,7 @@ func (h *handler) byDate(l library) func(http.ResponseWriter, *http.Request, str
 
 func (h *handler) serveByDate(w http.ResponseWriter, r *http.Request, user string, l library) {
 	raw := strings.Trim(r.PathValue("path"), "/")
-	tree := timeline.New(h.photoIndex, user, l.kind)
+	tree := timeline.New(h.captures, user, l.kind)
 
 	if raw == "" {
 		if f := r.URL.Query().Get(fileParam); f != "" {
@@ -170,7 +170,7 @@ func (h *handler) serveByDate(w http.ResponseWriter, r *http.Request, user strin
 	case n.Dir && n.Month == 0:
 		h.year(w, r, user, l, tree, n.Year)
 	case n.Dir:
-		h.month(w, r, user, l, tree, db.PhotoMonth{Year: n.Year, Month: n.Month})
+		h.month(w, r, user, l, tree, db.Month{Year: n.Year, Month: n.Month})
 	case r.URL.Query().Has(l.leaf) && l.viewer:
 		h.viewer(w, r, user, l, tree, n)
 	case r.URL.Query().Has(l.leaf) && h.video.Media != nil:
@@ -178,17 +178,17 @@ func (h *handler) serveByDate(w http.ResponseWriter, r *http.Request, user strin
 		// rather than the file's: one URL per thing, here too. With no video
 		// wiring there is no player, and the file itself is what is offered --
 		// the same fallback h.file makes.
-		h.play(w, r, user, n.Photo.File, l.href(n.Path()), l.href(monthPath(db.MonthOf(n.Photo.SortAt)))+"/")
+		h.play(w, r, user, n.Capture.File, l.href(n.Path()), l.href(monthPath(db.MonthOf(n.Capture.SortAt)))+"/")
 	default:
 		// A file's own address is the file, like it is under /files/. This is
 		// also the GET a WebDAV client makes.
-		h.download(w, r, user, n.Photo.File)
+		h.download(w, r, user, n.Capture.File)
 	}
 }
 
 // photoGrid is the whole library, newest first, grouped by month.
 func (h *handler) grid(w http.ResponseWriter, r *http.Request, user string, l library, tree *timeline.Tree) {
-	after, err := parsePhotoCursor(r.URL.Query().Get("after"))
+	after, err := parseCaptureCursor(r.URL.Query().Get("after"))
 	if err != nil {
 		h.badRequest(w, user, "That is not a place in the gallery to carry on from.")
 		return
@@ -196,27 +196,27 @@ func (h *handler) grid(w http.ResponseWriter, r *http.Request, user string, l li
 
 	// One more than a page, so the last page knows it is the last rather than
 	// offering a link to an empty one.
-	page, err := h.photoIndex.PhotoTimeline(r.Context(), user,
-		db.PhotoFilter{Kind: l.kind, After: after, Limit: photoPageSize + 1})
+	page, err := h.captures.Timeline(r.Context(), user,
+		db.CaptureFilter{Kind: l.kind, After: after, Limit: gridPageSize + 1})
 	if err != nil {
 		h.fail(w, r, user, err)
 		return
 	}
-	more := len(page) > photoPageSize
+	more := len(page) > gridPageSize
 	if more {
-		page = page[:photoPageSize]
+		page = page[:gridPageSize]
 	}
 
 	var next string
 	if more {
-		next = l.prefix + "?after=" + url.QueryEscape(encodePhotoCursor(page[len(page)-1].Cursor()))
+		next = l.prefix + "?after=" + url.QueryEscape(encodeCaptureCursor(page[len(page)-1].Cursor()))
 	}
 
 	// A fragment is appended below the month the page before it ended in, so
 	// it is told that month and does not head it again. A whole page starts
 	// with nothing above it -- the viewer's way back lands mid-month -- so its
 	// first photo is always headed.
-	var headed db.PhotoMonth
+	var headed db.Month
 	if r.Header.Get("HX-Request") == "true" && !after.AtStart() {
 		headed = db.MonthOf(after.At)
 	}
@@ -226,7 +226,7 @@ func (h *handler) grid(w http.ResponseWriter, r *http.Request, user string, l li
 		return
 	}
 	if r.Header.Get("HX-Request") == "true" {
-		h.renderTemplate(w, http.StatusOK, pagePhotos, photosFragment,
+		h.renderTemplate(w, http.StatusOK, pagePhotos, tilesFragment,
 			view{Tiles: cells, NextPage: next})
 		return
 	}
@@ -256,27 +256,27 @@ func (h *handler) year(w http.ResponseWriter, r *http.Request, user string, l li
 
 // photoMonth is one month's photographs, paged like the grid because a month
 // of a camera roll is thousands.
-func (h *handler) month(w http.ResponseWriter, r *http.Request, user string, l library, tree *timeline.Tree, m db.PhotoMonth) {
-	after, err := parsePhotoCursor(r.URL.Query().Get("after"))
+func (h *handler) month(w http.ResponseWriter, r *http.Request, user string, l library, tree *timeline.Tree, m db.Month) {
+	after, err := parseCaptureCursor(r.URL.Query().Get("after"))
 	if err != nil {
 		h.badRequest(w, user, "That is not a place in the gallery to carry on from.")
 		return
 	}
 
-	page, err := h.photoIndex.PhotoTimeline(r.Context(), user,
-		db.PhotoFilter{Kind: l.kind, From: m.Start(), To: m.End(), After: after, Limit: photoPageSize + 1})
+	page, err := h.captures.Timeline(r.Context(), user,
+		db.CaptureFilter{Kind: l.kind, From: m.Start(), To: m.End(), After: after, Limit: gridPageSize + 1})
 	if err != nil {
 		h.fail(w, r, user, err)
 		return
 	}
-	more := len(page) > photoPageSize
+	more := len(page) > gridPageSize
 	if more {
-		page = page[:photoPageSize]
+		page = page[:gridPageSize]
 	}
 
 	var next string
 	if more {
-		next = l.href(monthPath(m)) + "/?after=" + url.QueryEscape(encodePhotoCursor(page[len(page)-1].Cursor()))
+		next = l.href(monthPath(m)) + "/?after=" + url.QueryEscape(encodeCaptureCursor(page[len(page)-1].Cursor()))
 	}
 	// The page is already titled with this month, so no cell heads it again.
 	cells, err := h.tiles(r.Context(), l, tree, page, m)
@@ -294,24 +294,24 @@ func (h *handler) month(w http.ResponseWriter, r *http.Request, user string, l l
 
 // photoViewer is one photograph and the ones either side of it.
 func (h *handler) viewer(w http.ResponseWriter, r *http.Request, user string, l library, tree *timeline.Tree, n timeline.Node) {
-	around, err := h.photoIndex.PhotoAround(r.Context(), user, l.kind, n.Photo.File.ID)
+	around, err := h.captures.Around(r.Context(), user, l.kind, n.Capture.File.ID)
 	if err != nil {
 		h.fail(w, r, user, err)
 		return
 	}
 
-	f := around.Photo.File
+	f := around.Capture.File
 	pv := photoView{
 		Name:     n.Name,
 		Original: href(f.Path),
-		Arrived:  around.Photo.Media.TakenAt.IsZero(),
-		Camera:   around.Photo.Media.Camera,
+		Arrived:  around.Capture.Media.TakenAt.IsZero(),
+		Camera:   around.Capture.Media.Camera,
 		// Back to the page this photograph is on: the grid carried on from the
 		// one before it, so it is the first thing there.
 		Back: l.prefix,
-		When: around.Photo.SortAt.Format("2 January 2006, 15:04"),
+		When: around.Capture.SortAt.Format("2 January 2006, 15:04"),
 	}
-	if m := around.Photo.Media; m.Width > 0 && m.Height > 0 {
+	if m := around.Capture.Media; m.Width > 0 && m.Height > 0 {
 		pv.Dimensions = fmt.Sprintf("%d × %d", m.Width, m.Height)
 	}
 	if media.CanThumbnail(f.Path, f.Size) {
@@ -322,7 +322,7 @@ func (h *handler) viewer(w http.ResponseWriter, r *http.Request, user string, l 
 			h.fail(w, r, user, err)
 			return
 		}
-		pv.Back = l.prefix + "?after=" + url.QueryEscape(encodePhotoCursor(p.Cursor()))
+		pv.Back = l.prefix + "?after=" + url.QueryEscape(encodeCaptureCursor(p.Cursor()))
 	}
 	if p := around.Older; p != nil {
 		if pv.Older, err = h.leafHref(r.Context(), l, tree, *p); err != nil {
@@ -351,12 +351,12 @@ func (h *handler) byFile(w http.ResponseWriter, r *http.Request, user string, l 
 		h.fail(w, r, user, err)
 		return
 	}
-	around, err := h.photoIndex.PhotoAround(r.Context(), user, l.kind, f.ID)
+	around, err := h.captures.Around(r.Context(), user, l.kind, f.ID)
 	if err != nil {
 		h.fail(w, r, user, err)
 		return
 	}
-	target, err := h.leafHref(r.Context(), l, tree, around.Photo)
+	target, err := h.leafHref(r.Context(), l, tree, around.Capture)
 	if err != nil {
 		h.fail(w, r, user, err)
 		return
@@ -366,7 +366,7 @@ func (h *handler) byFile(w http.ResponseWriter, r *http.Request, user string, l 
 
 // viewerHref is the page about a photograph, at the address the mount knows it
 // by.
-func (h *handler) leafHref(ctx context.Context, l library, tree *timeline.Tree, p db.Photo) (string, error) {
+func (h *handler) leafHref(ctx context.Context, l library, tree *timeline.Tree, p db.Capture) (string, error) {
 	at, err := tree.PathOf(ctx, p)
 	if err != nil {
 		return "", err
@@ -380,7 +380,7 @@ func (h *handler) leafHref(ctx context.Context, l library, tree *timeline.Tree, 
 // the page before it ended in, or the month a month's own page is titled with
 // -- so a month split across two pages is headed once and a month's page does
 // not head itself twice. The zero month heads everything it meets.
-func (h *handler) tiles(ctx context.Context, l library, tree *timeline.Tree, page []db.Photo, headed db.PhotoMonth) ([]tile, error) {
+func (h *handler) tiles(ctx context.Context, l library, tree *timeline.Tree, page []db.Capture, headed db.Month) ([]tile, error) {
 	current := headed
 	out := make([]tile, 0, len(page))
 	for _, p := range page {
@@ -411,7 +411,7 @@ func (l library) crumbs(year int, month time.Month) []crumb {
 	trail := []crumb{{Name: l.title, Href: l.prefix}}
 	trail = append(trail, crumb{Name: strconv.Itoa(year), Href: l.href(strconv.Itoa(year)) + "/"})
 	if month != 0 {
-		m := db.PhotoMonth{Year: year, Month: month}
+		m := db.Month{Year: year, Month: month}
 		trail = append(trail, crumb{Name: monthName(m), Href: l.href(monthPath(m)) + "/"})
 	}
 	trail[len(trail)-1].Last = true
@@ -420,7 +420,7 @@ func (l library) crumbs(year int, month time.Month) []crumb {
 
 // monthPath is a month's address under the mount, which is the one place that
 // spelling is decided.
-func monthPath(m db.PhotoMonth) string {
+func monthPath(m db.Month) string {
 	return timeline.Node{Year: m.Year, Month: m.Month}.Path()
 }
 
@@ -431,30 +431,30 @@ func thumbURL(f db.File, px int) string {
 	return link(thumbPrefix, f.Path) + "?size=" + strconv.Itoa(px) + "&v=" + url.QueryEscape(f.ETag)
 }
 
-func monthName(m db.PhotoMonth) string {
+func monthName(m db.Month) string {
 	return time.Date(m.Year, m.Month, 1, 0, 0, 0, 0, time.UTC).Format("January 2006")
 }
 
-// encodePhotoCursor and parsePhotoCursor carry a place in the gallery through
+// encodeCaptureCursor and parseCaptureCursor carry a place in a grid through
 // a URL: the time in milliseconds and the file id, which is the whole of the
 // ordering. In the clear, like the listing's cursor: it says nothing a page
 // did not already show.
-func encodePhotoCursor(c db.PhotoCursor) string {
+func encodeCaptureCursor(c db.CaptureCursor) string {
 	return strconv.FormatInt(c.At.UnixMilli(), 10) + "." + strconv.FormatInt(c.FileID, 10)
 }
 
-func parsePhotoCursor(v string) (db.PhotoCursor, error) {
+func parseCaptureCursor(v string) (db.CaptureCursor, error) {
 	if v == "" {
-		return db.PhotoCursor{}, nil
+		return db.CaptureCursor{}, nil
 	}
 	at, id, ok := strings.Cut(v, ".")
 	ms, err := strconv.ParseInt(at, 10, 64)
 	if !ok || err != nil {
-		return db.PhotoCursor{}, errors.New("photo cursor: no time")
+		return db.CaptureCursor{}, errors.New("photo cursor: no time")
 	}
 	fileID, err := strconv.ParseInt(id, 10, 64)
 	if err != nil || fileID <= 0 {
-		return db.PhotoCursor{}, errors.New("photo cursor: no file")
+		return db.CaptureCursor{}, errors.New("photo cursor: no file")
 	}
-	return db.PhotoCursor{At: time.UnixMilli(ms).UTC(), FileID: fileID}, nil
+	return db.CaptureCursor{At: time.UnixMilli(ms).UTC(), FileID: fileID}, nil
 }

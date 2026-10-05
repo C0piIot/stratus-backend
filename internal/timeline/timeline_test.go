@@ -16,24 +16,24 @@ import (
 // index is the date index, with a count of what was asked of it: the tree
 // answers the same question several times per request and must not ask twice.
 type index struct {
-	photos  []db.Photo
+	photos  []db.Capture
 	months  int
 	queries int
 	fail    string
 }
 
-func (i *index) PhotoMonths(context.Context, string, db.Kind) ([]db.PhotoMonth, error) {
+func (i *index) Months(context.Context, string, db.Kind) ([]db.Month, error) {
 	i.months++
-	if i.fail == "PhotoMonths" {
+	if i.fail == "Months" {
 		return nil, errors.New("the index is on fire")
 	}
-	var out []db.PhotoMonth
+	var out []db.Month
 	for _, p := range i.photos {
 		if m := db.MonthOf(p.SortAt); !slices.Contains(out, m) {
 			out = append(out, m)
 		}
 	}
-	slices.SortFunc(out, func(a, b db.PhotoMonth) int {
+	slices.SortFunc(out, func(a, b db.Month) int {
 		if a.Year != b.Year {
 			return b.Year - a.Year
 		}
@@ -42,12 +42,12 @@ func (i *index) PhotoMonths(context.Context, string, db.Kind) ([]db.PhotoMonth, 
 	return out, nil
 }
 
-func (i *index) PhotoTimeline(_ context.Context, _ string, f db.PhotoFilter) ([]db.Photo, error) {
+func (i *index) Timeline(_ context.Context, _ string, f db.CaptureFilter) ([]db.Capture, error) {
 	i.queries++
-	if i.fail == "PhotoTimeline" {
+	if i.fail == "Timeline" {
 		return nil, errors.New("the index is on fire")
 	}
-	var out []db.Photo
+	var out []db.Capture
 	for _, p := range i.photos {
 		if !f.From.IsZero() && p.SortAt.Before(f.From) {
 			continue
@@ -64,13 +64,13 @@ var june = time.Date(2024, 6, 15, 10, 0, 0, 0, time.UTC)
 
 // shot is one indexed photograph: an id, a path in the tree and when the
 // camera says it was taken.
-func shot(id int64, path string, at time.Time) db.Photo {
-	p := db.Photo{SortAt: at}
+func shot(id int64, path string, at time.Time) db.Capture {
+	p := db.Capture{SortAt: at}
 	p.File = db.File{ID: id, Path: path, Size: 10}
 	return p
 }
 
-func tree(t *testing.T, shots ...db.Photo) (*timeline.Tree, *index) {
+func tree(t *testing.T, shots ...db.Capture) (*timeline.Tree, *index) {
 	t.Helper()
 	src := &index{photos: shots}
 	return timeline.New(src, "edu", db.KindImage), src
@@ -133,7 +133,7 @@ func TestResolveAnswersWhatIsThereAndNothingElse(t *testing.T) {
 // case-folding client would take these for one file.
 func TestNamesInAMonthCannotCollide(t *testing.T) {
 	t.Parallel()
-	named := timeline.Names([]db.Photo{
+	named := timeline.Names([]db.Capture{
 		shot(3, "C/img_0001.jpg", june),
 		shot(1, "A/IMG_0001.JPG", june),
 		shot(2, "B/IMG_0001.JPG", june),
@@ -168,8 +168,8 @@ func TestPathOfIsTheNameTheCollectionAnswersTo(t *testing.T) {
 		t.Errorf("PathOf = %q", at)
 	}
 	n, err := tr.Resolve(t.Context(), at)
-	if err != nil || n.Photo.File.ID != 2 {
-		t.Errorf("resolving what PathOf gave back = %+v, %v", n.Photo.File.ID, err)
+	if err != nil || n.Capture.File.ID != 2 {
+		t.Errorf("resolving what PathOf gave back = %+v, %v", n.Capture.File.ID, err)
 	}
 
 	// One that is not in the index has no address, and says so rather than
@@ -183,7 +183,7 @@ func TestPathOfIsTheNameTheCollectionAnswersTo(t *testing.T) {
 // and that has to cost one query for the month rather than a hundred.
 func TestAMonthIsReadOnce(t *testing.T) {
 	t.Parallel()
-	var shots []db.Photo
+	var shots []db.Capture
 	for i := range 50 {
 		shots = append(shots, shot(int64(i+1), fmt.Sprintf("p%02d.jpg", i), june))
 	}
@@ -210,8 +210,8 @@ func TestAMonthIsReadOnce(t *testing.T) {
 
 func TestABrokenIndexIsAnError(t *testing.T) {
 	t.Parallel()
-	for _, call := range []string{"PhotoMonths", "PhotoTimeline"} {
-		src := &index{photos: []db.Photo{shot(1, "a.jpg", june)}, fail: call}
+	for _, call := range []string{"Months", "Timeline"} {
+		src := &index{photos: []db.Capture{shot(1, "a.jpg", june)}, fail: call}
 		tr := timeline.New(src, "edu", db.KindImage)
 		if _, err := tr.Resolve(t.Context(), "2024/06/a.jpg"); err == nil || errors.Is(err, os.ErrNotExist) {
 			t.Errorf("resolve with %s broken = %v, want a real error", call, err)

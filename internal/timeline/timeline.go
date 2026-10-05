@@ -40,17 +40,17 @@ const monthBatch = 1000
 
 // Source is what the tree reads: the index by date, and nothing else.
 type Source interface {
-	PhotoMonths(ctx context.Context, owner string, kind db.Kind) ([]db.PhotoMonth, error)
-	PhotoTimeline(ctx context.Context, owner string, f db.PhotoFilter) ([]db.Photo, error)
+	Months(ctx context.Context, owner string, kind db.Kind) ([]db.Month, error)
+	Timeline(ctx context.Context, owner string, f db.CaptureFilter) ([]db.Capture, error)
 }
 
-// Node is one place in the tree: the root, a year, a month or a photograph.
+// Node is one place in the tree: the root, a year, a month or one capture.
 type Node struct {
-	Year  int
-	Month time.Month
-	Name  string
-	Dir   bool
-	Photo db.Photo
+	Year    int
+	Month   time.Month
+	Name    string
+	Dir     bool
+	Capture db.Capture
 }
 
 // Base is what this node is called inside its parent.
@@ -93,13 +93,13 @@ type Tree struct {
 	owner  string
 	kind   db.Kind
 
-	months []db.PhotoMonth
-	named  map[db.PhotoMonth]map[string]db.Photo
+	months []db.Month
+	named  map[db.Month]map[string]db.Capture
 }
 
 // New makes the tree over one kind for owner.
 func New(source Source, owner string, kind db.Kind) *Tree {
-	return &Tree{source: source, owner: owner, kind: kind, named: map[db.PhotoMonth]map[string]db.Photo{}}
+	return &Tree{source: source, owner: owner, kind: kind, named: map[db.Month]map[string]db.Capture{}}
 }
 
 // Resolve turns a path under the mount into what is at it, or os.ErrNotExist.
@@ -120,7 +120,7 @@ func (t *Tree) Resolve(ctx context.Context, name string) (Node, error) {
 	if err != nil {
 		return Node{}, err
 	}
-	if !slices.ContainsFunc(months, func(m db.PhotoMonth) bool { return m.Year == year }) {
+	if !slices.ContainsFunc(months, func(m db.Month) bool { return m.Year == year }) {
 		return Node{}, os.ErrNotExist
 	}
 	if len(parts) == 1 {
@@ -131,7 +131,7 @@ func (t *Tree) Resolve(ctx context.Context, name string) (Node, error) {
 	if err != nil || parts[1] != fmt.Sprintf("%02d", mo) {
 		return Node{}, os.ErrNotExist
 	}
-	month := db.PhotoMonth{Year: year, Month: time.Month(mo)}
+	month := db.Month{Year: year, Month: time.Month(mo)}
 	if !slices.Contains(months, month) {
 		return Node{}, os.ErrNotExist
 	}
@@ -147,7 +147,7 @@ func (t *Tree) Resolve(ctx context.Context, name string) (Node, error) {
 	if !ok {
 		return Node{}, os.ErrNotExist
 	}
-	return Node{Year: year, Month: month.Month, Name: parts[2], Photo: p}, nil
+	return Node{Year: year, Month: month.Month, Name: parts[2], Capture: p}, nil
 }
 
 // Children lists what is inside a node: years, months, or a month's photographs.
@@ -173,12 +173,12 @@ func (t *Tree) Children(ctx context.Context, n Node) ([]Node, error) {
 			}
 		}
 	default:
-		named, err := t.Month(ctx, db.PhotoMonth{Year: n.Year, Month: n.Month})
+		named, err := t.Month(ctx, db.Month{Year: n.Year, Month: n.Month})
 		if err != nil {
 			return nil, err
 		}
 		for name, p := range named {
-			out = append(out, Node{Year: n.Year, Month: n.Month, Name: name, Photo: p})
+			out = append(out, Node{Year: n.Year, Month: n.Month, Name: name, Capture: p})
 		}
 	}
 	return out, nil
@@ -190,7 +190,7 @@ func (t *Tree) Children(ctx context.Context, n Node) ([]Node, error) {
 // a photograph and wants its address asks here rather than building one, and
 // what it gets back is the name the collection will answer to -- which means
 // reading the month, because two photographs in one can share a filename.
-func (t *Tree) PathOf(ctx context.Context, p db.Photo) (string, error) {
+func (t *Tree) PathOf(ctx context.Context, p db.Capture) (string, error) {
 	month := db.MonthOf(p.SortAt)
 	named, err := t.Month(ctx, month)
 	if err != nil {
@@ -205,27 +205,27 @@ func (t *Tree) PathOf(ctx context.Context, p db.Photo) (string, error) {
 }
 
 // Months is every month with a photograph in it, newest first.
-func (t *Tree) Months(ctx context.Context) ([]db.PhotoMonth, error) {
+func (t *Tree) Months(ctx context.Context) ([]db.Month, error) {
 	if t.months != nil {
 		return t.months, nil
 	}
-	months, err := t.source.PhotoMonths(ctx, t.owner, t.kind)
+	months, err := t.source.Months(ctx, t.owner, t.kind)
 	if err != nil {
 		return nil, err
 	}
-	t.months = append([]db.PhotoMonth{}, months...)
+	t.months = append([]db.Month{}, months...)
 	return t.months, nil
 }
 
 // Month reads one month whole and names its photographs.
-func (t *Tree) Month(ctx context.Context, m db.PhotoMonth) (map[string]db.Photo, error) {
+func (t *Tree) Month(ctx context.Context, m db.Month) (map[string]db.Capture, error) {
 	if named, ok := t.named[m]; ok {
 		return named, nil
 	}
-	var all []db.Photo
-	f := db.PhotoFilter{Kind: t.kind, From: m.Start(), To: m.End(), Limit: monthBatch}
+	var all []db.Capture
+	f := db.CaptureFilter{Kind: t.kind, From: m.Start(), To: m.End(), Limit: monthBatch}
 	for {
-		page, err := t.source.PhotoTimeline(ctx, t.owner, f)
+		page, err := t.source.Timeline(ctx, t.owner, f)
 		if err != nil {
 			return nil, err
 		}
@@ -243,11 +243,11 @@ func (t *Tree) Month(ctx context.Context, m db.PhotoMonth) (map[string]db.Photo,
 // Names names a month's photographs after their files, in id order so that a
 // name is stable, and without two that a case-folding client would take for
 // one.
-func Names(photos []db.Photo) map[string]db.Photo {
+func Names(photos []db.Capture) map[string]db.Capture {
 	byID := slices.Clone(photos)
-	slices.SortFunc(byID, func(a, b db.Photo) int { return cmp.Compare(a.File.ID, b.File.ID) })
+	slices.SortFunc(byID, func(a, b db.Capture) int { return cmp.Compare(a.File.ID, b.File.ID) })
 
-	named := make(map[string]db.Photo, len(byID))
+	named := make(map[string]db.Capture, len(byID))
 	taken := make(map[string]bool, len(byID))
 	for _, p := range byID {
 		base := path.Base(p.File.Path)

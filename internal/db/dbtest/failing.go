@@ -38,7 +38,7 @@ var repoMethods = []string{
 	"BlobKeys", "PutMedia", "MediaByFile", "MediaCounts", "MediaStates",
 	"PutUpload", "UploadByID", "DeleteUpload", "ExpiredUploads",
 	"Find", "TrackByFile", "CreatePlaylist", "Playlists", "PlaylistByID", "LockPlaylist", "PlaylistTracks",
-	"UpdatePlaylist", "SetPlaylistTracks", "PhotoTimeline", "PhotoAround", "PhotoMonths",
+	"UpdatePlaylist", "SetPlaylistTracks", "Timeline", "Around", "Months",
 	"Artists", "Albums", "Tracks", "AnnotationsOf",
 	"Trash", "TrashBatches", "TrashTotals", "TrashedIn", "ExpiredTrash",
 }
@@ -356,28 +356,28 @@ func (f *failingRepo) SetPlaylistTracks(ctx context.Context, owner string, id in
 	return f.Repo.SetPlaylistTracks(ctx, owner, id, fileIDs, changed)
 }
 
-// PhotoTimeline implements db.Repo.
-func (f *failingRepo) PhotoTimeline(ctx context.Context, owner string, pf db.PhotoFilter) ([]db.Photo, error) {
-	if err := f.fails("PhotoTimeline"); err != nil {
+// Timeline implements db.Repo.
+func (f *failingRepo) Timeline(ctx context.Context, owner string, pf db.CaptureFilter) ([]db.Capture, error) {
+	if err := f.fails("Timeline"); err != nil {
 		return nil, err
 	}
-	return f.Repo.PhotoTimeline(ctx, owner, pf)
+	return f.Repo.Timeline(ctx, owner, pf)
 }
 
-// PhotoMonths implements db.Repo.
-func (f *failingRepo) PhotoMonths(ctx context.Context, owner string, kind db.Kind) ([]db.PhotoMonth, error) {
-	if err := f.fails("PhotoMonths"); err != nil {
+// Months implements db.Repo.
+func (f *failingRepo) Months(ctx context.Context, owner string, kind db.Kind) ([]db.Month, error) {
+	if err := f.fails("Months"); err != nil {
 		return nil, err
 	}
-	return f.Repo.PhotoMonths(ctx, owner, kind)
+	return f.Repo.Months(ctx, owner, kind)
 }
 
-// PhotoAround implements db.Repo.
-func (f *failingRepo) PhotoAround(ctx context.Context, owner string, kind db.Kind, fileID int64) (db.PhotoAround, error) {
-	if err := f.fails("PhotoAround"); err != nil {
-		return db.PhotoAround{}, err
+// Around implements db.Repo.
+func (f *failingRepo) Around(ctx context.Context, owner string, kind db.Kind, fileID int64) (db.Around, error) {
+	if err := f.fails("Around"); err != nil {
+		return db.Around{}, err
 	}
-	return f.Repo.PhotoAround(ctx, owner, kind, fileID)
+	return f.Repo.Around(ctx, owner, kind, fileID)
 }
 
 // Artists implements db.Repo.
