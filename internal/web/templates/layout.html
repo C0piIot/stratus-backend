@@ -10,6 +10,19 @@
 </svg>
 {{- end}}
 
+{{/* The libraries, written once and laid out twice: the argument is the class
+     the links take, inline in the bar or stacked in the menu. Two copies of
+     six hrefs is how one of them ends up pointing at a collection that was
+     renamed. */}}
+{{define "libraries" -}}
+<a class="{{.}}" href="/files/">Files</a>
+      <a class="{{.}}" href="/photos/">Photos</a>
+      <a class="{{.}}" href="/videos/">Videos</a>
+      <a class="{{.}}" href="/music/">Music</a>
+      <a class="{{.}}" href="/playlists/">Playlists</a>
+      <a class="{{.}}" href="/status">Status</a>
+{{- end}}
+
 {{define "layout" -}}
 <!doctype html>
 <html lang="en">
@@ -62,12 +75,19 @@
       </div>
     </form>
     <div class="d-flex align-items-center gap-3">
-      <a class="navbar-text link-secondary text-decoration-none d-none d-md-inline" href="/files/">Files</a>
-      <a class="navbar-text link-secondary text-decoration-none d-none d-md-inline" href="/photos/">Photos</a>
-      <a class="navbar-text link-secondary text-decoration-none d-none d-md-inline" href="/videos/">Videos</a>
-      <a class="navbar-text link-secondary text-decoration-none d-none d-md-inline" href="/music/">Music</a>
-      <a class="navbar-text link-secondary text-decoration-none d-none d-md-inline" href="/playlists/">Playlists</a>
-      <a class="navbar-text link-secondary text-decoration-none d-none d-md-inline" href="/status">Status</a>
+      {{template "libraries" "navbar-text link-secondary text-decoration-none d-none d-lg-inline"}}
+      {{/* The same six behind a button where the row will not hold them. The
+           breakpoint is lg and not md because the row at md was already at its
+           limit before the mark was put in front of it. */}}
+      <div class="dropdown d-lg-none">
+        <button class="btn btn-sm btn-outline-secondary" type="button"
+                data-bs-toggle="dropdown" aria-expanded="false" aria-label="Libraries">
+          <span aria-hidden="true">&#9776;</span>
+        </button>
+        <div class="dropdown-menu dropdown-menu-end z-3">
+          {{template "libraries" "dropdown-item"}}
+        </div>
+      </div>
       <span class="navbar-text">{{.User}}</span>
       <form method="post" action="/logout" class="m-0">
         <button class="btn btn-sm btn-outline-secondary" type="submit">Sign out</button>
