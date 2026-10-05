@@ -450,3 +450,27 @@ func TestMarkAndFavicon(t *testing.T) {
 		t.Errorf("the favicon is served as %q, want image/svg+xml", got)
 	}
 }
+
+// TestLibrariesCollapse: the same six links twice, inline where the row holds
+// them and behind a button where it does not. Written once in the template, so
+// what this guards is that both layouts are actually rendered -- the bar used
+// to simply hide them on a phone, which left no way to reach a library at all.
+func TestLibrariesCollapse(t *testing.T) {
+	t.Parallel()
+	h := newHandler(t, nil)
+	body := get(t, h, "/files/", signIn(t, h)).Body.String()
+
+	for _, href := range []string{"/files/", "/photos/", "/videos/", "/music/", "/playlists/", "/status"} {
+		if got := strings.Count(body, `href="`+href+`"`); got != 2 {
+			t.Errorf("%s appears %d times in the bar, want twice: inline and in the menu", href, got)
+		}
+	}
+	if !strings.Contains(body, `data-bs-toggle="dropdown"`) {
+		t.Error("the bar has no menu button")
+	}
+	// Bootstrap's own component, so the policy needs no inline script and no
+	// inline style: the bundle is already served from here.
+	if strings.Contains(body, "<style") || strings.Contains(body, " style=") {
+		t.Error("the menu brought an inline style, which style-src 'self' forbids")
+	}
+}

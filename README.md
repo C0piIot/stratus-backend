@@ -736,6 +736,12 @@ calendar waits for CalDAV to exist. It is a convenience for when reaching for
 rclone or DAVx5 is overkill, and it consumes the same internals the protocol
 handlers do — it will never grow a private JSON API of its own.
 
+**The libraries are along the top, and behind a button where the bar is too
+narrow to hold them**: files, photos, videos, music, playlists and status. The
+menu is Bootstrap's own and therefore wants JavaScript, so with it turned off
+on a narrow window they are out of reach -- which is where they were at any
+width before there was a menu, rather than something the menu took away.
+
 **One URL per directory, and the same one per file**: `/files/photos/2026` is a
 page, `/files/photos/2026/img.jpg` is the picture. Opening a file leaves it to
 the browser, which shows it, plays it or saves it. Anything that could carry a
