@@ -186,14 +186,14 @@ func (i dateInfo) Size() int64 {
 	if i.n.Dir {
 		return 0
 	}
-	return i.n.Photo.File.Size
+	return i.n.Capture.File.Size
 }
 
 func (i dateInfo) ModTime() time.Time {
 	if i.n.Dir {
 		return time.Time{}
 	}
-	return i.n.Photo.File.MTime
+	return i.n.Capture.File.MTime
 }
 
 func (i dateInfo) Mode() os.FileMode {
@@ -207,12 +207,12 @@ func (i dateInfo) ContentType(context.Context) (string, error) {
 	if i.n.Dir {
 		return "httpd/unix-directory", nil
 	}
-	return cmp.Or(i.n.Photo.File.MIMEType, "application/octet-stream"), nil
+	return cmp.Or(i.n.Capture.File.MIMEType, "application/octet-stream"), nil
 }
 
 func (i dateInfo) ETag(context.Context) (string, error) {
-	if i.n.Dir || i.n.Photo.File.ETag == "" {
+	if i.n.Dir || i.n.Capture.File.ETag == "" {
 		return "", xnet.ErrNotImplemented
 	}
-	return strconv.Quote(i.n.Photo.File.ETag), nil
+	return strconv.Quote(i.n.Capture.File.ETag), nil
 }

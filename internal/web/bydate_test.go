@@ -374,13 +374,13 @@ func TestWhatIsNotAPhotographIsNotFound(t *testing.T) {
 func TestABrokenIndexIsNotAnEmptyGallery(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct{ call, target string }{
-		{"PhotoTimeline", "/photos/"},
-		{"PhotoMonths", "/photos/2024/"},
-		{"PhotoAround", "/photos/2024/06/a.jpg?view"},
+		{"Timeline", "/photos/"},
+		{"Months", "/photos/2024/"},
+		{"Around", "/photos/2024/06/a.jpg?view"},
 		{"FileByPath", "/photos/?file=a.jpg"},
 		// The same address again, broken one layer further in: the file is
 		// found and the month it would be named in is not.
-		{"PhotoTimeline", "/photos/?file=a.jpg"},
+		{"Timeline", "/photos/?file=a.jpg"},
 	} {
 		t.Run(tc.call, func(t *testing.T) {
 			t.Parallel()
@@ -412,7 +412,7 @@ func TestAnIndexThatBreaksWhileNamingIsNotAHalfPage(t *testing.T) {
 			s := files.New(blobs, meta)
 			addPhoto(t, s, meta, "a.jpg", time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC), "")
 
-			broken := dbtest.FailAfter(t, meta, "PhotoTimeline", 1)
+			broken := dbtest.FailAfter(t, meta, "Timeline", 1)
 			creds := credentials()
 			h := web.Handler(version, buildDate, creds, auth.NewSessions(creds, auth.DefaultSessionTTL), auth.NewShares(creds),
 				files.New(blobs, broken), media.NewThumbs(blobs, s, "ffmpeg", t.TempDir()), broken, indexing(meta), nil, web.Video{})
@@ -436,7 +436,7 @@ func TestAViewerThatCannotNameItsNeighbourIsAnError(t *testing.T) {
 
 	// One read names the month the viewer is in; the neighbours' months are
 	// the ones after it.
-	broken := dbtest.FailAfter(t, meta, "PhotoTimeline", 1)
+	broken := dbtest.FailAfter(t, meta, "Timeline", 1)
 	creds := credentials()
 	h := web.Handler(version, buildDate, creds, auth.NewSessions(creds, auth.DefaultSessionTTL), auth.NewShares(creds),
 		files.New(blobs, broken), media.NewThumbs(blobs, s, "ffmpeg", t.TempDir()), broken, indexing(meta), nil, web.Video{})
