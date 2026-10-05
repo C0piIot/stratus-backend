@@ -53,6 +53,10 @@ const subsonicPrefix = "/rest/"
 // by method below.
 const photosPrefix = "/photos/"
 
+// videosPrefix is where the videos are served by date, the photographs'
+// sibling (#215): same tree, same split by method, a different kind in it.
+const videosPrefix = "/videos/"
+
 // musicPrefix is where the library is served by tag, a mount of its own for
 // the reason playlistsPrefix is one, and one address for both protocols
 // (#279): the music pages and the collection are the same URLs.
@@ -203,7 +207,14 @@ func (a *App) Handler(deps Deps) http.Handler {
 		// a year, a month or the photograph itself, and everything else by the
 		// mount. The byte-serving half is the browser's -- see dav.Photos.
 		mux.Handle(photosPrefix, davOrBrowser(
-			auth.Session(sessions, auth.Basic(auth.Realm, verifier, dav.Photos(photosPrefix, deps.Database))),
+			auth.Session(sessions, auth.Basic(auth.Realm, verifier,
+				dav.ByDate(photosPrefix, deps.Database, db.KindImage))),
+			browser))
+		// And the videos beside them, which is the same handler over the same
+		// tree with a different kind in it (#215).
+		mux.Handle(videosPrefix, davOrBrowser(
+			auth.Session(sessions, auth.Basic(auth.Realm, verifier,
+				dav.ByDate(videosPrefix, deps.Database, db.KindVideo))),
 			browser))
 
 		// The browser surface, at the root, so everything the prefixes above did
@@ -218,7 +229,7 @@ func (a *App) Handler(deps Deps) http.Handler {
 		// anything at all (#281).
 		mux.Handle("/", davOrBrowser(
 			auth.Session(sessions, auth.Basic(auth.Realm, verifier,
-				dav.Root("/", "files", "music", "photos", "playlists"))),
+				dav.Root("/", "files", "music", "photos", "playlists", "videos"))),
 			browser))
 	}
 	// The log is outside the compression so that the bytes it counts are the

@@ -34,9 +34,10 @@ func addPhoto(t *testing.T, s *files.Service, meta db.Store, name string, taken 
 }
 
 var (
-	// A tile links to the page about a photograph, which is its own address
-	// with ?view -- the same address the WebDAV mount answers for.
-	tileHref = regexp.MustCompile(`href="/photos/(\d{4}/\d{2}/[^"?]+)\?view"`)
+	// A tile links to the page about one file, which is its own address with a
+	// query -- ?view for a photograph, ?play for a video (#215) -- and that is
+	// the same address the WebDAV mount answers for.
+	tileHref = regexp.MustCompile(`href="/(?:photos|videos)/(\d{4}/\d{2}/[^"?]+)\?(?:view|play)"`)
 	// A month's heading is a link into that month.
 	heading = regexp.MustCompile(`<h2[^>]*><a[^>]*>([^<]+)</a></h2>`)
 )

@@ -28,7 +28,7 @@ func (r *repo) PhotoTimeline(ctx context.Context, owner string, f db.PhotoFilter
 		return nil, err
 	}
 	query := photoSelect + ` WHERE m.kind = ? AND f.owner_id = ?`
-	args := []any{string(db.KindImage), owner}
+	args := []any{string(f.Kind), owner}
 	if !f.After.AtStart() {
 		at := f.After.At.UnixMilli()
 		// Not a row comparison, which MySQL answers correctly and without
@@ -57,9 +57,9 @@ func (r *repo) PhotoTimeline(ctx context.Context, owner string, f db.PhotoFilter
 
 // PhotoAround implements db.Photos: the photo, then one seek in each direction
 // from it.
-func (r *repo) PhotoAround(ctx context.Context, owner string, fileID int64) (db.PhotoAround, error) {
+func (r *repo) PhotoAround(ctx context.Context, owner string, kind db.Kind, fileID int64) (db.PhotoAround, error) {
 	one := photoSelect + ` WHERE m.kind = ? AND f.owner_id = ? AND m.file_id = ?`
-	got, err := sqlutil.Collect(ctx, r.q, scanPhoto, one, string(db.KindImage), owner, fileID)
+	got, err := sqlutil.Collect(ctx, r.q, scanPhoto, one, string(kind), owner, fileID)
 	if err != nil {
 		return db.PhotoAround{}, fmt.Errorf("get photo %d: %w", fileID, mapErr(err))
 	}
@@ -80,7 +80,7 @@ func (r *repo) PhotoAround(ctx context.Context, owner string, fileID int64) (db.
 		query string
 		into  **db.Photo
 	}{{newer, &around.Newer}, {older, &around.Older}} {
-		got, err := sqlutil.Collect(ctx, r.q, scanPhoto, side.query, string(db.KindImage), owner, at, at, fileID)
+		got, err := sqlutil.Collect(ctx, r.q, scanPhoto, side.query, string(kind), owner, at, at, fileID)
 		if err != nil {
 			return db.PhotoAround{}, fmt.Errorf("get the neighbours of photo %d: %w", fileID, mapErr(err))
 		}
@@ -97,7 +97,7 @@ func (r *repo) PhotoAround(ctx context.Context, owner string, fileID int64) (db.
 // owner has to find a hundred months in them, measured at half a second over a
 // hundred thousand, while asking the index for the newest photo before the
 // month just found is a handful of milliseconds for the same answer.
-func (r *repo) PhotoMonths(ctx context.Context, owner string) ([]db.PhotoMonth, error) {
+func (r *repo) PhotoMonths(ctx context.Context, owner string, kind db.Kind) ([]db.PhotoMonth, error) {
 	const (
 		newest = `SELECT m.sort_at FROM media m JOIN files f ON f.id = m.file_id
 			WHERE m.kind = ? AND f.owner_id = ? ORDER BY m.sort_at DESC LIMIT 1`
@@ -105,7 +105,7 @@ func (r *repo) PhotoMonths(ctx context.Context, owner string) ([]db.PhotoMonth, 
 			WHERE m.kind = ? AND f.owner_id = ? AND m.sort_at < ? ORDER BY m.sort_at DESC LIMIT 1`
 	)
 	var out []db.PhotoMonth
-	query, args := newest, []any{string(db.KindImage), owner}
+	query, args := newest, []any{string(kind), owner}
 	for {
 		var at int64
 		err := r.q.QueryRowContext(ctx, query, args...).Scan(&at)
@@ -117,7 +117,7 @@ func (r *repo) PhotoMonths(ctx context.Context, owner string) ([]db.PhotoMonth, 
 		}
 		month := db.MonthOf(time.UnixMilli(at))
 		out = append(out, month)
-		query, args = before, []any{string(db.KindImage), owner, month.Start().UnixMilli()}
+		query, args = before, []any{string(kind), owner, month.Start().UnixMilli()}
 	}
 }
 

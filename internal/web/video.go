@@ -78,21 +78,25 @@ const playerPolicy = contentSecurityPolicy + "; media-src 'self' blob:"
 // file serves a file, its player or its HLS, by what the query asks for.
 func (h *handler) file(w http.ResponseWriter, r *http.Request, user string, f db.File) {
 	q := r.URL.Query()
+	token := q.Get(shareParam)
 	switch {
 	case h.video.Media == nil || !media.IsVideo(f.Path):
 		h.download(w, r, user, f)
 	case q.Has(hlsParam):
 		h.hls(w, r, f, q.Get(hlsParam))
 	case q.Has(playParam):
-		h.play(w, r, user, f)
+		h.play(w, r, user, f, shared(href(f.Path), token), shared(href(db.ParentOf(f.Path)), token))
 	default:
 		h.download(w, r, user, f)
 	}
 }
 
-func (h *handler) play(w http.ResponseWriter, r *http.Request, user string, f db.File) {
+// play is the player page. direct is where the video element reads the film --
+// its address under /files/, or its own in the video library (#215), which is
+// one URL per thing on both -- and back is the page above it.
+func (h *handler) play(w http.ResponseWriter, r *http.Request, user string, f db.File, direct, back string) {
 	token := r.URL.Query().Get(shareParam)
-	film := &filmView{Direct: shared(href(f.Path), token)}
+	film := &filmView{Direct: direct}
 
 	// A film the browser takes as it is needs nothing more; one it does not,
 	// and that can be remuxed, gets the playlist. A row nobody has read yet
@@ -105,7 +109,7 @@ func (h *handler) play(w http.ResponseWriter, r *http.Request, user string, f db
 	}
 
 	v := view{Title: path.Base(f.Path), User: user, Shared: token, Name: path.Base(f.Path), Film: film,
-		Back: shared(href(db.ParentOf(f.Path)), token)}
+		Back: back}
 	if film.HLS != "" {
 		v.PlayerScripts = []string{
 			hlsPrefix + "/hls.light.min.js",

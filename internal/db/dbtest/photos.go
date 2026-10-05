@@ -22,7 +22,7 @@ func RunPhotos(t *testing.T, newRepo func(t *testing.T) db.Repo) {
 		{"a month is a range of the timeline", photosMonthBound},
 		{"months are listed newest first, on the camera's clock", photosMonths},
 		{"a photo knows its neighbours", photosAround},
-		{"only images are photos, and only indexed ones", photosOnlyImages},
+		{"one kind at a time, and only indexed files", photosOneKindAtATime},
 		{"owners do not see each other's photos", photosOwnersAreSeparate},
 		{"re-indexing moves a photo to its new date", photosReindex},
 		{"a page asks for at least one row", photosLimit},
@@ -42,11 +42,27 @@ var photoDay = time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC)
 // arrived.
 func photo(t *testing.T, s db.Repo, ownerID, path string, taken, arrived time.Time) db.File {
 	t.Helper()
+	return capture(t, s, db.KindImage, ownerID, path, taken, arrived)
+}
+
+// video is the same for a recording, which the timeline carries by the same
+// rules and under a different kind (#215).
+func video(t *testing.T, s db.Repo, ownerID, path string, taken, arrived time.Time) db.File {
+	t.Helper()
+	return capture(t, s, db.KindVideo, ownerID, path, taken, arrived)
+}
+
+func capture(t *testing.T, s db.Repo, kind db.Kind, ownerID, path string, taken, arrived time.Time) db.File {
+	t.Helper()
+	mime := "image/jpeg"
+	if kind == db.KindVideo {
+		mime = "video/mp4"
+	}
 	f := file(path)
-	f.OwnerID, f.MTime, f.MIMEType = ownerID, arrived, "image/jpeg"
+	f.OwnerID, f.MTime, f.MIMEType = ownerID, arrived, mime
 	stored := put(t, s, f)
 	if err := s.PutMedia(t.Context(), db.Media{
-		FileID: stored.ID, Kind: db.KindImage, IndexedAt: photoDay, Version: 1, TakenAt: taken,
+		FileID: stored.ID, Kind: kind, IndexedAt: photoDay, Version: 1, TakenAt: taken,
 	}); err != nil {
 		t.Fatalf("PutMedia(%q): %v", path, err)
 	}
@@ -57,6 +73,9 @@ func timeline(t *testing.T, s db.Repo, ownerID string, f db.PhotoFilter) []db.Ph
 	t.Helper()
 	if f.Limit == 0 {
 		f.Limit = 100
+	}
+	if f.Kind == "" {
+		f.Kind = db.KindImage
 	}
 	got, err := s.PhotoTimeline(t.Context(), ownerID, f)
 	if err != nil {
@@ -135,7 +154,7 @@ func photosMonths(t *testing.T, s db.Repo) {
 	photo(t, s, owner, "b.jpg", time.Date(2024, 6, 20, 0, 0, 0, 0, time.UTC), photoDay)
 	photo(t, s, owner, "c.jpg", time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC), photoDay)
 
-	got, err := s.PhotoMonths(t.Context(), owner)
+	got, err := s.PhotoMonths(t.Context(), owner, db.KindImage)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +178,7 @@ func photosAround(t *testing.T, s db.Repo) {
 	order := photoPaths(timeline(t, s, owner, db.PhotoFilter{}))
 	for i, path := range order {
 		id := map[string]int64{"a.jpg": a.ID, "b.jpg": b.ID, "c.jpg": c.ID, "d.jpg": d.ID}[path]
-		got, err := s.PhotoAround(t.Context(), owner, id)
+		got, err := s.PhotoAround(t.Context(), owner, db.KindImage, id)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -186,16 +205,47 @@ func name(p *db.Photo) string {
 	return p.File.Path
 }
 
-func photosOnlyImages(t *testing.T, s db.Repo) {
-	photo(t, s, owner, "pic.jpg", photoDay, photoDay)
+// photosOneKindAtATime: the gallery and the video library are the same queries
+// over the same column, told apart by the kind the caller asks for (#215).
+// Neither carries the other's files, and neither carries a track or a row the
+// indexer has not written.
+func photosOneKindAtATime(t *testing.T, s db.Repo) {
+	pic := photo(t, s, owner, "pic.jpg", photoDay, photoDay)
+	vid := video(t, s, owner, "clip.mp4", photoDay.Add(time.Hour), photoDay)
 	tr := track(t, s, owner, "song.flac", song("A", "A", "B", "C", 1))
 	put(t, s, file("unindexed.jpg"))
 
-	if got := photoPaths(timeline(t, s, owner, db.PhotoFilter{})); !equal(got, []string{"pic.jpg"}) {
-		t.Errorf("timeline = %v, want the image alone", got)
+	if got := photoPaths(timeline(t, s, owner, db.PhotoFilter{Kind: db.KindImage})); !equal(got, []string{"pic.jpg"}) {
+		t.Errorf("the images = %v, want the image alone", got)
 	}
-	if _, err := s.PhotoAround(t.Context(), owner, tr.ID); !errors.Is(err, db.ErrNotFound) {
-		t.Errorf("PhotoAround of a track = %v, want ErrNotFound", err)
+	if got := photoPaths(timeline(t, s, owner, db.PhotoFilter{Kind: db.KindVideo})); !equal(got, []string{"clip.mp4"}) {
+		t.Errorf("the videos = %v, want the recording alone", got)
+	}
+
+	// The months are per kind too, or a year that holds only video would show
+	// in the gallery with nothing in it.
+	months, err := s.PhotoMonths(t.Context(), owner, db.KindVideo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fmt.Sprint(months) != fmt.Sprint([]db.PhotoMonth{db.MonthOf(photoDay)}) {
+		t.Errorf("the video months = %v", months)
+	}
+
+	// And a file is only found among its own: asking the wrong library for it
+	// is the same answer as asking for a track.
+	for _, c := range []struct {
+		kind db.Kind
+		id   int64
+		what string
+	}{
+		{db.KindImage, vid.ID, "a recording in the gallery"},
+		{db.KindVideo, pic.ID, "an image in the videos"},
+		{db.KindImage, tr.ID, "a track"},
+	} {
+		if _, err := s.PhotoAround(t.Context(), owner, c.kind, c.id); !errors.Is(err, db.ErrNotFound) {
+			t.Errorf("PhotoAround of %s = %v, want ErrNotFound", c.what, err)
+		}
 	}
 }
 
@@ -206,14 +256,14 @@ func photosOwnersAreSeparate(t *testing.T, s db.Repo) {
 	if got := photoPaths(timeline(t, s, owner, db.PhotoFilter{})); !equal(got, []string{"mine.jpg"}) {
 		t.Errorf("timeline = %v", got)
 	}
-	if _, err := s.PhotoAround(t.Context(), "someone-else", mine.ID); !errors.Is(err, db.ErrNotFound) {
+	if _, err := s.PhotoAround(t.Context(), "someone-else", db.KindImage, mine.ID); !errors.Is(err, db.ErrNotFound) {
 		t.Errorf("another owner opens mine: %v", err)
 	}
-	around, err := s.PhotoAround(t.Context(), owner, mine.ID)
+	around, err := s.PhotoAround(t.Context(), owner, db.KindImage, mine.ID)
 	if err != nil || around.Newer != nil || around.Older != nil {
 		t.Errorf("mine has neighbours %v and %v, want none: %v", around.Newer, around.Older, err)
 	}
-	if months, _ := s.PhotoMonths(t.Context(), "nobody"); len(months) != 0 {
+	if months, _ := s.PhotoMonths(t.Context(), "nobody", db.KindImage); len(months) != 0 {
 		t.Errorf("an owner with nothing has months %v", months)
 	}
 }

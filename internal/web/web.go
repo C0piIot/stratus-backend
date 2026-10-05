@@ -152,7 +152,8 @@ func Handler(version, buildDate string, v auth.Verifier, s *auth.Sessions, share
 	// signature to be checked against, and a search over somebody's whole
 	// library is not what a link to one folder authorises.
 	mux.HandleFunc("GET "+searchPrefix, h.signedIn(h.search))
-	mux.HandleFunc("GET "+photosPrefix+"{path...}", h.signedIn(h.photos))
+	mux.HandleFunc("GET "+photosPrefix+"{path...}", h.signedIn(h.byDate(photoLibrary)))
+	mux.HandleFunc("GET "+videosPrefix+"{path...}", h.signedIn(h.byDate(videoLibrary)))
 	mux.HandleFunc("GET "+musicPrefix+"{path...}", h.signedIn(h.music))
 	mux.HandleFunc("GET "+playlistsPrefix+"{path...}", h.signedIn(h.playlistPages))
 	mux.HandleFunc("POST /files/{path...}", h.signedIn(h.upload))

@@ -544,12 +544,12 @@ if wait_serving "$davname"; then
   esac
 
   # And it lists the mounts, which is the whole point of one namespace: a
-  # client that mounts the origin finds the library, the photo folders and the
-  # playlists without being told their URLs.
+  # client that mounts the origin finds the library, the photo folders, the
+  # videos and the playlists without being told their URLs.
   root_list="$(curl -s -u "$davuser:$davpass" -H 'Depth: 1' -X PROPFIND "http://$davhost/" 2>/dev/null || true)"
   case "$root_list" in
-    *'>/files/<'*'>/music/<'*'>/photos/<'*'>/playlists/<'*) ok "PROPFIND / lists the four collections" ;;
-    *) bad "PROPFIND / lists the four collections" "$(head -c 200 <<<"$root_list")" ;;
+    *'>/files/<'*'>/music/<'*'>/photos/<'*'>/playlists/<'*'>/videos/<'*) ok "PROPFIND / lists the five collections" ;;
+    *) bad "PROPFIND / lists the five collections" "$(head -c 200 <<<"$root_list")" ;;
   esac
 
   # Finder mounts read-only unless the server says class 2, so the header is
@@ -1452,6 +1452,62 @@ TRACK
     *'<audio'*'track.mp3'*) ok "a playlist opens as a page with its track in it" ;;
     *) bad "a playlist opens as a page with its track in it" "$(head -c 160 <<<"$opened")" ;;
   esac
+
+  # The videos are the photographs' sibling (#215): the same tree with a
+  # different kind in it, so the clip uploaded over WebDAV further up is here
+  # and not in the gallery. The wait is the indexer's.
+  vmonth=""
+  for _ in $(seq 1 50); do
+    vyear="$(curl -s -u "$davuser:$davpass" -X PROPFIND -H 'Depth: 1' "http://$davhost/videos/" |
+      grep -o '/videos/[0-9]\{4\}/' | grep -v '^/videos/$' | head -1 || true)"
+    if [ -n "$vyear" ]; then
+      vmonth="$(curl -s -u "$davuser:$davpass" -X PROPFIND -H 'Depth: 1' "http://$davhost$vyear" |
+        grep -o '/videos/[0-9]\{4\}/[0-9][0-9]/' | head -1 || true)"
+    fi
+    [ -n "$vmonth" ] && break
+    sleep 0.2
+  done
+  vfiles=""
+  if [ -n "$vmonth" ]; then
+    vfiles="$(curl -s -u "$davuser:$davpass" -X PROPFIND -H 'Depth: 1' "http://$davhost$vmonth" |
+      grep -o "${vmonth}[^<]\+" | grep -v "^${vmonth}$" | head -1 || true)"
+  fi
+  if [ -n "$vfiles" ]; then
+    ok "a client walks /videos/ down to a recording ($vfiles)"
+  else
+    bad "a client walks /videos/ down to a recording" "year '$vyear', month '$vmonth'"
+  fi
+
+  # Which month a fixture lands in is its own creation_time's business, so the
+  # clip is reached by the redirect that turns a path in the tree into the one
+  # address it has here -- the same door a search result goes through.
+  vclip="$(curl -s -o /dev/null -w '%{redirect_url}' -b "$jar" \
+    "http://$davhost/videos/?file=clip.mp4" || true)"
+  vclip="${vclip%\?play}"
+  case "$vclip" in
+    *"/videos/"*"/clip.mp4") ok "a video is reachable by its path in the tree ($vclip)" ;;
+    *) bad "a video is reachable by its path in the tree" "got '$vclip'" ;;
+  esac
+
+  # And none of it is in the gallery, which is the decision #215 was open on.
+  gallery_months="$(curl -s -u "$davuser:$davpass" -X PROPFIND -H 'Depth: 1' "http://$davhost$month" || true)"
+  case "$gallery_months" in
+    *clip.mp4*) bad "the gallery holds no video" "$month lists clip.mp4" ;;
+    *)          ok "the gallery holds no video" ;;
+  esac
+
+  # The clip's own address is a page with a player on it, and the bytes
+  # without the query.
+  vpage="$(curl -fsS -b "$jar" "$vclip?play" 2>/dev/null || true)"
+  case "$vpage" in
+    *'<!doctype html>'*'<video'*) ok "a video's own address is the player" ;;
+    *) bad "a video's own address is the player" "$(head -c 160 <<<"$vpage")" ;;
+  esac
+  if curl -fsS -b "$jar" "$vclip" 2>/dev/null | cmp -s - scripts/testdata/clip.mp4; then
+    ok "a video's own address serves the original"
+  else
+    bad "a video's own address serves the original" "$vclip"
+  fi
 
   # One address, two protocols: the month a DAV client just walked is a page
   # to a browser, and it links to the photograph by the name the multistatus

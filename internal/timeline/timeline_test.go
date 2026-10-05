@@ -1,4 +1,4 @@
-package photos_test
+package timeline_test
 
 import (
 	"context"
@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/C0piIot/stratus-backend/internal/db"
-	"github.com/C0piIot/stratus-backend/internal/photos"
+	"github.com/C0piIot/stratus-backend/internal/timeline"
 )
 
 // index is the date index, with a count of what was asked of it: the tree
@@ -22,7 +22,7 @@ type index struct {
 	fail    string
 }
 
-func (i *index) PhotoMonths(context.Context, string) ([]db.PhotoMonth, error) {
+func (i *index) PhotoMonths(context.Context, string, db.Kind) ([]db.PhotoMonth, error) {
 	i.months++
 	if i.fail == "PhotoMonths" {
 		return nil, errors.New("the index is on fire")
@@ -70,10 +70,10 @@ func shot(id int64, path string, at time.Time) db.Photo {
 	return p
 }
 
-func tree(t *testing.T, shots ...db.Photo) (*photos.Tree, *index) {
+func tree(t *testing.T, shots ...db.Photo) (*timeline.Tree, *index) {
 	t.Helper()
 	src := &index{photos: shots}
-	return photos.New(src, "edu"), src
+	return timeline.New(src, "edu", db.KindImage), src
 }
 
 func TestTheTreeIsYearsThenMonthsThenPhotographs(t *testing.T) {
@@ -83,7 +83,7 @@ func TestTheTreeIsYearsThenMonthsThenPhotographs(t *testing.T) {
 		shot(2, "Holiday/beach.heic", june.AddDate(0, 0, 3)),
 		shot(3, "old.jpg", time.Date(2019, 1, 2, 0, 0, 0, 0, time.UTC)))
 
-	years, err := tr.Children(t.Context(), photos.Node{Dir: true})
+	years, err := tr.Children(t.Context(), timeline.Node{Dir: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +91,7 @@ func TestTheTreeIsYearsThenMonthsThenPhotographs(t *testing.T) {
 		t.Errorf("years = %v", got)
 	}
 
-	months, err := tr.Children(t.Context(), photos.Node{Year: 2024, Dir: true})
+	months, err := tr.Children(t.Context(), timeline.Node{Year: 2024, Dir: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +99,7 @@ func TestTheTreeIsYearsThenMonthsThenPhotographs(t *testing.T) {
 		t.Errorf("months = %v", got)
 	}
 
-	shots, err := tr.Children(t.Context(), photos.Node{Year: 2024, Month: time.June, Dir: true})
+	shots, err := tr.Children(t.Context(), timeline.Node{Year: 2024, Month: time.June, Dir: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,7 +133,7 @@ func TestResolveAnswersWhatIsThereAndNothingElse(t *testing.T) {
 // case-folding client would take these for one file.
 func TestNamesInAMonthCannotCollide(t *testing.T) {
 	t.Parallel()
-	named := photos.Names([]db.Photo{
+	named := timeline.Names([]db.Photo{
 		shot(3, "C/img_0001.jpg", june),
 		shot(1, "A/IMG_0001.JPG", june),
 		shot(2, "B/IMG_0001.JPG", june),
@@ -197,7 +197,7 @@ func TestAMonthIsReadOnce(t *testing.T) {
 	if src.queries != 1 {
 		t.Errorf("naming fifty photographs took %d queries, want 1", src.queries)
 	}
-	if _, err := tr.Children(t.Context(), photos.Node{Dir: true}); err != nil {
+	if _, err := tr.Children(t.Context(), timeline.Node{Dir: true}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := tr.Months(t.Context()); err != nil {
@@ -212,14 +212,14 @@ func TestABrokenIndexIsAnError(t *testing.T) {
 	t.Parallel()
 	for _, call := range []string{"PhotoMonths", "PhotoTimeline"} {
 		src := &index{photos: []db.Photo{shot(1, "a.jpg", june)}, fail: call}
-		tr := photos.New(src, "edu")
+		tr := timeline.New(src, "edu", db.KindImage)
 		if _, err := tr.Resolve(t.Context(), "2024/06/a.jpg"); err == nil || errors.Is(err, os.ErrNotExist) {
 			t.Errorf("resolve with %s broken = %v, want a real error", call, err)
 		}
 	}
 }
 
-func names(nodes []photos.Node) []string {
+func names(nodes []timeline.Node) []string {
 	out := make([]string, 0, len(nodes))
 	for _, n := range nodes {
 		out = append(out, n.Base())

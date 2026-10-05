@@ -69,11 +69,12 @@ that does.
 read-only collection holding everything there is:
 
 ```
-/                 files/, music/, photos/, playlists/
+/                 files/, music/, photos/, playlists/, videos/
 /files/           your tree — read and write, locks and all
 /music/           your library by artist and album, generated, read-only
 /photos/          your photographs by year and month, generated, read-only
 /playlists/       your playlists as .m3u8, generated, read-only
+/videos/          your videos by year and month, generated, read-only
 ```
 
 **Every one of those addresses answers a browser too.** The generated
@@ -803,6 +804,18 @@ What is not under `/music/` is the album's cover: it is derived rather than one
 of the album's files, so it hangs off the album's own address as
 `?cover=<pixels>`, and nothing that is not a track appears in the collection.
 
+**Videos are at `/videos/`, the same thing for what a camera recorded**:
+`/videos/2024/06/` is June 2024, a recording's own URL is the file and that URL
+with `?play` is the player — the one that remuxes to HLS when the browser
+cannot take the container as it is. A tile says how long it is, which is the
+one thing a still cannot show.
+
+**Every video is there and none is in the gallery.** A phone's recording and a
+film are not told apart by a duration, a folder or a date that a film has no
+reason to carry: they are all videos, they are all in one place, and the
+gallery stays photographs. It is the simplest rule there is and the only one
+that cannot be wrong about your library.
+
 **What a WebDAV client sees at `/photos/` is the same tree**, read-only and
 class 1: `/photos/2024/06/` is June 2024 and the files in it are the originals,
 with ranges. It is a mount of its own rather than a folder in your tree, for
@@ -965,7 +978,7 @@ CSRF is that `SameSite=Lax` plus the standard library's
 itself reports as cross-site.
 
 **The session opens every other surface too** — `/files/`, `/tus/`, `/rest/`,
-`/music/`, `/playlists/`, `/photos/` — so a page can use the protocols instead of an API of
+`/music/`, `/playlists/`, `/photos/`, `/videos/` — so a page can use the protocols instead of an API of
 its own, and HTTP Basic opens the web UI. On those surfaces the cookie counts
 only when the browser says the request came from one of this server's pages or
 from the address bar (`Sec-Fetch-Site: same-origin` or `none`): OpenSubsonic
