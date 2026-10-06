@@ -3,6 +3,7 @@ package incoming_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -286,8 +287,9 @@ func (r refusing) Write(context.Context, string, string, io.Reader, int64, strin
 func (r refusing) Stat(context.Context, string, string) (db.File, error) {
 	return db.File{}, db.ErrNotFound
 }
-func (r refusing) Mkdir(context.Context, string, string) (db.File, error) {
-	return db.File{}, r.err
+func (r refusing) MkdirAll(context.Context, string, string) error { return r.err }
+func (r refusing) FreeName(_ context.Context, _, target string) (string, error) {
+	return target, nil
 }
 
 func TestAStoreThatWillNotTakeAnythingKeepsEverything(t *testing.T) {
@@ -326,10 +328,9 @@ type breaking struct{ err error }
 func (b breaking) Write(context.Context, string, string, io.Reader, int64, string) (db.File, error) {
 	return db.File{}, b.err
 }
-func (b breaking) Stat(context.Context, string, string) (db.File, error) { return db.File{}, b.err }
-func (b breaking) Mkdir(context.Context, string, string) (db.File, error) {
-	return db.File{}, b.err
-}
+func (b breaking) Stat(context.Context, string, string) (db.File, error)    { return db.File{}, b.err }
+func (b breaking) MkdirAll(context.Context, string, string) error           { return b.err }
+func (b breaking) FreeName(context.Context, string, string) (string, error) { return "", b.err }
 
 // TestWhatCannotBeFiled: a name this server could never store, and a database
 // that will not answer whether a name is free. Both leave the file alone.
@@ -374,22 +375,24 @@ func TestWhatCannotBeFiled(t *testing.T) {
 	})
 }
 
-// taken is a library where every name is already in use, which is the one way
-// to reach the end of the search for a free one.
+// taken is a library where the search for a free name comes back refused,
+// which internal/files does after a hundred of them: what is tested here is
+// what this pass does with that answer.
 type taken struct{}
 
 func (taken) Write(context.Context, string, string, io.Reader, int64, string) (db.File, error) {
 	return db.File{}, errors.New("nothing should be written here")
 }
 func (taken) Stat(context.Context, string, string) (db.File, error) { return db.File{}, nil }
-func (taken) Mkdir(context.Context, string, string) (db.File, error) {
-	return db.File{}, errors.New("nothing should be made here")
+func (taken) MkdirAll(context.Context, string, string) error        { return nil }
+func (taken) FreeName(_ context.Context, _, target string) (string, error) {
+	return "", fmt.Errorf("%q is taken, and so are the first %d names beside it", target, files.MaxCopies)
 }
 
-// TestAHundredNamesTakenIsRefusedRatherThanNumberedForEver: the numbering is
-// bounded, because a folder that already holds a hundred copies of one name is
-// something to be told about rather than added to.
-func TestAHundredNamesTakenIsRefusedRatherThanNumberedForEver(t *testing.T) {
+// TestANameThatCannotBeFreedLeavesTheFile: the numbering is bounded in
+// internal/files, and a pass that is told so says it and leaves the file where
+// it is, like every other failure here.
+func TestANameThatCannotBeFreedLeavesTheFile(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	w := incoming.New(dir, owner, taken{})

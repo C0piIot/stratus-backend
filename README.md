@@ -775,15 +775,24 @@ read yet says so, one nothing could parse says why and whether it will be tried
 again, and one replaced since it was read shows no metadata at all -- what was
 extracted describes bytes that are gone.
 
-**Added to a home screen it looks like an app**, with the Stratus mark, the
-name and no address bar: there is a web app manifest at
-`/manifest.webmanifest`, and an icon for iOS, which reads no manifest for that.
-Holding the icon down — or right-clicking it on a desktop — offers the four
-libraries, which is the same menu the bar carries.
-What there is not is an install prompt — a browser asks for a service worker
-before it offers one, and what that should answer with when it cannot reach the
-server has not been decided yet. So this is the icon and the window, not an
-offline app: with no network there is nothing to show.
+**It installs**, and then it is an app: the Stratus mark, the name, no address
+bar. Holding the icon down — or right-clicking it on a desktop — offers the
+four libraries, which is the same menu the bar carries.
+
+**Offline it says so, and that is all it promises.** The service worker keeps
+the shell — the stylesheet, the scripts, the icons and one page — so that a
+browser with no route to the server answers "this server cannot be reached"
+instead of its own error. **It caches nothing of your library**: not a listing,
+not a photograph, nothing that needed you to be signed in, so a cached page
+cannot outlive signing out. Reading your files offline is what the phone app is
+for.
+
+**And the share sheet uploads.** Share a photograph from your phone's gallery
+to Stratus and it lands in `shared/<year>/<month>/` under a name that never
+replaces what is already there — two things shared a minute apart are both
+called `image.jpg` — and the page you land on is the folder it went to, with
+the file's own row on it to rename if you want. This is the one part of the app
+nobody has run on a real phone yet.
 
 **Nothing here is for a search engine.** `/robots.txt` disallows the whole
 server and every page carries `noindex, nofollow`, which are two requests and

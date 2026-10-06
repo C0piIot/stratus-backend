@@ -51,6 +51,7 @@ const (
 	pageShare     = "share.html"
 	pageShared    = "shared.html"
 	pageError     = "error.html"
+	pageOffline   = "offline.html"
 	pagePhotos    = "photos.html"
 	pagePhoto     = "photo.html"
 	pageMonths    = "months.html"
@@ -79,6 +80,7 @@ var pages = map[string]*template.Template{
 	pageShare:     parse(pageShare),
 	pageShared:    parse(pageShared),
 	pageError:     parse(pageError),
+	pageOffline:   parse(pageOffline),
 	pagePhotos:    parse(pagePhotos, pageTile, pageCrumbs),
 	pagePhoto:     parse(pagePhoto),
 	pageMonths:    parse(pageMonths, pageCrumbs),
@@ -123,7 +125,8 @@ type view struct {
 	// from nothing else.
 	AppleIcon string
 	// Scripts are this project's own, with the build on the end so a new one is
-	// a new URL. Two of them, on every page: copy.js and dialog.js.
+	// a new URL. Three of them, on every page: copy.js, dialog.js and the one
+	// that registers the service worker.
 	Scripts []string
 	// User is who is signed in, and empty when nobody is.
 	User string
@@ -246,7 +249,11 @@ func (h *handler) render(w http.ResponseWriter, status int, page string, v view)
 func (h *handler) renderTemplate(w http.ResponseWriter, status int, page, name string, v view) {
 	v.Assets, v.HTMX, v.Version, v.BuildDate = assetPrefix, htmxPrefix, h.version, h.buildDate
 	build := "?v=" + url.QueryEscape(h.version)
-	v.Scripts = []string{ownPrefix + "/copy.js" + build, ownPrefix + "/dialog.js" + build}
+	v.Scripts = []string{
+		ownPrefix + "/copy.js" + build,
+		ownPrefix + "/dialog.js" + build,
+		ownPrefix + "/register.js" + build,
+	}
 	v.Favicon = ownPrefix + "/favicon.svg" + build
 	v.AppleIcon = ownPrefix + "/apple-touch-icon.png" + build
 

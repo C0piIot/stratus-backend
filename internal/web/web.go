@@ -48,13 +48,13 @@ const (
 // a string goes through its maybeEval, and the htmx-config meta in the layout
 // turns that off.
 //
-// manifest-src is the second directive here that exists for one feature and
-// fails in a browser alone: under default-src 'none' the manifest is refused
+// manifest-src and worker-src are the second and third directives here that
+// exist for one feature each and fail in a browser alone: under default-src 'none' the manifest is refused
 // before anything reads it, and a page with no manifest looks exactly like a
 // page whose manifest was not wanted. scripts/smoke.sh asserts it, the way it
 // asserts connect-src.
 const contentSecurityPolicy = "default-src 'none'; style-src 'self'; script-src 'self'; " +
-	"connect-src 'self'; img-src 'self' data:; manifest-src 'self'; " +
+	"connect-src 'self'; img-src 'self' data:; manifest-src 'self'; worker-src 'self'; " +
 	"form-action 'self'; frame-ancestors 'none'; base-uri 'none'"
 
 // fileContentSecurityPolicy replaces the pages' policy on a file the browser
@@ -164,6 +164,9 @@ func Handler(version, buildDate string, v auth.Verifier, s *auth.Sessions, share
 	mux.HandleFunc("GET "+musicPrefix+"{path...}", h.signedIn(h.music))
 	mux.HandleFunc("GET "+playlistsPrefix+"{path...}", h.signedIn(h.playlistPages))
 	mux.HandleFunc("POST /files/{path...}", h.signedIn(h.upload))
+	// The share sheet's door, which is the upload's twin with the destination
+	// decided here rather than given. See share_target.go.
+	mux.HandleFunc("POST "+shareTargetPath, h.signedIn(h.shareTarget))
 	mux.HandleFunc("POST /folders/{path...}", h.signedIn(h.newFolder))
 	mux.HandleFunc("GET /share/{path...}", h.signedIn(h.shareForm))
 	mux.HandleFunc("POST /share/{path...}", h.signedIn(h.share))
@@ -180,6 +183,11 @@ func Handler(version, buildDate string, v auth.Verifier, s *auth.Sessions, share
 	// Both in front of the session, and the manifest has to be: a browser
 	// fetches one with credentials omitted. See manifest.go.
 	mux.HandleFunc("GET "+manifestPath, h.manifest)
+	// The worker is served from the root because that is what it controls, and
+	// the page it answers with has to be reachable with no network and no
+	// session. See sw.go.
+	mux.HandleFunc("GET "+workerPath, h.worker)
+	mux.HandleFunc("GET "+offlinePath, h.offline)
 	mux.HandleFunc("GET /login", h.loginForm)
 	mux.HandleFunc("POST /login", h.login)
 	mux.HandleFunc("POST /logout", h.logout)

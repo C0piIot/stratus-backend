@@ -29,18 +29,18 @@ import (
 	"github.com/C0piIot/stratus-backend/internal/db"
 )
 
-// maxCopies bounds the search for a free name. A directory that already holds a
-// hundred files called the same thing is a loop somewhere else, and walking it
-// on every pass would be this one's contribution to it.
-const maxCopies = 100
-
 // Store is the file layer this needs, which is the ordinary one. Narrow on
 // purpose: an importer has no business deleting or moving what is already in
 // the library.
 type Store interface {
 	Write(ctx context.Context, owner, path string, body io.Reader, size int64, mimeType string) (db.File, error)
 	Stat(ctx context.Context, owner, path string) (db.File, error)
-	Mkdir(ctx context.Context, owner, path string) (db.File, error)
+	// MkdirAll rather than Mkdir, because mirroring a folder means making
+	// whatever is missing above it and that walk belongs to the file layer:
+	// the share target needs the same one. FreeName is there for the same
+	// reason -- renaming instead of replacing is a rule two doors share.
+	MkdirAll(ctx context.Context, owner, dir string) error
+	FreeName(ctx context.Context, owner, target string) (string, error)
 }
 
 // Watcher sweeps one directory. It is safe to call Pass from one goroutine and
@@ -199,10 +199,10 @@ func (w *Watcher) importFile(ctx context.Context, name, rel string, size int64) 
 	if err := db.ValidatePath(target); err != nil {
 		return fmt.Errorf("%q is not a path this server can store: %w", rel, err)
 	}
-	if err := w.mkdirAll(ctx, path.Dir(target)); err != nil {
+	if err := w.files.MkdirAll(ctx, w.owner, path.Dir(target)); err != nil {
 		return err
 	}
-	target, err := w.free(ctx, target)
+	target, err := w.files.FreeName(ctx, w.owner, target)
 	if err != nil {
 		return err
 	}
@@ -222,53 +222,6 @@ func (w *Watcher) importFile(ctx context.Context, name, rel string, size int64) 
 		return fmt.Errorf("imported %q and could not remove it: %w", rel, err)
 	}
 	return nil
-}
-
-// mkdirAll makes the directories a mirrored path needs, one level at a time,
-// because that is what the file layer offers and what it checks.
-func (w *Watcher) mkdirAll(ctx context.Context, dir string) error {
-	if dir == "." || dir == "/" || dir == "" {
-		return nil
-	}
-	walked := ""
-	for _, segment := range strings.Split(dir, "/") {
-		walked = path.Join(walked, segment)
-		switch existing, err := w.files.Stat(ctx, w.owner, walked); {
-		case err == nil && existing.IsDir:
-			continue
-		case err == nil:
-			return fmt.Errorf("%q is a file in the library and this needs it to be a folder", walked)
-		case !errors.Is(err, db.ErrNotFound):
-			return err
-		}
-		if _, err := w.files.Mkdir(ctx, w.owner, walked); err != nil && !errors.Is(err, db.ErrConflict) {
-			return err
-		}
-	}
-	return nil
-}
-
-// free is the name to file this under: the one it came with, or that name with
-// a number before its extension.
-//
-// Renamed and never replaced. Everywhere else here a write to a path that
-// exists replaces what is there, because that is what a PUT means; this is not
-// somebody saying "replace that", it is a folder two machines drop files into,
-// and a scanner reusing a filename would otherwise quietly destroy the last one.
-// The numbering is " (2)" before the extension, which is what /photos/ and
-// /playlists/ already disambiguate with, and the extension survives because it
-// is what the indexer reads.
-func (w *Watcher) free(ctx context.Context, target string) (string, error) {
-	for n := 1; n <= maxCopies; n++ {
-		candidate := db.CopyName(target, n)
-		switch _, err := w.files.Stat(ctx, w.owner, candidate); {
-		case errors.Is(err, db.ErrNotFound):
-			return candidate, nil
-		case err != nil:
-			return "", err
-		}
-	}
-	return "", fmt.Errorf("%q is taken, and so are the first %d names beside it", target, maxCopies)
 }
 
 func (w *Watcher) snapshot() map[string]int64 {

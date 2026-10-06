@@ -24,6 +24,8 @@ import (
 	"fmt"
 	"hash"
 	"io"
+	pathpkg "path" // "path" is a parameter name through most of this file.
+	"strings"
 	"time"
 
 	"github.com/C0piIot/stratus-backend/internal/db"
@@ -312,6 +314,66 @@ func contentType(declared, sniffed string) string {
 		return sniffed
 	}
 	return declared
+}
+
+// MaxCopies bounds the search for a free name. A directory that already holds
+// a hundred files called the same thing is a loop somewhere else, and walking
+// it on every pass would be this layer's contribution to it.
+const MaxCopies = 100
+
+// FreeName is the name to file something under when a write must not replace:
+// the one it came with, or that name with a number before its extension.
+//
+// **Everywhere else here a write replaces**, because that is what a `PUT`
+// means and one door behaving differently from another is worse than the
+// surprise. These are the doors where nobody said "replace that" -- a folder
+// two machines drop files into, and a share sheet handing over the third
+// photograph today called image.jpg -- and a reused filename would quietly
+// destroy the last one. The numbering is " (2)" before the extension, which is
+// what /photos/ and /playlists/ already disambiguate with, and the extension
+// survives because it is what the indexer reads.
+func (s *Service) FreeName(ctx context.Context, owner, target string) (string, error) {
+	for n := 1; n <= MaxCopies; n++ {
+		candidate := db.CopyName(target, n)
+		switch _, err := s.Stat(ctx, owner, candidate); {
+		case errors.Is(err, db.ErrNotFound):
+			return candidate, nil
+		case err != nil:
+			return "", err
+		}
+	}
+	return "", fmt.Errorf("%q is taken, and so are the first %d names beside it", target, MaxCopies)
+}
+
+// MkdirAll makes a directory and whatever is missing above it, one level at a
+// time, because that is what the layer below offers and what it checks.
+//
+// Here rather than in a caller because two doors need the same walk -- the
+// import folder mirroring a tree, and a share that lands under a dated folder
+// -- and a second copy of it would be a second opinion about what a parent is.
+// A file where a directory has to be is an error that names the path, since
+// the alternative is the generic conflict and somebody looking for a thing
+// that is not there.
+func (s *Service) MkdirAll(ctx context.Context, owner, dir string) error {
+	if dir == "." || dir == "/" || dir == "" {
+		return nil
+	}
+	walked := ""
+	for _, segment := range strings.Split(dir, "/") {
+		walked = pathpkg.Join(walked, segment)
+		switch existing, err := s.Stat(ctx, owner, walked); {
+		case err == nil && existing.IsDir:
+			continue
+		case err == nil:
+			return fmt.Errorf("%w: %q is a file and this needs it to be a folder", db.ErrConflict, walked)
+		case !errors.Is(err, db.ErrNotFound):
+			return err
+		}
+		if _, err := s.Mkdir(ctx, owner, walked); err != nil && !errors.Is(err, db.ErrConflict) {
+			return err
+		}
+	}
+	return nil
 }
 
 // Mkdir records an empty directory.

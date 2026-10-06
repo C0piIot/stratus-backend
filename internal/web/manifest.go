@@ -85,19 +85,51 @@ type manifestShortcut struct {
 	URL         string `json:"url"`
 }
 
+// manifestShareTarget is the phone's share sheet pointed at this server
+// (#312). The field is the one the upload form already uses, so both doors
+// take the same multipart; what it accepts is wide because a share sheet is
+// where everything on a phone ends up, and the handler is what decides.
+type manifestShareTarget struct {
+	Action  string `json:"action"`
+	Method  string `json:"method"`
+	Enctype string `json:"enctype"`
+	Params  struct {
+		Files []manifestShareFile `json:"files"`
+	} `json:"params"`
+}
+
+type manifestShareFile struct {
+	Name   string   `json:"name"`
+	Accept []string `json:"accept"`
+}
+
+// shareTarget is that member, built once because nothing in it varies.
+func shareTarget() manifestShareTarget {
+	t := manifestShareTarget{
+		Action:  shareTargetPath,
+		Method:  http.MethodPost,
+		Enctype: "multipart/form-data",
+	}
+	t.Params.Files = []manifestShareFile{
+		{Name: shareField, Accept: []string{"image/*", "video/*", "audio/*", "*/*"}},
+	}
+	return t
+}
+
 type webManifest struct {
-	ID              string             `json:"id"`
-	Name            string             `json:"name"`
-	ShortName       string             `json:"short_name"`
-	Description     string             `json:"description"`
-	StartURL        string             `json:"start_url"`
-	Scope           string             `json:"scope"`
-	Display         string             `json:"display"`
-	ThemeColor      string             `json:"theme_color"`
-	BackgroundColor string             `json:"background_color"`
-	Icons           []manifestIcon     `json:"icons"`
-	Screenshots     []manifestShot     `json:"screenshots"`
-	Shortcuts       []manifestShortcut `json:"shortcuts"`
+	ID              string              `json:"id"`
+	Name            string              `json:"name"`
+	ShortName       string              `json:"short_name"`
+	Description     string              `json:"description"`
+	StartURL        string              `json:"start_url"`
+	Scope           string              `json:"scope"`
+	Display         string              `json:"display"`
+	ThemeColor      string              `json:"theme_color"`
+	BackgroundColor string              `json:"background_color"`
+	Icons           []manifestIcon      `json:"icons"`
+	Screenshots     []manifestShot      `json:"screenshots"`
+	Shortcuts       []manifestShortcut  `json:"shortcuts"`
+	ShareTarget     manifestShareTarget `json:"share_target"`
 }
 
 // shortcuts are the bar's own Gallery menu said a second time, where a
@@ -150,6 +182,7 @@ func (h *handler) manifest(w http.ResponseWriter, _ *http.Request) {
 		m.Screenshots = append(m.Screenshots, s)
 	}
 	m.Shortcuts = shortcuts
+	m.ShareTarget = shareTarget()
 
 	w.Header().Set("Content-Type", manifestType)
 	// An hour. It is read on the way to an install and then rarely, and what it

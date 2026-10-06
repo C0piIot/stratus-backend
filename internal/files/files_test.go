@@ -864,3 +864,34 @@ func onlyBatch(t *testing.T, s *files.Service) string {
 	}
 	return batches[0].ID
 }
+
+// TestFreeNameNumbersRatherThanReplaces is the rule the import folder and the
+// share target both read: a write that must not destroy what is there lands
+// beside it, and the search for somewhere to land is bounded.
+func TestFreeNameNumbersRatherThanReplaces(t *testing.T) {
+	t.Parallel()
+	s, _ := service(t)
+
+	free, err := s.FreeName(t.Context(), owner, "scan.pdf")
+	if err != nil || free != "scan.pdf" {
+		t.Fatalf("FreeName of a name nobody has = %q, %v", free, err)
+	}
+
+	write(t, s, "scan.pdf", "the first one")
+	switch free, err = s.FreeName(t.Context(), owner, "scan.pdf"); {
+	case err != nil:
+		t.Fatal(err)
+	case free != "scan (2).pdf":
+		t.Errorf("FreeName = %q, want the number before the extension", free)
+	}
+
+	// The bound: a folder holding a hundred of one name is a loop somewhere
+	// else, and this says so rather than walking it on every pass.
+	for n := 2; n <= files.MaxCopies; n++ {
+		write(t, s, db.CopyName("scan.pdf", n), "another")
+	}
+	if _, err := s.FreeName(t.Context(), owner, "scan.pdf"); err == nil ||
+		!strings.Contains(err.Error(), "is taken") {
+		t.Errorf("FreeName with every name taken = %v, want a refusal", err)
+	}
+}

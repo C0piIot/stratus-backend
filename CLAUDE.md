@@ -112,7 +112,7 @@ Hard constraints, in the same spirit as the rest of the project:
   started with its worker off, so the policy needs no `worker-src`. It
   answers nothing in JSON and adds no endpoint: HLS is a protocol every player
   already speaks, served at the file's own URL (see Tech decisions).
-- **A web app manifest, and no service worker** (#129). `/manifest.webmanifest`
+- **A web app manifest and a service worker, which together make it installable** (#129). `/manifest.webmanifest`
   is a handler rather than a file, because every address in it carries the
   build: the icons and the screenshots sit under the same immutable cache
   header as the scripts with no version in their paths.
@@ -130,16 +130,53 @@ Hard constraints, in the same spirit as the rest of the project:
   **It is JSON and it is not an API**: the format is the W3C's and the client
   is the browser, which is the standing `robots.txt` has.
 
-  **What it does not do is make the UI installable, and that is deliberate.**
-  Chrome wants a service worker with a fetch handler before it offers to
-  install, and what that worker should answer with is the decision #129 is
-  labelled for -- an offline shell is a few dozen lines, an offline *library*
-  needs the listing as data and would be the private JSON API principle 2
-  forbids. So the manifest ships and the issue stays open on its own question.
-  What it buys meanwhile is the icon, the name and the colours when somebody
-  adds the page to a home screen by hand, which on iOS is the only way there
-  is: Safari reads no manifest for that icon, which is what the
-  `apple-touch-icon` in the layout is for.
+  On iOS none of it is what puts the icon on a home screen -- Safari reads no
+  manifest for that, which is what the `apple-touch-icon` in the layout is for.
+
+  **The worker is served from the root, `/sw.js`, and that is not a detail**:
+  a worker controls the directory it was served from, so one under
+  `/static/stratus/` would control nothing worth controlling. It is answered in
+  front of the session like the manifest -- a worker that got the redirect to
+  `/login` would fail to register -- and under `no-cache`, because a browser
+  decides there is a new version by comparing the bytes.
+
+  **What it precaches is written by the handler rather than by the file.**
+  Those addresses are the ones the layout links and `web.go` is where they are
+  spelled; a second copy of them in JavaScript is the drift this project keeps
+  tests for everywhere else. So `sw.go` writes the version and the list as two
+  constants in front of the script, which also means the bytes change when the
+  build does and a browser re-registers without being asked.
+
+  **It caches nothing that needs a session, and that is the rule rather than a
+  preference.** The worker writes to the cache while it installs and never
+  again, so a listing cannot be left behind for whoever opens the browser next
+  -- what it answers offline is `/offline`, a page of its own saying the server
+  cannot be reached, and the precached shell that draws it. That is the scope
+  #129 argued for: an installable shell and an offline page, **not** an offline
+  library, which would need the listing as data and would be the private JSON
+  API principle 2 forbids. `TestTheWorkerCachesOnlyWhileItInstalls` is a grep
+  over the file, like the inline-style one, because what makes it true is a
+  property of twenty lines of JavaScript and not of any handler.
+
+  **And the share sheet is a door into the tree** (#312): `share_target` points
+  at `POST /share-target`, which is `upload`'s twin. It invents no API --
+  `share_target` is a manifest member and what it describes is the same
+  multipart the UI's own form sends -- and it is a route of its own rather than
+  a flag on the upload because all three of its differences answer the same
+  fact, that a share carries no destination: it lands under
+  `shared/<year>/<month>/`, it never replaces (`files.FreeName`, the import
+  folder's rule), and a share with no filename is named for the moment it
+  arrived. Then it redirects to the folder with `?added=` exactly as an upload
+  does, so **the page somebody lands on is the answer to where it went**, with
+  the file's row on it and the rename that row has always had: no page was
+  designed for this feature at all.
+
+  **What is not known is whether a browser sends the session with that POST.**
+  The cookie is `SameSite=Lax`, so one the browser judges cross-site carries no
+  credential at all, and only a phone can say which this is. The two outcomes
+  are two different redirects in the request log, which is the measurement
+  written on #312 -- and if it is the wrong one, the way across is the worker
+  re-posting it same-origin and **not** an exemption in the CSRF defence.
 
   **The icons are one picture.** `brand/app-icon.svg` is full bleed with the
   mark inside Android's 66% safe circle, so both sizes are declared
@@ -161,6 +198,14 @@ Hard constraints, in the same spirit as the rest of the project:
   `scripts/smoke.sh` on their own. They are taken against a seeded demo
   instance, so the photographs in them are the demo bundle's and CC0
   (`scripts/demo/CREDITS.md`).
+
+- **The fourth script is the one that registers the worker, and this is its
+  paragraph** (#129). Twelve lines in
+  `internal/web/static/stratus/register.js`, because a manifest alone does not
+  make a page installable and registration cannot be declared in markup. **It
+  degrades by construction** like the other three: a browser with no JavaScript
+  registers nothing and gets the server-rendered site every page here already
+  is, which is also what a browser with no worker support gets.
 
 - **htmx only where it is genuinely required**, vendored and embedded like
   Bootstrap. Default to a plain form and a full page render. One page needs it
