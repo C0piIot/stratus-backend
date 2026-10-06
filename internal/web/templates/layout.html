@@ -76,22 +76,31 @@
     </form>
     <div class="d-flex align-items-center gap-3">
       {{template "libraries" "navbar-text link-secondary text-decoration-none d-none d-lg-inline"}}
-      {{/* The same six behind a button where the row will not hold them. The
-           breakpoint is lg and not md because the row at md was already at its
-           limit before the mark was put in front of it. */}}
+      <span class="navbar-text">{{.User}}</span>
+      <form method="post" action="/logout" class="m-0 d-none d-lg-block">
+        <button class="btn btn-sm btn-outline-secondary" type="submit">Sign out</button>
+      </form>
+      {{/* Everything the bar will not hold, at the end of it so the button is
+           where a thumb is. The breakpoint is lg and not md because the row at
+           md was already at its limit before the mark was put in front of it.
+
+           Signing out is a POST and stays one in here: a dropdown-item is a
+           submit button inside its own form, not a link, because the session
+           cookie is SameSite=Lax and a GET that signs you out is a link
+           anybody can put in a page. */}}
       <div class="dropdown d-lg-none">
         <button class="btn btn-sm btn-outline-secondary" type="button"
-                data-bs-toggle="dropdown" aria-expanded="false" aria-label="Libraries">
+                data-bs-toggle="dropdown" aria-expanded="false" aria-label="Menu">
           <span aria-hidden="true">&#9776;</span>
         </button>
         <div class="dropdown-menu dropdown-menu-end z-3">
           {{template "libraries" "dropdown-item"}}
+          <hr class="dropdown-divider">
+          <form method="post" action="/logout" class="m-0">
+            <button class="dropdown-item" type="submit">Sign out</button>
+          </form>
         </div>
       </div>
-      <span class="navbar-text">{{.User}}</span>
-      <form method="post" action="/logout" class="m-0">
-        <button class="btn btn-sm btn-outline-secondary" type="submit">Sign out</button>
-      </form>
     </div>
     {{end}}
   </div>
