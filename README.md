@@ -12,6 +12,13 @@ protocols your existing apps already understand.
 > The tables below say what answers and what does not, rather than what is
 > intended — if a row says **works**, it works.
 
+**There is one running at <https://stratus-demo.dropdatabase.es>**, on the last
+commit that went green on `main`. Sign in as `demo`, with the version string in
+the page footer as the password. It empties itself every hour and on every
+merge, and anybody can sign into it — so it is somewhere to look, never
+somewhere to put anything of yours. What it is and why it is open is at the end
+of this file.
+
 ## Protocols
 
 | Protocol | Use | Works with | Status |
@@ -1307,7 +1314,8 @@ end-to-end run can satisfy has stopped being a statement about unit tests.
 
 CI publishes `ghcr.io/c0piiot/stratus-backend:main` on every merge, multi-arch,
 and — where a repository sets a `FLY_APP` variable — deploys that exact digest to
-a test instance described by [`fly.toml`](fly.toml). It is one job at the end of
+a test instance described by [`fly.toml`](fly.toml), which is the one at
+<https://stratus-demo.dropdatabase.es>. It is one job at the end of
 a pipeline that has already run the linters, the race detector, both conformance
 suites, the coverage floors and the container suite, so nothing reaches it that
 has not been through all of them. Anywhere `FLY_APP` is unset, including every
@@ -1334,7 +1342,11 @@ is not part of it. Three things follow, and none of them is an accident:
   `scripts/demo-reset.sh`, which both the hourly reset and a deploy run,
   destroys the machine and its volume, deploys onto a new, empty one without
   changing a line of what it runs, and checks the tree really is empty before
-  seeding it.
+  seeding it. It seeds and checks through `DEMO_BASE` where a repository sets
+  one — the address people are actually given, so a certificate that expired or
+  a DNS record somebody moved is found within the hour rather than by whoever
+  clicks the link. Unset, it uses the app's own `.fly.dev` name, which is what
+  a fork and an instance with no domain of its own get.
 
   Destroying the volume is the point rather than an implementation detail. A
   deploy replaces the image and leaves the disk under it, and so does stopping
