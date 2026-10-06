@@ -337,3 +337,31 @@ func TestAnHTMLFileIsOpenedSandboxed(t *testing.T) {
 		t.Errorf("Content-Security-Policy = %q, want it sandboxed", got)
 	}
 }
+
+// TestAnEmptyFolderSaysSomethingUseful: the hint names an address that exists,
+// since /dav/ has been gone since #279 -- and a visitor on a share link is
+// told neither to upload nor to mount, because there is no form above them
+// and no password for them to mount anything with.
+func TestAnEmptyFolderSaysSomethingUseful(t *testing.T) {
+	t.Parallel()
+	h, s := browser(t)
+	cookie := signIn(t, h)
+
+	own := get(t, h, "/files/", cookie).Body.String()
+	if strings.Contains(own, "/dav/") {
+		t.Errorf("the empty folder points at /dav/, which this server stopped answering:\n%s", own)
+	}
+	if !strings.Contains(own, "<code>/files/</code>") {
+		t.Errorf("the empty folder offers nothing to mount:\n%s", own)
+	}
+
+	mkdir(t, s, "empty")
+	link := linkTo(t, h, "empty", "7d")
+	shared := get(t, h, "/files/empty"+link[strings.Index(link, "?"):]).Body.String()
+	if !strings.Contains(shared, "This folder is empty.") {
+		t.Errorf("a shared empty folder says nothing at all:\n%s", shared)
+	}
+	if strings.Contains(shared, "Put something in it above") || strings.Contains(shared, "WebDAV client") {
+		t.Errorf("a visitor is told to upload into it or to mount it:\n%s", shared)
+	}
+}
