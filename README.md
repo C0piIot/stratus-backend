@@ -779,10 +779,20 @@ Matroska file, AC-3 sound — plays as HLS, remuxed as it is watched: Safari
 natively, because the playlist is one of the element's own sources and it takes
 it without being asked, and anything else through hls.js, which is loaded for
 that page and that film only. With no JavaScript the player still plays
-whatever the browser plays, Safari included. The same HLS is what a Chromecast is sent: `?hls=index.m3u8` on the
-file's URL, or on its share link, since a receiver cannot sign in. It answers
-on the film's own URL with the same signature, which is where `stratus-app`
-casts from — and that address is the WebDAV one as well now.
+whatever the browser plays, Safari included. The same HLS is what a Chromecast
+is sent: `?hls=index.m3u8` on the file's URL, or on its share link, since a
+receiver cannot sign in. It answers on the film's own URL with the same
+signature, which is where `stratus-app` casts from — and that address is the
+WebDAV one as well now.
+
+**The player signs what it points at**, so the cast button a browser offers by
+itself — Chrome's, and AirPlay in Safari — hands the television an address it
+can actually fetch rather than a login page. Opening a film therefore makes a
+share link for it, good for a day, with the same consequences as any other: it
+cannot be withdrawn on its own, and changing the password withdraws it along
+with everything else. For a film that needs hls.js to play here that button is
+turned off instead, because what it would hand over is the container the
+television refused in the first place.
 
 **There is a search box in the bar at the top.** It finds a file or a folder by
 its **name** -- not its path, so a word in a folder finds the folder and not the

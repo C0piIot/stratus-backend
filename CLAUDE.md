@@ -75,6 +75,26 @@ Hard constraints, in the same spirit as the rest of the project:
   `internal/web/static/stratus/play.js`, which is twenty lines that hand it
   the playlist.
 
+  **What the element points at is signed** (#305). A cast or AirPlay button
+  hands the receiver whatever `currentSrc` is, and a receiver fetches by
+  itself with no cookie to send, so an unsigned address is a film that plays
+  here and a login page on the television. The player mints a share link for
+  the film it is showing when the page arrived without one -- a day, because
+  it has to outlast a sitting rather than a request, and a playlist whose
+  segments stop being fetchable halfway is a film that stops. What it signs is
+  the file's own `/files/` address even on a page in the video library, since
+  a signature names a path and that is the only path there is a token for --
+  which is where the playlist has always pointed from both pages. The link
+  beside the player is for a person with a session and stays unsigned.
+
+  **Where that cannot be true the button is turned off instead.** A browser
+  that took neither source is one hls.js will drive through a MediaSource,
+  which is not an address at all, and until then it has fallen back to the
+  very container the film was remuxed out of because a receiver will not play
+  it. `play.js` sets `disableRemotePlayback` there, so what a browser offers
+  is either right or not offered -- casting from this UI on purpose, with a
+  button of our own, is still the decision in #305.
+
   What keeps it on the right side of the line is the same as the first: **it
   degrades by construction.** The player is a `<video>` with two sources, the
   playlist and the file, and whichever the browser can play it plays with no
