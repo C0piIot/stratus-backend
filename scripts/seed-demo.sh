@@ -9,6 +9,10 @@
 # fifteen seconds of video in eight containers and codecs, each there for a
 # different thing a server has to do with a film (scripts/demo/CREDITS.md).
 #
+# And a playlist, which is not in the bundle and cannot be: /playlists/ is a
+# read-only mount of rows the database holds, so the only way to make one is
+# the way a client does, over OpenSubsonic.
+#
 # The media is a release asset rather than a directory in this repository: the
 # whole clone is 6.6 MB and the bundle is 15.6, which is not a weight to carry
 # in every clone forever. scripts/demo/SHA256SUMS pins the bytes; the attribution
@@ -156,6 +160,39 @@ type="$(curl -s -o /dev/null -w '%{content_type}' \
 case "$type" in
 image/jpeg*) ok "getCoverArt answers a JPEG for the album" ;;
 *) die "getCoverArt answered $type" ;;
+esac
+
+# A playlist, because /playlists/ is a surface of its own and an empty one
+# shows nobody anything. It is made the way a client makes one -- there is no
+# other way, the mount being read-only -- and the tracks come out of the album
+# rather than being named here, so this cannot disagree with the bundle.
+album="$(tr '<' '\n' <<<"$albums" | grep 'name="Stratus demo"' | sed -n 's/.*id="\([^"]*\)".*/\1/p' | head -1)"
+[ -n "$album" ] || die "the album carries no id"
+songs=""
+while read -r id; do
+	songs="$songs&songId=$(encode "$id")"
+done < <(tr '<' '\n' <<<"$(rest getAlbum "id=$(encode "$album")")" |
+	grep '^song ' | sed -n 's/.*id="\([^"]*\)".*/\1/p')
+[ -n "$songs" ] || die "getAlbum lists no songs to put in a playlist"
+
+# createPlaylist with no playlistId always creates, so running this twice would
+# make two. The demo's volume is destroyed on every reset, but `make demo`
+# against a server on this machine is run more than once.
+case "$(rest getPlaylists)" in
+*'name="Demo mix"'*) ok "the playlist is already there" ;;
+*)
+	rest createPlaylist "name=$(encode "Demo mix")$songs" >/dev/null
+	ok "createPlaylist made one out of the album"
+	;;
+esac
+
+# The other half of that surface: the same playlist generated as a file, so a
+# player that speaks no OpenSubsonic can still open it. The space in the name
+# is deliberate, like the one in "Kevin MacLeod/Stratus demo".
+m3u="$(curl -fsS -u "$USER:$PASS" "$BASE/playlists/$(encode "Demo mix.m3u8")" || true)"
+case "$m3u" in
+*"#EXTM3U"*) ok "/playlists/ serves it as .m3u8 over WebDAV" ;;
+*) die "/playlists/Demo mix.m3u8 did not come back as a playlist" ;;
 esac
 
 # A thumbnail for every video the listing would offer one for, which is every

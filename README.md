@@ -1331,7 +1331,13 @@ stream, MPEG-4 in AVI and a portrait phone recording
 ([`CREDITS.md`](scripts/demo/CREDITS.md) says what each is for) — and puts it in
 over WebDAV, then asks the server what it did with it: the files read back, the
 indexer found the artist, the album has a cover, every video but the transport
-stream has a thumbnail, and a video answers a range request. It is the only check here that runs against something deployed rather
+stream has a thumbnail, and a video answers a range request.
+
+It also makes a playlist out of that album, which is not in the bundle and
+could not be: `/playlists/` is a read-only mount over rows the database holds,
+so the only way to make one is the way a client makes one, over OpenSubsonic.
+That is also the check — it is created with `createPlaylist` and read back as
+a generated `.m3u8` over WebDAV, which is both halves of that surface at once. It is the only check here that runs against something deployed rather
 than against an image on the build machine, and `make demo BASE=…` runs the same
 thing against a local instance.
 
