@@ -8,9 +8,14 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/C0piIot/stratus-backend/internal/db/dbtest"
+	"github.com/C0piIot/stratus-backend/internal/files"
+	"github.com/C0piIot/stratus-backend/internal/storage/storagetest"
 )
 
 // shared posts what a share sheet posts: one file part, named as the manifest
@@ -22,7 +27,11 @@ func shared(t *testing.T, h http.Handler, cookie *http.Cookie, filename, content
 	head := make(map[string][]string)
 	head["Content-Disposition"] = []string{`form-data; name="file"`}
 	if filename != "" {
-		head["Content-Disposition"] = []string{fmt.Sprintf(`form-data; name="file"; filename=%q`, filename)}
+		// Escaped the way multipart.Writer escapes it -- backslash and quote
+		// and nothing else -- so that a name a MIME header cannot carry stays
+		// in the header and makes the body unreadable, which is a case here.
+		escaped := strings.NewReplacer("\\", "\\\\", `"`, `\"`).Replace(filename)
+		head["Content-Disposition"] = []string{`form-data; name="file"; filename="` + escaped + `"`}
 	}
 	if contentType != "" {
 		head["Content-Type"] = []string{contentType}
@@ -166,5 +175,69 @@ func TestTheManifestPointsAtTheHandler(t *testing.T) {
 	rec := shared(t, h, cookie, "holiday.jpg", "image/jpeg", "the bytes")
 	if target.Action != "/share-target" || rec.Code != http.StatusSeeOther {
 		t.Errorf("the manifest points at %q, which answered %d", target.Action, rec.Code)
+	}
+}
+
+// TestWhatIsSharedHasToBeAFile: the manifest asks for multipart, and anything
+// else posted at this address is the sender's mistake rather than the tree's.
+func TestWhatIsSharedHasToBeAFile(t *testing.T) {
+	t.Parallel()
+	h, _ := browser(t)
+	cookie := signIn(t, h)
+
+	rec := post(t, h, "/share-target", url.Values{"text": {"look at this"}}, cookie)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("sharing a form with no file in it = %d, want 400", rec.Code)
+	}
+}
+
+// TestSharingWhenTheStoreRefuses: it is the same write an upload makes, so a
+// store that says no stops it rather than leaving a name with nothing behind
+// it.
+func TestSharingWhenTheStoreRefuses(t *testing.T) {
+	t.Parallel()
+	blobs, meta := backends(t)
+	broken := files.New(storagetest.FailOn(t, blobs, "Put"), meta)
+	h := handlerOver(t, broken, blobs, meta)
+	cookie := signIn(t, h)
+
+	rec := shared(t, h, cookie, "holiday.jpg", "image/jpeg", "the bytes")
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("sharing into a store that refuses = %d, want 500", rec.Code)
+	}
+	if strings.Contains(rec.Body.String(), storagetest.ErrInjected.Error()) {
+		t.Error("the page carries the error, which belongs in the log")
+	}
+}
+
+// TestSharingWhenTheFolderCannotBeMade: the dated folder is made on the way,
+// and a database that will not say whether it is there stops the share before
+// any bytes move.
+func TestSharingWhenTheFolderCannotBeMade(t *testing.T) {
+	t.Parallel()
+	blobs, meta := backends(t)
+	broken := files.New(blobs, dbtest.FailOn(t, meta, "FileByPath"))
+	h := handlerOver(t, broken, blobs, meta)
+	cookie := signIn(t, h)
+
+	if rec := shared(t, h, cookie, "holiday.jpg", "image/jpeg", "the bytes"); rec.Code != http.StatusInternalServerError {
+		t.Errorf("sharing where the folder cannot be made = %d, want 500", rec.Code)
+	}
+}
+
+// TestAShareThatDoesNotArriveWhole: a MIME header cannot carry a control
+// character, so a filename with one in it stops the body being readable before
+// any of it reaches the tree — the same refusal an upload gives.
+func TestAShareThatDoesNotArriveWhole(t *testing.T) {
+	t.Parallel()
+	h, _ := browser(t)
+	cookie := signIn(t, h)
+
+	rec := shared(t, h, cookie, "img\x01.jpg", "image/jpeg", "pixels")
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("a share with an unreadable header = %d, want 400", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "did not arrive whole") {
+		t.Errorf("refused, but not for that reason:\n%s", rec.Body)
 	}
 }

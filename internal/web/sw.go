@@ -3,7 +3,6 @@ package web
 import (
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"net/url"
 )
@@ -40,6 +39,18 @@ const (
 	workerSource = "static/stratus/sw.js"
 )
 
+// workerBody is read once, at startup, and a failure is a panic there: the file
+// is embedded in this binary, so it cannot be missing at a request and a branch
+// for it would be one nothing can reach. The template sets in render.go are
+// built the same way, for the same reason.
+var workerBody = func() []byte {
+	body, err := staticFS.ReadFile(workerSource)
+	if err != nil {
+		panic("web: the service worker is not in the binary: " + err.Error())
+	}
+	return body
+}()
+
 // shell is what the worker precaches: enough for a page to draw itself with no
 // network, and nothing that a session would be needed to fetch.
 //
@@ -61,26 +72,15 @@ func (h *handler) shell() []string {
 }
 
 func (h *handler) worker(w http.ResponseWriter, _ *http.Request) {
-	body, err := staticFS.ReadFile(workerSource)
-	if err != nil {
-		// The file is embedded in this binary, so this is a build that cannot
-		// happen rather than an operator's problem.
-		slog.Error("reading the service worker", "err", err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-	shell, err := json.Marshal(h.shell())
-	if err != nil {
-		slog.Error("writing the service worker's shell", "err", err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
+	// A list of strings is not something encoding/json can fail on, and a
+	// branch nothing can reach is a branch nothing can test.
+	shell, _ := json.Marshal(h.shell()) //nolint:errchkjson // []string
 
 	w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache")
 	_, _ = fmt.Fprintf(w, "const VERSION = %q;\nconst OFFLINE = %q;\nconst SHELL = %s;\n",
 		h.version, offlinePath, shell)
-	_, _ = w.Write(body)
+	_, _ = w.Write(workerBody)
 }
 
 // offline is the page a navigation gets when the server cannot be reached. It
