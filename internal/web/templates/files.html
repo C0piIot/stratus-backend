@@ -69,10 +69,20 @@
   </div>
 </div>
 {{else}}
+{{/* Two halves, because a visitor on a share link has neither of the things
+     the other one offers: there is no upload form above them, and no password
+     to mount anything with. /dav/ is gone (#279) -- a client is pointed at
+     this server's address, or at /files/ for the tree alone, which is the one
+     to give a client that writes. */}}
 <div class="card">
   <div class="card-body text-body-secondary">
+    {{- if .Shared}}
+    This folder is empty.
+    {{- else}}
     This folder is empty. Put something in it above, or point a WebDAV client —
-    rclone, Finder, Nautilus or FolderSync — at <code>/dav/</code>.
+    rclone, Finder, Nautilus or FolderSync — at <code>/files/</code>, which is
+    this same tree.
+    {{- end}}
   </div>
 </div>
 {{end}}
