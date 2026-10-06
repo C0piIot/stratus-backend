@@ -92,7 +92,7 @@ func (h *handler) playlistPages(w http.ResponseWriter, r *http.Request, user str
 
 	w.Header().Set("Content-Security-Policy", albumPolicy)
 	h.render(w, http.StatusOK, pagePlaylist, view{
-		Title: pl.Name, User: user, Playlist: pv, Back: playlistsPrefix,
+		Title: pl.Name, User: user, Gallery: "Playlists", Playlist: pv, Back: playlistsPrefix,
 	})
 }
 
@@ -108,7 +108,7 @@ func (h *handler) playlistIndex(w http.ResponseWriter, r *http.Request, user str
 			File: link(playlistsPrefix, name),
 		})
 	}
-	h.render(w, http.StatusOK, pagePlaylists, view{Title: "Playlists", User: user, Playlists: rows})
+	h.render(w, http.StatusOK, pagePlaylists, view{Title: "Playlists", User: user, Gallery: "Playlists", Playlists: rows})
 }
 
 // playlistMIME is the type players recognise an .m3u8 by. The same constant
