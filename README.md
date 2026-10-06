@@ -739,11 +739,12 @@ handlers do — it will never grow a private JSON API of its own.
 **The bar is a link and two menus**: files, a gallery menu holding photos,
 videos, music and playlists, and your own name holding status and signing out.
 The gallery's button wears the gallery you are in, so the bar says where you
-are without carrying a name for every library. Both menus are a `<details>`
-rather than a scripted dropdown, which is what keeps signing out possible with
-JavaScript turned off, and they are the one thing here with a stylesheet of its
-own: six rules that make the browser's own disclosure wear the same dropdown as
-everything else.
+are without carrying a name for every library. Both are Bootstrap's own
+dropdown out of the bundle the page already loads, so neither costs a
+stylesheet or a script of ours — and neither opens with JavaScript turned off.
+A gallery can still be reached by typing its address; **ending a session
+cannot**, since that is a `POST`, so a plain Sign out button sits in a
+`<noscript>` beside the menu.
 
 **One URL per directory, and the same one per file**: `/files/photos/2026` is a
 page, `/files/photos/2026/img.jpg` is the picture. Opening a file leaves it to

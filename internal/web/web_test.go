@@ -450,24 +450,13 @@ func TestMarkAndFavicon(t *testing.T) {
 	if got := rec.Header().Get("Content-Type"); !strings.HasPrefix(got, "image/svg+xml") {
 		t.Errorf("the favicon is served as %q, want image/svg+xml", got)
 	}
-
-	// The bar's menus are a <details> wearing Bootstrap's dropdown, and these
-	// few rules are what make it fit. Nothing else here has a stylesheet of
-	// its own, so it is worth asserting that the one there is arrives.
-	if !strings.Contains(body, `href="/static/stratus/menu.css?v=`) {
-		t.Error("the layout links no stylesheet of its own")
-	}
-	if rec := get(t, h, "/static/stratus/menu.css?v="+version); rec.Code != http.StatusOK ||
-		!strings.HasPrefix(rec.Header().Get("Content-Type"), "text/css") {
-		t.Errorf("menu.css = %d %q, want 200 text/css", rec.Code, rec.Header().Get("Content-Type"))
-	}
 }
 
-// TestNavbar: two menus and a link, which is the whole bar. What it guards is
-// that neither menu needs a script -- Bootstrap's own would have made signing
-// out impossible with JavaScript off -- and that signing out stays a POST
-// wherever it is offered, since a GET that ends a session is one anybody can
-// put in a page for somebody else to load.
+// TestNavbar: two menus and a link, which is the whole bar. Both are
+// Bootstrap's own dropdown, so what this guards is that they stay that -- no
+// stylesheet and no script of ours for a thing the bundle already does -- and
+// that signing out is a POST wherever it is offered, since a GET that ends a
+// session is one anybody can put in a page for somebody else to load.
 func TestNavbar(t *testing.T) {
 	t.Parallel()
 	h := newHandler(t, nil)
@@ -484,14 +473,25 @@ func TestNavbar(t *testing.T) {
 			t.Errorf("%s appears %d times in the bar, want once", href, got)
 		}
 	}
-	if strings.Contains(nav, "data-bs-") {
-		t.Error("the bar asks Bootstrap's JavaScript to open a menu")
+	if got := strings.Count(nav, `data-bs-toggle="dropdown"`); got != 2 {
+		t.Errorf("the bar has %d dropdowns, want 2", got)
+	}
+	// style-src is 'self' with no 'unsafe-inline', so a rule written into the
+	// markup would be dropped by the browser and nobody would see why.
+	if strings.Contains(nav, " style=") {
+		t.Error("the bar carries an inline style, which the policy forbids")
 	}
 	if strings.Contains(nav, `href="/logout"`) {
 		t.Error("sign out is offered as a link, which makes it a GET")
 	}
-	if !strings.Contains(nav, `action="/logout"`) {
-		t.Error("the bar offers no way to sign out")
+	if got := strings.Count(nav, `action="/logout"`); got != 2 {
+		t.Errorf("sign out appears %d times, want twice: in the menu and in the noscript", got)
+	}
+	// The menu will not open without a script, and ending a session is a POST,
+	// so it is the one thing here that cannot be reached by typing an address.
+	noscript := regexp.MustCompile(`(?s)<noscript>.*?</noscript>`).FindString(nav)
+	if !strings.Contains(noscript, `action="/logout"`) {
+		t.Error("nothing signs out with JavaScript off")
 	}
 
 	// The gallery's button wears the gallery you are in, which is what keeps
@@ -503,7 +503,7 @@ func TestNavbar(t *testing.T) {
 		"/music/":     "Music",
 		"/playlists/": "Playlists",
 	} {
-		label := regexp.MustCompile(`(?s)<summary[^>]*>\s*(.*?)\s*</summary>`).FindStringSubmatch(bar(path))
+		label := regexp.MustCompile(`(?s)<button[^>]*dropdown-toggle[^>]*>\s*(.*?)\s*</button>`).FindStringSubmatch(bar(path))
 		if label == nil || label[1] != want {
 			t.Errorf("%s: the gallery menu says %q, want %q", path, label, want)
 		}

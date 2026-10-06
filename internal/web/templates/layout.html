@@ -28,7 +28,6 @@
      before this line existed. */}}
 <link rel="icon" href="{{.Favicon}}" type="image/svg+xml">
 <link rel="stylesheet" href="{{.Assets}}/bootstrap.min.css">
-<link rel="stylesheet" href="{{.Menu}}">
 {{/* Every place htmx evaluates a string checks this first, so turning it off
      is what keeps 'unsafe-eval' out of the content security policy. A meta
      element rather than a line of script, which that policy also forbids. */}}
@@ -67,31 +66,47 @@
       {{/* Two menus and nothing else, because a bar of six links was a list of
            places rather than a way to get to one. The gallery's button wears
            the gallery you are in, so the bar says where you are without a
-           seventh thing on it; everywhere else it says Gallery. */}}
-      <details class="menu position-relative">
-        <summary class="navbar-text link-secondary text-decoration-none dropdown-toggle">
+           seventh thing on it; everywhere else it says Gallery.
+
+           Bootstrap's own dropdown, which is already in the bundle this page
+           loads: nothing here is worth a stylesheet or a script of our own.
+           What it costs is that a browser with JavaScript off opens neither,
+           and signing out is inside one of them. */}}
+      <div class="dropdown">
+        <button class="btn btn-sm btn-link link-secondary text-decoration-none dropdown-toggle p-0"
+                type="button" data-bs-toggle="dropdown" aria-expanded="false">
           {{if .Gallery}}{{.Gallery}}{{else}}Gallery{{end}}
-        </summary>
-        <div class="dropdown-menu dropdown-menu-end z-3">
+        </button>
+        <div class="dropdown-menu dropdown-menu-end">
           <a class="dropdown-item" href="/photos/">Photos</a>
           <a class="dropdown-item" href="/videos/">Videos</a>
           <a class="dropdown-item" href="/music/">Music</a>
           <a class="dropdown-item" href="/playlists/">Playlists</a>
         </div>
-      </details>
+      </div>
       {{/* Signing out is a POST and stays one in here: a dropdown-item is a
            submit button inside its own form, not a link, because a GET that
            ends a session is one anybody can put in a page. */}}
-      <details class="menu position-relative">
-        <summary class="navbar-text link-secondary text-decoration-none dropdown-toggle">{{.User}}</summary>
-        <div class="dropdown-menu dropdown-menu-end z-3">
+      <div class="dropdown">
+        <button class="btn btn-sm btn-link link-secondary text-decoration-none dropdown-toggle p-0"
+                type="button" data-bs-toggle="dropdown" aria-expanded="false">{{.User}}</button>
+        <div class="dropdown-menu dropdown-menu-end">
           <a class="dropdown-item" href="/status">Status</a>
           <hr class="dropdown-divider">
           <form method="post" action="/logout" class="m-0">
             <button class="dropdown-item" type="submit">Sign out</button>
           </form>
         </div>
-      </details>
+      </div>
+      {{/* A menu that will not open is no way to end a session, and that is
+           the one thing in here somebody has to be able to do. The galleries
+           can be reached by typing an address; a session cannot be ended by
+           typing one, because ending it is a POST. */}}
+      <noscript>
+        <form method="post" action="/logout" class="m-0">
+          <button class="btn btn-sm btn-outline-secondary" type="submit">Sign out</button>
+        </form>
+      </noscript>
     </div>
     {{end}}
   </div>
