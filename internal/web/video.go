@@ -46,6 +46,12 @@ const (
 	playlistName = "index.m3u8"
 	copyName     = "copy.m3u8"
 	encodedName  = "h264.m3u8"
+	// castLife is how long the signature on the player's own media lasts. A
+	// receiver fetches for as long as the film runs and a pause is part of
+	// watching one, so it has to outlast a sitting rather than a request --
+	// and a playlist whose segments stop being fetchable halfway is a film
+	// that stops. A day is the shortest lifetime the share form offers.
+	castLife = 24 * time.Hour
 )
 
 // Video is what films need from the rest of the process: the media row that
@@ -67,10 +73,12 @@ type Video struct {
 
 // filmView is the player page.
 type filmView struct {
-	// Direct is the file itself, the source a browser falls to when it plays
-	// the film as it is, and HLS the playlist offered ahead of it, empty when
-	// the film does not need one or cannot have one.
-	Direct, HLS string
+	// Direct is the file itself, which is the link beside the player, and
+	// Source the same film signed -- what the element points at, since what
+	// fetches it may be a television rather than this browser. HLS is the
+	// playlist offered ahead of it, signed the same way and empty when the
+	// film does not need one or cannot have one.
+	Direct, Source, HLS string
 }
 
 // playerPolicy is the pages' policy plus what a video element needs: media
@@ -99,7 +107,25 @@ func (h *handler) file(w http.ResponseWriter, r *http.Request, user string, f db
 // one URL per thing on both -- and back is the page above it.
 func (h *handler) play(w http.ResponseWriter, r *http.Request, user string, f db.File, direct, back string) {
 	token := r.URL.Query().Get(shareParam)
-	film := &filmView{Direct: direct}
+
+	// **What the element points at is signed, because what plays it may not be
+	// this browser.** A cast or AirPlay button hands the receiver whatever the
+	// element's currentSrc is, and a receiver fetches by itself with no cookie
+	// to send -- so an unsigned address is a film that plays here and a login
+	// page on the television. A page opened from a share link carries a
+	// signature already; the owner's carries none, so one is minted for this
+	// film alone. It is the mechanism #169 built and the price that issue
+	// wrote down: a link nothing withdraws short of a password change.
+	//
+	// It is the file's own address under /files/ even on a page in the video
+	// library, because a signature names a path and the only path there is a
+	// token for is the file's -- which is where the playlist has always
+	// pointed from both pages.
+	cast := token
+	if cast == "" {
+		cast = h.shares.Issue(user, f.Path, false, time.Now().Add(castLife))
+	}
+	film := &filmView{Direct: direct, Source: shared(href(f.Path), cast)}
 
 	// A film the browser takes as it is needs nothing more; one it does not,
 	// and that can be remuxed, gets the playlist. A row nobody has read yet
@@ -107,7 +133,7 @@ func (h *handler) play(w http.ResponseWriter, r *http.Request, user string, f db
 	if m, err := h.video.Media.MediaByFile(r.Context(), f.ID); err == nil && !media.PlaysInBrowser(f, m) {
 		_, remuxErr := media.RemuxFor(m)
 		if _, ok := h.encoding(m); remuxErr == nil || ok {
-			film.HLS = shared(href(f.Path)+"?"+hlsParam+"="+playlistName, token)
+			film.HLS = shared(href(f.Path)+"?"+hlsParam+"="+playlistName, cast)
 		}
 	}
 

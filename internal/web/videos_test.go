@@ -114,7 +114,9 @@ func TestTheVideoTreeWalks(t *testing.T) {
 }
 
 // TestAVideosPageIsThePlayer, at the video's own address rather than the
-// file's: one URL per thing here too.
+// file's: one URL per thing here too. What the element reads is the file's
+// address all the same, because that is the path the signature a receiver
+// needs can be issued for.
 func TestAVideosPageIsThePlayer(t *testing.T) {
 	t.Parallel()
 	c := newCinema(t)
@@ -128,7 +130,8 @@ func TestAVideosPageIsThePlayer(t *testing.T) {
 	body := htmlstd.UnescapeString(rec.Body.String())
 	for _, want := range []string{
 		`<video`,
-		`src="/videos/2024/06/clip.mp4"`,
+		`href="/videos/2024/06/clip.mp4"`,
+		`<source src="/files/clip.mp4?k=`,
 		`href="/videos/2024/06/"`,
 	} {
 		if !strings.Contains(body, want) {

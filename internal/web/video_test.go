@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -104,8 +105,9 @@ func TestThePlayerAsksForHLSOnlyWhenItMust(t *testing.T) {
 	rec := get(t, c, "/files/film.mkv?play", cookie)
 	page := rec.Body.String()
 	for _, want := range []string{
-		`<source src="/files/film.mkv?hls=index.m3u8" type="application/vnd.apple.mpegurl">`,
-		`<source src="/files/film.mkv">`, `data-hls="/files/film.mkv?hls=index.m3u8"`,
+		`<source src="/files/film.mkv?hls=index.m3u8&amp;k=`,
+		`" type="application/vnd.apple.mpegurl">`,
+		`<source src="/files/film.mkv?k=`, `data-hls="/files/film.mkv?hls=index.m3u8&amp;k=`,
 		`/static/hls.js-1.7.3/hls.light.min.js`, `/static/stratus/play.js?v=`,
 	} {
 		if !strings.Contains(page, want) {
@@ -114,7 +116,7 @@ func TestThePlayerAsksForHLSOnlyWhenItMust(t *testing.T) {
 	}
 	// The order is the feature: a browser takes the first source it can play,
 	// so the playlist has to be offered before the film it was remuxed from.
-	if strings.Index(page, "?hls=index.m3u8\" type=") > strings.Index(page, `<source src="/files/film.mkv">`) {
+	if strings.Index(page, `type="application/vnd.apple.mpegurl"`) > strings.Index(page, `<source src="/files/film.mkv?k=`) {
 		t.Errorf("the file is offered before the playlist, so Safari plays neither:\n%s", page)
 	}
 	if csp := rec.Header().Get("Content-Security-Policy"); !strings.Contains(csp, "media-src 'self' blob:") {
@@ -124,6 +126,53 @@ func TestThePlayerAsksForHLSOnlyWhenItMust(t *testing.T) {
 	page = get(t, c, "/files/clip.mp4?play", cookie).Body.String()
 	if strings.Contains(page, "data-hls") || strings.Contains(page, "hls.light") || strings.Contains(page, "play.js") {
 		t.Errorf("an MP4 a browser plays was given HLS:\n%s", page)
+	}
+}
+
+// sourceSrc reads the addresses the player hands the browser, in the order
+// the element offers them.
+var sourceSrc = regexp.MustCompile(`<source src="([^"]+)"`)
+
+// TestThePlayerSignsWhatAReceiverFetches: a cast or AirPlay button hands the
+// television whatever the element points at, and a television carries no
+// cookie -- so the film and its playlist are signed even on the owner's own
+// page, while the link beside the player, which is for a person with a
+// session, is not.
+func TestThePlayerSignsWhatAReceiverFetches(t *testing.T) {
+	t.Parallel()
+	c := newCinema(t)
+	c.film(t, "film.mkv", "gop.mkv", ac3Film)
+	cookie := signIn(t, c)
+
+	page := get(t, c, "/files/film.mkv?play", cookie).Body.String()
+	if !strings.Contains(page, `href="/files/film.mkv">Open the file`) {
+		t.Errorf("the link beside the player is signed, and it is for a person:\n%s", page)
+	}
+	found := sourceSrc.FindAllStringSubmatch(page, -1)
+	if len(found) != 2 {
+		t.Fatalf("the player offers %d sources, want the playlist and the film:\n%s", len(found), page)
+	}
+	// The addresses come out of an attribute, where the query's & is written
+	// &amp; -- a request takes the one the browser would have made.
+	unescape := func(s string) string { return strings.ReplaceAll(s, "&amp;", "&") }
+	playlist, film := unescape(found[0][1]), unescape(found[1][1])
+	for _, target := range []string{playlist, film} {
+		if rec := get(t, c, target); rec.Code != http.StatusOK {
+			t.Errorf("GET %s with no cookie = %d, which is what a receiver would get", target, rec.Code)
+		}
+	}
+	if list := get(t, c, playlist).Body.String(); !strings.Contains(list, "&k=") {
+		t.Errorf("the segments a receiver would fetch next are unsigned:\n%s", list)
+	}
+
+	// A page that arrived with a signature uses that one rather than minting a
+	// second: the link somebody was sent is what the film is read with.
+	token := auth.NewShares(credentials()).Issue(username, "film.mkv", false, time.Time{})
+	page = get(t, c, "/files/film.mkv?play&k="+token).Body.String()
+	for _, m := range sourceSrc.FindAllStringSubmatch(page, -1) {
+		if !strings.Contains(unescape(m[1]), token) {
+			t.Errorf("a shared player reads %s, which is not the link it was opened with", m[1])
+		}
 	}
 }
 
