@@ -27,6 +27,16 @@
      browser too old for an SVG favicon shows none, which is what it showed
      before this line existed. */}}
 <link rel="icon" href="{{.Favicon}}" type="image/svg+xml">
+{{/* The manifest is what a browser reads before it will offer to install
+     anything, and the touch icon is the one place it does not reach: iOS
+     reads no manifest for a home screen icon. No crossorigin on the link,
+     because a manifest is fetched with credentials omitted and this one
+     answers in front of the session for exactly that reason -- see
+     manifest.go. The colour is the bar's, which is white: this UI does not
+     follow the system's dark mode. */}}
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="{{.AppleIcon}}">
+<meta name="theme-color" content="#ffffff">
 <link rel="stylesheet" href="{{.Assets}}/bootstrap.min.css">
 {{/* Every place htmx evaluates a string checks this first, so turning it off
      is what keeps 'unsafe-eval' out of the content security policy. A meta

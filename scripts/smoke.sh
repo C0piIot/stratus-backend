@@ -1618,6 +1618,20 @@ TRACK
     *"connect-src 'self'"*) ok "the policy lets the listing ask for its next page" ;;
     *)                      bad "the policy lets the listing ask for its next page" "got '$csp'" ;;
   esac
+  # The same shape of failure one directive along: without this the manifest is
+  # refused before anything reads it, and a page with no manifest looks exactly
+  # like a page that never asked for one.
+  case "$csp" in
+    *"manifest-src 'self'"*) ok "the policy lets a browser read the manifest" ;;
+    *)                       bad "the policy lets a browser read the manifest" "got '$csp'" ;;
+  esac
+  # And it has to answer with no credentials at all, because that is how a
+  # browser asks for it -- behind the login this would be a redirect to a page.
+  code="$(curl -s -o /dev/null -w '%{http_code} %{content_type}' "http://$davhost/manifest.webmanifest")"
+  case "$code" in
+    "200 application/manifest+json"*) ok "the manifest answers without credentials" ;;
+    *) bad "the manifest answers without credentials" "got '$code'" ;;
+  esac
 
   # One line per request, which is the only way to see a 401 or a 409 after the
   # fact. The healthcheck is deliberately not in there.

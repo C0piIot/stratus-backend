@@ -112,6 +112,47 @@ Hard constraints, in the same spirit as the rest of the project:
   started with its worker off, so the policy needs no `worker-src`. It
   answers nothing in JSON and adds no endpoint: HLS is a protocol every player
   already speaks, served at the file's own URL (see Tech decisions).
+- **A web app manifest, and no service worker** (#129). `/manifest.webmanifest`
+  is a handler rather than a file, because every address in it carries the
+  build: the icons and the screenshots sit under the same immutable cache
+  header as the scripts with no version in their paths.
+
+  **It answers in front of the session, and it has to.** A browser fetches a
+  manifest with credentials omitted unless the link element says
+  `crossorigin="use-credentials"`, so behind the login it would get the
+  redirect to `/login` and end up with no manifest at all -- the same shape of
+  silent failure the content policy keeps producing. There is nothing in it to
+  protect, and the same goes for what it names, which is why those are under
+  `/static/` with the rest of what a page is made of. The policy grew
+  `manifest-src 'self'` for it, and `scripts/smoke.sh` asserts that directive
+  the way it asserts `connect-src`.
+
+  **It is JSON and it is not an API**: the format is the W3C's and the client
+  is the browser, which is the standing `robots.txt` has.
+
+  **What it does not do is make the UI installable, and that is deliberate.**
+  Chrome wants a service worker with a fetch handler before it offers to
+  install, and what that worker should answer with is the decision #129 is
+  labelled for -- an offline shell is a few dozen lines, an offline *library*
+  needs the listing as data and would be the private JSON API principle 2
+  forbids. So the manifest ships and the issue stays open on its own question.
+  What it buys meanwhile is the icon, the name and the colours when somebody
+  adds the page to a home screen by hand, which on iOS is the only way there
+  is: Safari reads no manifest for that icon, which is what the
+  `apple-touch-icon` in the layout is for.
+
+  **The icons are one picture.** `brand/app-icon.svg` is full bleed with the
+  mark inside Android's 66% safe circle, so both sizes are declared
+  `any maskable` rather than carrying a second, padded drawing for launchers
+  that mask.
+
+  **The screenshots are JPEG, which is a decision about this binary.** A
+  picture of a photo library is a photograph: the gallery one is 1.1 MB as a
+  PNG and 151 KB here, and six of them as PNG would have moved the budget in
+  `scripts/smoke.sh` on their own. They are taken against a seeded demo
+  instance, so the photographs in them are the demo bundle's and CC0
+  (`scripts/demo/CREDITS.md`).
+
 - **htmx only where it is genuinely required**, vendored and embedded like
   Bootstrap. Default to a plain form and a full page render. One page needs it
   so far: the file listing, which is paged by a cursor and extends itself as
