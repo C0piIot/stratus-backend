@@ -776,9 +776,10 @@ URL that has no login to stop it -- a share link -- is the reason both exist.
 **A film opens in a player**, which is a page with the film in a `<video>`
 and a link to the file itself. One the browser cannot take as it is — a
 Matroska file, AC-3 sound — plays as HLS, remuxed as it is watched: Safari
-natively, and anything else through hls.js, which is loaded for that page and
-that film only. With no JavaScript the player still plays whatever the browser
-plays. The same HLS is what a Chromecast is sent: `?hls=index.m3u8` on the
+natively, because the playlist is one of the element's own sources and it takes
+it without being asked, and anything else through hls.js, which is loaded for
+that page and that film only. With no JavaScript the player still plays
+whatever the browser plays, Safari included. The same HLS is what a Chromecast is sent: `?hls=index.m3u8` on the
 file's URL, or on its share link, since a receiver cannot sign in. It answers
 on the film's own URL with the same signature, which is where `stratus-app`
 casts from — and that address is the WebDAV one as well now.

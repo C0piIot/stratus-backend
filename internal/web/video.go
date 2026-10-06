@@ -26,11 +26,14 @@ import (
 // surface: HLS is a protocol every player there is already speaks.
 //
 // **The player is a page with a video element, and it works without script.**
-// Its src is the file itself, which a browser plays when it can. When the
-// film needs HLS to play -- a Matroska file, AC-3 sound -- two scripts are
-// added: hls.js, vendored like htmx, and this project's own play.js, which
-// hands it the playlist. Safari takes HLS natively and never loads hls.js at
-// all.
+// Its sources are the playlist, when the film needs one, and the file itself,
+// and which of them plays is the browser's own answer: Safari takes the
+// playlist natively, and everything else skips it by its type and falls to
+// the file. When the film needs HLS to play -- a Matroska file, AC-3 sound --
+// two scripts are added for the browsers that can take neither: hls.js,
+// vendored like htmx, and this project's own play.js, which hands it the
+// playlist. Safari is served them and uses neither, because the markup had
+// already answered.
 
 const (
 	// playParam asks for the player page instead of the file.
@@ -64,9 +67,9 @@ type Video struct {
 
 // filmView is the player page.
 type filmView struct {
-	// Direct is the file itself, which the video element plays when the
-	// browser can, and HLS the playlist, empty when the film does not need it
-	// or cannot have it.
+	// Direct is the file itself, the source a browser falls to when it plays
+	// the film as it is, and HLS the playlist offered ahead of it, empty when
+	// the film does not need one or cannot have one.
 	Direct, HLS string
 }
 

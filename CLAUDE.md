@@ -68,16 +68,24 @@ Hard constraints, in the same spirit as the rest of the project:
 - **The second script is the film player's, and this is its paragraph** (#50).
   A film a browser cannot take as it is -- Matroska, AC-3 sound -- plays as the
   HLS the server remuxes it into, and Chrome and Firefox do not play HLS
-  without help. Safari does, natively, and never loads anything. The help is
+  without help. Safari does, natively, off the element's first source, and the
+  scripts it is served do nothing at all. The help is
   **hls.js 1.7.3**, the light build, vendored and embedded like htmx and
   checked against the copy in the npm tarball, and
   `internal/web/static/stratus/play.js`, which is twenty lines that hand it
   the playlist.
 
   What keeps it on the right side of the line is the same as the first: **it
-  degrades by construction.** The player is a `<video>` whose `src` is the
-  file itself, which is what plays with no script -- the page was a download
-  link before and is at worst that now. The two scripts are on the player page
+  degrades by construction.** The player is a `<video>` with two sources, the
+  playlist and the file, and whichever the browser can play it plays with no
+  script -- the page was a download link before and is at worst that now.
+  **Offering the playlist as a source is what moved Safari out of the script**
+  entirely: it used to be `play.js` that set the src, so a Matroska film there
+  needed JavaScript to play at all and now does not. Nothing else changed
+  hands, because every other browser skips that source by its type without
+  fetching it, and `play.js` must leave alone the element that took it -- an
+  hls.js attached over a film that is already playing would replace it with a
+  MediaSource. The two scripts are on the player page
   only, and only for a film that needs HLS: an MP4 a browser plays gets a video
   element and nothing else. The page's policy grows `media-src 'self' blob:`,
   there alone -- `blob:` for the MediaSource hls.js feeds -- and hls.js is
