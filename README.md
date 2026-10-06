@@ -778,6 +778,8 @@ extracted describes bytes that are gone.
 **Added to a home screen it looks like an app**, with the Stratus mark, the
 name and no address bar: there is a web app manifest at
 `/manifest.webmanifest`, and an icon for iOS, which reads no manifest for that.
+Holding the icon down — or right-clicking it on a desktop — offers the four
+libraries, which is the same menu the bar carries.
 What there is not is an install prompt — a browser asks for a service worker
 before it offers one, and what that should answer with when it cannot reach the
 server has not been decided yet. So this is the icon and the window, not an
