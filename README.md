@@ -768,6 +768,14 @@ read yet says so, one nothing could parse says why and whether it will be tried
 again, and one replaced since it was read shows no metadata at all -- what was
 extracted describes bytes that are gone.
 
+**Added to a home screen it looks like an app**, with the Stratus mark, the
+name and no address bar: there is a web app manifest at
+`/manifest.webmanifest`, and an icon for iOS, which reads no manifest for that.
+What there is not is an install prompt — a browser asks for a service worker
+before it offers one, and what that should answer with when it cannot reach the
+server has not been decided yet. So this is the icon and the window, not an
+offline app: with no network there is nothing to show.
+
 **Nothing here is for a search engine.** `/robots.txt` disallows the whole
 server and every page carries `noindex, nofollow`, which are two requests and
 not a control: a crawler that ignores them is stopped by the login, and the one

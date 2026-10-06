@@ -47,8 +47,15 @@ const (
 // the other half of the price this could have cost: every place htmx evaluates
 // a string goes through its maybeEval, and the htmx-config meta in the layout
 // turns that off.
+//
+// manifest-src is the second directive here that exists for one feature and
+// fails in a browser alone: under default-src 'none' the manifest is refused
+// before anything reads it, and a page with no manifest looks exactly like a
+// page whose manifest was not wanted. scripts/smoke.sh asserts it, the way it
+// asserts connect-src.
 const contentSecurityPolicy = "default-src 'none'; style-src 'self'; script-src 'self'; " +
-	"connect-src 'self'; img-src 'self' data:; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"
+	"connect-src 'self'; img-src 'self' data:; manifest-src 'self'; " +
+	"form-action 'self'; frame-ancestors 'none'; base-uri 'none'"
 
 // fileContentSecurityPolicy replaces the pages' policy on a file the browser
 // opens, and filePolicy adds sandbox to it for what could carry a script. What
@@ -170,6 +177,9 @@ func Handler(version, buildDate string, v auth.Verifier, s *auth.Sessions, share
 	mux.HandleFunc("POST "+trashPrefix+"/{batch}", h.signedIn(h.destroy))
 	mux.HandleFunc("POST "+trashPrefix+"/{batch}/restore", h.signedIn(h.restore))
 	mux.HandleFunc("GET /robots.txt", robots)
+	// Both in front of the session, and the manifest has to be: a browser
+	// fetches one with credentials omitted. See manifest.go.
+	mux.HandleFunc("GET "+manifestPath, h.manifest)
 	mux.HandleFunc("GET /login", h.loginForm)
 	mux.HandleFunc("POST /login", h.login)
 	mux.HandleFunc("POST /logout", h.logout)
