@@ -35,9 +35,9 @@
 </head>
 <body class="bg-body-tertiary d-flex flex-column min-vh-100">
 <nav class="navbar bg-body border-bottom">
-  <div class="container">
-    {{if .Shared}}<span class="navbar-brand d-inline-flex align-items-center">{{template "mark"}}Stratus</span>
-    {{else}}<a class="navbar-brand d-inline-flex align-items-center" href="/">{{template "mark"}}Stratus</a>{{end}}
+  <div class="container flex-sm-nowrap">
+    {{if .Shared}}<span class="navbar-brand d-inline-flex align-items-center flex-shrink-0">{{template "mark"}}Stratus</span>
+    {{else}}<a class="navbar-brand d-inline-flex align-items-center flex-shrink-0" href="/">{{template "mark"}}Stratus</a>{{end}}
     {{if .User}}
     {{/* The first GET form in this project, and the whole of the search box:
          a field and a submit button, and still no script -- Enter submits it
@@ -50,9 +50,18 @@
          The glyph is the emoji, which is a character the font already has:
          an icon set would be a third asset vendored for one picture, and a
          drawn one would be markup to maintain for the same thing. It is
-         aria-hidden because the button around it already has the name. */}}
+         aria-hidden because the button around it already has the name.
+
+         Where the bar is narrow it takes a row of its own, which is w-100 and
+         order-last. Above that the bar is one row, and what makes it one is
+         flex-sm-nowrap on the container rather than a narrower width here:
+         Bootstrap's width utilities have no breakpoints, so there is no
+         w-sm-auto to undo the 100% with. Not wrapping, the three shrink
+         instead, and the other two are flex-shrink-0 so this is the one that
+         does -- down to the button, since an input-group's field is
+         min-width: 0. */}}
     <form method="get" action="/search" role="search"
-          class="order-last order-sm-0 w-100 w-sm-auto mt-2 mt-sm-0 m-0 flex-sm-grow-1 px-sm-4">
+          class="order-last order-sm-0 w-100 mt-2 mt-sm-0 m-0 px-sm-4">
       <div class="input-group input-group-sm">
         <input class="form-control" type="search" name="q" value="{{.Query}}"
                placeholder="Search" aria-label="Search the library">
@@ -61,7 +70,7 @@
         </button>
       </div>
     </form>
-    <div class="d-flex align-items-center gap-3">
+    <div class="d-flex align-items-center gap-3 flex-shrink-0">
       <a class="navbar-text link-secondary text-decoration-none" href="/files/">Files</a>
       {{/* Two menus and nothing else, because a bar of six links was a list of
            places rather than a way to get to one. The gallery's button wears
