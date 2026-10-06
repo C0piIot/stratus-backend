@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -451,35 +452,60 @@ func TestMarkAndFavicon(t *testing.T) {
 	}
 }
 
-// TestLibrariesCollapse: the same six links twice, inline where the row holds
-// them and behind a button where it does not. Written once in the template, so
-// what this guards is that both layouts are actually rendered -- the bar used
-// to simply hide them on a phone, which left no way to reach a library at all.
-func TestLibrariesCollapse(t *testing.T) {
+// TestNavbar: two menus and a link, which is the whole bar. Both are
+// Bootstrap's own dropdown, so what this guards is that they stay that -- no
+// stylesheet and no script of ours for a thing the bundle already does -- and
+// that signing out is a POST wherever it is offered, since a GET that ends a
+// session is one anybody can put in a page for somebody else to load.
+func TestNavbar(t *testing.T) {
 	t.Parallel()
 	h := newHandler(t, nil)
-	body := get(t, h, "/files/", signIn(t, h)).Body.String()
+	cookie := signIn(t, h)
+	bar := func(path string) string {
+		t.Helper()
+		body := get(t, h, path, cookie).Body.String()
+		return regexp.MustCompile(`(?s)<nav.*?</nav>`).FindString(body)
+	}
 
+	nav := bar("/files/")
 	for _, href := range []string{"/files/", "/photos/", "/videos/", "/music/", "/playlists/", "/status"} {
-		if got := strings.Count(body, `href="`+href+`"`); got != 2 {
-			t.Errorf("%s appears %d times in the bar, want twice: inline and in the menu", href, got)
+		if got := strings.Count(nav, `href="`+href+`"`); got != 1 {
+			t.Errorf("%s appears %d times in the bar, want once", href, got)
 		}
 	}
-	if !strings.Contains(body, `data-bs-toggle="dropdown"`) {
-		t.Error("the bar has no menu button")
+	if got := strings.Count(nav, `data-bs-toggle="dropdown"`); got != 2 {
+		t.Errorf("the bar has %d dropdowns, want 2", got)
 	}
-	// Signing out is a POST wherever it is offered. A dropdown-item that was a
-	// link would be a GET, and a GET that ends a session is one anybody can put
-	// in a page for somebody else to load.
-	if got := strings.Count(body, `action="/logout"`); got != 2 {
-		t.Errorf("sign out appears %d times, want twice: in the bar and in the menu", got)
+	// style-src is 'self' with no 'unsafe-inline', so a rule written into the
+	// markup would be dropped by the browser and nobody would see why.
+	if strings.Contains(nav, " style=") {
+		t.Error("the bar carries an inline style, which the policy forbids")
 	}
-	if strings.Contains(body, `href="/logout"`) {
+	if strings.Contains(nav, `href="/logout"`) {
 		t.Error("sign out is offered as a link, which makes it a GET")
 	}
-	// Bootstrap's own component, so the policy needs no inline script and no
-	// inline style: the bundle is already served from here.
-	if strings.Contains(body, "<style") || strings.Contains(body, " style=") {
-		t.Error("the menu brought an inline style, which style-src 'self' forbids")
+	if got := strings.Count(nav, `action="/logout"`); got != 2 {
+		t.Errorf("sign out appears %d times, want twice: in the menu and in the noscript", got)
+	}
+	// The menu will not open without a script, and ending a session is a POST,
+	// so it is the one thing here that cannot be reached by typing an address.
+	noscript := regexp.MustCompile(`(?s)<noscript>.*?</noscript>`).FindString(nav)
+	if !strings.Contains(noscript, `action="/logout"`) {
+		t.Error("nothing signs out with JavaScript off")
+	}
+
+	// The gallery's button wears the gallery you are in, which is what keeps
+	// the bar from needing a row of names to say where you are.
+	for path, want := range map[string]string{
+		"/files/":     "Gallery",
+		"/photos/":    "Photos",
+		"/videos/":    "Videos",
+		"/music/":     "Music",
+		"/playlists/": "Playlists",
+	} {
+		label := regexp.MustCompile(`(?s)<button[^>]*dropdown-toggle[^>]*>\s*(.*?)\s*</button>`).FindStringSubmatch(bar(path))
+		if label == nil || label[1] != want {
+			t.Errorf("%s: the gallery menu says %q, want %q", path, label, want)
+		}
 	}
 }

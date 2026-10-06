@@ -123,6 +123,11 @@ type view struct {
 	Scripts []string
 	// User is who is signed in, and empty when nobody is.
 	User string
+	// Gallery names the library this page belongs to, which the bar's menu
+	// wears instead of "Gallery" so that it says where you are. Empty
+	// everywhere else, including the player, which is reached from a listing
+	// as often as from the videos.
+	Gallery string
 	// Username is what was typed into the form, so a failed login does not make
 	// somebody type it again.
 	Username string

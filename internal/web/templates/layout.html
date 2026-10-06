@@ -10,19 +10,6 @@
 </svg>
 {{- end}}
 
-{{/* The libraries, written once and laid out twice: the argument is the class
-     the links take, inline in the bar or stacked in the menu. Two copies of
-     six hrefs is how one of them ends up pointing at a collection that was
-     renamed. */}}
-{{define "libraries" -}}
-<a class="{{.}}" href="/files/">Files</a>
-      <a class="{{.}}" href="/photos/">Photos</a>
-      <a class="{{.}}" href="/videos/">Videos</a>
-      <a class="{{.}}" href="/music/">Music</a>
-      <a class="{{.}}" href="/playlists/">Playlists</a>
-      <a class="{{.}}" href="/status">Status</a>
-{{- end}}
-
 {{define "layout" -}}
 <!doctype html>
 <html lang="en">
@@ -75,32 +62,51 @@
       </div>
     </form>
     <div class="d-flex align-items-center gap-3">
-      {{template "libraries" "navbar-text link-secondary text-decoration-none d-none d-lg-inline"}}
-      <span class="navbar-text">{{.User}}</span>
-      <form method="post" action="/logout" class="m-0 d-none d-lg-block">
-        <button class="btn btn-sm btn-outline-secondary" type="submit">Sign out</button>
-      </form>
-      {{/* Everything the bar will not hold, at the end of it so the button is
-           where a thumb is. The breakpoint is lg and not md because the row at
-           md was already at its limit before the mark was put in front of it.
+      <a class="navbar-text link-secondary text-decoration-none" href="/files/">Files</a>
+      {{/* Two menus and nothing else, because a bar of six links was a list of
+           places rather than a way to get to one. The gallery's button wears
+           the gallery you are in, so the bar says where you are without a
+           seventh thing on it; everywhere else it says Gallery.
 
-           Signing out is a POST and stays one in here: a dropdown-item is a
-           submit button inside its own form, not a link, because the session
-           cookie is SameSite=Lax and a GET that signs you out is a link
-           anybody can put in a page. */}}
-      <div class="dropdown d-lg-none">
-        <button class="btn btn-sm btn-outline-secondary" type="button"
-                data-bs-toggle="dropdown" aria-expanded="false" aria-label="Menu">
-          <span aria-hidden="true">&#9776;</span>
+           Bootstrap's own dropdown, which is already in the bundle this page
+           loads: nothing here is worth a stylesheet or a script of our own.
+           What it costs is that a browser with JavaScript off opens neither,
+           and signing out is inside one of them. */}}
+      <div class="dropdown">
+        <button class="btn btn-sm btn-link link-secondary text-decoration-none dropdown-toggle p-0"
+                type="button" data-bs-toggle="dropdown" aria-expanded="false">
+          {{if .Gallery}}{{.Gallery}}{{else}}Gallery{{end}}
         </button>
-        <div class="dropdown-menu dropdown-menu-end z-3">
-          {{template "libraries" "dropdown-item"}}
+        <div class="dropdown-menu dropdown-menu-end">
+          <a class="dropdown-item" href="/photos/">Photos</a>
+          <a class="dropdown-item" href="/videos/">Videos</a>
+          <a class="dropdown-item" href="/music/">Music</a>
+          <a class="dropdown-item" href="/playlists/">Playlists</a>
+        </div>
+      </div>
+      {{/* Signing out is a POST and stays one in here: a dropdown-item is a
+           submit button inside its own form, not a link, because a GET that
+           ends a session is one anybody can put in a page. */}}
+      <div class="dropdown">
+        <button class="btn btn-sm btn-link link-secondary text-decoration-none dropdown-toggle p-0"
+                type="button" data-bs-toggle="dropdown" aria-expanded="false">{{.User}}</button>
+        <div class="dropdown-menu dropdown-menu-end">
+          <a class="dropdown-item" href="/status">Status</a>
           <hr class="dropdown-divider">
           <form method="post" action="/logout" class="m-0">
             <button class="dropdown-item" type="submit">Sign out</button>
           </form>
         </div>
       </div>
+      {{/* A menu that will not open is no way to end a session, and that is
+           the one thing in here somebody has to be able to do. The galleries
+           can be reached by typing an address; a session cannot be ended by
+           typing one, because ending it is a POST. */}}
+      <noscript>
+        <form method="post" action="/logout" class="m-0">
+          <button class="btn btn-sm btn-outline-secondary" type="submit">Sign out</button>
+        </form>
+      </noscript>
     </div>
     {{end}}
   </div>

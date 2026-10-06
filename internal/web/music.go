@@ -170,7 +170,7 @@ func (h *handler) artists(w http.ResponseWriter, r *http.Request, user string, t
 			Starred: !notes[subjects[i]].Starred.IsZero(),
 		}
 	}
-	h.render(w, http.StatusOK, pageArtists, view{Title: "Music", User: user, Artists: rows})
+	h.render(w, http.StatusOK, pageArtists, view{Title: "Music", User: user, Gallery: "Music", Artists: rows})
 }
 
 func (h *handler) artist(w http.ResponseWriter, r *http.Request, user string, tree *music.Tree, n music.Node) {
@@ -187,7 +187,7 @@ func (h *handler) artist(w http.ResponseWriter, r *http.Request, user string, tr
 		}
 	}
 	h.render(w, http.StatusOK, pageArtist, view{
-		Title: n.Artist.Name, User: user, Name: n.Artist.Name, Albums: rows, Back: musicPrefix,
+		Title: n.Artist.Name, User: user, Gallery: "Music", Name: n.Artist.Name, Albums: rows, Back: musicPrefix,
 	})
 }
 
@@ -252,7 +252,7 @@ func (h *handler) album(w http.ResponseWriter, r *http.Request, user string, tre
 
 	w.Header().Set("Content-Security-Policy", albumPolicy)
 	h.render(w, http.StatusOK, pageAlbum, view{
-		Title: name, User: user, Name: name, Album: av, Back: av.ArtistHref,
+		Title: name, User: user, Gallery: "Music", Name: name, Album: av, Back: av.ArtistHref,
 	})
 }
 

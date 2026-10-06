@@ -231,7 +231,7 @@ func (h *handler) grid(w http.ResponseWriter, r *http.Request, user string, l li
 		return
 	}
 	h.render(w, http.StatusOK, pagePhotos,
-		view{Title: l.title, User: user, Tiles: cells, NextPage: next, Empty: l.empty})
+		view{Title: l.title, User: user, Gallery: l.title, Tiles: cells, NextPage: next, Empty: l.empty})
 }
 
 // photoYear is the months of one year.
@@ -248,7 +248,7 @@ func (h *handler) year(w http.ResponseWriter, r *http.Request, user string, l li
 		}
 	}
 	h.render(w, http.StatusOK, pageMonths, view{
-		Title: strconv.Itoa(year), User: user,
+		Title: strconv.Itoa(year), User: user, Gallery: l.title,
 		Crumbs: l.crumbs(year, 0),
 		Months: links,
 	})
@@ -285,7 +285,7 @@ func (h *handler) month(w http.ResponseWriter, r *http.Request, user string, l l
 		return
 	}
 	h.render(w, http.StatusOK, pagePhotos, view{
-		Title: monthName(m), User: user,
+		Title: monthName(m), User: user, Gallery: l.title,
 		Crumbs:   l.crumbs(m.Year, m.Month),
 		Tiles:    cells,
 		NextPage: next,
@@ -331,7 +331,7 @@ func (h *handler) viewer(w http.ResponseWriter, r *http.Request, user string, l 
 		}
 	}
 
-	h.render(w, http.StatusOK, pagePhoto, view{Title: pv.Name, User: user, Photo: &pv})
+	h.render(w, http.StatusOK, pagePhoto, view{Title: pv.Name, User: user, Gallery: l.title, Photo: &pv})
 }
 
 // photoByFile sends a caller holding a path in the tree to the one address

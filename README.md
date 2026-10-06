@@ -736,13 +736,15 @@ calendar waits for CalDAV to exist. It is a convenience for when reaching for
 rclone or DAVx5 is overkill, and it consumes the same internals the protocol
 handlers do — it will never grow a private JSON API of its own.
 
-**The libraries are along the top, and behind a button where the bar is too
-narrow to hold them**: files, photos, videos, music, playlists and status. The
-menu sits at the end of the bar and holds signing out as well, and it is
-Bootstrap's own and therefore wants JavaScript: with it turned off on a narrow
-window neither the libraries nor signing out can be reached. The libraries were
-already out of reach at any width before there was a menu; **signing out was
-not**, and that is a thing this took away rather than one it inherited.
+**The bar is a link and two menus**: files, a gallery menu holding photos,
+videos, music and playlists, and your own name holding status and signing out.
+The gallery's button wears the gallery you are in, so the bar says where you
+are without carrying a name for every library. Both are Bootstrap's own
+dropdown out of the bundle the page already loads, so neither costs a
+stylesheet or a script of ours — and neither opens with JavaScript turned off.
+A gallery can still be reached by typing its address; **ending a session
+cannot**, since that is a `POST`, so a plain Sign out button sits in a
+`<noscript>` beside the menu.
 
 **One URL per directory, and the same one per file**: `/files/photos/2026` is a
 page, `/files/photos/2026/img.jpg` is the picture. Opening a file leaves it to
