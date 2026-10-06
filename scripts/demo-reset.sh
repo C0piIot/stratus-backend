@@ -3,7 +3,7 @@
 # Empties the demo instance and puts the demo media back: what every deploy and
 # the hourly reset do, in one place so the two cannot drift.
 #
-#   FLY_API_TOKEN=... scripts/demo-reset.sh <app> [image]
+#   FLY_API_TOKEN=... [DEMO_BASE=https://...] scripts/demo-reset.sh <app> [image]
 #
 # **The wipe is destroying the volume**, not the machine and not a deploy. The
 # data lives on a Fly volume (#238), which outlives the machine it is mounted
@@ -22,7 +22,13 @@ set -euo pipefail
 
 APP="${1:?usage: demo-reset.sh <app> [image]}"
 IMAGE="${2:-}"
-BASE="https://$APP.fly.dev"
+# Where the demo is seeded and then checked from. The app's own Fly name unless
+# DEMO_BASE says otherwise: an instance with a domain of its own is worth
+# checking through the address people are given, so a certificate that expired
+# or a DNS record somebody moved shows up on the next hourly reset rather than
+# when somebody tries the link. Unset falls back, which is what a fork gets.
+BASE="${DEMO_BASE:-https://$APP.fly.dev}"
+BASE="${BASE%/}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 
 for id in $(flyctl machine list --app "$APP" --json | jq -r '.[].id'); do

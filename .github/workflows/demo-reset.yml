@@ -71,4 +71,7 @@ jobs:
       - name: empty it and seed the demo media again
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          # The address the demo is given out at, where there is one. Empty
+          # falls back to the app's own .fly.dev name inside the script.
+          DEMO_BASE: ${{ vars.DEMO_BASE }}
         run: ./scripts/demo-reset.sh "$FLY_APP" "${{ steps.running.outputs.image }}"

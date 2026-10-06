@@ -275,4 +275,7 @@ jobs:
       - name: deploy what publish pushed onto an empty disk, and seed it
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          # The address the demo is given out at, where there is one. Empty
+          # falls back to the app's own .fly.dev name inside the script.
+          DEMO_BASE: ${{ vars.DEMO_BASE }}
         run: ./scripts/demo-reset.sh "${{ vars.FLY_APP }}" "${{ needs.publish.outputs.image }}"
