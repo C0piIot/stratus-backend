@@ -4,9 +4,18 @@
   <a class="small" href="{{.Film.Direct}}">Open the file</a>
   <a class="small ms-auto" href="{{.Back}}">Back</a>
 </div>
-{{/* The file itself as the src, so the page plays whatever the browser plays
-     with no script at all. data-hls is set only when the film needs it, and
-     play.js is what reads it: see video.go. */}}
-<video class="w-100 bg-black rounded" controls preload="metadata" src="{{.Film.Direct}}"
-  {{- if .Film.HLS}} data-hls="{{.Film.HLS}}"{{end}}></video>
+{{/* Two sources, and which one plays is the browser's own answer: the
+     playlist first, which Safari takes natively and every other browser
+     skips by its type without fetching a byte of it, and then the file
+     itself. That is the Safari half of play.js written as markup, so it
+     needs no script at all -- a Matroska film, which Safari cannot take as
+     it is, plays there with JavaScript off, which it did not before.
+     data-hls is what is left for the rest: see video.go. */}}
+<video class="w-100 bg-black rounded" controls preload="metadata"
+  {{- if .Film.HLS}} data-hls="{{.Film.HLS}}"{{end}}>
+  {{- if .Film.HLS}}
+  <source src="{{.Film.HLS}}" type="application/vnd.apple.mpegurl">
+  {{- end}}
+  <source src="{{.Film.Direct}}">
+</video>
 {{- end}}

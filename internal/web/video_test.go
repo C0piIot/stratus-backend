@@ -104,12 +104,18 @@ func TestThePlayerAsksForHLSOnlyWhenItMust(t *testing.T) {
 	rec := get(t, c, "/files/film.mkv?play", cookie)
 	page := rec.Body.String()
 	for _, want := range []string{
-		`src="/files/film.mkv"`, `data-hls="/files/film.mkv?hls=index.m3u8"`,
+		`<source src="/files/film.mkv?hls=index.m3u8" type="application/vnd.apple.mpegurl">`,
+		`<source src="/files/film.mkv">`, `data-hls="/files/film.mkv?hls=index.m3u8"`,
 		`/static/hls.js-1.7.3/hls.light.min.js`, `/static/stratus/play.js?v=`,
 	} {
 		if !strings.Contains(page, want) {
 			t.Errorf("the player for a Matroska film lacks %s", want)
 		}
+	}
+	// The order is the feature: a browser takes the first source it can play,
+	// so the playlist has to be offered before the film it was remuxed from.
+	if strings.Index(page, "?hls=index.m3u8\" type=") > strings.Index(page, `<source src="/files/film.mkv">`) {
+		t.Errorf("the file is offered before the playlist, so Safari plays neither:\n%s", page)
 	}
 	if csp := rec.Header().Get("Content-Security-Policy"); !strings.Contains(csp, "media-src 'self' blob:") {
 		t.Errorf("Content-Security-Policy = %q, want media from here and from a MediaSource", csp)
