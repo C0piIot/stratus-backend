@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/C0piIot/stratus-backend/internal/db"
+	"github.com/C0piIot/stratus-backend/internal/db/dbtest"
 	"github.com/C0piIot/stratus-backend/internal/db/sqlite"
 	"github.com/C0piIot/stratus-backend/internal/files"
 	"github.com/C0piIot/stratus-backend/internal/storage"
@@ -863,4 +864,90 @@ func onlyBatch(t *testing.T, s *files.Service) string {
 		t.Fatalf("the trash holds %d deletions, want one", len(batches))
 	}
 	return batches[0].ID
+}
+
+// TestFreeNameNumbersRatherThanReplaces is the rule the import folder and the
+// share target both read: a write that must not destroy what is there lands
+// beside it, and the search for somewhere to land is bounded.
+func TestFreeNameNumbersRatherThanReplaces(t *testing.T) {
+	t.Parallel()
+	s, _ := service(t)
+
+	free, err := s.FreeName(t.Context(), owner, "scan.pdf")
+	if err != nil || free != "scan.pdf" {
+		t.Fatalf("FreeName of a name nobody has = %q, %v", free, err)
+	}
+
+	write(t, s, "scan.pdf", "the first one")
+	switch free, err = s.FreeName(t.Context(), owner, "scan.pdf"); {
+	case err != nil:
+		t.Fatal(err)
+	case free != "scan (2).pdf":
+		t.Errorf("FreeName = %q, want the number before the extension", free)
+	}
+
+	// The bound: a folder holding a hundred of one name is a loop somewhere
+	// else, and this says so rather than walking it on every pass.
+	for n := 2; n <= files.MaxCopies; n++ {
+		write(t, s, db.CopyName("scan.pdf", n), "another")
+	}
+	if _, err := s.FreeName(t.Context(), owner, "scan.pdf"); err == nil ||
+		!strings.Contains(err.Error(), "is taken") {
+		t.Errorf("FreeName with every name taken = %v, want a refusal", err)
+	}
+}
+
+// TestMkdirAllMakesWhatIsMissing: the walk two doors share, which is why it is
+// here rather than in either of them — the import folder mirroring a tree, and
+// a share landing under a dated folder.
+func TestMkdirAllMakesWhatIsMissing(t *testing.T) {
+	t.Parallel()
+	s, _ := service(t)
+
+	if err := s.MkdirAll(t.Context(), owner, "shared/2026/10"); err != nil {
+		t.Fatal(err)
+	}
+	for _, dir := range []string{"shared", "shared/2026", "shared/2026/10"} {
+		switch f, err := s.Stat(t.Context(), owner, dir); {
+		case err != nil:
+			t.Errorf("%q was not made: %v", dir, err)
+		case !f.IsDir:
+			t.Errorf("%q is not a directory", dir)
+		}
+	}
+
+	// Again, because a second share in the same month arrives at a folder that
+	// is already there and that is not a conflict.
+	if err := s.MkdirAll(t.Context(), owner, "shared/2026/10"); err != nil {
+		t.Errorf("making a folder that is already there: %v", err)
+	}
+	// The root is not a row and there is nothing to make.
+	if err := s.MkdirAll(t.Context(), owner, ""); err != nil {
+		t.Errorf("MkdirAll of nothing: %v", err)
+	}
+
+	// A file where a directory has to be is said plainly, because the generic
+	// conflict sends somebody looking for a thing that is not there.
+	write(t, s, "notes.txt", "hello")
+	switch err := s.MkdirAll(t.Context(), owner, "notes.txt/inner"); {
+	case err == nil:
+		t.Error("a file was walked into as though it were a folder")
+	case !strings.Contains(err.Error(), "notes.txt"):
+		t.Errorf("MkdirAll through a file = %v, want the path named", err)
+	}
+}
+
+// TestTheWalkAndTheNameNeedTheStore: both ask what is already there, so a
+// database that will not answer stops them rather than guessing.
+func TestTheWalkAndTheNameNeedTheStore(t *testing.T) {
+	t.Parallel()
+	blobs, meta := breakable(t)
+	s := files.New(blobs, dbtest.FailOn(t, meta, "FileByPath"))
+
+	if err := s.MkdirAll(t.Context(), owner, "shared/2026"); err == nil {
+		t.Error("MkdirAll over a store that cannot answer succeeded")
+	}
+	if _, err := s.FreeName(t.Context(), owner, "scan.pdf"); err == nil {
+		t.Error("FreeName over a store that cannot answer succeeded")
+	}
 }

@@ -1632,6 +1632,19 @@ TRACK
     "200 application/manifest+json"*) ok "the manifest answers without credentials" ;;
     *) bad "the manifest answers without credentials" "got '$code'" ;;
   esac
+  # The worker is the other half of installable, and the directive it needs
+  # fails in a browser and nowhere else, like the two above it.
+  case "$csp" in
+    *"worker-src 'self'"*) ok "the policy lets the worker register" ;;
+    *)                     bad "the policy lets the worker register" "got '$csp'" ;;
+  esac
+  # From the root, because that is what it controls, and with no credentials,
+  # because a worker that got the login page would never register.
+  code="$(curl -s -o /dev/null -w '%{http_code} %{content_type}' "http://$davhost/sw.js")"
+  case "$code" in
+    "200 text/javascript"*) ok "the service worker is served from the root" ;;
+    *) bad "the service worker is served from the root" "got '$code'" ;;
+  esac
 
   # One line per request, which is the only way to see a 401 or a 409 after the
   # fact. The healthcheck is deliberately not in there.
