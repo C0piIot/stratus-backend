@@ -72,18 +72,41 @@ type manifestShot struct {
 	Label      string `json:"label"`
 }
 
+// manifestShortcut is one of the four libraries, which is what a long press on
+// the icon offers on Android and a right click on it on a desktop.
+//
+// **No icons on them, and that is a decision rather than an omission**: an icon
+// per shortcut is a drawing this project does not have, and the same one four
+// times says less than none -- a launcher with nothing to draw falls back to
+// the app's own icon, which is what four copies of it would have been.
+type manifestShortcut struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	URL         string `json:"url"`
+}
+
 type webManifest struct {
-	ID              string         `json:"id"`
-	Name            string         `json:"name"`
-	ShortName       string         `json:"short_name"`
-	Description     string         `json:"description"`
-	StartURL        string         `json:"start_url"`
-	Scope           string         `json:"scope"`
-	Display         string         `json:"display"`
-	ThemeColor      string         `json:"theme_color"`
-	BackgroundColor string         `json:"background_color"`
-	Icons           []manifestIcon `json:"icons"`
-	Screenshots     []manifestShot `json:"screenshots"`
+	ID              string             `json:"id"`
+	Name            string             `json:"name"`
+	ShortName       string             `json:"short_name"`
+	Description     string             `json:"description"`
+	StartURL        string             `json:"start_url"`
+	Scope           string             `json:"scope"`
+	Display         string             `json:"display"`
+	ThemeColor      string             `json:"theme_color"`
+	BackgroundColor string             `json:"background_color"`
+	Icons           []manifestIcon     `json:"icons"`
+	Screenshots     []manifestShot     `json:"screenshots"`
+	Shortcuts       []manifestShortcut `json:"shortcuts"`
+}
+
+// shortcuts are the bar's own Gallery menu said a second time, where a
+// launcher can read it (#311). Four, because four is what Android shows.
+var shortcuts = []manifestShortcut{
+	{"Files", "Browse the tree", "/files/"},
+	{"Photos", "Photographs by the month they were taken", "/photos/"},
+	{"Videos", "Films by the month they were taken", "/videos/"},
+	{"Music", "Artists and their albums", "/music/"},
 }
 
 // screenshots are JPEG rather than PNG, which is a decision about the size of
@@ -126,6 +149,7 @@ func (h *handler) manifest(w http.ResponseWriter, _ *http.Request) {
 		s.Src += build
 		m.Screenshots = append(m.Screenshots, s)
 	}
+	m.Shortcuts = shortcuts
 
 	w.Header().Set("Content-Type", manifestType)
 	// An hour. It is read on the way to an install and then rarely, and what it

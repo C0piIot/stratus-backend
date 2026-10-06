@@ -23,6 +23,10 @@ type readManifest struct {
 		FormFactor string `json:"form_factor"`
 		Label      string `json:"label"`
 	} `json:"screenshots"`
+	Shortcuts []struct {
+		Name string `json:"name"`
+		URL  string `json:"url"`
+	} `json:"shortcuts"`
 }
 
 func (m readManifest) sources() []string {
@@ -100,6 +104,31 @@ func TestTheManifestAnswersWithoutASession(t *testing.T) {
 		}
 		if got := rec.Header().Get("Content-Type"); !strings.HasPrefix(got, "image/") {
 			t.Errorf("GET %s answered %q, want a picture", src, got)
+		}
+	}
+}
+
+// TestTheShortcutsGoSomewhere: a launcher offers the four libraries, and a
+// shortcut to an address that moved is the failure nobody sees -- so each one
+// is followed here, signed in, and has to be a page rather than a 404 (#311).
+func TestTheShortcutsGoSomewhere(t *testing.T) {
+	t.Parallel()
+	h := newHandler(t, nil)
+	cookie := signIn(t, h)
+
+	var m readManifest
+	if err := json.Unmarshal(get(t, h, "/manifest.webmanifest").Body.Bytes(), &m); err != nil {
+		t.Fatal(err)
+	}
+	if len(m.Shortcuts) != 4 {
+		t.Fatalf("the manifest offers %d shortcuts, want the four libraries", len(m.Shortcuts))
+	}
+	for _, s := range m.Shortcuts {
+		if s.Name == "" {
+			t.Errorf("the shortcut to %s has no name", s.URL)
+		}
+		if rec := get(t, h, s.URL, cookie); rec.Code != http.StatusOK {
+			t.Errorf("GET %s = %d, want the library it names", s.URL, rec.Code)
 		}
 	}
 }

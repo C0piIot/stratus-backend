@@ -146,6 +146,15 @@ Hard constraints, in the same spirit as the rest of the project:
   `any maskable` rather than carrying a second, padded drawing for launchers
   that mask.
 
+  **And it names the four libraries as shortcuts** (#311) -- the bar's own
+  Gallery menu said a second time where a launcher can read it, which is a
+  long press on the icon on Android and a right click on it on a desktop.
+  Four, because four is what Android shows. **Without icons on them**, which
+  is a decision: an icon per shortcut is a drawing this project does not have,
+  and the same one four times says less than none, since a launcher with
+  nothing to draw falls back to the app's own. A test follows each one,
+  because a shortcut to an address that moved is the failure nobody sees.
+
   **The screenshots are JPEG, which is a decision about this binary.** A
   picture of a photo library is a photograph: the gallery one is 1.1 MB as a
   PNG and 151 KB here, and six of them as PNG would have moved the budget in
