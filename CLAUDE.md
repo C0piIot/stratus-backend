@@ -2243,8 +2243,22 @@ Restraint here is principle 3, not laziness:
   usually pushed to are excluded on purpose -- Vercel, Netlify and Cloud Run are
   stateless and scale to zero, which kills the indexer goroutine and forces S3
   plus a hosted database before anything works -- and Fly has no button to
-  offer, which is why `fly.toml` in this repository is the throwaway test
-  instance and must not be advertised as a way to run Stratus.
+  offer, so it gets a page of commands instead: `doc/deploy/fly.md` carries a
+  `fly.toml` of its own, written to be copied. The `fly.toml` in this
+  repository is not that example and never becomes it -- it is the throwaway
+  test instance, open to anybody and emptied every hour.
+
+  **Both guides live in `doc/deploy/` and the README links them**, because the
+  quickstart is read in the first five minutes and a platform's cost, region
+  and upgrade story are not what somebody is reading it for.
+
+  **A Render Blueprint cannot ask for an optional setting.** An `envVars` entry
+  is either prompted and required (`sync: false`) or fixed in the file; there is
+  no editable default and no help text in the form, and a value in the file is
+  re-imposed on every Blueprint sync. So the manifest names `PORT` and the two
+  credentials and nothing else: everything a dashboard variable could set is
+  left unnamed, which is exactly what keeps a dashboard variable from being
+  overwritten.
 
   What made a button possible at all is the password being held as configured:
   no platform can compute a bcrypt hash in its own form, so a hashed one meant
@@ -2256,4 +2270,5 @@ Restraint here is principle 3, not laziness:
   refuses to start with a message about `/data` and no obvious cause. Fly reads
   the image's user and mounts accordingly; that is a property of the platform,
   not of the manifest, so it is answered by deploying rather than by reading --
-  which the demo's own volume has now done (#238).
+  which the demo's own volume has now done (#238), and a paid Render service
+  with a disk as well (#190).

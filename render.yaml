@@ -1,4 +1,5 @@
 # Render Blueprint: what the Deploy to Render button in the README creates.
+# doc/deploy/render.md is the page that explains it and what to change.
 #
 # One web service running the published image and one disk, which is the whole
 # of a Stratus install -- the blobs and the SQLite database both live under
