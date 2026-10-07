@@ -207,11 +207,16 @@ Hard constraints, in the same spirit as the rest of the project:
   **And it names the four libraries as shortcuts** (#311) -- the bar's own
   Gallery menu said a second time where a launcher can read it, which is a
   long press on the icon on Android and a right click on it on a desktop.
-  Four, because four is what Android shows. **Without icons on them**, which
-  is a decision: an icon per shortcut is a drawing this project does not have,
-  and the same one four times says less than none, since a launcher with
-  nothing to draw falls back to the app's own. A test follows each one,
-  because a shortcut to an address that moved is the failure nobody sees.
+  Four, because four is what Android shows. A test follows each one, because a
+  shortcut to an address that moved is the failure nobody sees.
+
+  **Each carries a glyph of its own**, drawn in `brand/` beside the app icon
+  and rasterised the same way: the same square and gradient, the mark behind at
+  18% and a folder, a photograph, a play triangle or a note in white in front.
+  One size, 192, since everything draws them smaller -- which is also the
+  known cost of putting the mark behind the glyph, because at the forty pixels
+  a launcher menu gives them it reads as texture rather than as a mark. That
+  was weighed against a corner badge and against no mark at all, and chosen.
 
   **The screenshots are JPEG, which is a decision about this binary.** A
   picture of a photo library is a photograph: the gallery one is 1.1 MB as a

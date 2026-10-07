@@ -75,14 +75,21 @@ type manifestShot struct {
 // manifestShortcut is one of the four libraries, which is what a long press on
 // the icon offers on Android and a right click on it on a desktop.
 //
-// **No icons on them, and that is a decision rather than an omission**: an icon
-// per shortcut is a drawing this project does not have, and the same one four
-// times says less than none -- a launcher with nothing to draw falls back to
-// the app's own icon, which is what four copies of it would have been.
+// **Each has a glyph of its own**, drawn for it in `brand/`: the app icon's
+// square and gradient, the mark behind at low opacity, and a folder, a
+// photograph, a play triangle or a note in white in front. One size, 192,
+// because everything that draws these draws them smaller -- and that is also
+// the known cost of the composition, since at the forty pixels a launcher menu
+// actually gives them the mark behind the glyph is closer to texture than to a
+// mark.
 type manifestShortcut struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	URL         string `json:"url"`
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	URL         string         `json:"url"`
+	Icons       []manifestIcon `json:"icons"`
+	// glyph is the file in static/stratus/shortcuts, unexported because the
+	// address it becomes carries the build and is built per request.
+	glyph string
 }
 
 // manifestShareTarget is the phone's share sheet pointed at this server
@@ -149,10 +156,10 @@ type webManifest struct {
 // shortcuts are the bar's own Gallery menu said a second time, where a
 // launcher can read it (#311). Four, because four is what Android shows.
 var shortcuts = []manifestShortcut{
-	{"Files", "Browse the tree", "/files/"},
-	{"Photos", "Photographs by the month they were taken", "/photos/"},
-	{"Videos", "Films by the month they were taken", "/videos/"},
-	{"Music", "Artists and their albums", "/music/"},
+	{Name: "Files", Description: "Browse the tree", URL: "/files/", glyph: "files"},
+	{Name: "Photos", Description: "Photographs by the month they were taken", URL: "/photos/", glyph: "photos"},
+	{Name: "Videos", Description: "Films by the month they were taken", URL: "/videos/", glyph: "videos"},
+	{Name: "Music", Description: "Artists and their albums", URL: "/music/", glyph: "music"},
 }
 
 // screenshots are JPEG rather than PNG, which is a decision about the size of
@@ -218,7 +225,18 @@ func (h *handler) manifest(w http.ResponseWriter, _ *http.Request) {
 		s.Src += build
 		m.Screenshots = append(m.Screenshots, s)
 	}
-	m.Shortcuts = shortcuts
+	for _, s := range shortcuts {
+		// "any maskable" for the reason the app's own icon is both: the square
+		// is full bleed and the glyph sits inside the safe circle, so a
+		// launcher that masks it and one that does not take the same picture.
+		s.Icons = []manifestIcon{{
+			Src:     ownPrefix + "/shortcuts/" + s.glyph + ".png" + build,
+			Sizes:   "192x192",
+			Type:    "image/png",
+			Purpose: "any maskable",
+		}}
+		m.Shortcuts = append(m.Shortcuts, s)
+	}
 	m.ShareTarget = shareTarget()
 
 	w.Header().Set("Content-Type", manifestType)
