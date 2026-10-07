@@ -32,8 +32,12 @@ type readManifest struct {
 		Label      string `json:"label"`
 	} `json:"screenshots"`
 	Shortcuts []struct {
-		Name string `json:"name"`
-		URL  string `json:"url"`
+		Name  string `json:"name"`
+		URL   string `json:"url"`
+		Icons []struct {
+			Src   string `json:"src"`
+			Sizes string `json:"sizes"`
+		} `json:"icons"`
 	} `json:"shortcuts"`
 }
 
@@ -44,6 +48,11 @@ func (m readManifest) sources() []string {
 	}
 	for _, s := range m.Screenshots {
 		out = append(out, s.Src)
+	}
+	for _, s := range m.Shortcuts {
+		for _, i := range s.Icons {
+			out = append(out, i.Src)
+		}
 	}
 	return out
 }
@@ -134,6 +143,9 @@ func TestTheShortcutsGoSomewhere(t *testing.T) {
 	for _, s := range m.Shortcuts {
 		if s.Name == "" {
 			t.Errorf("the shortcut to %s has no name", s.URL)
+		}
+		if len(s.Icons) != 1 {
+			t.Errorf("the shortcut to %s offers %d glyphs, want the one drawn for it", s.URL, len(s.Icons))
 		}
 		if rec := get(t, h, s.URL, cookie); rec.Code != http.StatusOK {
 			t.Errorf("GET %s = %d, want the library it names", s.URL, rec.Code)
