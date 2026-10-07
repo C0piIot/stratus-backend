@@ -10,10 +10,18 @@ import (
 // readManifest is what a browser reads out of it: enough to install, and every
 // address it would go on to fetch.
 type readManifest struct {
-	Name     string `json:"name"`
-	StartURL string `json:"start_url"`
-	Display  string `json:"display"`
-	Icons    []struct {
+	Name            string   `json:"name"`
+	StartURL        string   `json:"start_url"`
+	Display         string   `json:"display"`
+	DisplayOverride []string `json:"display_override"`
+	Lang            string   `json:"lang"`
+	Dir             string   `json:"dir"`
+	Orientation     string   `json:"orientation"`
+	Categories      []string `json:"categories"`
+	LaunchHandler   struct {
+		ClientMode string `json:"client_mode"`
+	} `json:"launch_handler"`
+	Icons []struct {
 		Src     string `json:"src"`
 		Sizes   string `json:"sizes"`
 		Purpose string `json:"purpose"`
@@ -130,6 +138,39 @@ func TestTheShortcutsGoSomewhere(t *testing.T) {
 		if rec := get(t, h, s.URL, cookie); rec.Code != http.StatusOK {
 			t.Errorf("GET %s = %d, want the library it names", s.URL, rec.Code)
 		}
+	}
+}
+
+// TestWhatAnInstallerIsTold: the members that say what this is and how it
+// should open. The one with an argument behind it is the order of
+// display_override -- standalone first, because it is the window this UI is
+// laid out for, and the two behind it are declared rather than used.
+func TestWhatAnInstallerIsTold(t *testing.T) {
+	t.Parallel()
+	h := newHandler(t, nil)
+
+	var m readManifest
+	if err := json.Unmarshal(get(t, h, "/manifest.webmanifest").Body.Bytes(), &m); err != nil {
+		t.Fatal(err)
+	}
+	if m.Lang != "en" || m.Dir != "ltr" {
+		t.Errorf("lang/dir = %q/%q, want the language this UI is written in", m.Lang, m.Dir)
+	}
+	if m.Orientation != "any" {
+		t.Errorf("orientation = %q: a file browser reads both ways round", m.Orientation)
+	}
+	if len(m.Categories) == 0 {
+		t.Error("the manifest files this under nothing")
+	}
+	if m.LaunchHandler.ClientMode != "navigate-existing" {
+		t.Errorf("client_mode = %q, want one window", m.LaunchHandler.ClientMode)
+	}
+	if len(m.DisplayOverride) == 0 || m.DisplayOverride[0] != "standalone" {
+		t.Errorf("display_override = %v, want the mode this UI is laid out for first", m.DisplayOverride)
+	}
+	if m.DisplayOverride[0] != m.Display {
+		t.Errorf("display_override starts at %q and display is %q, which are two answers to one question",
+			m.DisplayOverride[0], m.Display)
 	}
 }
 

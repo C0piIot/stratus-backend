@@ -183,6 +183,24 @@ Hard constraints, in the same spirit as the rest of the project:
   `any maskable` rather than carrying a second, padded drawing for launchers
   that mask.
 
+  **The rest of what it declares is what an installer reads**: the language and
+  its direction, an orientation of `any` because a file browser reads both ways
+  round, the categories a store would file this under, and a `launch_handler`
+  of `navigate-existing` so that a second launch -- or a share arriving while
+  the app is open -- goes to the window that is already there.
+
+  **`display_override` is the one with an argument behind it, and the argument
+  is the order.** A browser takes the first mode it supports, so `standalone`
+  comes first because that is the window this UI is laid out for;
+  `window-controls-overlay` and `tabbed` are behind it, declared rather than
+  used. Honouring the first would mean reading `env(titlebar-area-*)` from a
+  stylesheet, because the overlay hands the title bar's strip to the page and
+  the right-hand end of that strip is exactly where this bar keeps its menus --
+  and a stylesheet of our own is the constraint at the top of this section.
+  Moving either in front of `standalone` is a layout change and a conversation,
+  not a line in a manifest, and `TestWhatAnInstallerIsTold` fails if somebody
+  does it without one.
+
   **And it names the four libraries as shortcuts** (#311) -- the bar's own
   Gallery menu said a second time where a launcher can read it, which is a
   long press on the icon on Android and a right click on it on a desktop.

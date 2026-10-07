@@ -116,16 +116,30 @@ func shareTarget() manifestShareTarget {
 	return t
 }
 
+// manifestLaunch is how a second launch is handled: `navigate-existing` means
+// the window that is already open goes to the new address rather than a second
+// one appearing beside it. One window is what a file browser should be, and it
+// is also what a share arriving while the app is open should land in.
+type manifestLaunch struct {
+	ClientMode string `json:"client_mode"`
+}
+
 type webManifest struct {
 	ID              string              `json:"id"`
 	Name            string              `json:"name"`
 	ShortName       string              `json:"short_name"`
 	Description     string              `json:"description"`
+	Lang            string              `json:"lang"`
+	Dir             string              `json:"dir"`
 	StartURL        string              `json:"start_url"`
 	Scope           string              `json:"scope"`
 	Display         string              `json:"display"`
+	DisplayOverride []string            `json:"display_override"`
+	Orientation     string              `json:"orientation"`
+	Categories      []string            `json:"categories"`
 	ThemeColor      string              `json:"theme_color"`
 	BackgroundColor string              `json:"background_color"`
+	LaunchHandler   manifestLaunch      `json:"launch_handler"`
 	Icons           []manifestIcon      `json:"icons"`
 	Screenshots     []manifestShot      `json:"screenshots"`
 	Shortcuts       []manifestShortcut  `json:"shortcuts"`
@@ -167,11 +181,34 @@ func (h *handler) manifest(w http.ResponseWriter, _ *http.Request) {
 		Description: "A self-hosted personal cloud for photos, files, music and video.",
 		// The root, which sends a browser to the tree or to the login by
 		// whether it has a session -- the same answer typing the address gives.
-		StartURL:        "/",
-		Scope:           "/",
-		Display:         "standalone",
+		StartURL: "/",
+		Scope:    "/",
+		Display:  "standalone",
+		// **The order is the decision in here, not the list.** A browser takes
+		// the first mode it supports, so `standalone` first means the window
+		// this UI is laid out for -- and the two behind it are declared rather
+		// than used. `window-controls-overlay` hands the title bar's strip to
+		// the page, and the right-hand end of that strip is where the system's
+		// own buttons sit *and* where this bar keeps its menus; honouring it
+		// means reading `env(titlebar-area-*)` from a stylesheet this project
+		// does not have (see CLAUDE.md). `tabbed` is the same shape of
+		// promise. Moving either in front of `standalone` is a layout change
+		// and a conversation, not a line in a manifest.
+		DisplayOverride: []string{"standalone", "window-controls-overlay", "tabbed", "browser"},
+		// It is a file browser: it reads both ways round and claims neither.
+		Orientation: "any",
+		// From the registry the specification keeps. What this is, in the words
+		// a store would file it under.
+		Categories: []string{"photo", "music", "productivity", "utilities"},
+		// The UI is written in English, left to right, and says so where an
+		// installer can read it rather than only in the html element.
+		Lang:            "en",
+		Dir:             "ltr",
 		ThemeColor:      themeColour,
 		BackgroundColor: themeColour,
+		// One window: a second launch, or a share arriving while it is open,
+		// goes to the window that is already there.
+		LaunchHandler: manifestLaunch{ClientMode: "navigate-existing"},
 		Icons: []manifestIcon{
 			{ownPrefix + "/icon-192.png" + build, "192x192", "image/png", "any maskable"},
 			{ownPrefix + "/icon-512.png" + build, "512x512", "image/png", "any maskable"},
