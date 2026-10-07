@@ -791,8 +791,8 @@ for.
 to Stratus and it lands in `shared/<year>/<month>/` under a name that never
 replaces what is already there — two things shared a minute apart are both
 called `image.jpg` — and the page you land on is the folder it went to, with
-the file's own row on it to rename if you want. This is the one part of the app
-nobody has run on a real phone yet.
+the file's own row on it to rename if you want. **Android only**: Safari offers
+no share target, so on iOS this is what the app is for.
 
 **Nothing here is for a search engine.** `/robots.txt` disallows the whole
 server and every page carries `noindex, nofollow`, which are two requests and
