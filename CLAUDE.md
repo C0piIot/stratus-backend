@@ -171,12 +171,15 @@ Hard constraints, in the same spirit as the rest of the project:
   the file's row on it and the rename that row has always had: no page was
   designed for this feature at all.
 
-  **What is not known is whether a browser sends the session with that POST.**
-  The cookie is `SameSite=Lax`, so one the browser judges cross-site carries no
-  credential at all, and only a phone can say which this is. The two outcomes
-  are two different redirects in the request log, which is the measurement
-  written on #312 -- and if it is the wrong one, the way across is the worker
-  re-posting it same-origin and **not** an exemption in the CSRF defence.
+  **Whether a browser sends the session with that POST was the open question,
+  and it was measured on a phone: it does.** A share is same-site as far as the
+  browser is concerned, so `SameSite=Lax` does not strip the cookie and
+  `CrossOriginProtection` takes it -- which means no service worker re-posting
+  it same-origin, and nothing exempted from the CSRF defence. The reason that
+  is written down rather than simply working is that it was the fork the whole
+  feature hung on, and the answer is a browser's behaviour rather than
+  anything this server controls. What iOS does is not this: Safari supports no
+  share target at all, and that door is `stratus-app`'s (stratus-app#128).
 
   **The icons are one picture.** `brand/app-icon.svg` is full bleed with the
   mark inside Android's 66% safe circle, so both sizes are declared
