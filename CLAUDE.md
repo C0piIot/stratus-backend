@@ -2248,9 +2248,13 @@ Restraint here is principle 3, not laziness:
   repository is not that example and never becomes it -- it is the throwaway
   test instance, open to anybody and emptied every hour.
 
-  **Both guides live in `doc/deploy/` and the README links them**, because the
-  quickstart is read in the first five minutes and a platform's cost, region
-  and upgrade story are not what somebody is reading it for.
+  **The deploy pages live in `doc/deploy/` and the README links them**, because
+  the quickstart is read in the first five minutes and a platform's cost,
+  region and upgrade story are not what somebody is reading it for. Two of the
+  four are per-platform (`render.md`, `fly.md`) and two are per-seam
+  (`s3.md`, `database.md`), which is the same split the code has: who sells a
+  bucket is not a property of who runs the container, and a page per platform
+  listing every provider would be the same list three times.
 
   **A Render Blueprint cannot ask for an optional setting.** An `envVars` entry
   is either prompted and required (`sync: false`) or fixed in the file; there is

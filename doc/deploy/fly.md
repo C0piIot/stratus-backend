@@ -81,7 +81,10 @@ swap_size_mb = 512
 
 ## Changing the options
 
-Secrets, so nothing with a password in it lands in the file:
+Fly sells both ends: [Tigris](https://fly.io/docs/tigris/) for the blobs and
+[Managed Postgres](https://fly.io/docs/mpg/) for the index, which are the
+nearest of the options in [s3.md](s3.md) and [database.md](database.md).
+Either way it is a secret, so nothing with a password in it lands in the file:
 
 ```sh
 fly secrets set --app my-stratus \

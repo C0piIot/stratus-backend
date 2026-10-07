@@ -28,13 +28,14 @@ you add there is never overwritten.
 
 | What | Where |
 |---|---|
-| S3 instead of the disk for blobs | `STRATUS_STORAGE_DSN` in Environment |
-| PostgreSQL or MySQL instead of SQLite | `STRATUS_DB_DSN` in Environment |
+| S3 instead of the disk for blobs | `STRATUS_STORAGE_DSN` in Environment — [who sells one](s3.md), Render's own included |
+| PostgreSQL instead of SQLite | `STRATUS_DB_DSN` in Environment — [who sells one](database.md); Render Postgres can be declared in a forked `render.yaml` and wired with `fromDatabase` |
 | Anything else in the config table | the same place |
 | Disk size | Disks in the dashboard, or `sizeGB`; it can be raised, never lowered |
 | Region | fork, put `region:` in `render.yaml`, use the button on your copy — a service cannot be moved afterwards |
 
-Both DSNs are documented in the [README](../../README.md#blob-storage). Moving
+Both DSNs are documented in the [README](../../README.md#blob-storage), and
+the pages above list who sells the other end of them. Moving
 the blobs or the database elsewhere does not make the disk optional: `/data` is
 also the spool the indexer and the thumbnail generator work in.
 

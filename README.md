@@ -1195,7 +1195,8 @@ s3://KEY:SECRET@s3.lan:9000/stratus?tls=false
 The server writes, reads back and removes one object at startup, so wrong
 credentials or a bucket it cannot write to stop the process instead of surfacing
 on your first upload. A DSN carries secrets, so it is redacted everywhere it is
-printed.
+printed. [doc/deploy/s3.md](doc/deploy/s3.md) lists who sells a bucket,
+starting with whatever your host already sells.
 
 ### Metadata database
 
@@ -1207,6 +1208,8 @@ mysql://user:pass@db.lan:3306/stratus
 
 MySQL is 8.0.19 or newer, for the upsert syntax the driver uses. MariaDB is a
 different database wearing the same name and is not what it is tested against.
+[doc/deploy/database.md](doc/deploy/database.md) lists who will run one for
+you, and what trips people on the way.
 
 Migrations run at startup: a self-hosted binary should not ask you to press a
 button after an upgrade. Rolling *back* to an older image is refused rather than
