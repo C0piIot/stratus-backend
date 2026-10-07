@@ -1,12 +1,13 @@
 # Fly.io: the throwaway instance CI keeps on the last green main.
 #
-# Test infrastructure, not a recommended way to run this. The smallest machine
-# there is, the smallest volume Fly sells, and a password that is the version in
-# the page footer, which is the short sha of the commit deployed and therefore
-# public. Every merge to main is a fresh server with nothing in it but the demo
-# media, a new password, and every client logged out -- and on the hour, every
-# hour, .github/workflows/demo-reset.yml empties it again without changing what
-# it runs. Do not put anything here that you would miss.
+# Test infrastructure, not a recommended way to run this: doc/deploy/fly.md
+# carries the fly.toml meant to be copied. The smallest machine there is, the
+# smallest volume Fly sells, and a password that is the version in the page
+# footer, which is the short sha of the commit deployed and therefore public.
+# Every merge to main is a fresh server with nothing in it but the demo media,
+# a new password, and every client logged out -- and on the hour, every hour,
+# .github/workflows/demo-reset.yml empties it again without changing what it
+# runs. Do not put anything here that you would miss.
 #
 # **The data is on a volume** (#238). It used to sit on the machine's own disk,
 # which a cold start throws away: the demo emptied itself in the middle of an
