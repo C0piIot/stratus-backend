@@ -2,6 +2,8 @@ package web
 
 import (
 	"errors"
+	"fmt"
+	"html/template"
 	"net/http"
 	"net/url"
 	"time"
@@ -46,12 +48,12 @@ func (h *handler) signedIn(page func(http.ResponseWriter, *http.Request, string)
 			// request that is not a navigation -- an <img>, a fetch, a WebDAV
 			// GET -- gets the challenge, which for the image means a broken
 			// picture rather than a login page rendered inside one.
+			next := "/login?next=" + url.QueryEscape(r.URL.RequestURI())
 			if r.Header.Get("Sec-Fetch-Mode") != "navigate" {
-				w.Header().Set("WWW-Authenticate", auth.Challenge(auth.Realm))
-				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				challenge(w, next)
 				return
 			}
-			redirectLocal(w, r, "/login?next="+url.QueryEscape(r.URL.RequestURI()))
+			redirectLocal(w, r, next)
 			return
 		case errors.Is(err, auth.ErrTooManyAttempts):
 			// 429 and not 401, for the reason auth.Basic gives: the
@@ -175,4 +177,31 @@ func safeNext(raw string) string {
 		return home
 	}
 	return u.String()
+}
+
+// challenge refuses a request that did not look like a browser navigating. The
+// header is what a WebDAV client acts on; the body is for the browser that
+// should have been redirected and was not, and it is a floor rather than a
+// second mechanism -- whoever is told apart correctly never reaches it.
+//
+// Two browsers reach it. Firefox drops Sec-Fetch-Mode when a service worker
+// re-issues a navigation, which is why the worker stopped re-issuing them, and
+// Safari sent none at all before 16.4. Both land on the login page from here
+// instead of on the word "unauthorized". A browser shown the native dialog
+// first only sees this if it cancels, which is the state this is for; a client
+// ignores the markup exactly as it ignored the plain text.
+func challenge(w http.ResponseWriter, login string) {
+	w.Header().Set("WWW-Authenticate", auth.Challenge(auth.Realm))
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusUnauthorized)
+	// The link is what answers a browser that honours no refresh, and the
+	// escaping is template.HTMLEscapeString rather than a template because one
+	// value in a fixed string is not a page.
+	safe := template.HTMLEscapeString(login)
+	_, _ = fmt.Fprintf(w, `<!doctype html>
+<meta charset="utf-8">
+<meta http-equiv="refresh" content="0; url=%s">
+<title>Sign in</title>
+<a href="%s">Sign in</a>
+`, safe, safe)
 }
