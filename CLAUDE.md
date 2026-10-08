@@ -158,6 +158,21 @@ Hard constraints, in the same spirit as the rest of the project:
   over the file, like the inline-style one, because what makes it true is a
   property of twenty lines of JavaScript and not of any handler.
 
+  **A navigation is waited for, never re-issued.** The worker intercepts one
+  only to answer `/offline` when the network cannot, and the obvious way to do
+  that -- `fetch(event.request)` and a `.catch` -- makes a second request out
+  of the first and loses what only the browser can put on it. Firefox drops
+  `Sec-Fetch-Mode` on the way through, which is the header `signedIn` reads to
+  tell a browser from a WebDAV client at the same URL, so a signed-out
+  navigation through the worker was answered with the Basic challenge instead
+  of the login page -- in a normal window and not in a private one, which is
+  the shape of every bug this file will ever cause. Navigation preload is the
+  mechanism for exactly this: the browser issues the navigation itself and the
+  worker awaits `event.preloadResponse`, with the old `fetch` left behind it
+  for anything that does not have it. `TestTheWorkerDoesNotReissueNavigations`
+  is the grep, because what went wrong was a property of five lines of
+  JavaScript and nothing on the server could see it.
+
   **And the share sheet is a door into the tree** (#312): `share_target` points
   at `POST /share-target`, which is `upload`'s twin. It invents no API --
   `share_target` is a manifest member and what it describes is the same
@@ -1361,6 +1376,16 @@ Restraint here is principle 3, not laziness:
   navigation gets the page, everything else gets the challenge -- so an
   `<img>` on a page whose session expired breaks rather than rendering a login
   form inside itself.
+
+  **Under that there is a floor, and it is the body of the `401`.** A browser
+  that should have been told apart and was not -- Safari sent no `Sec-Fetch-*`
+  before 16.4, and a service worker can lose them -- used to land on the word
+  "unauthorized" with nowhere to go. The refusal now carries a meta refresh to
+  the login page and a link beside it, which costs a client nothing because it
+  never reads the body and the challenge header is untouched. It is a floor
+  and not a second mechanism: a browser shown the native dialog first only
+  reaches it by cancelling, so it can never replace the discriminator above
+  it.
 
   Three things fell out of it. `dav.SignedLinks` is **deleted**: a link
   authorises `GET` and `HEAD`, which are the browser half, and `readable`

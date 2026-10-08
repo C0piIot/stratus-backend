@@ -314,6 +314,13 @@ func TestWhichRefusalDependsOnWhoIsAsking(t *testing.T) {
 	if got := rec.Header().Get("WWW-Authenticate"); !strings.HasPrefix(got, `Basic realm="Stratus"`) {
 		t.Errorf("WWW-Authenticate = %q, want the same challenge every surface sends", got)
 	}
+	// The floor under the discriminator: a browser that reached this because
+	// its Sec-Fetch-Mode went missing lands on the login page rather than on
+	// the word "unauthorized". A client never reads the body.
+	if body := rec.Body.String(); !strings.Contains(body, `http-equiv="refresh"`) ||
+		!strings.Contains(body, "/login?next=%2Ffiles%2Fnotes.txt") {
+		t.Errorf("the refusal leaves a browser nowhere to go:\n%s", body)
+	}
 
 	// A browser navigating: the login page, as it always was.
 	nav := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/files/notes.txt", nil)

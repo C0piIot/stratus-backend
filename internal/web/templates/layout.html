@@ -22,10 +22,6 @@
      a search result is nothing to find either. */}}
 <meta name="robots" content="noindex, nofollow">
 <title>{{.Title}} · Stratus</title>
-{{/* One SVG and no .ico: the colour it needs is whichever the tab strip is,
-     which the file answers with a media query rather than a second asset. A
-     browser too old for an SVG favicon shows none, which is what it showed
-     before this line existed. */}}
 <link rel="icon" href="{{.Favicon}}" type="image/svg+xml">
 {{/* The manifest is what a browser reads before it will offer to install
      anything, and the touch icon is the one place it does not reach: iOS

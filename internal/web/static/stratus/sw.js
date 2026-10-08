@@ -37,6 +37,18 @@ self.addEventListener("activate", function (event) {
         );
       })
       .then(function () {
+        // The browser issues a navigation itself when this is on, and the
+        // handler below waits for that instead of making its own request.
+        // Re-issuing one costs the metadata only the browser can set: Firefox
+        // drops Sec-Fetch-Mode on the way through, and that header is how the
+        // server tells a browser from a WebDAV client at the same URL, so a
+        // signed-out navigation was answered with the Basic challenge rather
+        // than the login page.
+        if (self.registration.navigationPreload) {
+          return self.registration.navigationPreload.enable();
+        }
+      })
+      .then(function () {
         return self.clients.claim();
       })
   );
@@ -51,9 +63,16 @@ self.addEventListener("fetch", function (event) {
   // of what this worker promises: the shell, never the library.
   if (request.mode === "navigate") {
     event.respondWith(
-      fetch(request).catch(function () {
-        return caches.match(OFFLINE);
-      })
+      Promise.resolve(event.preloadResponse)
+        .then(function (preloaded) {
+          // Nothing preloaded means the browser has no navigation preload, so
+          // the request is made here and loses whatever that browser does not
+          // carry across.
+          return preloaded || fetch(request);
+        })
+        .catch(function () {
+          return caches.match(OFFLINE);
+        })
     );
     return;
   }
