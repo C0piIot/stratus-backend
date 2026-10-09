@@ -46,6 +46,25 @@ func decodeSlots(cpus int, limit int64) int {
 	return max(1, slots)
 }
 
+// waitingPerSlot is how many requests may stand in front of each decoder
+// before the rest are refused rather than queued.
+//
+// The queue used to have no bottom and no deadline, which on a one-CPU machine
+// is what made a photo grid look hung: forty tiles are asked for at once, one
+// is decoded at a time, and the thirty-ninth waits a minute while the only CPU
+// is pegged -- so the listing behind it is slow as well, and the stall is the
+// whole UI rather than one picture. Four deep is enough that a grid fills in
+// steadily and short enough that nobody waits behind a minute of work.
+const waitingPerSlot = 4
+
+// decodeQueue is the most requests that may be between the door and the end of
+// a decode: the ones waiting and the ones decoding, counted together because
+// what is being capped is how much of this machine thumbnails may hold, not
+// where a request is standing.
+func decodeQueue(slots int) int {
+	return slots + slots*waitingPerSlot
+}
+
 // transcodeBudget is what one audio transcode is allowed: measured at seven
 // megabytes for MP3, Opus and AAC out of a 96 kHz FLAC and fourteen for FLAC,
 // so a comfortable multiple of the worst. perCPU is how many share a core,

@@ -280,6 +280,10 @@ func (h *handler) cover(w http.ResponseWriter, r *http.Request, user string, n m
 
 	body, length, err := h.thumbs.Cover(r.Context(), user, db.ParentOf(tracks[0].File.Path), size)
 	switch {
+	case errors.Is(err, media.ErrBusy):
+		w.Header().Set("Retry-After", "5")
+		http.Error(w, "busy", http.StatusServiceUnavailable)
+		return
 	case errors.Is(err, storage.ErrNotFound), errors.Is(err, media.ErrNoEmbeddedCover), errors.Is(err, media.ErrNoThumbnail):
 		// Half a library has no picture. The page draws the empty square it
 		// was going to fill.

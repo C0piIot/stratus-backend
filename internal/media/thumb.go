@@ -15,6 +15,8 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync/atomic"
+	"time"
 
 	"github.com/evanoberholster/imagemeta"
 	"golang.org/x/image/draw"
@@ -101,6 +103,12 @@ const maxSpool = 64 << 20
 // raw needs the embedded preview, which is a different technique.
 var ErrNoThumbnail = errors.New("media: no thumbnail for this file")
 
+// defaultMaxWait is how long a request may stand in the queue before it is
+// refused anyway. The bottom of the queue bounds a burst; this bounds a decode
+// that turns out to be slow -- a 4K frame through ffmpeg on a shared CPU --
+// behind which the queue is short but the wait is not.
+const defaultMaxWait = 10 * time.Second
+
 // Thumbs makes thumbnails and remembers them.
 type Thumbs struct {
 	blobs storage.Storage
@@ -114,6 +122,15 @@ type Thumbs struct {
 	// than a sync primitive so that waiting for it can be cancelled with the
 	// request.
 	decoding chan struct{}
+	// inQueue counts what is waiting for that semaphore and what holds it, and
+	// queue is the most there may be. A channel cannot report its own queue,
+	// so the counter is what makes refusing possible at all.
+	inQueue atomic.Int64
+	queue   int
+	// maxWait is how long one may stand in it. A field rather than the
+	// constant it is set from, so a test can reach the deadline without
+	// standing there for ten seconds.
+	maxWait time.Duration
 }
 
 // NewThumbs wires the generator. It takes the blob store directly because a
@@ -121,12 +138,14 @@ type Thumbs struct {
 // files exists to hold does not apply to something regenerable.
 func NewThumbs(blobs storage.Storage, service *files.Service, ffmpeg, tmpDir string) *Thumbs {
 	slots := generating()
+	queue := decodeQueue(slots)
 	// Said once at startup, because it is worked out from the machine and a
 	// number nobody set is a number nobody would otherwise know.
-	slog.Info("thumbnails", "at_once", slots, "cpus", runtime.GOMAXPROCS(0), "memory_limit", memoryLimit(os.DirFS("/")))
+	slog.Info("thumbnails", "at_once", slots, "queue", queue,
+		"cpus", runtime.GOMAXPROCS(0), "memory_limit", memoryLimit(os.DirFS("/")))
 	return &Thumbs{
 		blobs: blobs, files: service, ffmpeg: ffmpeg, tmpDir: tmpDir,
-		decoding: make(chan struct{}, slots),
+		decoding: make(chan struct{}, slots), queue: queue, maxWait: defaultMaxWait,
 	}
 }
 
@@ -281,9 +300,25 @@ func (t *Thumbs) cached(
 	// The cached read above is deliberately outside the bound: serving a
 	// thumbnail that exists costs no pixels and must not queue behind one being
 	// made. Only the decode is limited.
+
+	// The queue in front of it has a bottom and a deadline, and refusing is
+	// the better answer past either: a thumbnail is regenerable and the
+	// request will be made again, while a request that stands in line for a
+	// minute holds a connection and keeps the only CPU busy for the pages
+	// behind it.
+	if t.inQueue.Add(1) > int64(t.queue) {
+		t.inQueue.Add(-1)
+		return nil, 0, ErrBusy
+	}
+	defer func() { t.inQueue.Add(-1) }()
+
+	wait := time.NewTimer(t.maxWait)
+	defer wait.Stop()
 	select {
 	case t.decoding <- struct{}{}:
 		defer func() { <-t.decoding }()
+	case <-wait.C:
+		return nil, 0, ErrBusy
 	case <-ctx.Done():
 		return nil, 0, ctx.Err()
 	}

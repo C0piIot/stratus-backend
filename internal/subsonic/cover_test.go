@@ -2,17 +2,22 @@ package subsonic_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"image"
 	"image/color"
 	"image/jpeg"
 	"image/png"
+	"io"
 	"net/url"
 	"strconv"
 	"testing"
 
 	"github.com/C0piIot/stratus-backend/internal/db"
 	"github.com/C0piIot/stratus-backend/internal/files"
+	"github.com/C0piIot/stratus-backend/internal/media"
+	"github.com/C0piIot/stratus-backend/internal/music"
+	"github.com/C0piIot/stratus-backend/internal/subsonic"
 )
 
 // TestGetCoverArt follows the ids a client is given, the way the browse tests
@@ -467,4 +472,27 @@ func gradient(w, h int) image.Image {
 		}
 	}
 	return img
+}
+
+// atCapacityArt is a generator with every slot taken, which is a state a real
+// one cannot be put into on demand.
+type atCapacityArt struct{}
+
+func (atCapacityArt) Cover(context.Context, string, string, int) (io.ReadCloser, int64, error) {
+	return nil, 0, media.ErrBusy
+}
+
+// TestCoverArtAtCapacityIsNotACoverThatIsMissing: a client filling a home
+// screen asks for more pictures than a small machine makes at once. The ones
+// over the line are an error and not code 70 -- "no such cover art" says the
+// album has none, which a client is entitled to remember.
+func TestCoverArtAtCapacityIsNotACoverThatIsMissing(t *testing.T) {
+	t.Parallel()
+	l := newLibrary(t)
+	track := l.add(t, "music/Homogenic/01 Hunter.flac", song("Björk", "Homogenic", "Hunter", 1))
+
+	h := subsonic.Handler(prefix, serverVersion, l.verifier, l.meta, l.files, music.New(l.meta), atCapacityArt{}, nil)
+	// XML whatever f says: this endpoint answers bytes, so its failures are
+	// the one shape a client can still parse.
+	assertXMLError(t, get(t, h, "getCoverArt", query("f", "json", "id", songIDOf(track.ID), "size", "300")), 0)
 }
