@@ -13,13 +13,13 @@ package web
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"strings"
 
 	"github.com/C0piIot/stratus-backend/internal/auth"
 	"github.com/C0piIot/stratus-backend/internal/db"
 	"github.com/C0piIot/stratus-backend/internal/files"
-	"github.com/C0piIot/stratus-backend/internal/media"
 )
 
 // Each vendored library carries its own version in its path, which is what
@@ -84,6 +84,16 @@ type PlaylistReader interface {
 	PlaylistTracks(ctx context.Context, owner string, id int64) ([]db.Track, error)
 }
 
+// Thumbnails is the picture half: a file's own and a folder's cover art. An
+// interface like the rest of this handler's dependencies rather than
+// *media.Thumbs, because the answers that are not pixels -- no picture, and
+// the generator at capacity -- are branches here and a test should not have to
+// saturate a real decoder to reach one.
+type Thumbnails interface {
+	File(ctx context.Context, owner, path string, px int) (io.ReadCloser, int64, error)
+	Cover(ctx context.Context, owner, dir string, px int) (io.ReadCloser, int64, error)
+}
+
 // Library is the music half of Index.
 type Library interface {
 	db.Music
@@ -103,7 +113,7 @@ type handler struct {
 	files  *files.Service
 	// thumbs takes the blob store directly, which is why it is passed in rather
 	// than built here: a derived object has no database row and never will.
-	thumbs *media.Thumbs
+	thumbs Thumbnails
 	// indexing is read, never driven: this surface reports on the indexer and
 	// has no way to start, stop or hurry it.
 	indexing Indexing
@@ -131,7 +141,7 @@ type handler struct {
 // other surface -- a WebDAV or Subsonic client is not a browser and sends no
 // cookie -- and a caller that forgot it would lose the defence silently.
 func Handler(version, buildDate string, v auth.Verifier, s *auth.Sessions, shares *auth.Shares,
-	service *files.Service, thumbs *media.Thumbs, index Index, indexing Indexing, imports Imports, video Video,
+	service *files.Service, thumbs Thumbnails, index Index, indexing Indexing, imports Imports, video Video,
 ) http.Handler {
 	h := &handler{
 		version: version, buildDate: buildDate, verifier: v, sessions: s, shares: shares,
