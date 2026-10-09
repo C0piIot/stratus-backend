@@ -1910,6 +1910,28 @@ Restraint here is principle 3, not laziness:
   build, and the day the ffmpeg path lands every HEIC changes its answer without
   a byte moving.
 
+  **The queue in front of those slots has a bottom and a deadline, and past
+  either the answer is `ErrBusy`** -- which is the package's one "at capacity"
+  sentinel, shared with the transcoder and the encoder because what every
+  caller does with it is the same shape. Bounding the work was only half of it:
+  the waiting was unbounded, so on the one-CPU instance -- where the memory
+  brings the slots to one -- a grid of forty tiles put thirty-nine requests in
+  a line, each holding a connection, while the only CPU was pegged for a
+  minute and the listings behind them were slow too. The stall was the whole
+  UI rather than one picture. The bottom is `decodeQueue`, four waiting per
+  slot, derived from the slots so it follows the machine like everything else
+  in `slots.go`; the deadline is ten seconds, and it is what catches a short
+  queue in front of a slow decode. `/thumb/` and the two cover surfaces answer
+  `503` with `Retry-After` rather than the `404` they answer for a file that
+  has no picture: a `404` says there is none and a browser never asks again,
+  and this is "not now".
+
+  What it does **not** do is make the grid ask for fewer, which is the other
+  half and is the client's: forty refusals is a page of broken images where
+  forty slow ones was a page that eventually filled. Both the web UI and the
+  app have to learn to back off and ask again, and until they do this is a
+  bound on the damage rather than a fix for it.
+
   **A picture inside a track is read in Go rather than by ffmpeg**, and that is
   the same argument as EXIF: the storage port reads ranges, so a parser that
   seeks takes the first few kilobytes of a FLAC and stops, while ffmpeg needs a

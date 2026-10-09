@@ -147,6 +147,16 @@ it. It is not a standard — there is none for previews over WebDAV — and noth
 breaks without it: a client that does not know the URL simply shows no
 thumbnails.
 
+**And it can be refused with `503` when the machine is already making as many
+as it allows.** Thumbnails are made on first request and the number that can
+be made at once comes from the CPUs and the memory, so on a small machine a
+grid asking for forty at once has one decoder and a queue. That queue has a
+bottom and a ten-second deadline, and past either the answer is `503` with
+`Retry-After` rather than a request that waits minutes while the only CPU is
+busy. It is not `404`: there is a picture, just not yet, and asking again gets
+it. A client drawing a grid should treat it as "later", and the server says
+how many it will make at once in its startup log.
+
 **The listing says which files have a preview and how much room is left.** A
 client drawing a grid of a few hundred files would otherwise ask for every
 thumbnail and count the ones that come back missing; it can read the answer out

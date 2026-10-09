@@ -83,3 +83,14 @@ func TestTranscodeSlots(t *testing.T) {
 		}
 	}
 }
+
+// TestDecodeQueue is how many requests the machines above may have in hand at
+// once, which is the decoders plus the queue standing in front of them.
+func TestDecodeQueue(t *testing.T) {
+	t.Parallel()
+	for slots, want := range map[int]int{1: 5, 2: 10, 4: 20} {
+		if got := decodeQueue(slots); got != want {
+			t.Errorf("%d slots: a queue of %d, want %d", slots, got, want)
+		}
+	}
+}

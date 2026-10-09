@@ -52,6 +52,12 @@ func (h *handler) coverArt(w http.ResponseWriter, r *http.Request, username stri
 
 	body, size, err := h.art.Cover(r.Context(), username, dir, coverSize(r))
 	switch {
+	case errors.Is(err, media.ErrBusy):
+		// The protocol has no code for "not now", so it is the generic one
+		// with a message that says what happened. Not logged as a failure:
+		// this is the server doing what it was configured to do.
+		h.failXML(w, r, apiError{errGeneric, "too many pictures are being made at once"})
+		return
 	case errors.Is(err, storage.ErrNotFound), errors.Is(err, media.ErrNoEmbeddedCover):
 		// Not an error worth a code of its own: an album without a picture is
 		// the normal state of half a library, and a client draws a placeholder.

@@ -24,8 +24,16 @@ import (
 // CPU it takes, which is little, but how many can be alive at once. When they
 // all are, ErrBusy says so and the caller decides what a client hears instead.
 
-// ErrBusy means every transcode this machine allows is already running.
-var ErrBusy = errors.New("media: every transcode slot is taken")
+// ErrBusy means this machine is already doing as much of some bounded job as
+// it allows: transcodes here, re-encoded segments in encode.go, thumbnails in
+// thumb.go. One sentinel for the three because each is returned by a call that
+// does one of them, so there is nothing for a caller to tell apart -- and
+// because what every caller does with it is the same shape, which is to answer
+// "not now" rather than "no".
+//
+// It is a state and never a verdict on the file: the same request a moment
+// later is answered.
+var ErrBusy = errors.New("media: at capacity")
 
 // Transcoder starts ffmpeg over a file the loopback serves.
 type Transcoder struct {

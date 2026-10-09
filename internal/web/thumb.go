@@ -42,6 +42,13 @@ func (h *handler) thumbnail(w http.ResponseWriter, r *http.Request, user string)
 
 	body, length, err := h.thumbs.File(r.Context(), user, p, size)
 	switch {
+	case errors.Is(err, media.ErrBusy):
+		// Not the 404 below: that says there is no picture of this file and a
+		// browser never asks again. This says "not now", which a reload
+		// answers and which a grid on a small machine will say a lot of.
+		w.Header().Set("Retry-After", "5")
+		http.Error(w, "busy", http.StatusServiceUnavailable)
+		return
 	case errors.Is(err, media.ErrNoThumbnail), errors.Is(err, db.ErrNotFound), errors.Is(err, storage.ErrNotFound):
 		// One answer for "there is no such file" and "there is no picture of
 		// it": from a browser they are the same thing, an image that will not
