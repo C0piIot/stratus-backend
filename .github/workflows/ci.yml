@@ -40,6 +40,13 @@ jobs:
 
       # The pinned version lives in one file that both this workflow and
       # `make lint` read, so the two can never drift.
+      #
+      # The version was never the thing that drifted. The linter's own image
+      # carries a Go of its own and it lags the one go.mod pins, so on 1.27.2
+      # `make lint` refused the module while this job -- which takes its
+      # toolchain from setup-go and its binary from the action -- was the only
+      # one that worked. build/lint/Dockerfile puts `make lint` in this same
+      # shape: the pinned binary on the pinned toolchain.
       - name: Resolve pinned golangci-lint version
         id: golangci
         run: echo "version=$(cat .golangci-version)" >> "$GITHUB_OUTPUT"

@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-ARG GO_VERSION=1.27.0
+ARG GO_VERSION=1.27.2
 ARG ALPINE_VERSION=3.24
 # Two statically linked FFmpeg tools, copied in rather than installed. Switching
 # the base to alpine or debian for a package would cost the three things this

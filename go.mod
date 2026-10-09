@@ -1,6 +1,6 @@
 module github.com/C0piIot/stratus-backend
 
-go 1.27.0
+go 1.27.2
 
 require (
 	github.com/emersion/go-webdav v0.7.0

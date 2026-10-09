@@ -11,6 +11,27 @@
 # they can only go up. Raising one belongs to the PR that earns it; lowering one
 # is a conversation, in the PR that needs it.
 #
+# Eight of them came down at once on go1.27.2, and that is the conversation.
+# The toolchain counts fewer statements than go1.27.0 did, and the ones it
+# stopped counting were covered, so the ratio falls while nothing about the
+# tests changes. Measured rather than assumed, by running the same suite under
+# both toolchains and comparing the profiles: internal/db/sqlite went from 964
+# statements to 673, internal/dav from 938 to 878, internal/files from 651 to
+# 604 -- and in all three **the number of uncovered statements is identical**,
+# 57, 102 and 50. The untested half of this repository is the same half it was;
+# what moved is the denominator under it.
+#
+# So these numbers are not comparable across a toolchain change, and the floors
+# are re-read on the new one rather than defended on the old. What it costs is
+# honest and worth writing down: a real regression landing in the same commit
+# as the bump would have hidden inside the same movement. Nothing else here
+# changed in that commit, which is why it was its own.
+#
+# internal/app got a point more slack than the measurement, for the reason
+# internal/nextcloud already has one: the number is half a point lower without
+# the containers `make test-db` and `make test-s3` start, and a floor a
+# developer cannot meet on their own machine is a floor that gets turned off.
+#
 # internal/app went 95 -> 94 when Run was split into open() and the lifecycle.
 # The split added one statement that no test can reach: the log line for a
 # backend that fails to close while the server is shutting down. Run builds its
@@ -77,20 +98,20 @@ set -euo pipefail
 profile="${1:-coverage.out}"
 
 FLOORS="
-internal/app:94
+internal/app:91
 internal/auth:100
 internal/config:100
-internal/dav:89
-internal/files:92
+internal/dav:88
+internal/files:91
 internal/incoming:86
 internal/media:89
 internal/music:100
 internal/timeline:92
-internal/nextcloud:88
+internal/nextcloud:87
 internal/db:63
-internal/db/postgres:93
-internal/db/sqlite:94
-internal/db/mysql:91
+internal/db/postgres:91
+internal/db/sqlite:91
+internal/db/mysql:88
 internal/db/sqlutil:95
 internal/sniff:97
 internal/storage:98
@@ -98,7 +119,7 @@ internal/storage/disk:90
 internal/storage/s3:88
 internal/subsonic:100
 internal/tus:94
-internal/web:97
+internal/web:96
 "
 
 # Not gated, and why:

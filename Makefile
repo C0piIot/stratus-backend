@@ -82,6 +82,12 @@ else
   GO_RACE := $(DOCKER_RUN) -e CGO_ENABLED=1 $(GO_RACE_IMAGE) go
 endif
 
+# The linter runs on the toolchain this repository pins, not on the one its own
+# image carries: that one lags, and with GOTOOLCHAIN=local it refuses a go.mod
+# newer than itself. build/lint/Dockerfile puts the pinned binary on the pinned
+# toolchain; see the paragraph in it.
+LINT_IMAGE := stratus-lint:$(LINT_VERSION)-go$(GO_VERSION)
+
 LINT := docker run --rm -t -u $(STRATUS_UID):$(STRATUS_GID) \
 	-v "$(CURDIR)":/src -w /src \
 	-v "$(CACHE_DIR)/go-mod":/gomodcache \
@@ -89,7 +95,7 @@ LINT := docker run --rm -t -u $(STRATUS_UID):$(STRATUS_GID) \
 	-v "$(CACHE_DIR)/golangci":/lintcache \
 	-e HOME=/tmp -e GOMODCACHE=/gomodcache -e GOCACHE=/gobuild \
 	-e GOLANGCI_LINT_CACHE=/lintcache -e GOTOOLCHAIN=local \
-	golangci/golangci-lint:$(LINT_VERSION)-alpine golangci-lint
+	$(LINT_IMAGE)
 
 # gofmt takes paths, not package patterns, so unlike the go tool it does NOT
 # skip dot-directories -- it would walk .cache/ and flag vendored testdata.
@@ -179,8 +185,17 @@ vet: | $(CACHE_DIR)
 	$(GO) vet ./...
 
 ## lint: run golangci-lint
-lint: | $(CACHE_DIR)
+lint: lint-image | $(CACHE_DIR)
 	$(LINT) run
+
+# Built rather than pulled, and cheap after the first time: it is two FROMs and
+# a COPY over images that are already here.
+lint-image:
+	@docker build -q \
+		--build-arg GO_VERSION=$(GO_VERSION) \
+		--build-arg ALPINE_VERSION=$(ALPINE_VERSION) \
+		--build-arg LINT_VERSION=$(LINT_VERSION) \
+		-t $(LINT_IMAGE) build/lint >/dev/null
 
 ## tidy: sync go.mod / go.sum
 tidy: | $(CACHE_DIR)
@@ -437,6 +452,6 @@ version:
 	@echo $(VERSION)
 
 .PHONY: help env up down restart logs ps health image build fmt fmt-check vet \
-        lint tidy tidy-check vuln deps deps-update demo test test-race test-s3 test-db silo-up \
+        lint lint-image tidy tidy-check vuln deps deps-update demo test test-race test-s3 test-db silo-up \
         silo-down postgres-up postgres-down cover smoke smoke-cover litmus ci shell clean \
         clean-data version
