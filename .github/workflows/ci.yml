@@ -109,7 +109,7 @@ jobs:
       - name: coverage
         run: make cover
 
-      - uses: actions/upload-artifact@v7.0.1
+      - uses: actions/upload-artifact@v7.0.2
         with:
           name: coverage
           path: coverage.out
@@ -149,7 +149,7 @@ jobs:
       - name: smoke tests with coverage
         run: make smoke-cover
 
-      - uses: actions/upload-artifact@v7.0.1
+      - uses: actions/upload-artifact@v7.0.2
         with:
           name: coverage-smoke
           path: coverage-smoke.out
