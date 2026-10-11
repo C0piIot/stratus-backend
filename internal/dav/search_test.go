@@ -1,10 +1,15 @@
 package dav_test
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/C0piIot/stratus-backend/internal/dav"
+	"github.com/C0piIot/stratus-backend/internal/db"
 )
 
 // searchFor is the query a client sends, with the parts a test varies left
@@ -208,4 +213,136 @@ func TestOptionsAdvertisesSearch(t *testing.T) {
 	if got := rec.Header().Get("Allow"); !strings.Contains(got, "SEARCH") {
 		t.Errorf("Allow = %q, want SEARCH in it", got)
 	}
+}
+
+// The origin is a search arbiter too, because a client rooted there -- the app
+// is one -- would otherwise have to know that searching happens at /files/,
+// which is exactly the knowledge a standard protocol exists to avoid.
+func TestTheOriginIsASearchArbiter(t *testing.T) {
+	t.Parallel()
+	svc, store := service(t)
+	tree := withUser(dav.Handler(prefix, svc, store), "edu")
+	do(t, tree, http.MethodPut, "/files/lisbon.jpg", "x")
+
+	origin := withUser(dav.Root("/", dav.Searchable("/", prefix, store), "files"), "edu")
+
+	if got := do(t, origin, http.MethodOptions, "/", "").Header().Get("DASL"); got != "<DAV:basicsearch>" {
+		t.Fatalf("OPTIONS / says DASL %q, want <DAV:basicsearch>", got)
+	}
+
+	query := strings.Replace(searchFor("lisbon"), "<D:href>/files/</D:href>", "<D:href>/</D:href>", 1)
+	rec := do(t, origin, "SEARCH", "/", query)
+	// The hrefs are the files' wherever the question was asked: they are the
+	// only resources here with a name to match.
+	if got := hrefs(t, rec); len(got) != 1 || got[0] != "/files/lisbon.jpg" {
+		t.Fatalf("a search at the origin found %v, want the file under /files/", got)
+	}
+}
+
+// A root with nothing to search it with does not advertise searching, and
+// answers the method the way it answers every other one it has not got.
+func TestARootWithNoFinderDoesNotOfferSearch(t *testing.T) {
+	t.Parallel()
+	bare := withUser(dav.Root("/", nil, "files"), "edu")
+
+	options := do(t, bare, http.MethodOptions, "/", "")
+	if got := options.Header().Get("DASL"); got != "" {
+		t.Errorf("DASL = %q, want nothing at all", got)
+	}
+	if got := options.Header().Get("Allow"); strings.Contains(got, "SEARCH") {
+		t.Errorf("Allow = %q, want no SEARCH in it", got)
+	}
+	if got := do(t, bare, "SEARCH", "/", searchFor("x")).Code; got != http.StatusMethodNotAllowed {
+		t.Errorf("SEARCH = %d, want 405", got)
+	}
+}
+
+// DAV:allprop is every property this surface has, which is what a client that
+// does not want to name them gets.
+func TestSearchAnswersAllprop(t *testing.T) {
+	t.Parallel()
+	h := server(t)
+	do(t, h, http.MethodPut, "/files/report.txt", "hello")
+
+	query := strings.Replace(searchFor("report"),
+		"<D:select><D:prop><D:resourcetype/><D:getcontentlength/><D:getcontenttype/><D:getetag/><D:getlastmodified/></D:prop></D:select>",
+		"<D:select><D:allprop/></D:select>", 1)
+	props := propsOf(t, do(t, h, "SEARCH", "/files/", query).Body.String())
+
+	for _, name := range []string{"resourcetype", "displayname", "getcontentlength", "getcontenttype", "getetag", "getlastmodified"} {
+		if _, ok := props["/files/report.txt"][name]; !ok {
+			t.Errorf("allprop did not answer %s: %v", name, props["/files/report.txt"])
+		}
+	}
+	if got := props["/files/report.txt"]["displayname"]; got != "report.txt" {
+		t.Errorf("displayname = %q, want report.txt", got)
+	}
+}
+
+// The one ordering this can give is the one it gives, so a client asking for
+// it by name is not refused for asking.
+func TestSearchTakesTheOrderingItAlreadyHas(t *testing.T) {
+	t.Parallel()
+	h := server(t)
+	do(t, h, http.MethodPut, "/files/report.txt", "hello")
+
+	query := strings.Replace(searchFor("report"), "</D:basicsearch>",
+		"<D:orderby><D:order><D:prop><D:displayname/></D:prop><D:ascending/></D:order></D:orderby></D:basicsearch>", 1)
+	if got := do(t, h, "SEARCH", "/files/", query).Code; got != http.StatusMultiStatus {
+		t.Errorf("an ordering we already give = %d, want 207", got)
+	}
+}
+
+// Nothing here serves somebody's files on a guess. The wrapper in front of
+// this handler is what puts a user on the request, and its absence is a
+// routing mistake rather than a reason to answer.
+func TestSearchNeedsAUser(t *testing.T) {
+	t.Parallel()
+	_, store := service(t)
+	anonymous := dav.Searchable(prefix, prefix, store)
+
+	if got := do(t, anonymous, "SEARCH", "/files/", searchFor("x")).Code; got != http.StatusUnauthorized {
+		t.Errorf("SEARCH with nobody on the request = %d, want 401", got)
+	}
+}
+
+// A query with no scope and one with no select are each refused by name,
+// rather than being guessed at: a search over something nobody named is a
+// search of whatever the server felt like.
+func TestSearchRefusesAQueryWithHalvesMissing(t *testing.T) {
+	t.Parallel()
+	h := server(t)
+
+	noScope := strings.Replace(searchFor("x"),
+		"<D:from><D:scope><D:href>/files/</D:href><D:depth>infinity</D:depth></D:scope></D:from>",
+		"<D:from></D:from>", 1)
+	rec := do(t, h, "SEARCH", "/files/", noScope)
+	if rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), "search-scope-valid") {
+		t.Errorf("a query with no scope = %d:\n%s", rec.Code, rec.Body)
+	}
+
+	noSelect := strings.Replace(searchFor("x"),
+		"<D:select><D:prop><D:resourcetype/><D:getcontentlength/><D:getcontenttype/><D:getetag/><D:getlastmodified/></D:prop></D:select>",
+		"<D:select></D:select>", 1)
+	if got := do(t, h, "SEARCH", "/files/", noSelect).Code; got != http.StatusUnprocessableEntity {
+		t.Errorf("a query with no select = %d, want 422", got)
+	}
+}
+
+// A database that will not answer is a 500 and not an empty result: "found
+// nothing" and "could not look" are the same screen to whoever is reading it,
+// and only one of them is true.
+func TestSearchDoesNotAnswerNothingWhenItCouldNotLook(t *testing.T) {
+	t.Parallel()
+	h := withUser(dav.Searchable(prefix, prefix, brokenFinder{}), "edu")
+
+	if got := do(t, h, "SEARCH", "/files/", searchFor("x")).Code; got != http.StatusInternalServerError {
+		t.Errorf("SEARCH over a broken database = %d, want 500", got)
+	}
+}
+
+type brokenFinder struct{}
+
+func (brokenFinder) Find(context.Context, string, db.FindFilter) (db.FindResult, error) {
+	return db.FindResult{}, errors.New("the database is on fire")
 }
