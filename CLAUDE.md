@@ -1525,6 +1525,60 @@ Restraint here is principle 3, not laziness:
   built in, and which `ListFilesPage` already answered in -- is the whole fix,
   and it was never only about deep listings: every `Depth: 1` PROPFIND, both
   Subsonic browse calls and the folder-cover lookup were paying it.
+- **The library is searchable over WebDAV, and the standard for it already
+  existed** (#327). `SEARCH` with `DAV:basicsearch`, RFC 5323, advertised as
+  `DASL: <DAV:basicsearch>` on the `OPTIONS` of `/files/` -- which is the only
+  discovery that protocol has, so a client that cannot read the header would
+  have to send a query to find out whether queries work.
+
+  **The origin is an arbiter too, and that is not symmetry for its own sake.**
+  This app is pointed at the origin rather than at a mount inside it, so the
+  collection it would ask is `/`; without that, the one client this was built
+  for would have had to know that searching happens at `/files/`, which is
+  exactly the Stratus-shaped knowledge principle 1 keeps out of clients. One
+  `Searchable` mounted twice, differing only in which collection a scope has
+  to name -- the hrefs are the files' either way, because they are the only
+  resources here with a name to match.
+
+  **It adds nothing to `db.Finder` and nothing to any schema.** The Files
+  bucket the web UI's search box reads already promises what this surface
+  needs -- a whole word of a name, several as a phrase, ordered by path -- and
+  the three engines already carry the index. What is in `internal/dav/search.go`
+  is the protocol and the refusals; the property values come from `rowInfo`,
+  which is what PROPFIND answers from, so the two surfaces cannot disagree
+  about a file's validator or its type.
+
+  Three deviations, each the RFC's to allow and each written where it is made:
+
+  - **`DAV:contains` matches the name and not the content.** 5.16 leaves the
+    matching "at the discretion of the server implementation" and deliberately
+    does not constrain it; our discretion is what `db.Finder` promises. There
+    is no index of what is inside a file here, so a word in a PDF finds
+    nothing. `DAV:like` was the alternative and is worse: it means substrings
+    and wildcards, which the port refuses by contract, so answering it would be
+    a promise three engines cannot keep.
+  - **The scope is the collection, whole.** Searching from inside a folder
+    needs a prefix predicate in `db.Finder`, three drivers and a measurement --
+    `files_owner_parent` indexes a parent and not a prefix -- and the web UI's
+    own search is library-wide too. A narrower scope is refused with
+    `DAV:search-scope-valid` rather than widened behind the client's back.
+  - **There is no cursor**, because DASL has none and inventing one would be an
+    extension a client has to be told about. The answer is capped at 200 and a
+    cut one says so with the arbiter's own href at `507` inside the `207`,
+    which 2.3.1 provides for exactly this. Ordering is the path and not
+    relevance, so a second page would be the same answer for longer; the
+    better term is the answer, which is what the web UI's search already
+    decided.
+
+  **The client table in the README did not change, and that is the point.**
+  Nothing in it -- rclone, Finder, Nautilus, FolderSync -- speaks SEARCH, and
+  a row that said "search" because the server does it is the exact drift that
+  table has been corrected for twice. `stratus-app` is the client this was
+  built for (stratus-app#143).
+
+  litmus has no SEARCH suite, so the numbers below do not move; what asserts it
+  from outside is `scripts/smoke.sh`, against the shipped container.
+
 - **Playlists are `.m3u8` files on a mount of their own**, `/playlists/`
   (#203), read-only WebDAV from `internal/dav/playlists.go`. **Not a folder in
   the tree, and that is the design:** `/files/` is the user's namespace, and a

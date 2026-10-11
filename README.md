@@ -141,6 +141,27 @@ RFC has for it: a copy is the first thing here that can fill a disk on purpose,
 and a full disk takes the database with it. On S3 there is no number to check
 against, so nothing is refused.
 
+**The library is searchable over WebDAV, with `SEARCH`** (RFC 5323). The
+server advertises it as `DASL: <DAV:basicsearch>` on the `OPTIONS` of
+`/files/`, and a query is a `DAV:contains` over that collection:
+
+```sh
+curl -u edu:"$STRATUS_PASSWORD" -X SEARCH http://localhost:8080/files/ \
+  -H 'Content-Type: application/xml' --data '<?xml version="1.0"?>
+<D:searchrequest xmlns:D="DAV:"><D:basicsearch>
+  <D:select><D:prop><D:getcontentlength/><D:getetag/></D:prop></D:select>
+  <D:from><D:scope><D:href>/files/</D:href><D:depth>infinity</D:depth></D:scope></D:from>
+  <D:where><D:contains>lisbon</D:contains></D:where>
+</D:basicsearch></D:searchrequest>'
+```
+
+Three things to know before relying on it. It matches **names**, not what is
+inside a file — the RFC leaves `DAV:contains` to the server, and there is no
+index of file contents here. It searches `/files/` whole, so a narrower scope
+is refused rather than quietly widened. And there is no second page: the
+answer is capped, and a cut one says so with the `507` the RFC provides, on
+the collection's own href inside the `207`.
+
 **A thumbnail can be fetched with the same credentials**, at
 `/thumb/<path>?size=96`, so a client that read the property below can act on
 it. It is not a standard — there is none for previews over WebDAV — and nothing

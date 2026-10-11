@@ -25,7 +25,12 @@ import (
 // multistatus is enough of RFC 4918's document to compare two of them.
 type multistatus struct {
 	Responses []struct {
-		Href     string `xml:"href"`
+		Href string `xml:"href"`
+		// Status is empty on an ordinary response, where the status is each
+		// propstat's. A response that carries one instead is saying something
+		// about the resource rather than about its properties -- which is how
+		// SEARCH reports that it stopped early (search.go).
+		Status   string `xml:"status"`
 		Propstat []struct {
 			Status string `xml:"status"`
 			Prop   struct {
@@ -200,7 +205,7 @@ func TestPropfindDoesNotAskOncePerChild(t *testing.T) {
 	}
 
 	counted := &countingStore{Store: meta}
-	h := withUser(dav.Handler(prefix, files.New(blobs, counted)), "edu")
+	h := withUser(dav.Handler(prefix, files.New(blobs, counted), counted), "edu")
 
 	do(t, h, "MKCOL", "/files/album", "")
 	const children = 50
@@ -280,8 +285,8 @@ func TestPropfindListsAPhotograph(t *testing.T) {
 // show.
 func TestPropfindNamesARowWithNoTypeByItsExtension(t *testing.T) {
 	t.Parallel()
-	svc, _ := service(t)
-	h := withUser(dav.Handler(prefix, svc), "edu")
+	svc, store := service(t)
+	h := withUser(dav.Handler(prefix, svc, store), "edu")
 	do(t, h, "MKCOL", "/files/camera", "")
 
 	// Nothing a sniff recognises, and nothing declared: the row is left empty.

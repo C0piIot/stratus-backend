@@ -34,10 +34,19 @@ const rootMethods = "OPTIONS, PROPFIND"
 // children are the names as they appear from here -- "files", "photos" -- and
 // the order is the order they are listed in, because a listing with a stable
 // order is one a person can read twice.
-func Root(prefix string, children ...string) http.Handler {
+// search answers SEARCH here. The origin is a search arbiter because it is
+// the collection that contains everything, which is what a client rooted at
+// the origin -- stratus-app is one -- has to be able to ask.
+func Root(prefix string, search http.Handler, children ...string) http.Handler {
 	prefix = "/" + strings.Trim(prefix, "/")
 	if prefix != "/" {
 		prefix += "/"
+	}
+	// A root with nothing to search it with does not advertise searching, and
+	// answers SEARCH the way it answers every other method it has not got.
+	allow := rootMethods
+	if search != nil {
+		allow += ", SEARCH"
 	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -60,12 +69,24 @@ func Root(prefix string, children ...string) http.Handler {
 			// below, which is the honest answer rather than a convenient one.
 			w.Header().Set("DAV", "1, 2")
 			w.Header().Set("MS-Author-Via", "DAV")
-			w.Header().Set("Allow", rootMethods)
+			w.Header().Set("Allow", allow)
+			if search != nil {
+				w.Header().Set("DASL", "<"+searchGrammar+">")
+			}
 			w.WriteHeader(http.StatusOK)
+			return
+		case "SEARCH":
+			if search != nil {
+				search.ServeHTTP(w, r)
+				return
+			}
+			w.Header().Set("Allow", allow)
+			http.Error(w, "the root of this server is a listing and nothing else",
+				http.StatusMethodNotAllowed)
 			return
 		case "PROPFIND":
 		default:
-			w.Header().Set("Allow", rootMethods)
+			w.Header().Set("Allow", allow)
 			http.Error(w, "the root of this server is a listing and nothing else",
 				http.StatusMethodNotAllowed)
 			return
