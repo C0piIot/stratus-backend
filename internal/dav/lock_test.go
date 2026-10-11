@@ -424,12 +424,12 @@ func TestATaggedCollectionCoversAFileInIt(t *testing.T) {
 // minute.
 func TestARestartForgetsALock(t *testing.T) {
 	t.Parallel()
-	svc, _ := service(t)
-	before := withUser(dav.Handler(prefix, svc), "edu")
+	svc, store := service(t)
+	before := withUser(dav.Handler(prefix, svc, store), "edu")
 	do(t, before, http.MethodPut, "/files/notes.txt", "hello")
 	lockFile(t, before, "/files/notes.txt")
 
-	after := withUser(dav.Handler(prefix, svc), "edu")
+	after := withUser(dav.Handler(prefix, svc, store), "edu")
 	if got := do(t, after, http.MethodPut, "/files/notes.txt", "after the restart").Code; got != http.StatusNoContent {
 		t.Errorf("a PUT after a restart = %d, want 204: the lock went with the process", got)
 	}

@@ -612,6 +612,23 @@ if wait_serving "$davname"; then
     *)   bad "OPTIONS advertises locking" "got '$dav_header'" ;;
   esac
 
+  # The only discovery RFC 5323 has (#327), so it is asserted on the shipped
+  # container rather than trusted: a client that cannot read this header has
+  # to send a query to find out whether queries work.
+  dasl_header="$(curl -s -o /dev/null -D - -u "$davuser:$davpass" -X OPTIONS "http://$davhost/files/" | grep -i '^dasl:' | tr -d '\r')"
+  case "$dasl_header" in
+    *'<DAV:basicsearch>'*) ok "OPTIONS advertises searching" ;;
+    *) bad "OPTIONS advertises searching" "got '$dasl_header'" ;;
+  esac
+
+  search_body="$(curl -s -u "$davuser:$davpass" -X SEARCH -H 'Content-Type: application/xml' \
+    --data '<?xml version="1.0"?><D:searchrequest xmlns:D="DAV:"><D:basicsearch><D:select><D:prop><D:getetag/></D:prop></D:select><D:from><D:scope><D:href>/files/</D:href><D:depth>infinity</D:depth></D:scope></D:from><D:where><D:contains>notes</D:contains></D:where></D:basicsearch></D:searchrequest>' \
+    "http://$davhost/files/")"
+  case "$search_body" in
+    *'notes.txt'*) ok "SEARCH finds a file by a word of its name" ;;
+    *) bad "SEARCH finds a file by a word of its name" "$(head -c 200 <<<"$search_body")" ;;
+  esac
+
   lock_status="$(curl -s -o /dev/null -w '%{http_code}' -u "$davuser:$davpass" -X LOCK \
     -H 'Content-Type: application/xml' \
     --data '<?xml version="1.0"?><D:lockinfo xmlns:D="DAV:"><D:lockscope><D:exclusive/></D:lockscope><D:locktype><D:write/></D:locktype></D:lockinfo>' \

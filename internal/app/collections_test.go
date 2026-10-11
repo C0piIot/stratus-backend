@@ -1,6 +1,7 @@
 package app_test
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -310,5 +311,79 @@ func TestPhotosAreOneAddressAndTwoProtocols(t *testing.T) {
 	}
 	if viewer := page(at + "?view"); viewer.Code != http.StatusOK || !strings.Contains(viewer.Body.String(), "IMG_0001.jpg") {
 		t.Errorf("the viewer = %d", viewer.Code)
+	}
+}
+
+// TestSearchIsTheProtocolSurface is #327 from outside the adapter: a SEARCH
+// goes to the WebDAV half by method, like every other verb a browser cannot
+// produce, and comes back as a multistatus naming the file.
+//
+// Here rather than in internal/dav because what it proves is the wiring: that
+// davOrBrowser routes the method, that Basic authenticates it, and that the
+// finder the web UI's own box reads is the one answering.
+func TestSearchIsTheProtocolSurface(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	blobs, err := disk.New(filepath.Join(dir, "blobs"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = blobs.Close() })
+	meta, err := sqlite.New(t.Context(), filepath.Join(dir, "stratus.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = meta.Close() })
+	if err = meta.Migrate(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	service := files.New(blobs, meta)
+
+	for _, name := range []string{"lisbon tram.jpg", "notes.txt"} {
+		if _, werr := service.Write(t.Context(), "edu", name, strings.NewReader("bytes"), 5, "image/jpeg"); werr != nil {
+			t.Fatal(werr)
+		}
+	}
+
+	const password = "an example password"
+	cfg := runConfig(t, map[string]string{"STRATUS_USERNAME": "edu", "STRATUS_PASSWORD": password})
+	h := app.New(cfg, "test", "2026-01-01T09:30:00Z").Handler(app.Deps{
+		Storage: blobs, Database: meta, Files: service,
+		Thumbs: media.NewThumbs(blobs, service, "ffmpeg", t.TempDir()),
+	})
+
+	client := func(method, target, body string) *httptest.ResponseRecorder {
+		t.Helper()
+		var reader io.Reader
+		if body != "" {
+			reader = strings.NewReader(body)
+		}
+		req := httptest.NewRequestWithContext(t.Context(), method, target, reader)
+		req.SetBasicAuth("edu", password)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec
+	}
+
+	// A client finds out there is anything to ask before it asks.
+	if got := client(http.MethodOptions, "/files/", "").Header().Get("DASL"); got != "<DAV:basicsearch>" {
+		t.Fatalf("OPTIONS /files/ says DASL %q, want <DAV:basicsearch>", got)
+	}
+
+	rec := client("SEARCH", "/files/", `<?xml version="1.0" encoding="utf-8"?>
+<D:searchrequest xmlns:D="DAV:">
+  <D:basicsearch>
+    <D:select><D:prop><D:getcontentlength/></D:prop></D:select>
+    <D:from><D:scope><D:href>/files/</D:href><D:depth>infinity</D:depth></D:scope></D:from>
+    <D:where><D:contains>lisbon</D:contains></D:where>
+  </D:basicsearch>
+</D:searchrequest>`)
+	if rec.Code != http.StatusMultiStatus {
+		t.Fatalf("SEARCH = %d, want 207\n%s", rec.Code, rec.Body)
+	}
+	if body := rec.Body.String(); !strings.Contains(body, "/files/lisbon%20tram.jpg") {
+		t.Errorf("SEARCH did not find the file:\n%s", body)
+	} else if strings.Contains(body, "notes.txt") {
+		t.Errorf("SEARCH answered a file the word is not in:\n%s", body)
 	}
 }

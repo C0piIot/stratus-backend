@@ -235,8 +235,12 @@ func (a *advertiseLocking) WriteHeader(status int) {
 			a.Header().Set("DAV", dav+", 2")
 		}
 		if allow := a.Header().Get("Allow"); allow != "" {
-			a.Header().Set("Allow", allow+", LOCK, UNLOCK")
+			a.Header().Set("Allow", allow+", LOCK, UNLOCK, SEARCH")
 		}
+		// 3.2: a DASL server has to say so on OPTIONS, and name its grammars.
+		// It is the only discovery there is -- a client that guessed would be
+		// sending a query to find out whether queries work.
+		a.Header().Set("DASL", "<"+searchGrammar+">")
 	}
 	a.ResponseWriter.WriteHeader(status)
 }
