@@ -41,7 +41,10 @@ import (
 // should know the difference.
 func Handler(prefix string, service *files.Service, finder db.Finder) http.Handler {
 	prefix = strings.TrimSuffix(prefix, "/")
-	fs := &fileSystem{files: service, finder: finder, prefix: prefix, locks: MemoryLocks(), now: time.Now}
+	fs := &fileSystem{files: service, prefix: prefix, locks: MemoryLocks(), now: time.Now}
+	// The same handler the origin mounts, asked about the same library: what
+	// differs is which collection a scope has to name. See search.go.
+	search := Searchable(prefix, prefix, finder)
 	dav := &webdav.Handler{FileSystem: fs}
 	// Everything that writes goes through the lock gate first. See locks.go.
 	guarded := fs.enforceLocks(dav)
@@ -82,7 +85,7 @@ func Handler(prefix string, service *files.Service, finder db.Finder) http.Handl
 			fs.handleUnlock(w, r)
 		// SEARCH is RFC 5323 and is answered from db.Finder. See search.go.
 		case "SEARCH":
-			fs.handleSearch(w, r)
+			search.ServeHTTP(w, r)
 		case http.MethodOptions:
 			dav.ServeHTTP(&advertiseLocking{ResponseWriter: w}, r)
 		default:
@@ -93,9 +96,6 @@ func Handler(prefix string, service *files.Service, finder db.Finder) http.Handl
 
 type fileSystem struct {
 	files *files.Service
-	// finder answers SEARCH, and is the same port the web UI's own search box
-	// reads (#327). Nil on a collection that has no text to search.
-	finder db.Finder
 	// prefix is stripped from the request path by the handler above, but it is
 	// still on the Destination header, and it has to be put back on every href
 	// in a multistatus or the client follows a link to nowhere.

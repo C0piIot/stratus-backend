@@ -370,6 +370,26 @@ func TestSearchIsTheProtocolSurface(t *testing.T) {
 		t.Fatalf("OPTIONS /files/ says DASL %q, want <DAV:basicsearch>", got)
 	}
 
+	// And so does the origin, which is the arbiter a client rooted there asks
+	// -- stratus-app is one. The hrefs are still the files'.
+	root := client("SEARCH", "/", `<?xml version="1.0" encoding="utf-8"?>
+<D:searchrequest xmlns:D="DAV:">
+  <D:basicsearch>
+    <D:select><D:prop><D:getcontentlength/></D:prop></D:select>
+    <D:from><D:scope><D:href>/</D:href><D:depth>infinity</D:depth></D:scope></D:from>
+    <D:where><D:contains>lisbon</D:contains></D:where>
+  </D:basicsearch>
+</D:searchrequest>`)
+	if root.Code != http.StatusMultiStatus {
+		t.Fatalf("SEARCH / = %d, want 207\n%s", root.Code, root.Body)
+	}
+	if body := root.Body.String(); !strings.Contains(body, "/files/lisbon%20tram.jpg") {
+		t.Errorf("a search at the origin did not find the file:\n%s", body)
+	}
+	if got := client(http.MethodOptions, "/", "").Header().Get("DASL"); got != "<DAV:basicsearch>" {
+		t.Errorf("OPTIONS / says DASL %q, want <DAV:basicsearch>", got)
+	}
+
 	rec := client("SEARCH", "/files/", `<?xml version="1.0" encoding="utf-8"?>
 <D:searchrequest xmlns:D="DAV:">
   <D:basicsearch>

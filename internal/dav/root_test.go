@@ -12,7 +12,7 @@ import (
 // root is the collection the whole server is, with the children it is given.
 func root(t *testing.T) http.Handler {
 	t.Helper()
-	return dav.Root("/", "files", "photos", "playlists")
+	return dav.Root("/", nil, "files", "photos", "playlists")
 }
 
 // TestTheRootAdvertisesWebDAV is the answer the Windows redirector probes for

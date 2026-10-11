@@ -229,7 +229,8 @@ func (a *App) Handler(deps Deps) http.Handler {
 		// anything at all (#281).
 		mux.Handle("/", davOrBrowser(
 			auth.Session(sessions, auth.Basic(auth.Realm, verifier,
-				dav.Root("/", "files", "music", "photos", "playlists", "videos"))),
+				dav.Root("/", dav.Searchable("/", filesPrefix, deps.Database),
+					"files", "music", "photos", "playlists", "videos"))),
 			browser))
 	}
 	// The log is outside the compression so that the bytes it counts are the

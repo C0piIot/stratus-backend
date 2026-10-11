@@ -1531,6 +1531,15 @@ Restraint here is principle 3, not laziness:
   discovery that protocol has, so a client that cannot read the header would
   have to send a query to find out whether queries work.
 
+  **The origin is an arbiter too, and that is not symmetry for its own sake.**
+  This app is pointed at the origin rather than at a mount inside it, so the
+  collection it would ask is `/`; without that, the one client this was built
+  for would have had to know that searching happens at `/files/`, which is
+  exactly the Stratus-shaped knowledge principle 1 keeps out of clients. One
+  `Searchable` mounted twice, differing only in which collection a scope has
+  to name -- the hrefs are the files' either way, because they are the only
+  resources here with a name to match.
+
   **It adds nothing to `db.Finder` and nothing to any schema.** The Files
   bucket the web UI's search box reads already promises what this surface
   needs -- a whole word of a name, several as a phrase, ordered by path -- and

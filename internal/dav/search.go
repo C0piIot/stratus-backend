@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/C0piIot/stratus-backend/internal/auth"
 	"github.com/C0piIot/stratus-backend/internal/db"
 )
 
@@ -64,10 +65,34 @@ const maxSearchResults = 200
 // what db.Finder searches.
 const searchDepth = "infinity"
 
-// handleSearch answers one SEARCH over the collection this handler serves.
-func (f *fileSystem) handleSearch(w http.ResponseWriter, r *http.Request) {
-	owner, err := f.owner(r.Context())
-	if err != nil {
+// Searchable answers SEARCH, and is mounted twice.
+//
+// arbiter is the URL it answers at, which is what a scope has to name: the
+// origin is one search arbiter and the user's tree is another, and both search
+// the same library because the only resources with text in them are the files.
+// collection is the prefix every href is built with, which is the tree's
+// wherever the question was asked.
+//
+// Separate from the fileSystem above because it needs none of it -- no blob
+// store, no locks, no paths to resolve -- and because the root collection has
+// no fileSystem at all.
+func Searchable(arbiter, collection string, finder db.Finder) http.Handler {
+	return &searcher{
+		arbiter:    "/" + strings.Trim(arbiter, "/"),
+		collection: strings.TrimSuffix(collection, "/"),
+		finder:     finder,
+	}
+}
+
+type searcher struct {
+	arbiter    string
+	collection string
+	finder     db.Finder
+}
+
+func (f *searcher) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	owner, ok := auth.User(r.Context())
+	if !ok {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -78,7 +103,7 @@ func (f *fileSystem) handleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	query, fault := parseSearch(body, f.prefix)
+	query, fault := parseSearch(body, f.arbiter)
 	if fault != nil {
 		writeFault(w, *fault)
 		return
@@ -116,12 +141,21 @@ type searchQuery struct {
 	props []xml.Name
 }
 
+// arbiterHref is the collection the question was asked of, as an href. The
+// origin is already "/"; anything else needs the slash a collection carries.
+func arbiterHref(arbiter string) string {
+	if strings.HasSuffix(arbiter, "/") {
+		return arbiter
+	}
+	return arbiter + "/"
+}
+
 // parseSearch reads a DAV:searchrequest, or says why it will not.
 //
 // Every refusal names a condition rather than failing vaguely: a client that
 // sent an operator this does not have needs to know which one, and 2.4 is
 // where the RFC asks for a body saying so.
-func parseSearch(body []byte, prefix string) (searchQuery, *searchFault) {
+func parseSearch(body []byte, arbiter string) (searchQuery, *searchFault) {
 	var request searchRequest
 	if err := xml.Unmarshal(body, &request); err != nil {
 		return searchQuery{}, &searchFault{
@@ -156,7 +190,7 @@ func parseSearch(body []byte, prefix string) (searchQuery, *searchFault) {
 			reason:       "one scope at a time",
 		}
 	}
-	if fault := checkScope(basic.From.Scopes[0], prefix); fault != nil {
+	if fault := checkScope(basic.From.Scopes[0], arbiter); fault != nil {
 		return searchQuery{}, fault
 	}
 
@@ -190,17 +224,17 @@ func parseSearch(body []byte, prefix string) (searchQuery, *searchFault) {
 // #327 and is refused the same way rather than widened behind the client's
 // back -- answering a search of one folder with the whole library would be the
 // worst of both.
-func checkScope(s scope, prefix string) *searchFault {
+func checkScope(s scope, arbiter string) *searchFault {
 	href := s.Href
 	if u, err := url.Parse(strings.TrimSpace(href)); err == nil {
 		href = u.Path
 	}
-	here := path.Clean("/" + strings.Trim(prefix, "/"))
+	here := path.Clean("/" + strings.Trim(arbiter, "/"))
 	if path.Clean("/"+strings.Trim(href, "/")) != here {
 		return &searchFault{
 			status:       http.StatusConflict,
 			precondition: "search-scope-valid",
-			reason:       "this server searches " + here + "/ whole, so that is the only scope it takes",
+			reason:       "this server searches " + arbiterHref(here) + " whole, so that is the only scope it takes",
 		}
 	}
 	if depth := strings.TrimSpace(s.Depth); depth != "" && depth != searchDepth {
@@ -363,7 +397,7 @@ var known = []xml.Name{
 // child's href by joining the parent with the entry's name, and a search
 // result is not under the collection it was found from, so its walker cannot
 // be borrowed.
-func (f *fileSystem) writeResults(
+func (f *searcher) writeResults(
 	ctx context.Context,
 	w http.ResponseWriter,
 	query searchQuery,
@@ -388,7 +422,7 @@ func (f *fileSystem) writeResults(
 		// stopped early, and the partial results above it are what the RFC
 		// asks to be sent anyway.
 		if err := enc.Encode(searchResponse{
-			Href:   f.prefix + "/",
+			Href:   arbiterHref(f.arbiter),
 			Status: statusLine(http.StatusInsufficientStorage),
 			Description: fmt.Sprintf(
 				"More than %d files match. The results are the first by path; a narrower search finds fewer.",
@@ -404,7 +438,7 @@ func (f *fileSystem) writeResults(
 }
 
 // responseFor is one found file, described the way a PROPFIND describes it.
-func (f *fileSystem) responseFor(ctx context.Context, query searchQuery, row db.File) searchResponse {
+func (f *searcher) responseFor(ctx context.Context, query searchQuery, row db.File) searchResponse {
 	info := rowInfo{row: row}
 	wanted := query.props
 	if len(wanted) == 0 {
@@ -422,7 +456,7 @@ func (f *fileSystem) responseFor(ctx context.Context, query searchQuery, row db.
 		found.Prop.Any = append(found.Prop.Any, value)
 	}
 
-	response := searchResponse{Href: href(f.prefix, row)}
+	response := searchResponse{Href: href(f.collection, row)}
 	if len(found.Prop.Any) > 0 {
 		response.Propstats = append(response.Propstats, found)
 	}
