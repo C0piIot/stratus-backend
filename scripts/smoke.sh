@@ -629,6 +629,21 @@ if wait_serving "$davname"; then
     *) bad "SEARCH finds a file by a word of its name" "$(head -c 200 <<<"$search_body")" ;;
   esac
 
+  # And a folder is a scope of its own (#329), which is what lets a client
+  # search where somebody is standing. The file beside the folder has the same
+  # word in it, so an answer carrying it would be a scope that was ignored.
+  curl -fsS -o /dev/null -u "$davuser:$davpass" -X MKCOL "http://$davhost/files/scoped" 2>/dev/null || true
+  curl -fsS -o /dev/null -u "$davuser:$davpass" \
+    -X PUT --data-binary 'smoke' "http://$davhost/files/scoped/notes.txt" 2>/dev/null || true
+  scoped_body="$(curl -s -u "$davuser:$davpass" -X SEARCH -H 'Content-Type: application/xml' \
+    --data '<?xml version="1.0"?><D:searchrequest xmlns:D="DAV:"><D:basicsearch><D:select><D:prop><D:getetag/></D:prop></D:select><D:from><D:scope><D:href>/files/scoped/</D:href><D:depth>infinity</D:depth></D:scope></D:from><D:where><D:contains>notes</D:contains></D:where></D:basicsearch></D:searchrequest>' \
+    "http://$davhost/files/")"
+  case "$scoped_body" in
+    *'>/files/notes.txt<'*) bad "SEARCH takes a folder as its scope" "it answered the file beside the folder" ;;
+    *'/files/scoped/notes.txt'*) ok "SEARCH takes a folder as its scope" ;;
+    *) bad "SEARCH takes a folder as its scope" "$(head -c 200 <<<"$scoped_body")" ;;
+  esac
+
   lock_status="$(curl -s -o /dev/null -w '%{http_code}' -u "$davuser:$davpass" -X LOCK \
     -H 'Content-Type: application/xml' \
     --data '<?xml version="1.0"?><D:lockinfo xmlns:D="DAV:"><D:lockscope><D:exclusive/></D:lockscope><D:locktype><D:write/></D:locktype></D:lockinfo>' \

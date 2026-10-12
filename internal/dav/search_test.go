@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -24,6 +25,12 @@ func searchFor(term string) string {
     <D:where><D:contains>` + term + `</D:contains></D:where>
   </D:basicsearch>
 </D:searchrequest>`
+}
+
+// searchUnder is the same query asked of one collection, which is what #329
+// added. The href is written as a client would write it: a URL, escaped.
+func searchUnder(href, term string) string {
+	return strings.Replace(searchFor(term), "<D:href>/files/</D:href>", "<D:href>"+href+"</D:href>", 1)
 }
 
 func TestSearchFindsAFileByAWordOfItsName(t *testing.T) {
@@ -162,8 +169,13 @@ func TestSearchRefusesWhatItCannotAnswer(t *testing.T) {
 		want:         http.StatusConflict,
 		precondition: "search-scope-valid",
 	}, {
-		name:         "a scope narrower than the collection",
-		query:        strings.Replace(searchFor("x"), "<D:href>/files/</D:href>", "<D:href>/files/holiday</D:href>", 1),
+		name:         "a scope above the collection",
+		query:        searchUnder("/", "x"),
+		want:         http.StatusConflict,
+		precondition: "search-scope-valid",
+	}, {
+		name:         "a scope that climbs out of the collection",
+		query:        searchUnder("/files/holiday/../../photos", "x"),
 		want:         http.StatusConflict,
 		precondition: "search-scope-valid",
 	}, {
@@ -236,6 +248,83 @@ func TestTheOriginIsASearchArbiter(t *testing.T) {
 	// only resources here with a name to match.
 	if got := hrefs(t, rec); len(got) != 1 || got[0] != "/files/lisbon.jpg" {
 		t.Fatalf("a search at the origin found %v, want the file under /files/", got)
+	}
+}
+
+// The folder somebody is standing in is a scope (#329), which is the whole
+// point of the feature: a word that is everywhere answers what is here.
+func TestSearchTakesACollectionUnderTheTree(t *testing.T) {
+	t.Parallel()
+	h := server(t)
+
+	do(t, h, "MKCOL", "/files/holiday", "")
+	do(t, h, "MKCOL", "/files/holiday-2024", "")
+	do(t, h, http.MethodPut, "/files/holiday/lisbon.jpg", "x")
+	do(t, h, http.MethodPut, "/files/holiday-2024/lisbon.jpg", "y")
+	do(t, h, http.MethodPut, "/files/lisbon.jpg", "z")
+
+	rec := do(t, h, "SEARCH", "/files/", searchUnder("/files/holiday/", "lisbon"))
+	if rec.Code != http.StatusMultiStatus {
+		t.Fatalf("SEARCH = %d, want 207\n%s", rec.Code, rec.Body)
+	}
+	// Only the one under it: not the file beside the folder, and not the one
+	// in the folder whose name merely begins the same way.
+	want := []string{"/files/holiday/lisbon.jpg"}
+	if got := hrefs(t, rec); !slices.Equal(got, want) {
+		t.Fatalf("a scoped search found %v, want %v", got, want)
+	}
+}
+
+// The scope is a URL, so a folder whose name has a space in it arrives
+// escaped and has to be read back.
+func TestSearchTakesAScopeWithASpaceInIt(t *testing.T) {
+	t.Parallel()
+	h := server(t)
+
+	do(t, h, "MKCOL", "/files/last%20summer", "")
+	do(t, h, http.MethodPut, "/files/last%20summer/lisbon.jpg", "x")
+
+	rec := do(t, h, "SEARCH", "/files/", searchUnder("/files/last%20summer/", "lisbon"))
+	want := []string{"/files/last summer/lisbon.jpg"}
+	if got := hrefs(t, rec); !slices.Equal(got, want) {
+		t.Fatalf("a scoped search found %v, want %v", got, want)
+	}
+}
+
+// A scope naming a folder that is not there answers nothing, which is the
+// same answer as a folder with nothing matching in it. Deliberately not a
+// refusal: this handler holds no filesystem to ask, and a lookup per search
+// to catch a client's typo is not worth carrying one.
+func TestAScopeThatNamesNothingAnswersNothing(t *testing.T) {
+	t.Parallel()
+	h := server(t)
+	do(t, h, http.MethodPut, "/files/lisbon.jpg", "x")
+
+	rec := do(t, h, "SEARCH", "/files/", searchUnder("/files/nowhere/", "lisbon"))
+	if rec.Code != http.StatusMultiStatus {
+		t.Fatalf("SEARCH = %d, want 207\n%s", rec.Code, rec.Body)
+	}
+	if got := hrefs(t, rec); len(got) != 0 {
+		t.Fatalf("a scope naming nothing found %v, want nothing", got)
+	}
+}
+
+// The origin arbiter takes the same scope, which is what the app needs: it is
+// rooted at the origin and browses /files/ underneath it.
+func TestTheOriginTakesACollectionUnderTheTree(t *testing.T) {
+	t.Parallel()
+	svc, store := service(t)
+	tree := withUser(dav.Handler(prefix, svc, store), "edu")
+	do(t, tree, "MKCOL", "/files/holiday", "")
+	do(t, tree, http.MethodPut, "/files/holiday/lisbon.jpg", "x")
+	do(t, tree, http.MethodPut, "/files/lisbon.jpg", "y")
+
+	origin := withUser(dav.Root("/", dav.Searchable("/", prefix, store), "files"), "edu")
+	rec := do(t, origin, "SEARCH", "/", searchUnder("/files/holiday/", "lisbon"))
+
+	want := []string{"/files/holiday/lisbon.jpg"}
+	if got := hrefs(t, rec); !slices.Equal(got, want) {
+		t.Fatalf("a scoped search at the origin found %v, want %v", got, want)
 	}
 }
 

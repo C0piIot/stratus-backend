@@ -339,7 +339,10 @@ func TestSearchIsTheProtocolSurface(t *testing.T) {
 	}
 	service := files.New(blobs, meta)
 
-	for _, name := range []string{"lisbon tram.jpg", "notes.txt"} {
+	if _, err = service.Mkdir(t.Context(), "edu", "holiday"); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"lisbon tram.jpg", "notes.txt", "holiday/lisbon tram.jpg"} {
 		if _, werr := service.Write(t.Context(), "edu", name, strings.NewReader("bytes"), 5, "image/jpeg"); werr != nil {
 			t.Fatal(werr)
 		}
@@ -405,5 +408,26 @@ func TestSearchIsTheProtocolSurface(t *testing.T) {
 		t.Errorf("SEARCH did not find the file:\n%s", body)
 	} else if strings.Contains(body, "notes.txt") {
 		t.Errorf("SEARCH answered a file the word is not in:\n%s", body)
+	}
+
+	// And a folder is a scope of its own (#329), through the whole wiring and
+	// from the arbiter the app asks: the one inside it and not the one beside.
+	scoped := client("SEARCH", "/", `<?xml version="1.0" encoding="utf-8"?>
+<D:searchrequest xmlns:D="DAV:">
+  <D:basicsearch>
+    <D:select><D:prop><D:getcontentlength/></D:prop></D:select>
+    <D:from><D:scope><D:href>/files/holiday/</D:href><D:depth>infinity</D:depth></D:scope></D:from>
+    <D:where><D:contains>lisbon</D:contains></D:where>
+  </D:basicsearch>
+</D:searchrequest>`)
+	if scoped.Code != http.StatusMultiStatus {
+		t.Fatalf("a scoped SEARCH = %d, want 207\n%s", scoped.Code, scoped.Body)
+	}
+	body := scoped.Body.String()
+	if !strings.Contains(body, "/files/holiday/lisbon%20tram.jpg") {
+		t.Errorf("a scoped SEARCH did not find what is in the folder:\n%s", body)
+	}
+	if strings.Contains(body, "<D:href>/files/lisbon%20tram.jpg</D:href>") {
+		t.Errorf("a scoped SEARCH answered the file beside the folder:\n%s", body)
 	}
 }

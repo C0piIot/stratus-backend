@@ -960,7 +960,8 @@ decision** (#259). `db.Finder` says what a search means -- a whole word of a
 file's or a folder's **name**, of a track's **title**, of an album artist, of
 an album or of what a camera recorded, matched as a phrase when there are
 several, ordered by path or by the name a bucket groups by so that a cursor can
-resume -- and says nothing about how. Each engine answers with what it is good at, including with columns
+resume, and held to one folder and everything under it when a caller asks
+(#329) -- and says nothing about how. Each engine answers with what it is good at, including with columns
 and indexes of its own, which is the same licence the schema already takes when
 MySQL carries a `path_hash` nothing else has.
 
@@ -1540,10 +1541,11 @@ Restraint here is principle 3, not laziness:
   to name -- the hrefs are the files' either way, because they are the only
   resources here with a name to match.
 
-  **It adds nothing to `db.Finder` and nothing to any schema.** The Files
-  bucket the web UI's search box reads already promises what this surface
+  **It added one field to `db.Finder` and nothing to any schema.** The Files
+  bucket the web UI's search box reads already promised what this surface
   needs -- a whole word of a name, several as a phrase, ordered by path -- and
-  the three engines already carry the index. What is in `internal/dav/search.go`
+  the three engines already carry the index; the field is the scope below, and
+  it needed no index either. What is in `internal/dav/search.go`
   is the protocol and the refusals; the property values come from `rowInfo`,
   which is what PROPFIND answers from, so the two surfaces cannot disagree
   about a file's validator or its type.
@@ -1557,11 +1559,37 @@ Restraint here is principle 3, not laziness:
     nothing. `DAV:like` was the alternative and is worse: it means substrings
     and wildcards, which the port refuses by contract, so answering it would be
     a promise three engines cannot keep.
-  - **The scope is the collection, whole.** Searching from inside a folder
-    needs a prefix predicate in `db.Finder`, three drivers and a measurement --
-    `files_owner_parent` indexes a parent and not a prefix -- and the web UI's
-    own search is library-wide too. A narrower scope is refused with
-    `DAV:search-scope-valid` rather than widened behind the client's back.
+  - **The scope is a collection: the tree, or any folder in it** (#329). The
+    port grew one field for it, `FindFilter.Under`, and nothing else -- no
+    index, no migration, no second query shape. The predicate is
+    `sqlutil.Under`, the same LIKE pattern `MoveFile` has always used, and a
+    LIKE rather than a range on the path **because a range is a seek that
+    depends on what a collation does with a slash**: true of MySQL's binary
+    one and promised by nobody for PostgreSQL's. It costs nothing to filter
+    that way here, because the full-text index is what drives the query and
+    the path was already a predicate on what it hands back. A scope naming
+    anything else is refused with `DAV:search-scope-valid` rather than widened
+    behind the client's back.
+
+    **Measured on a hundred thousand files in a thousand folders**, best of
+    three, a page of 200, scoped to a folder of 100 -- and the headline is
+    that **a narrow scope is a smaller answer and never a faster search**:
+
+    | term | SQLite | PostgreSQL | MySQL |
+    |---|---|---|---|
+    | nothing, whole / scoped | 0.24 / 0.25 ms | 1.1 / 1.2 ms | 0.46 / 0.47 ms |
+    | a sixth, whole / scoped | 33 / 31 ms | 2.2 / 9.5 ms | 75 / 73 ms |
+    | everything, whole / scoped | 81 / 83 ms | 2.5 / 38 ms | 406 / 397 ms |
+
+    SQLite and MySQL pay nothing for it, which is the predicate costing a
+    string comparison per row the match already produced. **PostgreSQL pays**,
+    and the reason is worth knowing before somebody reads it as a regression:
+    unscoped it walks the path index and stops the moment it has 200 rows,
+    and scoped it keeps walking, because the scope rejects almost everything
+    it steps over. The fix, should it ever be wanted, is an index that can
+    seek a prefix -- `text_pattern_ops` on `(owner_id, path)` -- and that is a
+    second index written by every write and the first `0002` migration, for a
+    38 ms query. Not taken.
   - **There is no cursor**, because DASL has none and inventing one would be an
     extension a client has to be told about. The answer is capped at 200 and a
     cut one says so with the arbiter's own href at `507` inside the `207`,

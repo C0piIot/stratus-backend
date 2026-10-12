@@ -155,12 +155,18 @@ curl -u edu:"$STRATUS_PASSWORD" -X SEARCH http://localhost:8080/files/ \
 </D:basicsearch></D:searchrequest>'
 ```
 
-Three things to know before relying on it. It matches **names**, not what is
+The scope may be `/files/` or **any collection under it**, so a client can
+search the folder somebody is standing in. What that buys is a smaller answer
+and not a faster search — the index is on words, not on paths — so a vague
+term is no cheaper for being asked of one folder. A scope naming anything
+else — a generated collection, a path above the tree — is refused rather than
+quietly widened.
+
+Two more things to know before relying on it. It matches **names**, not what is
 inside a file — the RFC leaves `DAV:contains` to the server, and there is no
-index of file contents here. It searches `/files/` whole, so a narrower scope
-is refused rather than quietly widened. And there is no second page: the
-answer is capped, and a cut one says so with the `507` the RFC provides, on
-the collection's own href inside the `207`.
+index of file contents here. And there is no second page: the answer is capped,
+and a cut one says so with the `507` the RFC provides, on the collection's own
+href inside the `207`.
 
 **A thumbnail can be fetched with the same credentials**, at
 `/thumb/<path>?size=96`, so a client that read the property below can act on

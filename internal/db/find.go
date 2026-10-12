@@ -53,6 +53,11 @@ type Finder interface {
 	//   - An empty Text matches nothing. Unlike Music.Search, where a client
 	//     with no query is asking for the library, a person with an empty box
 	//     is asking for nothing.
+	//   - Under restricts every bucket to what is beneath that directory, and
+	//     an empty one is the whole library. Every bucket, because every row
+	//     here is a file or a group over files, and a filter that ignored
+	//     itself for two of the five would be a lie. The directory is not a
+	//     result of its own: a scope is what is in it.
 	//
 	// **What no driver promises:** ranking, partial words, substrings, accents
 	// folded, or anything about word order. A driver whose engine gives one of
@@ -70,6 +75,10 @@ type Finder interface {
 // walks them separately.
 type FindFilter struct {
 	Text string
+	// Under is the directory the whole search happens in, "" being the
+	// library. It is a scope and not a bucket, which is why it is here rather
+	// than on each window: a search is asked of one place at a time.
+	Under string
 	// Files, Tracks and Photos are the buckets whose rows are files, so they
 	// are walked by path. A zero Limit asks for nothing, which is how a caller
 	// that wants only some of them says so.
@@ -120,7 +129,7 @@ func (f FindFilter) Validate() error {
 			return fmt.Errorf("db: a page asks for no rows or some, not %d", limit)
 		}
 	}
-	return nil
+	return ValidateDir(f.Under)
 }
 
 // FindResult is what one search answers.

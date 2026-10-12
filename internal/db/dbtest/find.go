@@ -45,6 +45,11 @@ func RunFind(t *testing.T, newRepo func(t *testing.T) db.Repo) {
 		{"artists and albums are walked a page at a time", findPagedTags},
 		{"a cursor still resumes after its row is deleted", findPagedDeletedCursor},
 		{"a page of no rows is refused", findLimit},
+		{"a search happens in one folder when it is told to", findUnder},
+		{"a folder is not a prefix of its neighbour", findUnderNeighbour},
+		{"a folder holds every bucket to it", findUnderEveryBucket},
+		{"a folder with a wildcard in its name is not a wildcard", findUnderWildcard},
+		{"a folder that cannot be a path is refused", findUnderInvalid},
 	}
 
 	for _, tc := range cases {
@@ -52,6 +57,134 @@ func RunFind(t *testing.T, newRepo func(t *testing.T) db.Repo) {
 			t.Parallel()
 			tc.fn(t, newRepo(t))
 		})
+	}
+}
+
+// findUnder is #329: a scope is a folder, and what it answers is what is in
+// it -- at any depth, since the whole promise of this is finding a file
+// somebody filed a year ago. The folder itself is not a result of its own:
+// a scope is what is *in* it, which is what the library already answers at
+// the top.
+func findUnder(t *testing.T, s db.Repo) {
+	for _, dir := range []string{"holiday", "holiday/lisbon", "records"} {
+		if _, err := s.CreateDir(t.Context(), owner, dir); err != nil {
+			t.Fatal(err)
+		}
+	}
+	put(t, s, file("holiday/sunset.jpg"))
+	put(t, s, file("holiday/lisbon/sunset.jpg"))
+	put(t, s, file("records/sunset.jpg"))
+
+	window := db.Window{Limit: 50}
+	got := foundIn(t, s, db.FindFilter{Text: "sunset", Under: "holiday", Files: window})
+	want := []string{"holiday/lisbon/sunset.jpg", "holiday/sunset.jpg"}
+	if !slices.Equal(got, want) {
+		t.Errorf("under holiday = %v, want %v", got, want)
+	}
+
+	// The whole library is what an empty one means, which is every caller
+	// that does not know this field exists.
+	if got := foundIn(t, s, db.FindFilter{Text: "sunset", Files: window}); len(got) != 3 {
+		t.Errorf("under nothing = %v, want all three", got)
+	}
+
+	// And the folder named by the scope is not an answer to its own name.
+	if got := foundIn(t, s, db.FindFilter{Text: "holiday", Under: "holiday", Files: window}); len(got) != 0 {
+		t.Errorf("under holiday, holiday = %v, want nothing", got)
+	}
+}
+
+// findUnderNeighbour is the whole reason a scope ends in a slash: without one,
+// searching "holiday" would take "holiday-2024" with it, which is the same
+// trap MoveFile has had a test for since there were folders to rename.
+func findUnderNeighbour(t *testing.T, s db.Repo) {
+	for _, dir := range []string{"holiday", "holiday-2024"} {
+		if _, err := s.CreateDir(t.Context(), owner, dir); err != nil {
+			t.Fatal(err)
+		}
+	}
+	put(t, s, file("holiday/sunset.jpg"))
+	put(t, s, file("holiday-2024/sunset.jpg"))
+
+	got := foundIn(t, s, db.FindFilter{
+		Text: "sunset", Under: "holiday", Files: db.Window{Limit: 50},
+	})
+	if want := []string{"holiday/sunset.jpg"}; !slices.Equal(got, want) {
+		t.Errorf("under holiday = %v, want %v", got, want)
+	}
+}
+
+// findUnderEveryBucket: the scope is on the filter and not on a window, so it
+// holds every half of the answer. A filter that quietly ignored itself for the
+// two buckets made of tags would be a lie, and tags hang off file rows like
+// everything else here.
+func findUnderEveryBucket(t *testing.T, s db.Repo) {
+	records(t, s)
+	shot(t, s, "camera/IMG_0042.JPG", "Olympus OM-1", time.Date(2024, 6, 2, 10, 0, 0, 0, time.UTC))
+
+	// catalogue files its tracks under music/, and the photograph is not there.
+	elsewhere := db.FindFilter{
+		Under:   "camera",
+		Tracks:  db.Window{Limit: 50},
+		Artists: db.TagWindow{Limit: 50},
+		Albums:  db.TagWindow{Limit: 50},
+	}
+	for term, bucket := range map[string]string{"foil": "a track", "autechre": "an artist", "amber": "an album"} {
+		query := elsewhere
+		query.Text = term
+		result := find(t, s, query)
+		if n := len(result.Tracks) + len(result.Artists) + len(result.Albums); n != 0 {
+			t.Errorf("%s matched %s outside the folder it is in", term, bucket)
+		}
+	}
+
+	// And in the folder they are in, they are all still there.
+	here := elsewhere
+	here.Under, here.Text = "music", "autechre"
+	if result := find(t, s, here); len(result.Artists) != 1 {
+		t.Errorf("under music, autechre found %d artists, want 1", len(result.Artists))
+	}
+
+	// The photograph is the other half: found in its own folder and not in
+	// the music.
+	photos := db.FindFilter{Text: "olympus", Under: "camera", Photos: db.Window{Limit: 50}}
+	if got := foundIn(t, s, photos); len(got) != 1 {
+		t.Errorf("under camera, olympus = %v, want the photograph", got)
+	}
+	photos.Under = "music"
+	if got := foundIn(t, s, photos); len(got) != 0 {
+		t.Errorf("under music, olympus = %v, want nothing", got)
+	}
+}
+
+// findUnderWildcard: the scope reaches the engine as a pattern, so a folder
+// whose name holds one of the pattern's own characters has to be escaped on
+// the way. Without it, "100%" is a scope matching every folder beginning
+// "100" -- which is a search answering about somebody else's folder.
+func findUnderWildcard(t *testing.T, s db.Repo) {
+	for _, dir := range []string{"100%", "100 and more"} {
+		if _, err := s.CreateDir(t.Context(), owner, dir); err != nil {
+			t.Fatal(err)
+		}
+	}
+	put(t, s, file("100%/sunset.jpg"))
+	put(t, s, file("100 and more/sunset.jpg"))
+
+	got := foundIn(t, s, db.FindFilter{
+		Text: "sunset", Under: "100%", Files: db.Window{Limit: 50},
+	})
+	if want := []string{"100%/sunset.jpg"}; !slices.Equal(got, want) {
+		t.Errorf("under 100%% = %v, want %v", got, want)
+	}
+}
+
+func findUnderInvalid(t *testing.T, s db.Repo) {
+	for _, dir := range []string{"/holiday", "holiday/", "holiday/../records"} {
+		if _, err := s.Find(t.Context(), owner, db.FindFilter{
+			Text: "sunset", Under: dir, Files: db.Window{Limit: 50},
+		}); err == nil {
+			t.Errorf("a scope of %q was allowed", dir)
+		}
 	}
 }
 
