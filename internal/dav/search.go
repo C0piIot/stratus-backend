@@ -39,10 +39,12 @@ import (
 //     file here, so a word in a PDF finds nothing -- which is a smaller lie
 //     than DAV:like would be, since that one means substrings and wildcards
 //     and the port refuses both by contract.
-//   - **The scope is the whole collection.** Searching from inside a folder
-//     would need a prefix predicate in db.Finder, three drivers and a
-//     measurement, and the web UI's own search is library-wide too. A
-//     narrower scope is refused rather than silently widened.
+//   - **The scope is a collection and nothing else.** The whole tree, or any
+//     folder in it (#329); a scope naming anything outside -- a generated
+//     collection, a path above -- is refused rather than silently widened.
+//     What a narrower one buys is a smaller answer rather than a faster
+//     search: db.Finder's index is on words and the scope is a predicate on
+//     what it hands back, so a broad term costs the same in a small folder.
 //
 // There is no cursor, because DASL has none and inventing one would be an
 // extension a client would have to know about. The limit is honoured, the
@@ -60,9 +62,9 @@ const searchGrammar = "DAV:basicsearch"
 const maxSearchResults = 200
 
 // searchDepth is the only scope depth this answers. The others are legal and
-// are refused: with one scope and no prefix predicate, "this collection and
-// everything under it" is the only one that is the whole library, which is
-// what db.Finder searches.
+// are refused: "this collection and everything under it" is what db.Finder
+// searches, and depth 0 or 1 would be a second shape of query -- a parent and
+// not a prefix -- for a client that has not asked for one.
 const searchDepth = "infinity"
 
 // Searchable answers SEARCH, and is mounted twice.
@@ -103,14 +105,15 @@ func (f *searcher) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	query, fault := parseSearch(body, f.arbiter)
+	query, fault := parseSearch(body, f.arbiter, f.collection)
 	if fault != nil {
 		writeFault(w, *fault)
 		return
 	}
 
 	found, err := f.finder.Find(r.Context(), owner, db.FindFilter{
-		Text: query.text,
+		Text:  query.text,
+		Under: query.under,
 		// One more than asked for, so the answer knows it was cut without a
 		// second query -- the same trick the web UI's own search plays.
 		Files: db.Window{Limit: query.limit + 1},
@@ -134,7 +137,11 @@ const searchBodyLimit = 64 << 10
 
 // searchQuery is a DAV:basicsearch reduced to what this server can answer.
 type searchQuery struct {
-	text  string
+	text string
+	// under is the directory the scope named, "" being the whole collection.
+	// It is a path in the library, so the collection's prefix is already off
+	// the front of it.
+	under string
 	limit int
 	// props is what DAV:select asked for, already in the order it asked. Empty
 	// means DAV:allprop, which here is every property this surface knows.
@@ -155,7 +162,7 @@ func arbiterHref(arbiter string) string {
 // Every refusal names a condition rather than failing vaguely: a client that
 // sent an operator this does not have needs to know which one, and 2.4 is
 // where the RFC asks for a body saying so.
-func parseSearch(body []byte, arbiter string) (searchQuery, *searchFault) {
+func parseSearch(body []byte, arbiter, collection string) (searchQuery, *searchFault) {
 	var request searchRequest
 	if err := xml.Unmarshal(body, &request); err != nil {
 		return searchQuery{}, &searchFault{
@@ -190,7 +197,8 @@ func parseSearch(body []byte, arbiter string) (searchQuery, *searchFault) {
 			reason:       "one scope at a time",
 		}
 	}
-	if fault := checkScope(basic.From.Scopes[0], arbiter); fault != nil {
+	under, fault := scopeOf(basic.From.Scopes[0], arbiter, collection)
+	if fault != nil {
 		return searchQuery{}, fault
 	}
 
@@ -202,7 +210,7 @@ func parseSearch(body []byte, arbiter string) (searchQuery, *searchFault) {
 		return searchQuery{}, fault
 	}
 
-	query := searchQuery{text: text, limit: maxSearchResults}
+	query := searchQuery{text: text, under: under, limit: maxSearchResults}
 	if basic.Limit != nil && basic.Limit.NResults > 0 && basic.Limit.NResults < maxSearchResults {
 		query.limit = basic.Limit.NResults
 	}
@@ -217,34 +225,54 @@ func parseSearch(body []byte, arbiter string) (searchQuery, *searchFault) {
 	return query, nil
 }
 
-// checkScope holds the scope to the collection this handler serves.
+// scopeOf reads the scope as a directory in the library, "" being all of it.
 //
-// A scope naming somewhere else is 409 with DAV:search-scope-valid, which is
-// the shape B.3's own example uses. A narrower one is the deferred half of
-// #327 and is refused the same way rather than widened behind the client's
-// back -- answering a search of one folder with the whole library would be the
-// worst of both.
-func checkScope(s scope, arbiter string) *searchFault {
+// Three things are a scope: the arbiter the question was asked of, the
+// collection itself -- which at the origin is /files/ and is the same answer
+// -- and any collection under it, which is #329 and is what lets somebody
+// search the folder they are standing in. Anything else is 409 with
+// DAV:search-scope-valid, the shape B.3's own example uses: a generated
+// collection has no rows behind it, and a path above the tree is not ours to
+// search. Refused rather than widened, because answering a search of one
+// folder with the whole library would be the worst of both.
+//
+// The href is parsed rather than trimmed because it is a URL: url.Parse
+// decodes, so a folder with a space or an accent in its name arrives as its
+// name and not as %20.
+func scopeOf(s scope, arbiter, collection string) (string, *searchFault) {
+	refuse := func(reason string) (string, *searchFault) {
+		return "", &searchFault{
+			status:       http.StatusConflict,
+			precondition: "search-scope-valid",
+			reason:       reason,
+		}
+	}
+
 	href := s.Href
 	if u, err := url.Parse(strings.TrimSpace(href)); err == nil {
 		href = u.Path
 	}
-	here := path.Clean("/" + strings.Trim(arbiter, "/"))
-	if path.Clean("/"+strings.Trim(href, "/")) != here {
-		return &searchFault{
-			status:       http.StatusConflict,
-			precondition: "search-scope-valid",
-			reason:       "this server searches " + arbiterHref(here) + " whole, so that is the only scope it takes",
-		}
-	}
 	if depth := strings.TrimSpace(s.Depth); depth != "" && depth != searchDepth {
-		return &searchFault{
-			status:       http.StatusConflict,
-			precondition: "search-scope-valid",
-			reason:       "the scope is searched at depth " + searchDepth,
-		}
+		return refuse("the scope is searched at depth " + searchDepth)
 	}
-	return nil
+
+	here := path.Clean("/" + strings.Trim(arbiter, "/"))
+	tree := path.Clean("/" + strings.Trim(collection, "/"))
+	asked := path.Clean("/" + strings.Trim(href, "/"))
+	if asked == here || asked == tree {
+		return "", nil
+	}
+
+	// The root collection is its own prefix, so it is taken off as nothing.
+	prefix := strings.TrimSuffix(tree, "/")
+	if !strings.HasPrefix(asked, prefix+"/") {
+		return refuse("this server searches " + arbiterHref(tree) + " and the collections under it")
+	}
+	under := strings.TrimPrefix(asked, prefix+"/")
+	if err := db.ValidateDir(under); err != nil {
+		return refuse("that is not a path this server can search")
+	}
+	return under, nil
 }
 
 // conditionOf reduces DAV:where to the one operator this has.

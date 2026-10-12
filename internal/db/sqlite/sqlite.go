@@ -1164,6 +1164,22 @@ func ftsPhrase(term string) string {
 	return `"` + strings.ReplaceAll(term, `"`, `""`) + `"`
 }
 
+// under is the scope predicate and the bind that goes with it, or nothing at
+// all when the search is of the whole library.
+//
+// A LIKE and not a range on the path, which would be a seek and would be
+// wrong: a range depends on the collation ordering punctuation the way bytes
+// do, and what a collation does with "/" is the database's business. LIKE
+// matches characters, and costs nothing here because the full-text index is
+// what drives the query -- the path is already a filter on what it hands back.
+func under(dir string) (string, []any) {
+	if dir == "" {
+		return "", nil
+	}
+	return "\n\t\t  AND f.path LIKE ? ESCAPE '" + sqlutil.LikeEscape + "'",
+		[]any{sqlutil.Under(dir)}
+}
+
 // Find implements db.Repo.
 //
 // Every bucket asks an index maintained by triggers: files_fts for the names
@@ -1188,10 +1204,16 @@ func (r *repo) Find(ctx context.Context, owner string, f db.FindFilter) (db.Find
 	}
 	term := db.FoldQuery(f.Text)
 	indexed := len([]rune(term)) >= trigramMin
+	scope, scopeArgs := under(f.Under)
+	// scoped puts the scope's bind where every one of these queries has it:
+	// after the cursor and in front of the limit.
+	scoped := func(head []any, limit int) []any {
+		return append(append(head, scopeArgs...), limit)
+	}
 
 	files := `SELECT ` + joinedFileColumns + ` FROM files_fts
 		CROSS JOIN files f ON f.id = files_fts.rowid
-		WHERE files_fts MATCH ? AND f.owner_id = ? AND f.path > ?
+		WHERE files_fts MATCH ? AND f.owner_id = ? AND f.path > ?` + scope + `
 		ORDER BY f.path LIMIT ?`
 
 	// Not a const, for the reason Search's is not: the column lists are built
@@ -1199,20 +1221,20 @@ func (r *repo) Find(ctx context.Context, owner string, f db.FindFilter) (db.Find
 	tracks, trackArgs := foundIn(indexed, "search_title", term,
 		`SELECT `+joinedFileColumns+`, `+joinedMediaColumns)
 	tracks += `
-		  AND f.path > ?
+		  AND f.path > ?` + scope + `
 		ORDER BY f.path LIMIT ?`
 
 	photos := `SELECT ` + joinedFileColumns + `
 		FROM media m JOIN files f ON f.id = m.file_id
 		WHERE f.owner_id = ? AND m.kind = ?
 		  AND m.search_photo LIKE ? ESCAPE '` + sqlutil.LikeEscape + `'
-		  AND f.path > ?
+		  AND f.path > ?` + scope + `
 		ORDER BY f.path LIMIT ?`
 
 	artists, artistArgs := foundIn(indexed, "search_album_artist", term,
 		`SELECT m.album_artist, COUNT(DISTINCT m.album)`)
 	artists += `
-		  AND m.album_artist <> '' AND m.album <> '' AND m.album_artist > ?
+		  AND m.album_artist <> '' AND m.album <> '' AND m.album_artist > ?` + scope + `
 		GROUP BY m.album_artist
 		ORDER BY m.album_artist LIMIT ?`
 
@@ -1220,40 +1242,41 @@ func (r *repo) Find(ctx context.Context, owner string, f db.FindFilter) (db.Find
 		`SELECT m.album_artist, m.album, COUNT(*), COALESCE(SUM(m.duration_ms), 0),
 			MAX(m.year), MAX(m.genre), MIN(f.mtime)`)
 	albums += `
-		  AND m.album <> '' AND (m.album_artist, m.album) > (?, ?)` + albumGroup + `
+		  AND m.album <> '' AND (m.album_artist, m.album) > (?, ?)` + scope + albumGroup + `
 		ORDER BY m.album_artist, m.album LIMIT ?`
 
 	var err error
 	if f.Files.Wanted() {
 		if out.Files, err = sqlutil.Collect(ctx, r.q, scanFileRow, files,
-			ftsPhrase(term), owner, f.Files.After.Path, f.Files.Limit); err != nil {
+			scoped([]any{ftsPhrase(term), owner, f.Files.After.Path}, f.Files.Limit)...); err != nil {
 			return db.FindResult{}, fmt.Errorf("find files: %w", mapErr(err))
 		}
 	}
 	if f.Tracks.Wanted() {
 		if out.Tracks, err = sqlutil.Collect(ctx, r.q, scanTrack, tracks,
-			append(trackArgs(owner, db.KindAudio), f.Tracks.After.Path, f.Tracks.Limit)...); err != nil {
+			scoped(append(trackArgs(owner, db.KindAudio), f.Tracks.After.Path),
+				f.Tracks.Limit)...); err != nil {
 			return db.FindResult{}, fmt.Errorf("find tracks: %w", mapErr(err))
 		}
 	}
 	if f.Photos.Wanted() {
 		if out.Photos, err = sqlutil.Collect(ctx, r.q, scanFileRow, photos,
-			owner, string(db.KindImage), sqlutil.Contains(term),
-			f.Photos.After.Path, f.Photos.Limit); err != nil {
+			scoped([]any{owner, string(db.KindImage), sqlutil.Contains(term),
+				f.Photos.After.Path}, f.Photos.Limit)...); err != nil {
 			return db.FindResult{}, fmt.Errorf("find photos: %w", mapErr(err))
 		}
 	}
 	if f.Artists.Wanted() {
 		if out.Artists, err = sqlutil.Collect(ctx, r.q, scanArtist, artists,
-			append(artistArgs(owner, db.KindAudio),
-				f.Artists.After.Artist, f.Artists.Limit)...); err != nil {
+			scoped(append(artistArgs(owner, db.KindAudio), f.Artists.After.Artist),
+				f.Artists.Limit)...); err != nil {
 			return db.FindResult{}, fmt.Errorf("find artists: %w", mapErr(err))
 		}
 	}
 	if f.Albums.Wanted() {
 		if out.Albums, err = sqlutil.Collect(ctx, r.q, scanAlbum, albums,
-			append(albumArgs(owner, db.KindAudio),
-				f.Albums.After.Artist, f.Albums.After.Album, f.Albums.Limit)...); err != nil {
+			scoped(append(albumArgs(owner, db.KindAudio), f.Albums.After.Artist, f.Albums.After.Album),
+				f.Albums.Limit)...); err != nil {
 			return db.FindResult{}, fmt.Errorf("find albums: %w", mapErr(err))
 		}
 	}

@@ -1023,6 +1023,23 @@ func scanUploadRow(rows *sql.Rows) (db.Upload, error) {
 // rule is how they come to disagree.
 const nameFlat = `translate($2, '._-()[]', '       ')`
 
+// under is the scope predicate and the bind that goes with it, or nothing at
+// all when the search is of the whole library. The other two drivers' twin,
+// with the placeholder spelled out because this dialect numbers them: n is
+// where the bind lands, which is the end of each bucket's own list.
+//
+// A LIKE and not a range on the path. A range would be a seek and would be
+// wrong here of all places: it depends on the collation ordering punctuation
+// the way bytes do, and this column's collation is the database's own.
+func under(dir, column string, n int) (string, []any) {
+	if dir == "" {
+		return "", nil
+	}
+	return "\n\t\t  AND " + column + " LIKE $" + strconv.Itoa(n) +
+			" ESCAPE '" + sqlutil.LikeEscape + "'",
+		[]any{sqlutil.Under(dir)}
+}
+
 // Find implements db.Repo.
 //
 // A generated tsvector on each side and a GIN index over it, which is this
@@ -1051,69 +1068,78 @@ func (r *repo) Find(ctx context.Context, owner string, f db.FindFilter) (db.Find
 		return out, nil
 	}
 	term := db.FoldQuery(f.Text)
+	// Each bucket's scope bind goes on the end of its own list, so the number
+	// is one past what that query already uses and the rest do not move.
+	fileScope, scopeArgs := under(f.Under, "path", 5)
+	scope, _ := under(f.Under, "f.path", 6)
+	albumScope, _ := under(f.Under, "f.path", 7)
 
-	const files = `SELECT ` + fileColumns + ` FROM files
+	files := `SELECT ` + fileColumns + ` FROM files
 		WHERE owner_id = $1 AND search_name @@ phraseto_tsquery('simple', ` + nameFlat + `)
-		  AND path > $3
+		  AND path > $3` + fileScope + `
 		ORDER BY path LIMIT $4`
 
 	tracks := `SELECT ` + joinedFileColumns + `, ` + joinedMediaColumns + `
 		FROM media m JOIN files f ON f.id = m.file_id
 		WHERE f.owner_id = $1 AND m.kind = $5
 		  AND ` + tagColumn("search_title") + `
-		  AND f.path > $3
+		  AND f.path > $3` + scope + `
 		ORDER BY f.path LIMIT $4`
 
 	artists := `SELECT m.album_artist, COUNT(DISTINCT m.album)
 		FROM media m JOIN files f ON f.id = m.file_id
 		WHERE f.owner_id = $1 AND m.kind = $5
 		  AND ` + tagColumn("search_album_artist") + `
-		  AND m.album_artist <> '' AND m.album <> '' AND m.album_artist > $3
+		  AND m.album_artist <> '' AND m.album <> '' AND m.album_artist > $3` + scope + `
 		GROUP BY m.album_artist
 		ORDER BY m.album_artist LIMIT $4`
 
 	albums := albumSelect + `
 		WHERE f.owner_id = $1 AND m.kind = $6
 		  AND ` + tagColumn("search_album") + `
-		  AND m.album <> '' AND (m.album_artist, m.album) > ($3, $4)` + albumGroup + `
+		  AND m.album <> '' AND (m.album_artist, m.album) > ($3, $4)` + albumScope + albumGroup + `
 		ORDER BY m.album_artist, m.album LIMIT $5`
 
 	photos := `SELECT ` + joinedFileColumns + `
 		FROM media m JOIN files f ON f.id = m.file_id
 		WHERE f.owner_id = $1 AND m.kind = $5
 		  AND m.search_photo_text @@ phraseto_tsquery('simple', ` + nameFlat + `)
-		  AND f.path > $3
+		  AND f.path > $3` + scope + `
 		ORDER BY f.path LIMIT $4`
 
 	var err error
 	if f.Files.Wanted() {
 		if out.Files, err = sqlutil.Collect(ctx, r.q, scanFileRow, files,
-			owner, term, f.Files.After.Path, f.Files.Limit); err != nil {
+			append([]any{owner, term, f.Files.After.Path, f.Files.Limit},
+				scopeArgs...)...); err != nil {
 			return db.FindResult{}, fmt.Errorf("find files: %w", mapErr(err))
 		}
 	}
 	if f.Tracks.Wanted() {
 		if out.Tracks, err = sqlutil.Collect(ctx, r.q, scanTrack, tracks,
-			owner, term, f.Tracks.After.Path, f.Tracks.Limit, string(db.KindAudio)); err != nil {
+			append([]any{owner, term, f.Tracks.After.Path, f.Tracks.Limit, string(db.KindAudio)},
+				scopeArgs...)...); err != nil {
 			return db.FindResult{}, fmt.Errorf("find tracks: %w", mapErr(err))
 		}
 	}
 	if f.Photos.Wanted() {
 		if out.Photos, err = sqlutil.Collect(ctx, r.q, scanFileRow, photos,
-			owner, term, f.Photos.After.Path, f.Photos.Limit, string(db.KindImage)); err != nil {
+			append([]any{owner, term, f.Photos.After.Path, f.Photos.Limit, string(db.KindImage)},
+				scopeArgs...)...); err != nil {
 			return db.FindResult{}, fmt.Errorf("find photos: %w", mapErr(err))
 		}
 	}
 	if f.Artists.Wanted() {
 		if out.Artists, err = sqlutil.Collect(ctx, r.q, scanArtist, artists,
-			owner, term, f.Artists.After.Artist, f.Artists.Limit, string(db.KindAudio)); err != nil {
+			append([]any{owner, term, f.Artists.After.Artist, f.Artists.Limit, string(db.KindAudio)},
+				scopeArgs...)...); err != nil {
 			return db.FindResult{}, fmt.Errorf("find artists: %w", mapErr(err))
 		}
 	}
 	if f.Albums.Wanted() {
 		if out.Albums, err = sqlutil.Collect(ctx, r.q, scanAlbum, albums,
-			owner, term, f.Albums.After.Artist, f.Albums.After.Album, f.Albums.Limit,
-			string(db.KindAudio)); err != nil {
+			append([]any{owner, term, f.Albums.After.Artist, f.Albums.After.Album, f.Albums.Limit,
+				string(db.KindAudio)}, scopeArgs...)...); err != nil {
 			return db.FindResult{}, fmt.Errorf("find albums: %w", mapErr(err))
 		}
 	}
