@@ -185,10 +185,15 @@ func Handler(version, buildDate string, v auth.Verifier, s *auth.Sessions, share
 	mux.HandleFunc("POST /rename/{path...}", h.signedIn(h.rename))
 	mux.HandleFunc("GET /delete/{path...}", h.signedIn(h.deleteForm))
 	mux.HandleFunc("POST /delete/{path...}", h.signedIn(h.remove))
-	mux.HandleFunc("GET "+trashPrefix, h.signedIn(h.trash))
-	mux.HandleFunc("GET "+trashPrefix+"/{batch}", h.signedIn(h.destroyForm))
-	mux.HandleFunc("POST "+trashPrefix+"/{batch}", h.signedIn(h.destroy))
-	mux.HandleFunc("POST "+trashPrefix+"/{batch}/restore", h.signedIn(h.restore))
+	mux.HandleFunc("GET "+trashPrefix+"{$}", h.signedIn(h.trash))
+	// Everything under the list is the collection's (#323), which is why the
+	// two forms are at prefixes of their own beside /delete/ and /rename/:
+	// here a path is something somebody deleted, and the bytes are the blob
+	// the deletion never moved.
+	mux.HandleFunc("GET "+trashPrefix+"{path...}", h.signedIn(h.trashed))
+	mux.HandleFunc("GET "+destroyPrefix+"{batch}", h.signedIn(h.destroyForm))
+	mux.HandleFunc("POST "+destroyPrefix+"{batch}", h.signedIn(h.destroy))
+	mux.HandleFunc("POST "+restorePrefix+"{batch}", h.signedIn(h.restore))
 	mux.HandleFunc("GET /robots.txt", robots)
 	// Both in front of the session, and the manifest has to be: a browser
 	// fetches one with credentials omitted. See manifest.go.

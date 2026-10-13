@@ -318,7 +318,7 @@ func TestDelete(t *testing.T) {
 	}
 
 	// And it is in the trash, as one deletion.
-	trash := get(t, h, "/trash", cookie).Body.String()
+	trash := get(t, h, "/trash/", cookie).Body.String()
 	has(t, trash, "notes.txt", "1 file", "Delete for good")
 }
 
@@ -332,12 +332,12 @@ func TestTheTrashHoldsADeletionUntilItIsDestroyed(t *testing.T) {
 	write(t, s, "album/two.jpg", "two")
 	cookie := signIn(t, h)
 
-	if empty := get(t, h, "/trash", cookie).Body.String(); !strings.Contains(empty, "Nothing has been deleted") {
+	if empty := get(t, h, "/trash/", cookie).Body.String(); !strings.Contains(empty, "Nothing has been deleted") {
 		t.Errorf("an empty trash does not say so:\n%s", empty)
 	}
 
 	remove(t, h, "album", cookie)
-	page := get(t, h, "/trash", cookie).Body.String()
+	page := get(t, h, "/trash/", cookie).Body.String()
 	// One accident and not three rows, named by the folder that was deleted.
 	has(t, page, "album", "2 files")
 	if strings.Contains(page, "one.jpg") {
@@ -345,7 +345,7 @@ func TestTheTrashHoldsADeletionUntilItIsDestroyed(t *testing.T) {
 	}
 
 	// The status page says the room is still held, and links here.
-	has(t, get(t, h, "/status", cookie).Body.String(), "In the trash", `href="/trash"`)
+	has(t, get(t, h, "/status", cookie).Body.String(), "In the trash", `href="/trash/"`)
 
 	// Destroying asks first, and this time it really is final.
 	link := destroyLink.FindStringSubmatch(page)
@@ -355,16 +355,16 @@ func TestTheTrashHoldsADeletionUntilItIsDestroyed(t *testing.T) {
 	has(t, get(t, h, html(link[1]), cookie).Body.String(), "cannot be undone")
 
 	rec := post(t, h, html(link[1]), nil, cookie)
-	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/trash" {
+	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/trash/" {
 		t.Fatalf("destroying = %d %q", rec.Code, rec.Header().Get("Location"))
 	}
-	if after := get(t, h, "/trash", cookie).Body.String(); !strings.Contains(after, "Nothing has been deleted") {
+	if after := get(t, h, "/trash/", cookie).Body.String(); !strings.Contains(after, "Nothing has been deleted") {
 		t.Errorf("the deletion outlived being destroyed:\n%s", after)
 	}
 }
 
 // destroyLink finds the button that throws a deletion away for good.
-var destroyLink = regexp.MustCompile(`href="(/trash/[^"]+)"`)
+var destroyLink = regexp.MustCompile(`href="(/destroy/[^"]+)"`)
 
 // TestRestoringFromTheTrash is the page's other half: what was deleted comes
 // back where it was, and the browser is sent to the folder it landed in --
@@ -377,7 +377,7 @@ func TestRestoringFromTheTrash(t *testing.T) {
 	cookie := signIn(t, h)
 	remove(t, h, "album", cookie)
 
-	page := get(t, h, "/trash", cookie).Body.String()
+	page := get(t, h, "/trash/", cookie).Body.String()
 	link := restoreForm.FindStringSubmatch(page)
 	if link == nil {
 		t.Fatalf("no way to restore the deletion:\n%s", page)
@@ -393,7 +393,7 @@ func TestRestoringFromTheTrash(t *testing.T) {
 	if _, err := s.Stat(t.Context(), username, "album/one.jpg"); err != nil {
 		t.Errorf("the file did not come back: %v", err)
 	}
-	if after := get(t, h, "/trash", cookie).Body.String(); !strings.Contains(after, "Nothing has been deleted") {
+	if after := get(t, h, "/trash/", cookie).Body.String(); !strings.Contains(after, "Nothing has been deleted") {
 		t.Errorf("the deletion is still in the trash:\n%s", after)
 	}
 
@@ -404,8 +404,58 @@ func TestRestoringFromTheTrash(t *testing.T) {
 	}
 }
 
+// TestADeletedFileCanStillBeRead is the browser half of the collection (#323):
+// the bytes are the blob the deletion never moved, so one photograph can be
+// copied out of an accident instead of a thousand being put back to get at it.
+func TestADeletedFileCanStillBeRead(t *testing.T) {
+	t.Parallel()
+	h, s := browser(t)
+	mkdir(t, s, "album")
+	write(t, s, "album/one.txt", "pixels")
+	write(t, s, "notes.txt", "two lines")
+	cookie := signIn(t, h)
+	remove(t, h, "album", cookie)
+	remove(t, h, "notes.txt", cookie)
+
+	// A deletion named by what was deleted, and the tree under it as it was.
+	rec := get(t, h, "/trash/album/one.txt", cookie)
+	if rec.Code != http.StatusOK || rec.Body.String() != "pixels" {
+		t.Errorf("reading a deleted file = %d %q", rec.Code, rec.Body.String())
+	}
+	if got := get(t, h, "/trash/notes.txt", cookie).Body.String(); got != "two lines" {
+		t.Errorf("reading a deleted file = %q", got)
+	}
+
+	// A deleted folder has no page of its own: the trash is the page for all
+	// of them, and the collection is a client's.
+	redirect := get(t, h, "/trash/album", cookie)
+	if redirect.Code != http.StatusSeeOther || redirect.Header().Get("Location") != "/trash/" {
+		t.Errorf("a deleted folder = %d %q", redirect.Code, redirect.Header().Get("Location"))
+	}
+
+	// And nothing is at a name nobody deleted.
+	if code := get(t, h, "/trash/invented.txt", cookie).Code; code != http.StatusNotFound {
+		t.Errorf("a name nobody deleted = %d, want 404", code)
+	}
+
+	// What it serves stops being served when the deletion is destroyed.
+	link := destroyLink.FindStringSubmatch(get(t, h, "/trash/", cookie).Body.String())
+	post(t, h, html(link[1]), nil, cookie)
+	if code := get(t, h, "/trash/notes.txt", cookie).Code; code != http.StatusNotFound {
+		t.Errorf("a destroyed file = %d, want 404", code)
+	}
+}
+
+// TestTheTrashIsInTheMenu: the trash had two doors and both needed somebody to
+// have just deleted something (#323).
+func TestTheTrashIsInTheMenu(t *testing.T) {
+	t.Parallel()
+	h, _ := browser(t)
+	has(t, get(t, h, "/files/", signIn(t, h)).Body.String(), `href="/trash/"`)
+}
+
 // restoreForm finds the form that puts a deletion back.
-var restoreForm = regexp.MustCompile(`action="(/trash/[^"]+/restore)"`)
+var restoreForm = regexp.MustCompile(`action="(/restore/[^"]+)"`)
 
 // TestTheTrashPages: fifty accidents is already more than anybody has, and
 // past that it resumes by the moment and the deletion rather than by an
@@ -420,7 +470,7 @@ func TestTheTrashPages(t *testing.T) {
 		remove(t, h, name, cookie)
 	}
 
-	first := get(t, h, "/trash", cookie).Body.String()
+	first := get(t, h, "/trash/", cookie).Body.String()
 	next := nextLink.FindStringSubmatch(first)
 	if next == nil {
 		t.Fatalf("no link to the rest of the trash:\n%s", first)
@@ -447,7 +497,7 @@ func TestATrashCursorThatIsNotOne(t *testing.T) {
 	cookie := signIn(t, h)
 
 	for _, after := range []string{"nonsense", "notanumber/batch", "1700000000000"} {
-		if code := get(t, h, "/trash?after="+after, cookie).Code; code != http.StatusBadRequest {
+		if code := get(t, h, "/trash/?after="+after, cookie).Code; code != http.StatusBadRequest {
 			t.Errorf("/trash?after=%s = %d, want 400", after, code)
 		}
 	}
@@ -462,7 +512,7 @@ func TestTheTrashSurvivesNothing(t *testing.T) {
 	for _, method := range []string{"TrashBatches", "TrashTotals"} {
 		broken := files.New(blobs, dbtest.FailOn(t, meta, method))
 		h := handlerOver(t, broken, blobs, meta)
-		if code := get(t, h, "/trash", signIn(t, h)).Code; code != http.StatusInternalServerError {
+		if code := get(t, h, "/trash/", signIn(t, h)).Code; code != http.StatusInternalServerError {
 			t.Errorf("/trash with %s broken = %d, want 500", method, code)
 		}
 	}
@@ -579,7 +629,7 @@ func TestTheTrashShowsWhatNobodyCanAccountFor(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	page := get(t, h, "/trash", cookie).Body.String()
+	page := get(t, h, "/trash/", cookie).Body.String()
 	has(t, page, "Unaccounted for", "found by the sweep", "1 object")
 	// It offers no way back, because there is nowhere to put it.
 	if restoreForm.MatchString(page) {
