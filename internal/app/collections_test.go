@@ -78,7 +78,7 @@ func TestTheVideosAreTheirOwnCollection(t *testing.T) {
 		return rec
 	}
 
-	// The root leads to five collections now, the videos among them.
+	// The root leads to six collections now, the videos among them.
 	root := client("PROPFIND", "/", "Depth", "1")
 	if !strings.Contains(root.Body.String(), "/videos/") {
 		t.Errorf("the root does not list the videos:\n%s", root.Body.String())
@@ -429,5 +429,97 @@ func TestSearchIsTheProtocolSurface(t *testing.T) {
 	}
 	if strings.Contains(body, "<D:href>/files/lisbon%20tram.jpg</D:href>") {
 		t.Errorf("a scoped SEARCH answered the file beside the folder:\n%s", body)
+	}
+}
+
+// TestTheTrashIsOneAddressAndTwoProtocols is #323 from outside both adapters:
+// the deletions are a collection a client can walk, the root lists it beside
+// the rest, and a GET of what is in it is the file that was deleted -- which
+// is the split this package makes and neither adapter can see.
+func TestTheTrashIsOneAddressAndTwoProtocols(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	blobs, err := disk.New(filepath.Join(dir, "blobs"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = blobs.Close() })
+	meta, err := sqlite.New(t.Context(), filepath.Join(dir, "stratus.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = meta.Close() })
+	if err = meta.Migrate(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	service := files.New(blobs, meta)
+	if _, err = service.Mkdir(t.Context(), "edu", "album"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = service.Write(t.Context(), "edu", "album/IMG_0001.jpg",
+		strings.NewReader("pixels"), 6, "image/jpeg"); err != nil {
+		t.Fatal(err)
+	}
+	if err = service.Remove(t.Context(), "edu", "album"); err != nil {
+		t.Fatal(err)
+	}
+
+	const password = "an example password"
+	cfg := runConfig(t, map[string]string{"STRATUS_USERNAME": "edu", "STRATUS_PASSWORD": password})
+	h := app.New(cfg, "test", "2026-01-01T09:30:00Z").Handler(app.Deps{
+		Storage: blobs, Database: meta, Files: service,
+		Thumbs: media.NewThumbs(blobs, service, "ffmpeg", t.TempDir()),
+	})
+
+	client := func(method, target string, headers ...string) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequestWithContext(t.Context(), method, target, nil)
+		req.SetBasicAuth("edu", password)
+		for i := 0; i+1 < len(headers); i += 2 {
+			req.Header.Set(headers[i], headers[i+1])
+		}
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec
+	}
+
+	root := client("PROPFIND", "/", "Depth", "1")
+	if !strings.Contains(root.Body.String(), "/trash/") {
+		t.Errorf("the root does not list the trash:\n%s", root.Body.String())
+	}
+
+	deletion := client("PROPFIND", "/trash/album/", "Depth", "1")
+	if deletion.Code != http.StatusMultiStatus {
+		t.Fatalf("PROPFIND of a deletion = %d, want 207", deletion.Code)
+	}
+	if !strings.Contains(deletion.Body.String(), "/trash/album/IMG_0001.jpg") {
+		t.Errorf("the deletion does not hold what was deleted:\n%s", deletion.Body.String())
+	}
+
+	// The bytes are the blob the deletion never moved, served by the browser
+	// half at the address the multistatus gave.
+	bytes := client(http.MethodGet, "/trash/album/IMG_0001.jpg")
+	if bytes.Code != http.StatusOK || bytes.Body.String() != "pixels" {
+		t.Fatalf("GET of a deleted file = %d %q", bytes.Code, bytes.Body.String())
+	}
+
+	// The list is the browser half of the same address, and /trash without the
+	// slash is the mux's redirect onto it rather than the loop it would be if
+	// the two lived next door.
+	page := client(http.MethodGet, "/trash/")
+	if page.Code != http.StatusOK || !strings.Contains(page.Body.String(), "album") {
+		t.Fatalf("the trash as a page = %d:\n%s", page.Code, page.Body.String())
+	}
+	// 307 and not 301, which is the mux's own answer and the right one here: a
+	// client that followed it with a PROPFIND is still asking for a listing.
+	bare := client("PROPFIND", "/trash", "Depth", "1")
+	if bare.Code != http.StatusTemporaryRedirect || bare.Header().Get("Location") != "/trash/" {
+		t.Errorf("PROPFIND /trash = %d %q, want the collection", bare.Code, bare.Header().Get("Location"))
+	}
+
+	// And the mount writes nothing: what a deletion has done to it is decided
+	// on the page.
+	if code := client(http.MethodDelete, "/trash/album/IMG_0001.jpg").Code; code != http.StatusMethodNotAllowed {
+		t.Errorf("DELETE in the trash = %d, want 405", code)
 	}
 }

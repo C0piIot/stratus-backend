@@ -29,7 +29,7 @@ of this file.
 | HLS | films a player cannot take as they are, remuxed | Chromecast, Safari, VLC, the web UI's player | **works** § |
 | CalDAV | calendar | DAVx5, Thunderbird, iOS/macOS | next |
 | OpenSubsonic | music | Symfonium, Substreamer, DSub, Feishin | **works** † |
-| Web UI | sign in, browse, search, upload, download, rename, delete, what is known about a file, a photo gallery, a music library, library status | any browser | **partly** |
+| Web UI | sign in, browse, search, upload, download, rename, delete, the trash, what is known about a file, a photo gallery, a music library, library status | any browser | **partly** |
 | CardDAV | contacts | DAVx5, Thunderbird | planned |
 | DLNA / UPnP-AV | TVs, set-top players | | planned |
 
@@ -76,11 +76,12 @@ that does.
 read-only collection holding everything there is:
 
 ```
-/                 files/, music/, photos/, playlists/, videos/
+/                 files/, music/, photos/, playlists/, trash/, videos/
 /files/           your tree — read and write, locks and all
 /music/           your library by artist and album, generated, read-only
 /photos/          your photographs by year and month, generated, read-only
 /playlists/       your playlists as .m3u8, generated, read-only
+/trash/           what you deleted, one folder per deletion, read-only
 /videos/          your videos by year and month, generated, read-only
 ```
 
@@ -781,10 +782,10 @@ rclone or DAVx5 is overkill, and it consumes the same internals the protocol
 handlers do — it will never grow a private JSON API of its own.
 
 **The bar is a link and two menus**: files, a gallery menu holding photos,
-videos, music and playlists, and your own name holding status and signing out.
-The gallery's button wears the gallery you are in, so the bar says where you
-are without carrying a name for every library. Both are Bootstrap's own
-dropdown out of the bundle the page already loads, so neither costs a
+videos, music and playlists, and your own name holding status, the trash and
+signing out. The gallery's button wears the gallery you are in, so the bar says
+where you are without carrying a name for every library. Both are Bootstrap's
+own dropdown out of the bundle the page already loads, so neither costs a
 stylesheet or a script of ours — and neither opens with JavaScript turned off.
 A gallery can still be reached by typing its address; **ending a session
 cannot**, since that is a `POST`, so a plain Sign out button sits in a
@@ -1062,12 +1063,24 @@ A client that already has the password can also derive one for itself without
 asking the server, which is how the mobile app hands a video to a Chromecast:
 the format is in `CLAUDE.md`.
 
-**Deleting puts it in the trash**, at `/trash`, where it is kept for thirty
+**Deleting puts it in the trash**, at `/trash/`, where it is kept for thirty
 days and then destroyed for good. Deleting a folder takes everything inside it,
 and the trash shows that as **one deletion** rather than as a thousand files:
 one line, with what was in it, a button that puts it back and another that
 throws it away now if you want the room back. The page still asks first,
-because a folder is worth a question.
+because a folder is worth a question. It is in the menu under your own name,
+beside Status.
+
+**And that same address is a read-only WebDAV collection**, beside the other
+folders the origin holds: one folder per deletion, named by **what was
+deleted** — `holiday`, or `notes.txt` when a file was — with the tree inside it
+exactly as it was. Deleting `holiday` twice is two folders, and the older keeps
+the plain name while the newer is `holiday (2)`. Reading a file there is the
+file that was deleted, which is the useful half: one photograph can be copied
+out of an accident instead of a thousand being put back to get at one. Nothing
+there writes — restoring and destroying are the page's — and what the sweep
+could not account for is not in it at all, because a blob with no path has no
+name to be listed under.
 
 **Restoring puts the tree back where it was**, and the three things that can
 have happened to that place since are each decided rather than discovered: a

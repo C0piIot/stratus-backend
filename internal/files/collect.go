@@ -401,6 +401,12 @@ func (s *Service) Trash(ctx context.Context, owner string, after db.TrashCursor,
 	return s.meta.TrashBatches(ctx, owner, after, limit)
 }
 
+// Trashed is what one deletion holds, in path order, so the root of what was
+// deleted is the first row.
+func (s *Service) Trashed(ctx context.Context, owner, batch string) ([]db.Trashed, error) {
+	return s.meta.TrashedIn(ctx, owner, batch)
+}
+
 // TrashTotals is how much room the trash is holding onto.
 func (s *Service) TrashTotals(ctx context.Context, owner string) (db.TrashTotals, error) {
 	return s.meta.TrashTotals(ctx, owner)

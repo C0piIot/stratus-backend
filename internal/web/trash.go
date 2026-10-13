@@ -1,9 +1,11 @@
 package web
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
 	"path"
 	"strconv"
 	"strings"
@@ -11,6 +13,7 @@ import (
 
 	"github.com/C0piIot/stratus-backend/internal/db"
 	"github.com/C0piIot/stratus-backend/internal/files"
+	"github.com/C0piIot/stratus-backend/internal/trash"
 )
 
 // The trash (#274): what has been deleted and not yet destroyed.
@@ -18,10 +21,21 @@ import (
 // It is a page of **deletions** and not of files, which is the whole shape of
 // it: deleting a folder of a thousand photographs is one accident, and a list
 // of a thousand rows is not a way to find it again. What a row offers is the
-// one thing this release can do with it -- destroy it now, instead of waiting
-// out the month.
+// two things that can be done with one: put it back (#275), or destroy it now
+// instead of waiting out the month.
 const (
-	trashPrefix = "/trash"
+	// trashPrefix is one address and two protocols, like /photos/ and the rest
+	// (#323): this page to a browser, the collection of deletions to a WebDAV
+	// client, split by method in the composition root.
+	trashPrefix = "/trash/"
+	// destroyPrefix and restorePrefix are where the two things a deletion can
+	// have done to it are asked for, beside /delete/ and /rename/ rather than
+	// under /trash/ as they were. What moved them is that collection:
+	// everything under it is now a name somebody deleted, and a form at an
+	// address a deleted file could also have is one of the two answering
+	// wrongly.
+	destroyPrefix = "/destroy/"
+	restorePrefix = "/restore/"
 	// trashPageSize is a page of deletions, not of files. Fifty accidents is
 	// already more than anybody has.
 	trashPageSize = 50
@@ -96,7 +110,7 @@ func (h *handler) destroyForm(w http.ResponseWriter, r *http.Request, user strin
 	batch := r.PathValue("batch")
 	v := view{
 		Title: "Delete for good", User: user,
-		Name: batch, Action: trashPrefix + "/" + url.PathEscape(batch), Back: trashPrefix,
+		Name: batch, Action: destroyPrefix + url.PathEscape(batch), Back: trashPrefix,
 	}
 	h.render(w, http.StatusOK, pageDestroy, v)
 }
@@ -134,6 +148,34 @@ func (h *handler) restore(w http.ResponseWriter, r *http.Request, user string) {
 	redirectLocal(w, r, href(db.ParentOf(back.Path)))
 }
 
+// trashed serves what is at a path under the collection (#323): the bytes of a
+// deleted file, which are the blob the deletion never moved.
+//
+// It is the browser half of the mount, like the photographs' and the music's,
+// and it is what makes the collection worth mounting: one photograph can be
+// pulled out of an accident by copying it, instead of putting a thousand back
+// to get at one. Read-only like everything else here -- a copy out is not a
+// restore, and what was deleted stays deleted until the page says otherwise.
+func (h *handler) trashed(w http.ResponseWriter, r *http.Request, user string) {
+	n, err := trash.New(h.files, user).Resolve(r.Context(), r.PathValue("path"))
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		h.fail(w, r, user, db.ErrNotFound)
+		return
+	case err != nil:
+		h.fail(w, r, user, err)
+		return
+	}
+	// A deleted folder has no page of its own, and the trash is the page for
+	// all of them: a deletion is one line there, which is the whole shape of
+	// that page. So the collection is a client's and the list is a person's.
+	if n.Dir {
+		redirectLocal(w, r, trashPrefix)
+		return
+	}
+	h.download(w, r, user, n.Row.File)
+}
+
 // deletion is one accident, as the page shows it.
 type deletion struct {
 	ID string
@@ -159,8 +201,8 @@ func deletions(batches []db.TrashBatch) []deletion {
 			Files:   b.Files,
 			Size:    humanBytes(b.Bytes),
 			When:    b.DeletedAt.Format("2006-01-02 15:04"),
-			Destroy: trashPrefix + "/" + url.PathEscape(b.ID),
-			Restore: trashPrefix + "/" + url.PathEscape(b.ID) + "/restore",
+			Destroy: destroyPrefix + url.PathEscape(b.ID),
+			Restore: restorePrefix + url.PathEscape(b.ID),
 		}
 		// A sweep's batch has no root, because nothing in it has a path. It
 		// is named by what it is and offers no way back: the name was in the

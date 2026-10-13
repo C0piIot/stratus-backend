@@ -658,7 +658,7 @@ Hard constraints, in the same spirit as the rest of the project:
   nobody, and nothing else. That is the scope that will keep one person out
   of another's trash when there is more than one of them.
 
-  **The trash is a page of deletions, not of files** (`/trash`). Deleting a
+  **The trash is a page of deletions, not of files** (`/trash/`). Deleting a
   folder of a thousand photographs is one accident, and a thousand rows is not
   a way to find it again: one line per `Remove`, named by the folder that was
   deleted -- which is the shortest path in the batch, since "holiday" sorts
@@ -666,9 +666,49 @@ Hard constraints, in the same spirit as the rest of the project:
   it now. That button has a page of its own, and it is the one place here
   where "this cannot be undone" is still true.
 
-  It is not in the navbar. The two places somebody arrives from are the page
-  that asks before deleting and the line on `/status` that says how much room
-  the trash is holding, which are the two moments the question comes up.
+  **It is in the menu now, and it is a collection** (#323). It used to be
+  reachable only from the page that asks before deleting and the line on
+  `/status` that counts what it holds, which are the two moments the question
+  comes up for whoever just deleted something -- and nothing at all for the
+  other reader the trash has, since the sweep parks what it cannot account for
+  there and on the one real migration that was 1358 objects. So there is a
+  **Trash** entry under the user's own name beside Status, which is a line of
+  template, and the page's own address is a read-only WebDAV collection beside
+  `/photos/` and the rest, split by method like they are. That is what moved
+  the page from `/trash` to `/trash/`: a list at one and a collection at the
+  other is the mux redirecting `/trash` onto `/trash/` and the browser half
+  there redirecting back, which is a loop rather than two addresses.
+
+  **The naming rule is: what was deleted** -- `holiday` for a folder,
+  `notes.txt` for a file -- which is the same name the page shows, so a
+  deletion is as recognisable in Finder as it is there. Deleting `holiday`
+  twice is two collections, and the **older keeps the plain name** while the
+  newer is `holiday (2)` by `db.CopyName`: ordering the disambiguation oldest
+  first is what makes a name stable, since deleting something today must not
+  rename what you deleted last week under somebody who is looking at it. Only
+  the top level is named here; inside a deletion the names are the files' own,
+  as they were deleted. The rule lives in `internal/trash` because both halves
+  generate it, for the reason `internal/timeline` exists.
+
+  **The sweep's finds are not in it**, and nothing filters them out: a blob
+  nobody can account for has `owner_id = ''` and no path, and this tree is
+  always somebody's. There would be nothing to call one, which the page can
+  say in a sentence and a collection cannot.
+
+  **Its browser half serves the bytes**, like every generated mount's: a GET
+  under `/trash/` is the file that was deleted, read from the blob the
+  deletion never moved. That is what the collection is worth mounting for --
+  one photograph copied out of an accident, instead of a thousand put back to
+  get at one -- and it is still read-only, since a copy out is not a restore.
+  A GET of a deleted *folder* redirects to the list: a deletion has no page of
+  its own, and the page of deletions is the page for all of them.
+
+  **That is what moved the two forms out of `/trash/`**, to `/destroy/<batch>`
+  and `/restore/<batch>`, beside `/delete/` and `/rename/` where the UI's
+  other verbs already live. Everything under `/trash/` is now a name somebody
+  deleted, so a form sharing that space is one of the two answering wrongly --
+  a file called `notes.txt` at the top of the trash and the page asking
+  whether to destroy batch `notes.txt` are the same URL otherwise.
 
   **Restore is a form and not a page** (#275), unlike the two deletes beside
   it: putting something back is not the kind of mistake you cannot undo, so
@@ -1240,6 +1280,7 @@ internal/nextcloud/       reads somebody else's instance, so its bucket can be a
 internal/calendar/        collections, objects, recurrence            -- not yet
 internal/media/           EXIF/tag extraction, thumbnails, ffprobe
 internal/timeline/        the library as folders by date, one kind at a time, for the two adapters that serve it
+internal/trash/           the deletions as folders, named once for the two adapters that serve them
 internal/auth/            credential verification, per-protocol adapters
 
 internal/dav/             inbound adapter: WebDAV (CalDAV not yet)

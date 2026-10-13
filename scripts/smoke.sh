@@ -597,11 +597,11 @@ if wait_serving "$davname"; then
 
   # And it lists the mounts, which is the whole point of one namespace: a
   # client that mounts the origin finds the library, the photo folders, the
-  # videos and the playlists without being told their URLs.
+  # videos, the playlists and the trash without being told their URLs.
   root_list="$(curl -s -u "$davuser:$davpass" -H 'Depth: 1' -X PROPFIND "http://$davhost/" 2>/dev/null || true)"
   case "$root_list" in
-    *'>/files/<'*'>/music/<'*'>/photos/<'*'>/playlists/<'*'>/videos/<'*) ok "PROPFIND / lists the five collections" ;;
-    *) bad "PROPFIND / lists the five collections" "$(head -c 200 <<<"$root_list")" ;;
+    *'>/files/<'*'>/music/<'*'>/photos/<'*'>/playlists/<'*'>/trash/<'*'>/videos/<'*) ok "PROPFIND / lists the six collections" ;;
+    *) bad "PROPFIND / lists the six collections" "$(head -c 200 <<<"$root_list")" ;;
   esac
 
   # Finder mounts read-only unless the server says class 2, so the header is
@@ -1310,6 +1310,23 @@ TRACK
     bad "a file deleted in the browser is gone over WebDAV" \
       "the form answered $code, WebDAV answered $gone"
   fi
+
+  # And it is in the trash, which is a collection of its own (#323): the
+  # deletion is named by what was deleted, and reading it is still the file,
+  # because deleting moved no bytes.
+  trash_list="$(curl -s -u "$davuser:$davpass" -H 'Depth: 1' -X PROPFIND "http://$davhost/trash/" 2>/dev/null || true)"
+  trash_body="$(curl -fsS -b "$jar" "http://$davhost/trash/renamed.txt" 2>/dev/null || true)"
+  case "$trash_list" in
+    *'>/trash/renamed.txt<'*)
+      if [ "$trash_body" = "from the browser" ]; then
+        ok "the trash is a collection and the deleted file is still readable"
+      else
+        bad "the trash is a collection and the deleted file is still readable" \
+          "reading it gave '$trash_body'"
+      fi ;;
+    *) bad "the trash is a collection and the deleted file is still readable" \
+         "$(head -c 200 <<<"$trash_list")" ;;
+  esac
 
   # A source file with the extension of a transport stream, which is what makes
   # the failure count below mean something: what decides that this is not a

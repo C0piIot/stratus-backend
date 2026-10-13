@@ -68,6 +68,11 @@ const musicPrefix = "/music/"
 // here too since #279: the file for a player, the page for a person.
 const playlistsPrefix = "/playlists/"
 
+// trashPrefix is what has been deleted, as collections (#323), and one address
+// for both protocols like the rest: the list of deletions to a browser, a
+// collection per deletion to a client that mounts the server.
+const trashPrefix = "/trash/"
+
 // App holds the wired application. Construction is pure: no I/O happens until
 // Run, so Handler can be exercised from tests without touching the filesystem.
 type App struct {
@@ -202,6 +207,13 @@ func (a *App) Handler(deps Deps) http.Handler {
 		mux.Handle(musicPrefix, davOrBrowser(
 			auth.Session(sessions, auth.Basic(auth.Realm, verifier, dav.Music(musicPrefix, deps.Database))),
 			browser))
+		// What has been deleted, beside the collections it was deleted from
+		// (#323). Read-only: a copy out of here is not a restore, and putting
+		// something back is the page's. Its browser half serves the bytes, as
+		// every generated mount's does.
+		mux.Handle(trashPrefix, davOrBrowser(
+			auth.Session(sessions, auth.Basic(auth.Realm, verifier, dav.Trash(trashPrefix, service))),
+			browser))
 		// The photographs by date are one address and two protocols, like the
 		// tree above (#279): the browser's methods are answered with the grid,
 		// a year, a month or the photograph itself, and everything else by the
@@ -224,13 +236,13 @@ func (a *App) Handler(deps Deps) http.Handler {
 		//
 		// And in front of it, the collection the whole server is (#279): a
 		// WebDAV method at the origin is answered by a synthetic listing of
-		// the three mounts, while everything else is the page it always was.
+		// the mounts below it, while everything else is the page it always was.
 		// It is also what the Windows redirector probes before it will mount
 		// anything at all (#281).
 		mux.Handle("/", davOrBrowser(
 			auth.Session(sessions, auth.Basic(auth.Realm, verifier,
 				dav.Root("/", dav.Searchable("/", filesPrefix, deps.Database),
-					"files", "music", "photos", "playlists", "videos"))),
+					"files", "music", "photos", "playlists", "trash", "videos"))),
 			browser))
 	}
 	// The log is outside the compression so that the bytes it counts are the
