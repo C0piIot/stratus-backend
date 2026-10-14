@@ -1,0 +1,54 @@
+{{/* The placeholder a picture is drawn over, for the squares that have no
+     picture to draw: a photograph nothing here can decode, a film whose codec
+     ffmpeg was not built with, an album with no cover anywhere -- and a
+     thumbnail the server refused while it was busy, which is the other half of
+     what #321 did to a grid (#324).
+
+     **It is a layer and not an alternative.** Nothing in markup can say "if
+     this image fails", and the one thing that can is a script. So the glyph is
+     the first child of the `.ratio` box and the picture is the second:
+     Bootstrap stacks both over the whole square, a thumbnail that arrives
+     covers the glyph, and one that never arrives leaves it showing. It also
+     means a grid draws these while it scrolls, so a tile is a mark waiting for
+     a picture rather than a grey hole.
+
+     **Which is why every picture over one of them carries `alt=""`.** An image
+     that fails with an empty alt is decorative, and a browser draws nothing at
+     all for it; one with alt text draws the text and a broken-image icon on
+     top of this. The name a screen reader needs is text in the link instead --
+     putting it back on the img is what would quietly bring the broken grid
+     back. The music pages have relied on that behaviour since they were
+     written, where half a library has no cover and the square is simply empty.
+
+     The shapes are the shortcut icons' own (`brand/` in the workspace repo),
+     so a glyph here and the icon in a launcher's menu are the same drawing, at
+     half size inside the box so they read as a mark rather than as a picture,
+     and in currentColor rather than a colour of their own. */}}
+
+{{define "photoGlyph" -}}
+<svg viewBox="0 0 96 96" class="text-body-tertiary" aria-hidden="true" focusable="false">
+  <g transform="translate(24,24) scale(0.5)" fill="currentColor">
+    <rect x="5" y="16" width="86" height="66" rx="12" fill="none" stroke="currentColor" stroke-width="9"/>
+    <circle cx="31" cy="39" r="8"/>
+    <path d="M14 73l21-24 15 17 11-12 21 23z"/>
+  </g>
+</svg>
+{{- end}}
+
+{{define "filmGlyph" -}}
+<svg viewBox="0 0 96 96" class="text-body-tertiary" aria-hidden="true" focusable="false">
+  <g transform="translate(24,24) scale(0.5)" fill="currentColor">
+    <path d="M26 14l54 34-54 34z" stroke="currentColor" stroke-width="12" stroke-linejoin="round"/>
+  </g>
+</svg>
+{{- end}}
+
+{{define "coverGlyph" -}}
+<svg viewBox="0 0 96 96" class="text-body-tertiary" aria-hidden="true" focusable="false">
+  <g transform="translate(24,24) scale(0.5)" fill="currentColor">
+    <path d="M41 10h8v56h-8z"/>
+    <path d="M49 10c18 6 28 15 28 28 0-8-10-16-28-21z"/>
+    <ellipse cx="28" cy="70" rx="18" ry="13" transform="rotate(-18 28 70)"/>
+  </g>
+</svg>
+{{- end}}

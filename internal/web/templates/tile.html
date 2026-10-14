@@ -9,10 +9,14 @@
        child to the whole box and the badge below is not a picture. */}}
   <a href="{{.Href}}" class="d-block position-relative bg-body-secondary rounded overflow-hidden"
      title="{{.Name}}">
+    {{/* The name is what names this link for a screen reader, and it is text
+         here rather than the picture's alt because the picture is a layer over
+         a glyph and must stay decorative -- see glyphs.html. */}}
+    <span class="visually-hidden">{{.Name}}</span>
     <span class="d-block ratio ratio-1x1">
-      {{if .Thumb}}<img src="{{.Thumb}}" alt="{{.Name}}" width="300" height="300" loading="lazy"
-        class="object-fit-cover w-100 h-100">
-      {{else}}<span class="d-flex align-items-center justify-content-center small text-body-secondary p-1 text-break">{{.Name}}</span>{{end}}
+      {{if .Film}}{{template "filmGlyph"}}{{else}}{{template "photoGlyph"}}{{end}}
+      {{if .Thumb}}<img src="{{.Thumb}}" alt="" width="300" height="300" loading="lazy"
+        class="object-fit-cover w-100 h-100">{{end}}
     </span>
     {{/* A video says how long it is, which is the one thing a still cannot
          show. Positioned by Bootstrap's own utilities, since the policy drops

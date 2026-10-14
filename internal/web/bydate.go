@@ -102,6 +102,10 @@ type tile struct {
 	Name        string
 	// Duration is a video's, rendered, and empty for anything without one.
 	Duration string
+	// Film says which glyph is drawn under the picture, and it is the
+	// library's kind rather than "has a duration": a recording nothing has
+	// read yet has no duration and is still a film.
+	Film bool
 }
 
 // photoView is the viewer's photograph and what is known about it.
@@ -392,6 +396,7 @@ func (h *handler) tiles(ctx context.Context, l library, tree *timeline.Tree, pag
 			Href:     l.leafHref(at),
 			Name:     path.Base(p.File.Path),
 			Duration: clock(p.Media.DurationMS),
+			Film:     l.kind == db.KindVideo,
 		}
 		if month := db.MonthOf(p.SortAt); month != current {
 			t.Heading = monthName(month)

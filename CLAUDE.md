@@ -24,6 +24,31 @@ Hard constraints, in the same spirit as the rest of the project:
 - **No hand-written stylesheet.** Bootstrap's utility classes cover the layout we
   need. If something genuinely cannot be expressed with them, that is a
   conversation, not a new `.css` file that grows forever.
+- **A square with no picture in it draws a mark, and the mark is a layer
+  rather than an alternative** (#324). Nothing in markup can say "if this
+  image fails", and the only thing that can is a script -- so the glyph is the
+  first child of the `.ratio` box and the picture is the second, Bootstrap
+  stacks both over the whole square, and a thumbnail that arrives covers the
+  glyph while one that never arrives leaves it showing. That one answer covers
+  all three cases a grid has: a file this build cannot decode, one it refused
+  and wrote down (#338), and one it refused with `503` because it was busy --
+  which is the half of #321 that made a photo grid worse to look at. It also
+  makes a scrolling grid draw marks waiting for pictures instead of grey holes.
+
+  **Which is why a picture over one of them carries `alt=""`.** An image that
+  fails with an empty alt is decorative and a browser draws nothing for it,
+  while one with alt text draws the text and a broken-image icon on top of the
+  mark. The music pages had relied on that since they were written -- half a
+  library has no cover and the square is simply empty -- and the tiles had
+  not, which is why the gallery was the page that looked broken. The name a
+  reader needs is text inside the link instead, so improving the alt is the
+  one edit that would quietly bring the broken grid back and
+  `TestThePictureOverTheMarkIsDecorative` is what fails when somebody does.
+
+  The shapes are the shortcut icons' own, from `brand/` in the workspace repo,
+  inline per tile rather than an asset: they are three paths, `currentColor`
+  makes one copy serve any theme, and a hundred identical copies of three
+  paths is nothing once the response is compressed (#178).
 - **One script of our own, and this is the conversation about it.** The share
   page hands back a URL to send somebody, and copying it by hand out of a text
   field is the kind of small misery that makes a feature feel unfinished. There
@@ -2054,6 +2079,41 @@ Restraint here is principle 3, not laziness:
   forty slow ones was a page that eventually filled. Both the web UI and the
   app have to learn to back off and ask again, and until they do this is a
   bound on the damage rather than a fix for it.
+
+  **What cannot be made is remembered, so it is not attempted again** (#338).
+  Nothing was written down when a thumbnail failed, so every page view of a
+  folder holding a file nothing here can decode -- an AV1 recording, since that
+  decoder is deliberately out of the build while `.mp4` and `.mkv` are in
+  `decodableByFFmpeg`; a truncated JPEG; a track whose head holds no picture,
+  which is half a music library -- paid the spool and the ffmpeg run again, in
+  one of the slots above. On the one-CPU instance that is the slot the
+  photograph beside it was waiting for, which is why this is #324's problem as
+  much as its own.
+
+  The note is a derived object like the picture would have been: one per blob
+  rather than one per size, since what failed is the decode and every size
+  shares it, and holding the reason in words for whoever reads a data
+  directory. **It is a `cache-` object**, so the sweep takes it a week after it
+  was written whatever its parent is doing -- the one thing a verdict cannot
+  know is whether the build that reached it is still this build, and the list
+  of formats ffmpeg was compiled for is not in the key and could not be. A
+  recipe that gains a decoder therefore un-refuses what needed it by itself,
+  where a permanent note would have meant raising `DerivedGeneration` and
+  regenerating a library of pictures that were never wrong. The price is one
+  attempt per refused file per week, which is what makes it safe to be wrong
+  here.
+
+  **Only a verdict is written, which is #157's distinction on this side of the
+  package**, and it needed the two halves that side already had: `runFFmpeg`
+  now marks a process that ended on a signal as unreachable the way `runProbe`
+  does -- the out-of-memory killer is what answers a 4K recording on the
+  smallest instance, and it judges nothing -- and the decode reads through
+  `storeReader`, because a bucket that stops answering halfway looks exactly
+  like a file that does not decode once the decoder has rephrased it. A
+  cancelled request and a blob the store does not have are not verdicts either.
+  Each caller supplies the sentinel its note answers with, since a track with
+  no picture inside it is a `404` from `getCoverArt` and a picture that will
+  not decode is a `500` somebody should see.
 
   **A picture inside a track is read in Go rather than by ffmpeg**, and that is
   the same argument as EXIF: the storage port reads ranges, so a parser that

@@ -8,6 +8,7 @@
   <div class="col-6 col-sm-4 col-md-3 col-lg-2">
     <a href="{{.Href}}" class="d-block text-decoration-none">
       <div class="ratio ratio-1x1 bg-body-secondary rounded overflow-hidden mb-1">
+        {{template "coverGlyph"}}
         <img src="{{.Cover}}" alt="" width="300" height="300" loading="lazy" class="object-fit-cover w-100 h-100">
       </div>
       <div class="small text-truncate text-body">{{.Name}}</div>
