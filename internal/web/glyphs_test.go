@@ -18,6 +18,9 @@ const (
 	photoMark = "M14 73l21-24"
 	filmMark  = "M26 14l54 34-54 34z"
 	coverMark = "rotate(-18 28 70)"
+	// The box they are all drawn in, for counting them: the brand in the bar
+	// is an <svg> too and is a different drawing in a different square.
+	glyphBox = `viewBox="0 0 96 96"`
 )
 
 func TestAPhotoWithNoPictureShowsTheMarkInstead(t *testing.T) {
@@ -94,5 +97,56 @@ func TestAnAlbumWithNoCoverShowsTheCoverMark(t *testing.T) {
 		if page := get(t, h, at, cookie).Body.String(); !strings.Contains(page, coverMark) {
 			t.Errorf("%s draws an empty square rather than a mark:\n%s", at, page)
 		}
+	}
+}
+
+// TestAListingMarksWhatIsAPicture: the same mark in the row's little box, for
+// the same reason -- the thumbnail may be refused or still on its way, and a
+// row that said nothing would be an empty square either way. What it does not
+// do is mark every kind of file, which would be an icon set.
+func TestAListingMarksWhatIsAPicture(t *testing.T) {
+	t.Parallel()
+	h, s, _ := browserOver(t)
+	cookie := signIn(t, h)
+	mkdir(t, s, "holiday")
+	write(t, s, "holiday/notes.txt", "liner notes")
+	write(t, s, "holiday/scan.tiff", "not really a photograph")
+	write(t, s, "holiday/clip.avi", "not really a film")
+
+	listing := get(t, h, "/files/holiday/", cookie).Body.String()
+	for _, want := range []string{photoMark, filmMark} {
+		if !strings.Contains(listing, want) {
+			t.Errorf("the listing draws no mark for one of its two media files:\n%s", listing)
+		}
+	}
+	// Three files and two marks: the text file keeps the empty box it has
+	// always had.
+	if n := strings.Count(listing, glyphBox); n != 2 {
+		t.Errorf("the listing drew %d marks, want one each for the photograph and the film", n)
+	}
+	if !strings.Contains(listing, "data:image/gif;base64,") {
+		t.Error("the file that is not a picture lost the box that lines the rows up")
+	}
+}
+
+// TestAListingPictureIsOverItsMark is the row's half of what keeps a refused
+// thumbnail from drawing a broken icon: the picture is positioned over the
+// mark and carries no alt text.
+func TestAListingPictureIsOverItsMark(t *testing.T) {
+	t.Parallel()
+	h, s, _ := browserOver(t)
+	cookie := signIn(t, h)
+	mkdir(t, s, "holiday")
+	write(t, s, "holiday/IMG_0001.jpg", "pixels")
+
+	listing := get(t, h, "/files/holiday/", cookie).Body.String()
+	if !strings.Contains(listing, photoMark) {
+		t.Errorf("the row has a thumbnail and no mark under it:\n%s", listing)
+	}
+	if !strings.Contains(listing, `position-absolute top-0 start-0`) {
+		t.Error("the thumbnail is not drawn over the mark")
+	}
+	if strings.Contains(listing, `alt="IMG_0001.jpg"`) {
+		t.Error("the thumbnail is not decorative, so a refused one would draw over the mark")
 	}
 }

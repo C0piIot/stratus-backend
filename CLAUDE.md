@@ -35,6 +35,19 @@ Hard constraints, in the same spirit as the rest of the project:
   which is the half of #321 that made a photo grid worse to look at. It also
   makes a scrolling grid draw marks waiting for pictures instead of grey holes.
 
+  **The listing's little box is the same thing a size down**, since it has the
+  same three cases and had the same blank: a row that is a photograph or a
+  film draws the mark under its thumbnail, and every other row keeps the
+  transparent pixel that holds the box open. The glyph carries `width` and
+  `height` attributes for it -- there is no `.ratio` there to take a size
+  from, and `style-src 'self'` drops a style attribute -- and they are
+  attributes rather than classes because `.ratio > *` has to win over them in
+  the grids, which is the one contest a presentational attribute reliably
+  loses. Which rows those are is `media.IsImage` and `media.IsVideo`, the
+  name's answer and not the index's: a hundred rows cannot wait to be read.
+  **A mark for every kind of file is an icon set and a different feature**,
+  which is why a text file still shows nothing.
+
   **Which is why a picture over one of them carries `alt=""`.** An image that
   fails with an empty alt is decorative and a browser draws nothing for it,
   while one with alt text draws the text and a broken-image icon on top of the
