@@ -366,6 +366,20 @@ func TestTheTrashHoldsADeletionUntilItIsDestroyed(t *testing.T) {
 // destroyLink finds the button that throws a deletion away for good.
 var destroyLink = regexp.MustCompile(`href="(/destroy/[^"]+)"`)
 
+// destroyLinkFor is that button for one named deletion rather than for
+// whichever row is first. Two deletions made in the same millisecond tie on
+// deleted_at and are ordered by the batch, which is rand.Text(), so the page
+// is in a stable order that is not chronological -- fine for a page where
+// every row carries its own time, and not something a test may assume.
+func destroyLinkFor(t *testing.T, page, name string) string {
+	t.Helper()
+	row := regexp.MustCompile(`(?s)` + regexp.QuoteMeta(name) + `.*?href="(/destroy/[^"]+)"`).FindStringSubmatch(page)
+	if row == nil {
+		t.Fatalf("no way to destroy the deletion called %q:\n%s", name, page)
+	}
+	return row[1]
+}
+
 // TestRestoringFromTheTrash is the page's other half: what was deleted comes
 // back where it was, and the browser is sent to the folder it landed in --
 // which is the answer to "where did it go" when the name was taken.
@@ -439,8 +453,8 @@ func TestADeletedFileCanStillBeRead(t *testing.T) {
 	}
 
 	// What it serves stops being served when the deletion is destroyed.
-	link := destroyLink.FindStringSubmatch(get(t, h, "/trash/", cookie).Body.String())
-	post(t, h, html(link[1]), nil, cookie)
+	link := destroyLinkFor(t, get(t, h, "/trash/", cookie).Body.String(), "notes.txt")
+	post(t, h, html(link), nil, cookie)
 	if code := get(t, h, "/trash/notes.txt", cookie).Code; code != http.StatusNotFound {
 		t.Errorf("a destroyed file = %d, want 404", code)
 	}
