@@ -142,3 +142,28 @@ func TestFilePolicy(t *testing.T) {
 		}
 	}
 }
+
+// TestTitleOf pins what a tab, a bookmark and a history entry are named, which
+// is the one place the trail above a folder is not also on the page: the
+// breadcrumbs are there to be read, and a title that said only "2024" would
+// leave a browserful of folders nothing tells apart.
+func TestTitleOf(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct{ dir, root, want string }{
+		{want: "Files"},
+		{dir: "holiday", want: "holiday"},
+		{dir: "holiday/2024/lisbon", want: "holiday/2024/lisbon"},
+		// A share starts at the share, for the reason crumbs gives: what the
+		// visitor was sent is the top, and the owner's tree above it is not
+		// theirs to be told about.
+		{dir: "holiday/2024", root: "holiday/2024", want: "2024"},
+		{dir: "holiday/2024/lisbon", root: "holiday/2024", want: "lisbon"},
+		{dir: "holiday/2024/lisbon/beach", root: "holiday/2024", want: "lisbon/beach"},
+	}
+	for _, tt := range tests {
+		if got := titleOf(tt.dir, tt.root); got != tt.want {
+			t.Errorf("titleOf(%q, %q) = %q, want %q", tt.dir, tt.root, got, tt.want)
+		}
+	}
+}
