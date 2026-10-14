@@ -193,25 +193,26 @@ func (t *Thumbs) Cover(ctx context.Context, owner, dir string, px int) (io.ReadC
 // against a wrong answer. It becomes worth adding when a photo grid asks for
 // five hundred at once, which is #8's problem.
 func (t *Thumbs) open(ctx context.Context, f db.File, px int) (io.ReadCloser, int64, error) {
+	if !CanThumbnail(f.Path, f.Size) {
+		// Including the file that is simply too big, which is refused here
+		// rather than attempted: the listing does not offer one either, so
+		// this is the answer to somebody who asked for the URL directly.
+		//
+		// Nothing is remembered about it, because nothing was read: the answer
+		// is a function of the name and of this build, so a build that learns
+		// the format changes it with no object to invalidate.
+		return nil, 0, fmt.Errorf("%w: %s", ErrNoThumbnail, path.Ext(f.Path))
+	}
+
 	size := snapSize(px)
-	return t.cached(ctx, thumbKey(f.BlobKey, size), func() ([]byte, error) {
-		if !CanThumbnail(f.Path, f.Size) {
-			// Including the file that is simply too big, which is refused here
-			// rather than attempted: the listing does not offer one either, so
-			// this is the answer to somebody who asked for the URL directly.
-			return nil, fmt.Errorf("%w: %s", ErrNoThumbnail, path.Ext(f.Path))
+	refused := refusal{key: verdictKey(f.BlobKey), says: ErrNoThumbnail}
+	return t.cached(ctx, thumbKey(f.BlobKey, size), refused, func() ([]byte, error) {
+		if decodableInGo(f.Path) {
+			return t.fromStore(ctx, f, func(body io.ReadSeeker) ([]byte, error) {
+				return reduceTo(body, f.Path, size)
+			})
 		}
-		switch {
-		case decodableInGo(f.Path):
-			body, err := t.files.OpenFile(ctx, f)
-			if err != nil {
-				return nil, fmt.Errorf("open %q: %w", f.Path, err)
-			}
-			defer func() { _ = body.Close() }()
-			return reduceTo(body, f.Path, size)
-		default:
-			return t.fromFFmpeg(ctx, f, size)
-		}
+		return t.fromFFmpeg(ctx, f, size)
 	})
 }
 
@@ -223,26 +224,23 @@ func (t *Thumbs) open(ctx context.Context, f db.File, px int) (io.ReadCloser, in
 // happens once per file and size: the result is a derived blob, and the next
 // ask reads it.
 func (t *Thumbs) fromFFmpeg(ctx context.Context, f db.File, size thumbSize) ([]byte, error) {
-	body, err := t.files.OpenFile(ctx, f)
-	if err != nil {
-		return nil, fmt.Errorf("open %q: %w", f.Path, err)
-	}
-	defer func() { _ = body.Close() }()
+	return t.fromStore(ctx, f, func(body io.ReadSeeker) ([]byte, error) {
+		// Small files are copied whole, which is the simplest thing and costs
+		// megabytes. Above the bound nothing is copied: what a decoder needs is
+		// the headers and the first frames, and window fetches exactly those
+		// (#149).
+		local, cleanup, err := t.localCopy(body, f)
+		if err != nil {
+			return nil, err
+		}
+		defer cleanup()
 
-	// Small files are copied whole, which is the simplest thing and costs
-	// megabytes. Above the bound nothing is copied: what a decoder needs is the
-	// headers and the first frames, and window fetches exactly those (#149).
-	local, cleanup, err := t.localCopy(body, f)
-	if err != nil {
-		return nil, err
-	}
-	defer cleanup()
-
-	frame, err := decodeScaled(ctx, t.ffmpeg, local, int(size), isVideo(f.Path))
-	if err != nil {
-		return nil, fmt.Errorf("%w: %q: %w", ErrNoThumbnail, f.Path, err)
-	}
-	return encodeThumb(frame, f.Path, size)
+		frame, err := decodeScaled(ctx, t.ffmpeg, local, int(size), isVideo(f.Path))
+		if err != nil {
+			return nil, fmt.Errorf("%w: %q: %w", ErrNoThumbnail, f.Path, err)
+		}
+		return encodeThumb(frame, f.Path, size)
+	})
 }
 
 // localCopy is the file handed to ffmpeg: the whole thing when that is cheap,
@@ -266,28 +264,68 @@ func (t *Thumbs) localCopy(body io.ReadSeeker, f db.File) (string, func(), error
 // track and its cover goes with it.
 func (t *Thumbs) fromTrack(ctx context.Context, f db.File, px int) (io.ReadCloser, int64, error) {
 	size := snapSize(px)
-	return t.cached(ctx, coverKey(f.BlobKey, size), func() ([]byte, error) {
-		body, err := t.files.OpenFile(ctx, f)
-		if err != nil {
-			return nil, fmt.Errorf("open %q: %w", f.Path, err)
-		}
-		defer func() { _ = body.Close() }()
-
-		// Off the blob and through a ranged read: the tag is at the head of
-		// every one of these containers, so a track in a bucket costs a few
-		// kilobytes rather than the whole file.
-		picture, err := embeddedCover(body, f.Path)
-		if err != nil {
-			return nil, err
-		}
-		return reduceTo(bytes.NewReader(picture), f.Path, size)
+	// A track with no picture in its head is the normal state of half a music
+	// library, so what is remembered says exactly that: the album pages and
+	// getCoverArt answer a track with no cover with a 404 and a track whose
+	// picture will not decode with a 500, and a note that forgot which is
+	// which would turn the first into the second for ever.
+	refused := refusal{key: coverVerdictKey(f.BlobKey), says: ErrNoEmbeddedCover}
+	return t.cached(ctx, coverKey(f.BlobKey, size), refused, func() ([]byte, error) {
+		return t.fromStore(ctx, f, func(body io.ReadSeeker) ([]byte, error) {
+			// Off the blob and through a ranged read: the tag is at the head of
+			// every one of these containers, so a track in a bucket costs a few
+			// kilobytes rather than the whole file.
+			picture, err := embeddedCover(body, f.Path)
+			if err != nil {
+				return nil, err
+			}
+			return reduceTo(bytes.NewReader(picture), f.Path, size)
+		})
 	})
 }
 
+// fromStore opens f and runs make over a reader that remembers what the store
+// did.
+//
+// That is #157's distinction on this side of the package, and it is only
+// answerable here: a bucket that stops answering halfway through a decode
+// looks exactly like a file that does not decode, because the decoder rephrases
+// every failed read as its own "these are not pixels". Only the reader between
+// the two knows which it was, and getting it wrong now costs more than it used
+// to -- a verdict is written down.
+func (t *Thumbs) fromStore(
+	ctx context.Context, f db.File, make func(io.ReadSeeker) ([]byte, error),
+) ([]byte, error) {
+	body, err := t.files.OpenFile(ctx, f)
+	if err != nil {
+		return nil, fmt.Errorf("%w: open %q: %w", errUnreachable, f.Path, err)
+	}
+	defer func() { _ = body.Close() }()
+
+	r := &storeReader{ReadSeekCloser: body}
+	made, err := make(r)
+	if err == nil || r.err == nil {
+		return made, err
+	}
+	return nil, fmt.Errorf("%w: %w", errUnreachable, r.err)
+}
+
+// refusal is what is remembered about a blob that could not be turned into a
+// picture: where the note is kept, and what the next caller is told.
+//
+// The sentinel is the caller's because the surfaces behind it answer them
+// differently, and a note that flattened the two would be a regression the
+// first request hides and the second shows.
+type refusal struct {
+	key  string
+	says error
+}
+
 // cached is the lazy half: answer what is stored, or make it, keep it and
-// answer that.
+// answer that -- or, for what has already been refused once, refuse it again
+// without reading a byte (#338).
 func (t *Thumbs) cached(
-	ctx context.Context, key string, make func() ([]byte, error),
+	ctx context.Context, key string, refused refusal, make func() ([]byte, error),
 ) (io.ReadCloser, int64, error) {
 	body, info, err := t.blobs.Get(ctx, key, storage.All())
 	switch {
@@ -300,6 +338,15 @@ func (t *Thumbs) cached(
 	// The cached read above is deliberately outside the bound: serving a
 	// thumbnail that exists costs no pixels and must not queue behind one being
 	// made. Only the decode is limited.
+
+	// And so is this one, for a stronger reason: a file nothing can decode must
+	// not take a place in the queue in front of one something can. An AV1
+	// recording in a folder of photographs used to cost a spool and an ffmpeg
+	// run on every page view, and on the one-CPU instance that is the slot the
+	// photograph beside it was waiting for.
+	if t.refusedBefore(ctx, refused.key) {
+		return nil, 0, fmt.Errorf("%w: refused before, see %q", refused.says, refused.key)
+	}
 
 	// The queue in front of it has a bottom and a deadline, and refusing is
 	// the better answer past either: a thumbnail is regenerable and the
@@ -325,6 +372,7 @@ func (t *Thumbs) cached(
 
 	made, err := make()
 	if err != nil {
+		t.remember(ctx, refused.key, err)
 		return nil, 0, err
 	}
 	if _, err := t.blobs.Put(ctx, key, bytes.NewReader(made), int64(len(made))); err != nil {
@@ -333,6 +381,47 @@ func (t *Thumbs) cached(
 		slog.WarnContext(ctx, "storing a thumbnail", "key", key, "err", err)
 	}
 	return io.NopCloser(bytes.NewReader(made)), int64(len(made)), nil
+}
+
+// refusedBefore reports whether this blob has already been judged.
+//
+// A Stat and not a Get: what the note says is for whoever reads the store, and
+// the answer here is that there is one. A store that fails some other way says
+// no, which costs a decode -- the Get above has already passed on anything
+// worse than a missing object.
+func (t *Thumbs) refusedBefore(ctx context.Context, key string) bool {
+	_, err := t.blobs.Stat(ctx, key)
+	return err == nil
+}
+
+// remember writes the refusal down, and writes nothing when the failure was not
+// about the file.
+//
+// The note is a cache in the sweep's sense, so it is collected a week after it
+// was written whatever its parent is doing -- which is the answer to the thing
+// a verdict cannot know: whether this build is still the build that made it.
+// Adding a decoder to the ffmpeg recipe un-refuses every file that needed it,
+// a week later and with no generation raised and no thumbnail regenerated. The
+// price is one attempt per refused file per week, which is nothing, and it is
+// what makes it safe to be wrong here.
+func (t *Thumbs) remember(ctx context.Context, key string, why error) {
+	switch {
+	case unreachable(why), errors.Is(why, storage.ErrNotFound):
+		// The bytes were not read, so there is nothing to judge. A blob the
+		// store does not have is the same answer: a database pointed at the
+		// wrong bucket would otherwise write a verdict for every file in the
+		// library (#271's fear, one layer along).
+		return
+	case ctx.Err() != nil, errors.Is(why, context.Canceled), errors.Is(why, context.DeadlineExceeded):
+		// Whoever was looking at the page left, or the decode ran out of time.
+		// Neither is the file's fault.
+		return
+	}
+
+	reason := why.Error()
+	if _, err := t.blobs.Put(ctx, key, strings.NewReader(reason), int64(len(reason))); err != nil {
+		slog.WarnContext(ctx, "storing a thumbnail refusal", "key", key, "err", err)
+	}
 }
 
 // reduceTo decodes, reduces and encodes, which is the same path whether the
@@ -564,6 +653,31 @@ func thumbKey(blobKey string, size thumbSize) string {
 
 func coverKey(blobKey string, size thumbSize) string {
 	return files.DerivedKey(blobKey, "cover-"+strconv.Itoa(int(size))+".jpg")
+}
+
+// verdictKey and coverVerdictKey are where a refusal is remembered (#338).
+//
+// One per blob and not one per size, because what failed is the decode and
+// every size shares it: a file nothing can read is unreadable at 96 pixels and
+// at 1200, and three notes would mean three attempts to learn it.
+//
+// They are **caches** in the sweep's sense -- `files.CachePrefix` -- so the
+// sweep collects one a week after it was written even while its parent lives.
+// That is the only honest answer to the thing a verdict cannot know: whether
+// the build that judged the file is still this build. The list of formats
+// ffmpeg was compiled for is not in the key and could not be, so a recipe that
+// gains a decoder would otherwise leave every file that needed it refused
+// until somebody raised the generation and regenerated a whole library of
+// pictures that were never wrong.
+//
+// A `.txt` because that is what it is: the reason, in words, for whoever is
+// reading a data directory rather than for any code here.
+func verdictKey(blobKey string) string {
+	return files.DerivedKey(blobKey, files.CachePrefix+"none.txt")
+}
+
+func coverVerdictKey(blobKey string) string {
+	return files.DerivedKey(blobKey, files.CachePrefix+"cover-none.txt")
 }
 
 // CanThumbnail reports whether this build can turn the file at p into pixels.

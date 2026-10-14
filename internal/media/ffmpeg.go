@@ -126,6 +126,16 @@ func runFFmpeg(ctx context.Context, ffmpeg, path string, px int, at time.Duratio
 
 	if err := cmd.Run(); err != nil {
 		var exit *exec.ExitError
+		// A process that was killed decoded nothing and judged nothing: the
+		// out-of-memory killer and the timeout above both arrive this way, and
+		// an exit code of -1 is the portable way they say so. runProbe has
+		// told them apart since #157 and this had not, which mattered less
+		// while nothing was written down about a refusal (#338). It comes
+		// before the branch below because a killed ffmpeg has usually written
+		// to stderr as well.
+		if errors.As(err, &exit) && exit.ExitCode() < 0 {
+			return nil, fmt.Errorf("%w: ffmpeg stopped with %s", errUnreachable, exit.ProcessState)
+		}
 		if errors.As(err, &exit) && stderr.Len() > 0 {
 			return nil, fmt.Errorf("ffmpeg: %s", strings.TrimSpace(stderr.String()))
 		}

@@ -40,8 +40,11 @@ const (
 	pageSearch = "search.html"
 	// pageRows and pageTile are not pages: they are the listing's rows and one
 	// cell of a grid of photographs, each of them shown by two pages.
-	pageRows      = "rows.html"
-	pageTile      = "tile.html"
+	pageRows = "rows.html"
+	pageTile = "tile.html"
+	// pageGlyphs is the mark a square shows when it has no picture in it,
+	// which is three pages' worth of squares and one file of shapes.
+	pageGlyphs    = "glyphs.html"
 	pageRename    = "rename.html"
 	pageInfo      = "info.html"
 	pageDelete    = "delete.html"
@@ -70,7 +73,7 @@ const (
 var pages = map[string]*template.Template{
 	pageLogin:     parse(pageLogin),
 	pageFiles:     parse(pageFiles, pageRows, pageCrumbs),
-	pageSearch:    parse(pageSearch, pageRows, pageTile),
+	pageSearch:    parse(pageSearch, pageRows, pageTile, pageGlyphs),
 	pageRename:    parse(pageRename),
 	pageInfo:      parse(pageInfo),
 	pageDelete:    parse(pageDelete),
@@ -81,13 +84,13 @@ var pages = map[string]*template.Template{
 	pageShared:    parse(pageShared),
 	pageError:     parse(pageError),
 	pageOffline:   parse(pageOffline),
-	pagePhotos:    parse(pagePhotos, pageTile, pageCrumbs),
+	pagePhotos:    parse(pagePhotos, pageTile, pageCrumbs, pageGlyphs),
 	pagePhoto:     parse(pagePhoto),
 	pageMonths:    parse(pageMonths, pageCrumbs),
 	pagePlay:      parse(pagePlay),
 	pageArtists:   parse(pageArtists),
-	pageArtist:    parse(pageArtist),
-	pageAlbum:     parse(pageAlbum),
+	pageArtist:    parse(pageArtist, pageGlyphs),
+	pageAlbum:     parse(pageAlbum, pageGlyphs),
 	pagePlaylists: parse(pagePlaylists),
 	pagePlaylist:  parse(pagePlaylist),
 }

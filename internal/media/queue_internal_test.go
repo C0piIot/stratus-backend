@@ -20,7 +20,7 @@ func TestThumbnailsAreRefusedRatherThanQueuedForever(t *testing.T) {
 
 	decoding, release := make(chan struct{}), make(chan struct{})
 	go func() {
-		_, _, _ = th.cached(t.Context(), "held", func() ([]byte, error) {
+		_, _, _ = th.cached(t.Context(), "held", unrefused("held"), func() ([]byte, error) {
 			close(decoding)
 			<-release
 			return []byte("a thumbnail"), nil
@@ -30,14 +30,14 @@ func TestThumbnailsAreRefusedRatherThanQueuedForever(t *testing.T) {
 
 	queued := make(chan error, 1)
 	go func() {
-		_, _, err := th.cached(t.Context(), "waiting", func() ([]byte, error) {
+		_, _, err := th.cached(t.Context(), "waiting", unrefused("waiting"), func() ([]byte, error) {
 			return []byte("another"), nil
 		})
 		queued <- err
 	}()
 	waitFor(t, th, 2)
 
-	if _, _, err := th.cached(t.Context(), "refused", func() ([]byte, error) {
+	if _, _, err := th.cached(t.Context(), "refused", unrefused("refused"), func() ([]byte, error) {
 		t.Error("a refused request decoded anyway")
 		return nil, nil
 	}); !errors.Is(err, ErrBusy) {
@@ -63,7 +63,7 @@ func TestAQueuedThumbnailGivesUp(t *testing.T) {
 
 	decoding, release := make(chan struct{}), make(chan struct{})
 	go func() {
-		_, _, _ = th.cached(t.Context(), "held", func() ([]byte, error) {
+		_, _, _ = th.cached(t.Context(), "held", unrefused("held"), func() ([]byte, error) {
 			close(decoding)
 			<-release
 			return []byte("a thumbnail"), nil
@@ -72,7 +72,7 @@ func TestAQueuedThumbnailGivesUp(t *testing.T) {
 	<-decoding
 	defer close(release)
 
-	if _, _, err := th.cached(t.Context(), "gives up", func() ([]byte, error) {
+	if _, _, err := th.cached(t.Context(), "gives up", unrefused("gives up"), func() ([]byte, error) {
 		t.Error("a request that gave up decoded anyway")
 		return nil, nil
 	}); !errors.Is(err, ErrBusy) {
@@ -91,4 +91,10 @@ func waitFor(t *testing.T, th *Thumbs, n int64) {
 		time.Sleep(time.Millisecond)
 	}
 	t.Fatalf("only %d requests reached the queue, want %d", th.inQueue.Load(), n)
+}
+
+// unrefused is the note a queue test does not care about: a key nothing has
+// written, so every request reaches the decoder it is here to queue for.
+func unrefused(key string) refusal {
+	return refusal{key: key + "-none", says: ErrNoThumbnail}
 }

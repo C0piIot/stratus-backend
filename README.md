@@ -185,6 +185,19 @@ busy. It is not `404`: there is a picture, just not yet, and asking again gets
 it. A client drawing a grid should treat it as "later", and the server says
 how many it will make at once in its startup log.
 
+**A `404` is the other answer, and it is remembered for a week.** Some files
+cannot be turned into pixels here at all — a recording in a codec this image's
+ffmpeg was not built with, a photograph that is truncated — and the only way to
+find out is to try, which costs a decode and a place in that queue. So the
+refusal is written down beside where the picture would have been kept, and the
+next request is answered from it without either. In the browser none of this
+is a broken image: a square with no picture in it draws a mark instead, which
+is also what a grid shows while it is still fetching and what it shows for a
+thumbnail refused with the `503` above. A week and not for ever,
+because what the note cannot know is whether the build that wrote it is still
+the build running: an upgrade that can read the format starts making those
+pictures on its own, with nothing to run and nothing already made thrown away.
+
 **The listing says which files have a preview and how much room is left.** A
 client drawing a grid of a few hundred files would otherwise ask for every
 thumbnail and count the ones that come back missing; it can read the answer out
@@ -458,9 +471,10 @@ sweep deletes them, rather than a photograph staying sideways because it was
 looked at once before the fix. Nothing to run, and nothing to remember.
 
 That prefix is worth knowing about beyond tidiness. Deleting everything under it
-is safe — the pictures are regenerated the next time something asks — and on S3
-it is where a lifecycle rule or a backup policy would treat derived data
-differently from originals.
+is safe — the pictures are regenerated the next time something asks, and the
+notes saying which files have none are written again the next time somebody
+looks — and on S3 it is where a lifecycle rule or a backup policy would treat
+derived data differently from originals.
 
 It runs daily and leaves anything written in the last hour alone. Both are
 `STRATUS_GC_INTERVAL` and `STRATUS_GC_GRACE` if you ever need them: `0` for the

@@ -74,6 +74,12 @@ func DerivedKey(parent, name string) string {
 // collects one CacheRetention after it was written, even while its parent
 // lives -- a film's re-encoded segments are gigabytes, and a cache that only
 // ever grew would fill the disk with films watched once (#50).
+//
+// The note saying a file could not be turned into a picture is the second user,
+// and it is here for the other half of the same property: what expires is
+// attempted again, which is what keeps a refusal from outliving the build that
+// made it (#338). So the retention is read in two ways -- how long a cache is
+// worth keeping, and how long a verdict is worth trusting.
 const CachePrefix = "cache-"
 
 // CacheRetention is how long a cached derived object is kept after it was
