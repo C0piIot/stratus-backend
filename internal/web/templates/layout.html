@@ -21,7 +21,13 @@
      on every page rather than on the shared ones alone, because a login form in
      a search result is nothing to find either. */}}
 <meta name="robots" content="noindex, nofollow">
-<title>{{.Title}} · Stratus</title>
+{{/* The page's own name and not "X · Stratus", because the one window that
+     shows this does not need telling twice: an installed app window puts the
+     manifest's name in front of the document title, so the brand on the end
+     read "Stratus - Files · Stratus" there while a tab showed it once. What
+     names the server in a tab is the icon beside the title, which is the
+     mark. */}}
+<title>{{.Title}}</title>
 <link rel="icon" href="{{.Favicon}}" type="image/svg+xml">
 {{/* The manifest is what a browser reads before it will offer to install
      anything, and the touch icon is the one place it does not reach: iOS
