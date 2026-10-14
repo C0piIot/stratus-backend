@@ -99,12 +99,13 @@ func (h *handler) browse(w http.ResponseWriter, r *http.Request, user string) {
 		return
 	}
 
+	root := sharedRoot(r)
 	v := view{
-		Title:   pageTitle(p),
+		Title:   titleOf(p, root),
 		User:    display,
 		Shared:  token,
 		Notice:  uploaded(r.URL.Query().Get("added")),
-		Crumbs:  crumbs(p, token, sharedRoot(r)),
+		Crumbs:  crumbs(p, token, root),
 		Entries: entries(children, h.indexingOf(r, children), token),
 		Columns: columns(href(p), state, token),
 		Rows:    rowChoices(href(p), state, token),
@@ -359,6 +360,23 @@ func pageTitle(dir string) string {
 	return path.Base(dir)
 }
 
+// titleOf is what the document title says, which is the whole trail and not the
+// folder at the end of it: a browser's tabs, its history and a bookmark are all
+// the title alone, and a dozen called "2024" tell nobody which library they are
+// in. It is the same trail the breadcrumbs draw, so a shared page starts at the
+// share for the reason crumbs gives.
+func titleOf(dir, root string) string {
+	if rel := below(dir, root); rel != "" {
+		return rel
+	}
+	return pageTitle(root)
+}
+
+// below is dir relative to root, and dir itself when there is no root.
+func below(dir, root string) string {
+	return strings.TrimPrefix(strings.TrimPrefix(dir, root), "/")
+}
+
 // crumb is one step of the trail back to the root.
 type crumb struct {
 	Name string
@@ -376,14 +394,13 @@ type crumb struct {
 func crumbs(dir, token, root string) []crumb {
 	var trail []crumb
 	walked := ""
-	segments := dir
+	segments := below(dir, root)
 
 	if token == "" {
 		trail = append(trail, crumb{Name: "Files", Href: filesPrefix})
 	} else {
 		trail = append(trail, crumb{Name: pageTitle(root), Href: shared(href(root), token)})
 		walked = root
-		segments = strings.TrimPrefix(strings.TrimPrefix(dir, root), "/")
 	}
 
 	if segments != "" {
