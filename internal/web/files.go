@@ -435,6 +435,15 @@ type entry struct {
 	// cannot make one. The ETag is in the URL so the answer can be cached for a
 	// year: a new write takes a new blob key and therefore a new ETag.
 	Thumb string
+	// Picture says the box beside this row is a picture's -- a photograph or a
+	// film, which are the two kinds that have one -- and Film says which mark
+	// is drawn in it. Both are the name's answer and not the index's: a
+	// listing is a hundred rows and the mark cannot wait for them to be read.
+	//
+	// They are not "has no thumbnail": the mark is drawn under the picture,
+	// so a row whose thumbnail is refused or still arriving shows it too.
+	Picture bool
+	Film    bool
 	// Indexing is what the extractor has made of this file, and empty when it
 	// has been read -- which is the ordinary case, and a mark on every row
 	// would be noise. It says something during a first pass over a library, a
@@ -478,6 +487,8 @@ func entries(children []db.File, indexing map[int64]string, token string) []entr
 			e.Size = humanSize(c.Size)
 			e.Indexing = indexing[c.ID]
 			e.Info = link(infoPrefix, c.Path)
+			e.Film = media.IsVideo(c.Path)
+			e.Picture = e.Film || media.IsImage(c.Path)
 			if media.CanThumbnail(c.Path, c.Size) {
 				// The thumbnail carries the signature too. Without it a shared
 				// listing is a grid of broken images, which is the half of this

@@ -72,7 +72,7 @@ const (
 // what lets the layout call it.
 var pages = map[string]*template.Template{
 	pageLogin:     parse(pageLogin),
-	pageFiles:     parse(pageFiles, pageRows, pageCrumbs),
+	pageFiles:     parse(pageFiles, pageRows, pageCrumbs, pageGlyphs),
 	pageSearch:    parse(pageSearch, pageRows, pageTile, pageGlyphs),
 	pageRename:    parse(pageRename),
 	pageInfo:      parse(pageInfo),

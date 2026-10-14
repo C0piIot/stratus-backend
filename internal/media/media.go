@@ -122,3 +122,14 @@ var byExtension = map[string]db.Kind{
 func kindFromExtension(ext string) db.Kind {
 	return byExtension[strings.ToLower(ext)]
 }
+
+// IsImage reports whether a name is a photograph's, by its extension, and is
+// IsVideo's twin: what a listing has to go on when it is deciding what the box
+// beside a row is for, since it does not read every row's metadata.
+//
+// It answers for a format this build cannot decode too -- a TIFF, a camera raw
+// -- which is the point: those are the rows that have no picture and therefore
+// the ones that need to say what they are.
+func IsImage(name string) bool {
+	return kindFromExtension(path.Ext(name)) == db.KindImage
+}
