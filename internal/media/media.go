@@ -49,7 +49,13 @@ import (
 // credited on the track (#262). Same argument a third time: both halves are
 // in the row already, and splitting them in SQL would be each engine deciding
 // where one tag ends.
-const Version = 8
+//
+// And to 9 for the tags an Ogg container keeps on its stream (#349). Every
+// Opus and Vorbis track had been read from the format alone, which has none,
+// so it carried a codec, a duration and no title -- and a row with empty tags
+// and no error is one the queue has finished with, which is what this
+// mechanism is for.
+const Version = 9
 
 // errTooLargeToRead is what a file gets instead of a local copy when it is
 // larger than maxSpool. It is a refusal rather than a failure, and it is

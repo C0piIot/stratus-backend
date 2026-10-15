@@ -1877,6 +1877,21 @@ Restraint here is principle 3, not laziness:
     had: the captured reports now include this build's output, and the
     recipe asserts a FLAC comes out sixteen bits. `--enable-small` makes it
     print profiles as numbers, and `profileName` maps them back.
+
+    **An Ogg container's tags are on the stream, and only Ogg's are** (#349).
+    ffprobe prints a Vorbis comment where libavformat keeps it, which is the
+    stream, and leaves the format with no tags at all; every other container
+    states them on the format, which is where `mediaFrom` had always looked.
+    So every Opus and Vorbis track was indexed with a codec, a duration and
+    no title, which the library's queries rightly count as not music, and
+    nothing said so because a row with empty tags and no error is a row the
+    queue is done with. The reader falls back to the audio stream's tags when
+    the format states none -- for audio only, since a film's streams are
+    named for what they are and none of that is the film's title -- and
+    `media.Version` went to 9 to re-read the library. The captured report in
+    `probe_test.go` is this build's, and `scripts/smoke.sh` uploads a tagged
+    Opus so the shipped ffprobe and the reader are held to agreeing about
+    where the tags are.
   - **`ffmpeg`, 13.2 MB on amd64 and 11.1 on arm64.** For pictures, only what
     Go cannot decode: HEIC,
     which needs libheif and therefore cgo, and a frame out of a video. It

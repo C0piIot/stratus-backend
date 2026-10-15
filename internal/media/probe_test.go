@@ -32,6 +32,23 @@ const audioReport = `{
   }
 }`
 
+// oggReport is what the image's own ffprobe prints for an Opus track, trimmed
+// to the fields this package reads and with the one quirk that matters left
+// in: an Ogg container keeps its Vorbis comments on the stream, so the format
+// carries no tags at all (#349). Every other container states them on the
+// format, which is where the reader looked and found nothing.
+const oggReport = `{
+  "streams": [
+    {"codec_type": "audio", "codec_name": "opus", "sample_rate": "48000", "channels": 1,
+     "duration": "2.006500",
+     "tags": {"encoder": "Lavc60.31.102 libopus", "title": "Stay At Home",
+              "artist": "Yellow Ostrich", "album_artist": "Yellow Ostrich",
+              "album": "Strange Land", "track": "3/10", "disc": "1/1",
+              "date": "2012", "genre": "Indie"}}
+  ],
+  "format": {"format_name": "ogg", "duration": "2.006500", "bit_rate": "31832"}
+}`
+
 func TestProbeReportVideo(t *testing.T) {
 	t.Parallel()
 	m := parse(t, videoReport).mediaFrom(db.KindVideo)
@@ -108,6 +125,32 @@ func TestProbeReportAudio(t *testing.T) {
 	}
 }
 
+// TestProbeReportOggTagsOnTheStream is the Opus and Vorbis half of a music
+// library, which indexed with a codec, a duration and no title until the
+// reader looked where ffprobe puts an Ogg container's tags (#349).
+func TestProbeReportOggTagsOnTheStream(t *testing.T) {
+	t.Parallel()
+	m := parse(t, oggReport).mediaFrom(db.KindAudio)
+
+	if m.Codec != "opus" || m.DurationMS != 2_006 {
+		t.Errorf("got codec %q duration %d", m.Codec, m.DurationMS)
+	}
+	if m.Title != "Stay At Home" || m.Artist != "Yellow Ostrich" || m.Album != "Strange Land" {
+		t.Errorf("got %+v, want the tags the stream carries", m)
+	}
+	if m.AlbumArtist != "Yellow Ostrich" || m.Genre != "Indie" {
+		t.Errorf("album artist %q genre %q", m.AlbumArtist, m.Genre)
+	}
+	if m.TrackNo != 3 || m.DiscNo != 1 || m.Year != 2012 {
+		t.Errorf("track %d disc %d year %d", m.TrackNo, m.DiscNo, m.Year)
+	}
+	// The stream states no bitrate, so the file's stands in, as it does for a
+	// FLAC.
+	if m.Bitrate != 31_832 || m.SampleRate != 48_000 || m.Channels != 1 {
+		t.Errorf("bitrate %d rate %d channels %d", m.Bitrate, m.SampleRate, m.Channels)
+	}
+}
+
 func TestProbeReportEdges(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -169,6 +212,30 @@ func TestProbeReportEdges(t *testing.T) {
 			},
 		},
 		{
+			// The fallback is for a format that states nothing, not a second
+			// opinion: an MP4 puts an encoder's name on the stream and the
+			// track's title on the format, and the format is the file's.
+			name: "the format's tags come before the stream's",
+			report: `{"streams":[{"codec_type":"audio","codec_name":"aac","tags":{"title":"Track 1","handler_name":"SoundHandler"}}],
+				"format":{"tags":{"title":"Hunter"}}}`,
+			check: func(t *testing.T, m db.Media) {
+				if m.Title != "Hunter" {
+					t.Errorf("Title = %q, want the format's", m.Title)
+				}
+			},
+		},
+		{
+			// A film's streams are named for what they are -- "English",
+			// "Commentary" -- and none of those is the film's title.
+			name:   "a video's stream tags are not the file's",
+			report: `{"streams":[{"codec_type":"video","tags":{"title":"Main"}},{"codec_type":"audio","tags":{"title":"English"}}],"format":{}}`,
+			check: func(t *testing.T, m db.Media) {
+				if m.Title != "" {
+					t.Errorf("Title = %q, want none", m.Title)
+				}
+			},
+		},
+		{
 			name:   "a rotation of 270",
 			report: `{"streams":[{"codec_type":"video","tags":{"rotate":"270"}}],"format":{}}`,
 			check: func(t *testing.T, m db.Media) {
@@ -191,7 +258,9 @@ func TestProbeReportEdges(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			kind := db.KindVideo
-			if tt.name == "no tags at all" || tt.name == "album artist stands in for artist" {
+			switch tt.name {
+			case "no tags at all", "album artist stands in for artist",
+				"the format's tags come before the stream's":
 				kind = db.KindAudio
 			}
 			tt.check(t, parse(t, tt.report).mediaFrom(kind))
