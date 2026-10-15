@@ -10,6 +10,7 @@ package app_test
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"image"
 	"image/color"
 	"image/jpeg"
@@ -356,38 +357,49 @@ func TestThumbnailsAreMadeForWhatNobodyAnnounced(t *testing.T) {
 		"STRATUS_INDEX_INTERVAL": "200ms",
 	})
 	defer stop()
-	upload(t, base, password, "holiday.jpg", photograph(t))
+
+	// A whole batch of them, so the pass fills one and comes straight back for
+	// the next rather than waiting for the tick it was started by.
+	names := make([]string, media.ThumbBatch)
+	for i := range names {
+		names[i] = fmt.Sprintf("holiday-%d.jpg", i)
+		upload(t, base, password, names[i], photograph(t))
+	}
 
 	store := openStore(t, dataDir)
-	deadline := time.Now().Add(20 * time.Second)
-	for {
-		if state, _ := thumbState(t, store, "holiday.jpg"); state == db.ThumbMade {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("the uploaded photograph never got its picture")
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
+	waitForPictures(t, store, names)
 
-	f, err := store.FileByPath(t.Context(), "edu", "holiday.jpg")
-	if err != nil {
-		t.Fatal(err)
+	// Back to rows that say nothing was ever tried, which is what an imported
+	// library looks like and what no notice will ever mention.
+	for _, name := range names {
+		f, err := store.FileByPath(t.Context(), "edu", name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := store.PutThumbVerdict(t.Context(), db.ThumbVerdict{FileID: f.ID, At: time.Now()}); err != nil {
+			t.Fatal(err)
+		}
 	}
-	// Back to a row that says nothing was ever tried, which is what an
-	// imported file looks like and what no notice will ever mention.
-	if err := store.PutThumbVerdict(t.Context(), db.ThumbVerdict{FileID: f.ID, At: time.Now()}); err != nil {
-		t.Fatal(err)
-	}
+	waitForPictures(t, store, names)
+}
 
-	deadline = time.Now().Add(20 * time.Second)
-	for time.Now().Before(deadline) {
-		if state, _ := thumbState(t, store, "holiday.jpg"); state == db.ThumbMade {
+// waitForPictures blocks until every one of those files has its pictures made,
+// which is the only thing a background pass says out loud.
+func waitForPictures(t *testing.T, store db.Store, names []string) {
+	t.Helper()
+	for deadline := time.Now().Add(20 * time.Second); time.Now().Before(deadline); {
+		made := 0
+		for _, name := range names {
+			if state, _ := thumbState(t, store, name); state == db.ThumbMade {
+				made++
+			}
+		}
+		if made == len(names) {
 			return
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	t.Error("a row nobody announced was never picked up by the pass")
+	t.Fatal("the photographs never got their pictures")
 }
 
 // TestThumbnailsAreNotMadeAheadWhenTurnedOff is the other half of the switch,

@@ -35,7 +35,7 @@ var ErrInjected = errors.New("dbtest: injected failure")
 // test asking for one would silently never fail.
 var repoMethods = []string{
 	"PutFile", "CreateDir", "FileByPath", "ListFiles", "ListFilesPage", "MoveFile", "DeleteFile",
-	"BlobKeys", "PutMedia", "MediaByFile", "MediaCounts", "MediaStates",
+	"BlobKeys", "PutMedia", "MediaByFile", "MediaCounts", "MediaStates", "PendingThumbs",
 	"PutUpload", "UploadByID", "DeleteUpload", "ExpiredUploads",
 	"Find", "TrackByFile", "CreatePlaylist", "Playlists", "PlaylistByID", "LockPlaylist", "PlaylistTracks",
 	"UpdatePlaylist", "SetPlaylistTracks", "Timeline", "Around", "Months",
@@ -216,6 +216,14 @@ func (f *failingRepo) MediaStates(ctx context.Context, fileIDs []int64) (map[int
 		return nil, err
 	}
 	return f.Repo.MediaStates(ctx, fileIDs)
+}
+
+// PendingThumbs implements db.Repo.
+func (f *failingRepo) PendingThumbs(ctx context.Context, kind db.Kind, generation int, staleBefore time.Time, limit int) ([]db.File, error) {
+	if err := f.fails("PendingThumbs"); err != nil {
+		return nil, err
+	}
+	return f.Repo.PendingThumbs(ctx, kind, generation, staleBefore, limit)
 }
 
 // Find implements db.Repo.

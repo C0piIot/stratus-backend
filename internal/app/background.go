@@ -48,10 +48,10 @@ func (a *App) indexPeriodically(ctx context.Context, deps Deps) {
 	// Whatever landed while this process was not running is nobody's notice.
 	a.indexUntilDry(ctx, deps)
 
-	// again is armed when there is more to do than one batch of pictures, so
-	// the next one happens now rather than on the hour -- and through the
-	// select, so a file that has just landed is indexed before the next eight
-	// are decoded.
+	// again is armed when the pass has said when to come back, so the next
+	// batch happens then rather than on the hour -- and through the select, so
+	// a file that has just landed is indexed before the next eight are
+	// decoded.
 	var again <-chan time.Time
 	for {
 		select {
@@ -82,8 +82,17 @@ func (a *App) indexPeriodically(ctx context.Context, deps Deps) {
 		if !a.indexUntilDry(ctx, deps) {
 			return
 		}
-		again = a.thumbsAhead(ctx, deps)
+		again = after(a.thumbsAhead(ctx, deps))
 	}
+}
+
+// after is the timer a pass asks for, and nothing at all for a wait of zero:
+// a nil channel never fires, which is this loop waiting for its own tick.
+func after(wait time.Duration) <-chan time.Time {
+	if wait <= 0 {
+		return nil
+	}
+	return time.After(wait)
 }
 
 // thumbPause is the breath between two batches of pictures, and thumbBusyPause
@@ -99,32 +108,36 @@ const (
 )
 
 // thumbsAhead makes one batch of the pictures nobody has asked for yet, and
-// answers when to come back: now while a batch keeps filling, in a minute if
-// the machine is busy, and otherwise on the hour's own tick.
-func (a *App) thumbsAhead(ctx context.Context, deps Deps) <-chan time.Time {
+// answers how long to wait before the next: thumbPause while a batch keeps
+// filling, thumbBusyPause when somebody is looking, and zero for "whenever the
+// loop comes round anyway".
+//
+// A duration rather than the timer itself, because what is worth testing here
+// is the number and not the channel.
+func (a *App) thumbsAhead(ctx context.Context, deps Deps) time.Duration {
 	if !a.cfg.ThumbsAhead || deps.Thumbs == nil {
-		return nil
+		return 0
 	}
 
 	made, err := deps.Thumbs.PrepareBatch(ctx, time.Now())
 	switch {
 	case errors.Is(err, context.Canceled):
-		return nil
+		return 0
 	case errors.Is(err, media.ErrBusy):
 		// Which is not a failure: the decoders are for whoever is looking, and
 		// this is the pass getting out of the way.
-		return time.After(thumbBusyPause)
+		return thumbBusyPause
 	case err != nil:
 		slog.Error("making thumbnails ahead", "err", err)
-		return nil
+		return 0
 	case made > 0:
 		slog.Info("made thumbnails ahead", "files", made)
 	}
 
 	if made < media.ThumbBatch {
-		return nil
+		return 0
 	}
-	return time.After(thumbPause)
+	return thumbPause
 }
 
 // thumbFor makes the pictures of one file that has just been written.
