@@ -1291,16 +1291,17 @@ empties its own scratch directory at startup on the argument that what is in it
 belongs to a dead process. Running two against one database and one bucket
 would be wrong in each of those ways, quietly.
 
-Until the first tagged release the schema is **one migration, rewritten rather
-than migrated**: there is a single `0001_schema.sql` per engine and it is
-edited in place as the schema changes. So a database made by an earlier `:main`
-image is not something an upgrade can repair, and the server says so at startup
-rather than running against it — a schema version it does not recognise is a
-refusal to start, with the version it found in the message. Delete the database
-and let this build create it.
+The schema is `0001_schema.sql` per engine and the migrations added since. That
+first file was rewritten in place while the schema was being built, and that
+stopped: a migration is added and never edited, and the version in the table is
+what decides what runs. A database made by an earlier `:main` image is brought
+up by whatever it has not seen yet.
 
-After the first release that stops: a migration is added and never edited, and
-the version in the table is what decides what runs.
+**Going back is the direction that does not work.** A schema version this build
+does not recognise is a refusal to start, with the version it found in the
+message — so rolling an image back past a migration means a new data directory
+rather than a downgrade. A database made before the schema was first frozen is
+in the same position: delete it and let this build create one.
 
 SQLite takes no DSN parameters. WAL, `foreign_keys` and `busy_timeout` are
 correctness requirements for a server, not preferences, so they are set for you.

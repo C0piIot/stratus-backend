@@ -190,6 +190,33 @@ type MediaIndex interface {
 	// to mark what has not been indexed yet, so the ids are one page of one and
 	// the caller is what bounds them.
 	MediaStates(ctx context.Context, fileIDs []int64) (map[int64]MediaState, error)
+
+	// PendingThumbs returns the files a pass should make pictures for next,
+	// newest first by the column the gallery already pages on -- what somebody
+	// opens is the roll that just arrived (#341).
+	//
+	// An inner join on media and not a left one, which is the ordering between
+	// the two halves: a file nobody has indexed has no kind yet, so it is the
+	// extractor's work first and this one's on the pass after.
+	//
+	// One kind per call, and the caller asks for the photographs and the films
+	// separately, because an index is ordered by the kind before the time and
+	// two kinds at once is a sort of the library rather than a seek into it --
+	// measured, with the numbers beside the query in the SQLite driver. What
+	// is not here at all is cover art, which is a second picture per blob and
+	// answers a different surface.
+	//
+	// A file comes back when nothing has tried it, when the generator has
+	// moved on, when the row no longer points at the bytes the pictures were
+	// made from, or when it was refused before staleBefore -- which is #338's
+	// week, kept by the caller for the reason now is: the one thing a verdict
+	// cannot know is whether the build that reached it is still this build.
+	PendingThumbs(ctx context.Context, kind Kind, generation int, staleBefore time.Time, limit int) ([]File, error)
+
+	// PutThumbVerdict records what became of one file's pictures, and answers
+	// ErrNotFound for a file that has been deleted since -- which is what a
+	// pass racing a delete looks like, and is nothing to report.
+	PutThumbVerdict(ctx context.Context, v ThumbVerdict) error
 }
 
 // MediaCounts is the state of the library in four numbers. Pending is every
@@ -214,6 +241,53 @@ type MediaState struct {
 	Version int
 	ETag    string
 	Failed  bool
+	// Thumb and ThumbAt are what became of the file's pictures and when, so
+	// that a page can stop offering an image for a file nothing can draw
+	// (#341). The time is what makes a refusal expire: a reader applies the
+	// same week the pass does rather than trusting a verdict for ever.
+	Thumb   ThumbState
+	ThumbAt time.Time
+}
+
+// ThumbState is what is known about a file's thumbnails.
+//
+// It is a column rather than a question asked of the blob store, because the
+// store answers one key at a time: a listing of a hundred rows would be a
+// hundred HEADs on S3, and a pass over a library would be one per file per
+// pass (#341).
+type ThumbState int
+
+// What a file's pictures can be.
+const (
+	// ThumbUntried is the default, and the state of every row written before
+	// this column existed.
+	ThumbUntried ThumbState = 0
+	// ThumbMade says the pictures a pass makes are in the store, for the bytes
+	// and the generation the verdict names.
+	ThumbMade ThumbState = 1
+	// ThumbRefused says this build could not turn those bytes into pixels. It
+	// is not for ever: see staleBefore on PendingThumbs.
+	ThumbRefused ThumbState = 2
+)
+
+// ThumbVerdict is one file's answer, written by whichever half reached it: the
+// background pass, or the request that got there first.
+type ThumbVerdict struct {
+	FileID int64
+	State  ThumbState
+
+	// BlobKey is what the verdict is about. A replaced file keeps its row and
+	// its id while its bytes change, and the pictures of the bytes that are
+	// gone are not the pictures of the bytes that are there -- the same thing
+	// ETag says about the extractor's half, said about the blob the pictures
+	// are derived from.
+	BlobKey string
+	// Generation is files.DerivedGeneration as it was. Raising it changes the
+	// key every picture is kept under, so what was made is no longer what
+	// would be served.
+	Generation int
+	// At is when it was reached, which is what lets a refusal go stale.
+	At time.Time
 }
 
 // Repo is every repository at once, which is what a transaction hands out: a

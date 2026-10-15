@@ -31,6 +31,13 @@ func RunMedia(t *testing.T, newRepo func(t *testing.T) db.Repo) {
 		{"overwriting a file puts it back in the queue", mediaOverwrite},
 		{"the counts say how much of the library is done", mediaCounts},
 		{"states come back for the files asked about", mediaStates},
+		{"pictures are pending until something makes them", thumbsPending},
+		{"the newest pictures are offered first", thumbsNewestFirst},
+		{"a picture's verdict survives a re-index", thumbsSurviveReindex},
+		{"a newer generator puts the pictures back in the queue", thumbsGenerationBump},
+		{"overwriting a file puts its pictures back in the queue", thumbsOverwrite},
+		{"a refused picture comes back when the verdict goes stale", thumbsRefusalGoesStale},
+		{"a verdict about a file with no metadata is not found", thumbsVerdictNeedsARow},
 		{"deleting the file deletes its metadata", mediaCascade},
 		{"metadata for a file that is gone is not found", mediaOrphan},
 	}
@@ -363,6 +370,238 @@ func mediaVersionBump(t *testing.T, s db.Repo) {
 	}
 	if len(pending) != 1 || pending[0].ID != f.ID {
 		t.Errorf("PendingMedia at a newer version = %+v, want the file back", pending)
+	}
+}
+
+// thumbsPending is the second queue, and the three things it promises (#341):
+// only what could have a picture, only after the extractor has said what the
+// file is, and never a directory.
+func thumbsPending(t *testing.T, s db.Repo) {
+	if _, err := s.CreateDir(t.Context(), owner, "album"); err != nil {
+		t.Fatal(err)
+	}
+	photo := put(t, s, file("album/one.jpg"))
+	film := put(t, s, file("album/holiday.mp4"))
+	track := put(t, s, file("album/song.mp3"))
+	// Indexed by nobody yet, so it has no kind: the extractor's half goes
+	// first and this one gets it on the pass after.
+	put(t, s, file("album/two.jpg"))
+
+	for _, m := range []db.Media{
+		indexed(photo, 1),
+		indexedAs(film, db.KindVideo, 1),
+		indexedAs(track, db.KindAudio, 1),
+	} {
+		if err := s.PutMedia(t.Context(), m); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// One kind per call, so the track and the file nothing has indexed are
+	// absent from both answers rather than filtered out of one.
+	pending, err := s.PendingThumbs(t.Context(), db.KindImage, 1, time.Now(), 10)
+	if err != nil {
+		t.Fatalf("PendingThumbs: %v", err)
+	}
+	if len(pending) != 1 || pending[0].ID != photo.ID {
+		t.Fatalf("PendingThumbs for pictures = %+v, want the photograph alone", pending)
+	}
+	films, err := s.PendingThumbs(t.Context(), db.KindVideo, 1, time.Now(), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(films) != 1 || films[0].ID != film.ID {
+		t.Fatalf("PendingThumbs for films = %+v, want the film alone", films)
+	}
+
+	if verr := s.PutThumbVerdict(t.Context(), verdict(photo, db.ThumbMade, 1)); verr != nil {
+		t.Fatal(verr)
+	}
+	if pending, err = s.PendingThumbs(t.Context(), db.KindImage, 1, time.Now(), 10); err != nil || len(pending) != 0 {
+		t.Errorf("PendingThumbs after the picture was made = %+v, %v", pending, err)
+	}
+
+	// The limit is what paces the pass, the way it bounds a first index.
+	if limited, err := s.PendingThumbs(t.Context(), db.KindVideo, 1, time.Now(), 0); err != nil || len(limited) != 0 {
+		t.Errorf("PendingThumbs with a limit of zero = %+v, %v", limited, err)
+	}
+}
+
+// thumbsNewestFirst is why the order is the gallery's own: what somebody opens
+// is the roll that just arrived, so that is what the pass makes first.
+func thumbsNewestFirst(t *testing.T, s db.Repo) {
+	old := put(t, s, file("old.jpg"))
+	recent := put(t, s, file("recent.jpg"))
+
+	older := indexed(old, 1)
+	older.TakenAt = time.Date(2019, 3, 1, 9, 0, 0, 0, time.UTC)
+	newer := indexed(recent, 1)
+	newer.TakenAt = time.Date(2024, 8, 1, 9, 0, 0, 0, time.UTC)
+	for _, m := range []db.Media{older, newer} {
+		if err := s.PutMedia(t.Context(), m); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	pending, err := s.PendingThumbs(t.Context(), db.KindImage, 1, time.Now(), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending) != 2 || pending[0].ID != recent.ID || pending[1].ID != old.ID {
+		t.Errorf("PendingThumbs = %+v, want the newest photograph first", pending)
+	}
+}
+
+// thumbsSurviveReindex is the property the four columns are separate for: a
+// better extractor puts the library back in the metadata queue, and it must
+// not put it back in this one -- the pictures are of bytes nothing moved.
+func thumbsSurviveReindex(t *testing.T, s db.Repo) {
+	photo := put(t, s, file("photo.jpg"))
+	if err := s.PutMedia(t.Context(), indexed(photo, 1)); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PutThumbVerdict(t.Context(), verdict(photo, db.ThumbMade, 1)); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.PutMedia(t.Context(), indexed(photo, 2)); err != nil {
+		t.Fatal(err)
+	}
+	if pending, err := s.PendingThumbs(t.Context(), db.KindImage, 1, time.Now(), 10); err != nil || len(pending) != 0 {
+		t.Fatalf("PendingThumbs after a re-index = %+v, %v, want the verdict kept", pending, err)
+	}
+	states, err := s.MediaStates(t.Context(), []int64{photo.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if states[photo.ID].Thumb != db.ThumbMade {
+		t.Errorf("state after a re-index = %+v, want the picture still made", states[photo.ID])
+	}
+}
+
+// thumbsGenerationBump is files.DerivedGeneration's half of the same question:
+// raising it changes the key every picture is kept under, so what was made is
+// no longer what would be served.
+func thumbsGenerationBump(t *testing.T, s db.Repo) {
+	photo := put(t, s, file("photo.jpg"))
+	if err := s.PutMedia(t.Context(), indexed(photo, 1)); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PutThumbVerdict(t.Context(), verdict(photo, db.ThumbMade, 1)); err != nil {
+		t.Fatal(err)
+	}
+
+	if pending, err := s.PendingThumbs(t.Context(), db.KindImage, 1, time.Now(), 10); err != nil || len(pending) != 0 {
+		t.Fatalf("PendingThumbs at the same generation = %+v, %v", pending, err)
+	}
+	pending, err := s.PendingThumbs(t.Context(), db.KindImage, 2, time.Now(), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending) != 1 || pending[0].ID != photo.ID {
+		t.Errorf("PendingThumbs at a newer generation = %+v, want the file back", pending)
+	}
+}
+
+// thumbsOverwrite is the blob key's reason for being on the row. A replaced
+// file keeps its row and its id while its bytes change, and the pictures of
+// the bytes that are gone are not the pictures of the bytes that are there.
+func thumbsOverwrite(t *testing.T, s db.Repo) {
+	first := put(t, s, file("holiday.jpg"))
+	if err := s.PutMedia(t.Context(), indexed(first, 1)); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PutThumbVerdict(t.Context(), verdict(first, db.ThumbMade, 1)); err != nil {
+		t.Fatal(err)
+	}
+
+	replacement := file("holiday.jpg")
+	replacement.ETag = `"another photograph"`
+	replacement.BlobKey = "blobs/holiday-2"
+	second := put(t, s, replacement)
+	if second.ID != first.ID {
+		t.Fatalf("the overwrite made a new row (%d, was %d); this case is about the one that does not",
+			second.ID, first.ID)
+	}
+
+	pending, err := s.PendingThumbs(t.Context(), db.KindImage, 1, time.Now(), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending) != 1 || pending[0].ID != first.ID {
+		t.Errorf("PendingThumbs = %+v, want the overwritten file back", pending)
+	}
+}
+
+// thumbsRefusalGoesStale is #338's week, kept here instead of by the sweep: a
+// verdict cannot know whether the build that reached it is still this build,
+// so an ffmpeg recipe that gains a decoder un-refuses what needed it by
+// itself.
+func thumbsRefusalGoesStale(t *testing.T, s db.Repo) {
+	film := put(t, s, file("av1.mp4"))
+	if err := s.PutMedia(t.Context(), indexedAs(film, db.KindVideo, 1)); err != nil {
+		t.Fatal(err)
+	}
+	refused := verdict(film, db.ThumbRefused, 1)
+	if err := s.PutThumbVerdict(t.Context(), refused); err != nil {
+		t.Fatal(err)
+	}
+
+	if pending, err := s.PendingThumbs(t.Context(), db.KindVideo, 1, refused.At.Add(-time.Hour), 10); err != nil || len(pending) != 0 {
+		t.Fatalf("PendingThumbs while the verdict stands = %+v, %v", pending, err)
+	}
+	pending, err := s.PendingThumbs(t.Context(), db.KindVideo, 1, refused.At.Add(time.Hour), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending) != 1 || pending[0].ID != film.ID {
+		t.Errorf("PendingThumbs after the verdict went stale = %+v, want the file back", pending)
+	}
+
+	// And a listing can read the same fact in one go, which is what the column
+	// is for: a page stops offering a picture nothing can draw.
+	states, err := s.MediaStates(t.Context(), []int64{film.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := states[film.ID]
+	if got.Thumb != db.ThumbRefused {
+		t.Errorf("state = %+v, want the refusal", got)
+	}
+	if got.ThumbAt.Sub(refused.At).Abs() > time.Second {
+		t.Errorf("the verdict is timed %v, want about %v", got.ThumbAt, refused.At)
+	}
+}
+
+// thumbsVerdictNeedsARow is what a pass racing a delete looks like: the file
+// went while its picture was being made, and there is nothing to record.
+func thumbsVerdictNeedsARow(t *testing.T, s db.Repo) {
+	photo := put(t, s, file("photo.jpg"))
+
+	if err := s.PutThumbVerdict(t.Context(), verdict(photo, db.ThumbMade, 1)); !errors.Is(err, db.ErrNotFound) {
+		t.Errorf("a verdict about a file nothing has indexed = %v, want ErrNotFound", err)
+	}
+	if err := s.PutThumbVerdict(t.Context(), db.ThumbVerdict{FileID: 99999, At: time.Now()}); !errors.Is(err, db.ErrNotFound) {
+		t.Errorf("a verdict about a file that does not exist = %v, want ErrNotFound", err)
+	}
+}
+
+// indexedAs is indexed for the cases that care which kind the row carries,
+// since what may have a picture is a property of the kind.
+func indexedAs(f db.File, kind db.Kind, version int) db.Media {
+	m := indexed(f, version)
+	m.Kind = kind
+	return m
+}
+
+// verdict is what a generator writes down about one file's pictures.
+func verdict(f db.File, state db.ThumbState, generation int) db.ThumbVerdict {
+	return db.ThumbVerdict{
+		FileID:     f.ID,
+		State:      state,
+		BlobKey:    f.BlobKey,
+		Generation: generation,
+		At:         time.Now(),
 	}
 }
 

@@ -1235,6 +1235,14 @@ is added, never edited, and the next number is 0002. It is written at the top
 of each of the three files so that the next person to reach for an ALTER finds
 it there.
 
+**And 0002 is there now** (#341): four columns on `media` saying what became of
+a file's pictures. What it cost is the direction nobody thinks about until they
+need it -- `Migrate` refuses a schema newer than the build knows, so rolling an
+image back past a migration is a container that will not start and a data
+directory to delete. That refusal is the right one and it is why the
+deployment notes say to take the demo's word for a release before an instance
+with a library in it takes it.
+
 **Migrating takes the engine's own lock, and it is the one thing in this port
 that could not be a row** (#242). `Migrate` read `MAX(version)` and then applied
 everything above it with nothing in between, so two processes starting together
@@ -2127,6 +2135,30 @@ Restraint here is principle 3, not laziness:
   Each caller supplies the sentinel its note answers with, since a track with
   no picture inside it is a `404` from `getCoverArt` and a picture that will
   not decode is a `500` somebody should see.
+
+  **What is known about a file's pictures is also a column now** (#341), and
+  the two are not a duplicate of each other. The note above is one object per
+  blob, which is the right shape for the generator and the wrong one for
+  everybody else: a store answers one key at a time, so a listing of a hundred
+  rows is a hundred HEADs on S3 and a pass over a library is one per file per
+  pass. So `media` carries `thumb_state`, `thumb_blob_key`, `thumb_generation`
+  and `thumb_at`, read in batch by `MediaStates` and walked by `PendingThumbs`
+  -- which is the indexer's queue with the one piece it cannot borrow replaced:
+  "indexed" is a row and a `LEFT JOIN` finds what is missing, while "has a
+  picture" is a blob and nothing can join against the blob store.
+
+  Three decisions in it are worth knowing here, and the rest is beside the
+  columns in `0002_thumbs.sql`. It carries the **blob key** and not the etag,
+  because what it describes is `derived/<blob key>/...` and an adopted row's
+  etag is empty (#24). **`PutMedia` does not write it**, so raising
+  `media.Version` re-reads a library without regenerating pictures that were
+  never wrong. And **#338's week moved from the sweep into the query**: a
+  refusal is offered again seven days after it was written, which is the same
+  answer to the same thing a verdict cannot know, now reached without anything
+  having to delete an object to cause it.
+
+  The pass that fills it in before anybody asks is the second half of #341;
+  what is here is the column, the two queries and the verdict.
 
   **A picture inside a track is read in Go rather than by ffmpeg**, and that is
   the same argument as EXIF: the storage port reads ranges, so a parser that
