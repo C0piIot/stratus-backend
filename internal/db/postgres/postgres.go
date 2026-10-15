@@ -410,7 +410,12 @@ var pendingThumbs = `SELECT ` + joinedFileColumns + `
 // spells them, written out here so the two cannot drift apart silently.
 var (
 	thumbUntried = strconv.Itoa(int(db.ThumbUntried))
+	thumbMade    = strconv.Itoa(int(db.ThumbMade))
 	thumbRefused = strconv.Itoa(int(db.ThumbRefused))
+	// drawable is the half of a library a grid draws, which is what the
+	// picture counts are about: a track's cover is a different picture
+	// answering a different surface.
+	drawable = `('` + string(db.KindImage) + `', '` + string(db.KindVideo) + `')`
 )
 
 // PendingThumbs implements db.MediaIndex.
@@ -454,15 +459,19 @@ func (r *repo) PutThumbVerdict(ctx context.Context, v db.ThumbVerdict) error {
 // aggregate is not portable, and the three conditions have to see the same rows
 // at the same instant or the numbers would not add up. It walks every file row,
 // which is what counting an absence costs.
-func (r *repo) MediaCounts(ctx context.Context, version int) (db.MediaCounts, error) {
-	const query = `SELECT COUNT(*),
+func (r *repo) MediaCounts(ctx context.Context, version, generation int) (db.MediaCounts, error) {
+	query := `SELECT COUNT(*),
 			COUNT(CASE WHEN m.version >= $1 AND m.etag = f.etag AND m.error = '' THEN 1 END),
-			COUNT(CASE WHEN m.version >= $1 AND m.etag = f.etag AND m.error <> '' AND m.retry_at IS NULL THEN 1 END)
+			COUNT(CASE WHEN m.version >= $1 AND m.etag = f.etag AND m.error <> '' AND m.retry_at IS NULL THEN 1 END),
+			COUNT(CASE WHEN m.kind IN ` + drawable + ` THEN 1 END),
+			COUNT(CASE WHEN m.kind IN ` + drawable + ` AND m.thumb_state = ` + thumbMade + ` AND m.thumb_generation = $2 THEN 1 END),
+			COUNT(CASE WHEN m.kind IN ` + drawable + ` AND m.thumb_state = ` + thumbRefused + ` AND m.thumb_generation = $2 THEN 1 END)
 		FROM files f LEFT JOIN media m ON m.file_id = f.id
 		WHERE f.is_dir = FALSE`
 
 	var c db.MediaCounts
-	err := r.q.QueryRowContext(ctx, query, version).Scan(&c.Files, &c.Indexed, &c.Failed)
+	err := r.q.QueryRowContext(ctx, query, version, generation).
+		Scan(&c.Files, &c.Indexed, &c.Failed, &c.Pictures.Files, &c.Pictures.Made, &c.Pictures.Refused)
 	if err != nil {
 		return db.MediaCounts{}, fmt.Errorf("count media: %w", mapErr(err))
 	}

@@ -1,12 +1,14 @@
 package web
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/C0piIot/stratus-backend/internal/db"
+	"github.com/C0piIot/stratus-backend/internal/files"
 	"github.com/C0piIot/stratus-backend/internal/incoming"
 	"github.com/C0piIot/stratus-backend/internal/media"
 	"github.com/C0piIot/stratus-backend/internal/storage"
@@ -22,6 +24,11 @@ const countsFragment = "counts"
 type Indexing struct {
 	Index    db.MediaIndex
 	Interval time.Duration
+	// Ahead is whether pictures are also made before anything asks (#341).
+	// Off is a decision too, and one this page has to say out loud: the
+	// number of pictures then only moves when somebody browses, which looks
+	// like a pass that is stuck.
+	Ahead bool
 }
 
 // Imports is the import folder, and nil when none is configured -- which is the
@@ -38,7 +45,7 @@ type Imports interface {
 // background, on a first run over an adopted bucket that can take hours, and
 // before this there was nothing to look at but a log line.
 func (h *handler) status(w http.ResponseWriter, r *http.Request, user string) {
-	counts, err := h.indexing.Index.MediaCounts(r.Context(), media.Version)
+	counts, err := h.indexing.Index.MediaCounts(r.Context(), media.Version, files.DerivedGeneration)
 	if err != nil {
 		h.fail(w, r, user, err)
 		return
@@ -57,6 +64,7 @@ func (h *handler) status(w http.ResponseWriter, r *http.Request, user string) {
 		// operator who raised it wants to see the numbers fall and climb again.
 		IndexVersion: media.Version,
 		IndexingOff:  h.indexing.Interval == 0,
+		PicturesOff:  !h.indexing.Ahead,
 	}
 
 	if r.Header.Get("HX-Request") == "true" {
@@ -168,13 +176,31 @@ func percent(c db.MediaCounts) int {
 	return int(done * 100 / c.Files)
 }
 
-// indexingOf marks the rows of a listing the indexer has not dealt with yet.
+// rowState is what one query about a page of files tells the page: whether the
+// indexer has been there, and whether to offer a picture at all.
+type rowState struct {
+	// Indexing is the badge a listing draws, and empty for a file that has
+	// been read.
+	Indexing string
+	// NoPicture says this build has already tried and could not, so the page
+	// draws the mark alone rather than asking for a thumbnail that will
+	// answer 404 (#341).
+	NoPicture bool
+}
+
+// statesOf marks the rows of a page: the ones the indexer has not dealt with
+// yet, and the ones nothing here can draw.
 //
 // The states are one query for the page being rendered, and a failure here is
-// not a failure of the listing: the mark is decoration, and a folder that will
+// not a failure of the page: both marks are decoration, and a folder that will
 // not open because the decoration could not be fetched would be a worse page
-// than one without it. So it is logged and the listing goes out plain.
-func (h *handler) indexingOf(r *http.Request, children []db.File) map[int64]string {
+// than one without it. So it is logged and the page goes out plain -- which
+// for the picture means offering one that may not arrive, exactly as it did
+// before this was read at all.
+//
+// where is what the log line names, since this is called from pages that are
+// not listings.
+func (h *handler) statesOf(ctx context.Context, where string, children []db.File) map[int64]rowState {
 	ids := make([]int64, 0, len(children))
 	for _, c := range children {
 		if !c.IsDir {
@@ -185,25 +211,37 @@ func (h *handler) indexingOf(r *http.Request, children []db.File) map[int64]stri
 		return nil
 	}
 
-	states, err := h.indexing.Index.MediaStates(r.Context(), ids)
+	states, err := h.indexing.Index.MediaStates(ctx, ids)
 	if err != nil {
-		slog.Error("reading what is indexed", "path", r.URL.Path, "err", err)
+		slog.Error("reading what is indexed", "path", where, "err", err)
 		return nil
 	}
 
-	marks := make(map[int64]string, len(ids))
+	marks := make(map[int64]rowState, len(ids))
 	for _, c := range children {
 		if c.IsDir {
 			continue
 		}
-		switch state, ok := states[c.ID]; {
-		case !ok, state.Version < media.Version, state.ETag != c.ETag:
+		state, known := states[c.ID]
+		var row rowState
+		switch {
+		case !known, state.Version < media.Version, state.ETag != c.ETag:
 			// The same three conditions the queue asks about, which is what
 			// keeps the page from saying "waiting" about a file nothing will
 			// come back to, or "done" about one that is about to be read again.
-			marks[c.ID] = "waiting"
+			row.Indexing = "waiting"
 		case state.Failed:
-			marks[c.ID] = "unreadable"
+			row.Indexing = "unreadable"
+		}
+		// A refusal is good for a week, which is the week the pass gives it
+		// and the week the sweep gives the note beside the picture: what this
+		// build cannot draw today it may draw after an upgrade, so the answer
+		// expires rather than standing. Without that, a page that stopped
+		// offering would be the thing that stopped anything ever trying
+		// again.
+		row.NoPicture = state.Thumb == db.ThumbRefused && time.Since(state.ThumbAt) < files.CacheRetention
+		if row != (rowState{}) {
+			marks[c.ID] = row
 		}
 	}
 	return marks

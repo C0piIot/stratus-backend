@@ -105,7 +105,10 @@ func pieces(t *testing.T) (*files.Service, *media.Thumbs, db.Store) {
 // interval the server defaults to so that a test sees the page an ordinary
 // install shows.
 func indexing(index db.MediaIndex) web.Indexing {
-	return web.Indexing{Index: index, Interval: time.Minute}
+	// Ahead is what an ordinary install runs with, so that is what the pages
+	// are rendered against here: the badge saying otherwise has a case of its
+	// own.
+	return web.Indexing{Index: index, Interval: time.Minute, Ahead: true}
 }
 
 // backends are those two seams on their own, for the tests that put a fault

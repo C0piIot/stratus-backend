@@ -203,11 +203,11 @@ func (f *failingRepo) MediaByFile(ctx context.Context, fileID int64) (db.Media, 
 }
 
 // MediaCounts implements db.Repo.
-func (f *failingRepo) MediaCounts(ctx context.Context, version int) (db.MediaCounts, error) {
+func (f *failingRepo) MediaCounts(ctx context.Context, version, generation int) (db.MediaCounts, error) {
 	if err := f.fails("MediaCounts"); err != nil {
 		return db.MediaCounts{}, err
 	}
-	return f.Repo.MediaCounts(ctx, version)
+	return f.Repo.MediaCounts(ctx, version, generation)
 }
 
 // MediaStates implements db.Repo.

@@ -169,7 +169,7 @@ func (a *App) Handler(deps Deps) http.Handler {
 		// why the cookie counts only on a request the browser calls its own.
 		sessions := auth.NewSessions(creds, auth.DefaultSessionTTL)
 		browser := web.Handler(a.version, a.buildDate, verifier, sessions, shares, service, deps.Thumbs, deps.Database,
-			web.Indexing{Index: deps.Database, Interval: a.cfg.IndexInterval}, imports(deps), films(deps))
+			web.Indexing{Index: deps.Database, Interval: a.cfg.IndexInterval, Ahead: a.cfg.ThumbsAhead}, imports(deps), films(deps))
 
 		// One URL, two protocols, split by method (#279). The browser half is
 		// the handler mounted at "/" below -- it already routes /files/ and is

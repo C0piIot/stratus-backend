@@ -30,6 +30,7 @@ func RunMedia(t *testing.T, newRepo func(t *testing.T) db.Repo) {
 		{"a newer extractor puts everything back in the queue", mediaVersionBump},
 		{"overwriting a file puts it back in the queue", mediaOverwrite},
 		{"the counts say how much of the library is done", mediaCounts},
+		{"the counts say how much of it has a picture", thumbsCounted},
 		{"states come back for the files asked about", mediaStates},
 		{"pictures are pending until something makes them", thumbsPending},
 		{"the newest pictures are offered first", thumbsNewestFirst},
@@ -337,7 +338,7 @@ func mediaRetry(t *testing.T, s db.Repo) {
 
 	// And while it waits it is pending rather than unreadable, on both surfaces
 	// that report: nobody is going to go looking at a file that is fine.
-	counts, err := s.MediaCounts(t.Context(), 1)
+	counts, err := s.MediaCounts(t.Context(), 1, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -370,6 +371,54 @@ func mediaVersionBump(t *testing.T, s db.Repo) {
 	}
 	if len(pending) != 1 || pending[0].ID != f.ID {
 		t.Errorf("PendingMedia at a newer version = %+v, want the file back", pending)
+	}
+}
+
+// thumbsCounted is the other half of the same walk: how much of what a grid
+// draws has a picture, which is what somebody watches while a pass works
+// through a library (#341).
+func thumbsCounted(t *testing.T, s db.Repo) {
+	made := put(t, s, file("made.jpg"))
+	refused := put(t, s, file("refused.mp4"))
+	waiting := put(t, s, file("waiting.jpg"))
+	// A track has a cover rather than a thumbnail, and these numbers are
+	// about the grid.
+	track := put(t, s, file("song.mp3"))
+
+	for _, m := range []db.Media{
+		indexed(made, 1), indexedAs(refused, db.KindVideo, 1),
+		indexed(waiting, 1), indexedAs(track, db.KindAudio, 1),
+	} {
+		if err := s.PutMedia(t.Context(), m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.PutThumbVerdict(t.Context(), verdict(made, db.ThumbMade, 1)); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PutThumbVerdict(t.Context(), verdict(refused, db.ThumbRefused, 1)); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.MediaCounts(t.Context(), 1, 1)
+	if err != nil {
+		t.Fatalf("MediaCounts: %v", err)
+	}
+	want := db.ThumbCounts{Files: 3, Made: 1, Refused: 1}
+	if got.Pictures != want || got.Pictures.Waiting() != 1 {
+		t.Errorf("pictures = %+v (waiting %d), want %+v with one waiting",
+			got.Pictures, got.Pictures.Waiting(), want)
+	}
+
+	// A newer generator puts them all back: what was made is no longer what
+	// would be served, which is the number somebody is watching when they
+	// raise it.
+	got, err = s.MediaCounts(t.Context(), 1, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Pictures.Made != 0 || got.Pictures.Refused != 0 || got.Pictures.Waiting() != 3 {
+		t.Errorf("pictures at a newer generation = %+v, want all three waiting", got.Pictures)
 	}
 }
 
@@ -667,7 +716,7 @@ func mediaCounts(t *testing.T, s db.Repo) {
 		t.Fatal(err)
 	}
 
-	got, err := s.MediaCounts(t.Context(), 3)
+	got, err := s.MediaCounts(t.Context(), 3, 1)
 	if err != nil {
 		t.Fatalf("MediaCounts: %v", err)
 	}

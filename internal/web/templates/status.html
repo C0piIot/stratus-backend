@@ -32,6 +32,17 @@
   </p>
   {{end}}
 
+  {{/* Said for the same reason as the line above it: with the pass off, the
+       pictures below only move as somebody browses, which otherwise reads as
+       a library that never finishes. */}}
+  {{if and .PicturesOff .Counts.Pictures.Files}}
+  <p class="mb-2"><span class="badge text-bg-secondary">Pictures are made on request</span></p>
+  <p class="text-body-secondary small mb-3">
+    <code>STRATUS_THUMBS_AHEAD</code> is off, so a thumbnail is made when a
+    page asks for it rather than before.
+  </p>
+  {{end}}
+
   {{/* The native element and not Bootstrap's progress bar, which sets its
        width with a style attribute: the policy is style-src 'self' with no
        'unsafe-inline', so the browser drops that attribute and the bar shrinks
@@ -56,6 +67,21 @@
 
     <dt class="col-sm-4 fw-normal text-body-secondary">Could not be read</dt>
     <dd class="col-sm-8" data-count="failed">{{.Counts.Failed}}</dd>
+
+    {{/* Only when there is anything a grid would draw: a row saying nothing
+         has a picture because there are no photographs is a row about
+         nothing. The two numbers are separate for the reason the ones above
+         are: a file that was read and a file that can be drawn fail for
+         different reasons (#341). */}}
+    {{if .Counts.Pictures.Files}}
+    <dt class="col-sm-4 fw-normal text-body-secondary">Pictures</dt>
+    <dd class="col-sm-8" data-count="pictures">{{.Counts.Pictures.Made}} of {{.Counts.Pictures.Files}}</dd>
+    {{end}}
+
+    {{if .Counts.Pictures.Refused}}
+    <dt class="col-sm-4 fw-normal text-body-secondary">No picture possible</dt>
+    <dd class="col-sm-8" data-count="no-picture">{{.Counts.Pictures.Refused}}</dd>
+    {{end}}
 
     {{if .FreeSpace}}
     <dt class="col-sm-4 fw-normal text-body-secondary">Room left</dt>

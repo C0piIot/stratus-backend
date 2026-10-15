@@ -48,6 +48,14 @@ Hard constraints, in the same spirit as the rest of the project:
   **A mark for every kind of file is an icon set and a different feature**,
   which is why a text file still shows nothing.
 
+  **And a page stops offering what has been tried and refused** (#341). The
+  mark is what the square draws either way, so the request that would answer
+  `404` buys nothing -- and now there is something to read in batch, since a
+  page already asks `MediaStates` about its rows for the "waiting" badge. It
+  is believed for a week, the one the pass and the sweep both give a verdict:
+  a page that stopped offering for ever would be the reason nothing ever
+  tried again after an upgrade that can read the format.
+
   **Which is why a picture over one of them carries `alt=""`.** An image that
   fails with an empty alt is decorative and a browser draws nothing for it,
   while one with alt text draws the text and a broken-image icon on top of the
@@ -512,6 +520,16 @@ Hard constraints, in the same spirit as the rest of the project:
   rows nothing has looked at yet. It reports and does not drive: there is no
   button here that starts, stops or hurries the indexer, because a surface that
   could would be a surface that has to be protected from being pressed twice.
+
+  **And how much of it has a picture** (#341), which is a second pair of
+  numbers rather than a second percentage: a file that was read and a file
+  that can be drawn fail for different reasons, so a library of films nothing
+  can decode must not hide behind a library that indexed perfectly. What
+  counts as made is made by the generator running now, which is what somebody
+  is watching when they raise `files.DerivedGeneration`. With
+  `STRATUS_THUMBS_AHEAD` off the page says so where the numbers are, for the
+  same reason it says indexing is off: a number that moves only when somebody
+  browses otherwise reads as a pass that is stuck.
 - **An import folder is a feature package, `internal/incoming`** (#257): a
   directory on the machine's own disk whose contents are moved into the library
   through `files.Service.Write`, so an imported file is indistinguishable from

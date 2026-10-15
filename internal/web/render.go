@@ -177,6 +177,9 @@ type view struct {
 	Percent      int
 	IndexVersion int
 	IndexingOff  bool
+	// PicturesOff says the pass that makes thumbnails ahead is turned off, so
+	// the picture numbers move only as somebody browses (#341).
+	PicturesOff bool
 	// FreeSpace is what the blob store says is left, already rendered, and
 	// empty when it would not say.
 	FreeSpace string

@@ -386,6 +386,10 @@ func (h *handler) leafHref(ctx context.Context, l library, tree *timeline.Tree, 
 // not head itself twice. The zero month heads everything it meets.
 func (h *handler) tiles(ctx context.Context, l library, tree *timeline.Tree, page []db.Capture, headed db.Month) ([]tile, error) {
 	current := headed
+	// One query for the page, like a listing makes: what it answers here is
+	// only which of these nothing can draw, since everything in a timeline
+	// has been indexed by definition.
+	states := h.statesOf(ctx, l.prefix, filesOf(page))
 	out := make([]tile, 0, len(page))
 	for _, p := range page {
 		at, err := tree.PathOf(ctx, p)
@@ -403,12 +407,22 @@ func (h *handler) tiles(ctx context.Context, l library, tree *timeline.Tree, pag
 			t.HeadingHref = l.href(monthPath(month)) + "/"
 			current = month
 		}
-		if media.CanThumbnail(p.File.Path, p.File.Size) {
+		if media.CanThumbnail(p.File.Path, p.File.Size) && !states[p.File.ID].NoPicture {
 			t.Thumb = thumbURL(p.File, tileThumb)
 		}
 		out = append(out, t)
 	}
 	return out, nil
+}
+
+// filesOf is the file rows of a page of captures, for the one query a page
+// asks about them.
+func filesOf(page []db.Capture) []db.File {
+	out := make([]db.File, 0, len(page))
+	for _, p := range page {
+		out = append(out, p.File)
+	}
+	return out
 }
 
 // crumbs is the trail above a year or a month.
