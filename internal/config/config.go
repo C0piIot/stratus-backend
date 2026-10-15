@@ -67,6 +67,16 @@ const (
 	VideoTranscodeOff  = "off"
 )
 
+// The values STRATUS_THUMBS_AHEAD takes. On is the default, and the argument
+// for it is that a personal cloud is judged on the first look at its photo
+// grid: the pass takes a decoder only when nothing else wants one, so what it
+// spends is a CPU that was idle. Off is for whoever would rather not pay the
+// writes for files nobody is going to open (#341).
+const (
+	ThumbsAheadOn  = "on"
+	ThumbsAheadOff = "off"
+)
+
 // Config is the fully resolved configuration for one process.
 type Config struct {
 	// Addr is the listen address, in host:port form.
@@ -99,6 +109,11 @@ type Config struct {
 	// VideoTranscode is whether a film is also offered re-encoded to H.264:
 	// VideoTranscodeAuto, VideoTranscodeOn or VideoTranscodeOff (#50).
 	VideoTranscode string
+	// ThumbsAhead is whether the indexer's second half makes the pictures a
+	// grid will ask for before it asks (#341). It follows IndexInterval,
+	// since it is that loop's pass: with the indexer off there is nothing to
+	// carry it.
+	ThumbsAhead bool
 	// Username and Password are the single user's credentials, and the
 	// password is held as configured rather than hashed: OpenSubsonic's token
 	// auth is md5(password + salt), which a hash cannot produce. See
@@ -200,6 +215,15 @@ func Load(getenv func(string) string) (Config, error) {
 		return Config{}, errors.New("STRATUS_INDEX_INTERVAL: cannot be negative, use 0 to disable")
 	}
 	cfg.IndexInterval = index
+
+	switch mode := lookup(getenv, "STRATUS_THUMBS_AHEAD", ThumbsAheadOn); mode {
+	case ThumbsAheadOn:
+		cfg.ThumbsAhead = true
+	case ThumbsAheadOff:
+		cfg.ThumbsAhead = false
+	default:
+		return Config{}, errors.New("STRATUS_THUMBS_AHEAD: must be on or off")
+	}
 
 	switch mode := lookup(getenv, "STRATUS_VIDEO_TRANSCODE", VideoTranscodeAuto); mode {
 	case VideoTranscodeAuto, VideoTranscodeOn, VideoTranscodeOff:

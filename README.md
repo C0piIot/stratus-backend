@@ -176,9 +176,10 @@ breaks without it: a client that does not know the URL simply shows no
 thumbnails.
 
 **And it can be refused with `503` when the machine is already making as many
-as it allows.** Thumbnails are made on first request and the number that can
-be made at once comes from the CPUs and the memory, so on a small machine a
-grid asking for forty at once has one decoder and a queue. That queue has a
+as it allows.** Thumbnails are made in the background and, for whatever the
+background has not reached, on first request; the number that can be made at
+once comes from the CPUs and the memory, so on a small machine a grid asking
+for forty at once has one decoder and a queue. That queue has a
 bottom and a ten-second deadline, and past either the answer is `503` with
 `Retry-After` rather than a request that waits minutes while the only CPU is
 busy. It is not `404`: there is a picture, just not yet, and asking again gets
@@ -369,6 +370,21 @@ to look at, so nothing is lost in a restart and a newly uploaded file is picked
 up on its own. A file that cannot be parsed gets a row saying why, or it would
 be read again on every pass forever.
 
+**The same pass makes the pictures, before anybody asks for them.** A
+photograph or a film that has just been indexed gets the two sizes a listing
+and a photo grid draw — the file is already in hand, so it costs no query at
+all — and everything else the library holds is found by the same kind of query
+behind it, newest first, because what somebody opens is the roll that just
+arrived. One decode makes both sizes; the large one a viewer shows is still
+made when it is asked for.
+
+**It loses to whoever is looking.** A decoder is taken only when nothing else
+wants one, so what the pass spends is a CPU that was idle, and the moment a
+page asks for a picture the pass stands aside for a minute. It does not replace
+the lazy path either: a bucket adopted in place, an import, an upgraded
+generator and any file opened before the pass reaches it are all still answered
+on request. `STRATUS_THUMBS_AHEAD=off` turns it off.
+
 **ffprobe is required**, and the image ships a statically linked one we build —
 no package manager, no shell, one more layer. Photos are read in pure Go and
 straight off the blob, so a photo in a bucket costs a few kilobytes rather than
@@ -491,6 +507,14 @@ mean what they say. The log says at startup which it is and why. Re-encoded
 segments are cached under `derived/` with `cache-` in their name, and the sweep
 collects each a week after it was written, whatever its film is doing: a film
 re-encoded is gigabytes.
+
+`STRATUS_THUMBS_AHEAD` is whether thumbnails are made in the background before
+anything asks for them: `on`, the default, or `off`. On is the argument that a
+personal cloud is judged on the first look at its photo grid, and what makes it
+safe is that the pass takes a decoder only when nothing else wants one; off is
+the argument that a CPU and a bucket should not be spent on files nobody is
+going to open. Either way a picture is made when it is asked for, so turning
+this off costs the wait and nothing else.
 
 ## A folder that drops files in
 

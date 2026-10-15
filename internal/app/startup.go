@@ -113,7 +113,7 @@ func (a *App) open(ctx context.Context) (deps Deps, err error) {
 	if terr != nil {
 		return deps, terr
 	}
-	deps.Thumbs = media.NewThumbs(deps.Storage, deps.Files, ffmpeg, tmp)
+	deps.Thumbs = media.NewThumbs(deps.Storage, deps.Files, deps.Database, ffmpeg, tmp)
 
 	// The same ffmpeg transcodes, reading each file from a listener on the
 	// loopback interface rather than a copy on disk.

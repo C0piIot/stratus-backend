@@ -90,13 +90,13 @@ func TestABlobThatIsNotThereIsNotARefusal(t *testing.T) {
 // about the recording.
 func TestAKilledFFmpegIsNotARefusal(t *testing.T) {
 	t.Parallel()
-	_, service, blobs := thumbs(t)
+	_, service, blobs, meta := thumbsOver(t)
 
 	killed := filepath.Join(t.TempDir(), "ffmpeg")
 	if err := os.WriteFile(killed, []byte("#!/bin/sh\nkill -9 $$\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	th := NewThumbs(blobs, service, killed, t.TempDir())
+	th := NewThumbs(blobs, service, meta, killed, t.TempDir())
 
 	f := write(t, service, "photos/one.heic", []byte("whatever"), "image/heic")
 	if _, _, err := th.open(t.Context(), f, 96); !errors.Is(err, ErrNoThumbnail) {

@@ -14,16 +14,24 @@ import (
 	"runtime/debug"
 	"time"
 
+	"github.com/C0piIot/stratus-backend/internal/db"
 	"github.com/C0piIot/stratus-backend/internal/files"
 	"github.com/C0piIot/stratus-backend/internal/media"
 )
 
-// indexPeriodically extracts metadata from files that have none.
+// indexPeriodically extracts metadata from files that have none, and makes the
+// pictures a grid will ask for out of what it has just read.
 //
 // A write hands over the file it just wrote, so the ordinary case is one
 // extraction and no query at all. The query is the safety net behind it, and it
 // runs on the interval -- or sooner, when the indexer says it dropped a notice
 // and therefore does not know what landed.
+//
+// **The thumbnails are this loop's second half rather than a loop of their
+// own** (#341), because they are the same file opened for the same reason a
+// second time: the write announces it, a query finds the rest, and a verdict
+// goes on the row either way. Sharing the goroutine is also what keeps the two
+// from bidding against each other for the one CPU a small instance has.
 //
 // One worker: ffprobe on four cores that are also serving requests does not
 // want company.
@@ -40,6 +48,11 @@ func (a *App) indexPeriodically(ctx context.Context, deps Deps) {
 	// Whatever landed while this process was not running is nobody's notice.
 	a.indexUntilDry(ctx, deps)
 
+	// again is armed when there is more to do than one batch of pictures, so
+	// the next one happens now rather than on the hour -- and through the
+	// select, so a file that has just landed is indexed before the next eight
+	// are decoded.
+	var again <-chan time.Time
 	for {
 		select {
 		case <-ctx.Done():
@@ -51,18 +64,84 @@ func (a *App) indexPeriodically(ctx context.Context, deps Deps) {
 				return
 			case err != nil:
 				slog.Error("indexing media", "path", f.Path, "err", err)
+				continue
 			}
+			// The picture of a file that has just been written, while it is
+			// still in hand: the phone that uploaded it is the one about to
+			// open the grid, and this costs no query at all.
+			a.thumbFor(ctx, deps, f)
 			continue
 
 		case <-deps.Indexer.LostTrack():
 			// More arrived at once than could be held, so what was dropped is
 			// only a row now -- and a row is what the query finds.
 		case <-ticker.C:
+		case <-again:
 		}
 
 		if !a.indexUntilDry(ctx, deps) {
 			return
 		}
+		again = a.thumbsAhead(ctx, deps)
+	}
+}
+
+// thumbPause is the breath between two batches of pictures, and thumbBusyPause
+// how long the pass stands aside when somebody is looking at a page.
+//
+// Both are about being a background pass rather than a loop that holds a
+// decoder for as long as there is work: a minute of being out of the way costs
+// a library nothing, and the alternative -- waiting for the hour's tick --
+// would mean a grid opened at the wrong moment stopped the pass until then.
+const (
+	thumbPause     = time.Second
+	thumbBusyPause = time.Minute
+)
+
+// thumbsAhead makes one batch of the pictures nobody has asked for yet, and
+// answers when to come back: now while a batch keeps filling, in a minute if
+// the machine is busy, and otherwise on the hour's own tick.
+func (a *App) thumbsAhead(ctx context.Context, deps Deps) <-chan time.Time {
+	if !a.cfg.ThumbsAhead || deps.Thumbs == nil {
+		return nil
+	}
+
+	made, err := deps.Thumbs.PrepareBatch(ctx, time.Now())
+	switch {
+	case errors.Is(err, context.Canceled):
+		return nil
+	case errors.Is(err, media.ErrBusy):
+		// Which is not a failure: the decoders are for whoever is looking, and
+		// this is the pass getting out of the way.
+		return time.After(thumbBusyPause)
+	case err != nil:
+		slog.Error("making thumbnails ahead", "err", err)
+		return nil
+	case made > 0:
+		slog.Info("made thumbnails ahead", "files", made)
+	}
+
+	if made < media.ThumbBatch {
+		return nil
+	}
+	return time.After(thumbPause)
+}
+
+// thumbFor makes the pictures of one file that has just been written.
+//
+// Only for what a grid draws, by the name: a track's cover is a second picture
+// per blob and answers a different surface, and everything else has none.
+func (a *App) thumbFor(ctx context.Context, deps Deps, f db.File) {
+	if !a.cfg.ThumbsAhead || deps.Thumbs == nil {
+		return
+	}
+	if !media.IsImage(f.Path) && !media.IsVideo(f.Path) {
+		return
+	}
+	switch _, err := deps.Thumbs.Prepare(ctx, f); {
+	case err == nil, errors.Is(err, media.ErrBusy), errors.Is(err, context.Canceled):
+	default:
+		slog.Info("making a thumbnail ahead", "path", f.Path, "err", err)
 	}
 }
 

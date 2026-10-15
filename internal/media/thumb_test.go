@@ -49,7 +49,7 @@ func thumbsOver(t *testing.T) (*Thumbs, *files.Service, storage.Storage, db.Stor
 	}
 
 	service := files.New(blobs, meta)
-	return NewThumbs(blobs, service, stubFFmpeg(t), t.TempDir()), service, blobs, meta
+	return NewThumbs(blobs, service, meta, stubFFmpeg(t), t.TempDir()), service, blobs, meta
 }
 
 func TestSnapSize(t *testing.T) {
@@ -509,10 +509,10 @@ func flacWithCover(t *testing.T, w, h int) []byte {
 // logged and served, and the next request makes it again.
 func TestAThumbnailThatCannotBeStoredIsStillServed(t *testing.T) {
 	t.Parallel()
-	_, service, blobs := thumbs(t)
+	_, service, blobs, meta := thumbsOver(t)
 	f := writeImage(t, service, "photos/one.jpg", 400, 400)
 
-	th := NewThumbs(storagetest.FailOn(t, blobs, "Put"), service, stubFFmpeg(t), t.TempDir())
+	th := NewThumbs(storagetest.FailOn(t, blobs, "Put"), service, meta, stubFFmpeg(t), t.TempDir())
 	body, size, err := th.open(t.Context(), f, 96)
 	if err != nil {
 		t.Fatalf("open with a store that will not keep it = %v", err)
@@ -542,10 +542,10 @@ func TestAThumbnailThatCannotBeStoredIsStillServed(t *testing.T) {
 // hide an outage behind a CPU bill.
 func TestOpenReportsAStoreItCannotRead(t *testing.T) {
 	t.Parallel()
-	_, service, blobs := thumbs(t)
+	_, service, blobs, meta := thumbsOver(t)
 	f := writeImage(t, service, "photos/one.jpg", 400, 400)
 
-	th := NewThumbs(storagetest.FailOn(t, blobs, "Get"), service, stubFFmpeg(t), t.TempDir())
+	th := NewThumbs(storagetest.FailOn(t, blobs, "Get"), service, meta, stubFFmpeg(t), t.TempDir())
 	if _, _, err := th.open(t.Context(), f, 96); !errors.Is(err, storagetest.ErrInjected) {
 		t.Errorf("open = %v, want the failure passed on", err)
 	}
