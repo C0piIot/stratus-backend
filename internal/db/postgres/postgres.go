@@ -385,6 +385,69 @@ func (r *repo) PendingMedia(ctx context.Context, version int, now time.Time, lim
 	return out, nil
 }
 
+// pendingThumbs is the other queue, and it is a query for the reason the one
+// above it is: nothing is enqueued, a restart loses nothing, and a row that
+// appears turns up on its own (#341).
+//
+// What it cannot borrow is the LEFT JOIN, because "has a picture" is a blob
+// and not a row -- hence the four thumb columns, and hence the join is an
+// inner one: a file with no media row has no kind yet, so the extractor's half
+// goes first and this one gets it on the pass after.
+//
+// The order is the gallery's own, which is what makes the pass fill the screen
+// somebody is most likely to open first, and it is the index media_kind_sort
+// is built in -- one kind per call, because two is a sort of the library
+// rather than a seek into it; the numbers are in the SQLite driver, where they
+// were taken.
+var pendingThumbs = `SELECT ` + joinedFileColumns + `
+		FROM media m JOIN files f ON f.id = m.file_id
+		WHERE m.kind = $1
+			AND (m.thumb_state = ` + thumbUntried + ` OR m.thumb_generation <> $2 OR m.thumb_blob_key <> f.blob_key
+				OR (m.thumb_state = ` + thumbRefused + ` AND m.thumb_at <= $3))
+		ORDER BY m.sort_at DESC, m.file_id DESC LIMIT $4`
+
+// thumbUntried and thumbRefused are db.ThumbState's values as the SQL above
+// spells them, written out here so the two cannot drift apart silently.
+var (
+	thumbUntried = strconv.Itoa(int(db.ThumbUntried))
+	thumbRefused = strconv.Itoa(int(db.ThumbRefused))
+)
+
+// PendingThumbs implements db.MediaIndex.
+func (r *repo) PendingThumbs(ctx context.Context, kind db.Kind, generation int, staleBefore time.Time, limit int) ([]db.File, error) {
+	out, err := sqlutil.Collect(ctx, r.q, scanFileRow, pendingThumbs,
+		string(kind), generation, staleBefore, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list pending thumbnails: %w", mapErr(err))
+	}
+	return out, nil
+}
+
+// PutThumbVerdict implements db.MediaIndex.
+//
+// An UPDATE and not an upsert: the verdict is about a file the extractor has
+// already seen, so the row is there -- and when it is not, the file was
+// deleted while its picture was being made, which is ErrNotFound and nothing
+// to report.
+func (r *repo) PutThumbVerdict(ctx context.Context, v db.ThumbVerdict) error {
+	const query = `UPDATE media
+		SET thumb_state = $1, thumb_blob_key = $2, thumb_generation = $3, thumb_at = $4
+		WHERE file_id = $5`
+
+	result, err := r.q.ExecContext(ctx, query, int(v.State), v.BlobKey, v.Generation, v.At, v.FileID)
+	if err != nil {
+		return fmt.Errorf("record thumbnail state: %w", mapErr(err))
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("record thumbnail state: %w", mapErr(err))
+	}
+	if n == 0 {
+		return fmt.Errorf("%w: media row for file %d", db.ErrNotFound, v.FileID)
+	}
+	return nil
+}
+
 // MediaCounts implements db.MediaIndex.
 //
 // COUNT over a CASE rather than a FILTER clause or three queries: the filtered
@@ -428,7 +491,8 @@ func (r *repo) MediaStates(ctx context.Context, fileIDs []int64) (map[int64]db.M
 	}
 	// A row waiting to be tried again reports as not failed: the listing marks
 	// it as nothing has looked at it yet, which is what is true.
-	query := `SELECT file_id, version, etag, error <> '' AND retry_at IS NULL FROM media WHERE file_id IN (` +
+	query := `SELECT file_id, version, etag, error <> '' AND retry_at IS NULL, thumb_state, thumb_at
+		FROM media WHERE file_id IN (` +
 		places.String() + `)`
 
 	rows, err := sqlutil.Collect(ctx, r.q, scanMediaState, query, args...)
@@ -450,7 +514,12 @@ type mediaStateRow struct {
 
 func scanMediaState(rows *sql.Rows) (mediaStateRow, error) {
 	var row mediaStateRow
-	err := rows.Scan(&row.id, &row.state.Version, &row.state.ETag, &row.state.Failed)
+	var thumbAt sql.NullTime
+	err := rows.Scan(&row.id, &row.state.Version, &row.state.ETag, &row.state.Failed,
+		&row.state.Thumb, &thumbAt)
+	if thumbAt.Valid {
+		row.state.ThumbAt = thumbAt.Time.UTC()
+	}
 	return row, err
 }
 
