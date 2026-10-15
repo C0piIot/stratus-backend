@@ -145,6 +145,13 @@ func (p probeReport) mediaFrom(kind db.Kind) db.Media {
 	}
 
 	tags := p.Format.Tags
+	// An Ogg container keeps its Vorbis comments on the stream and ffprobe
+	// prints them there, with no tags on the format at all -- the one container
+	// that does, so an Opus or Vorbis track read from the format alone has a
+	// codec, a duration and no title (#349).
+	if kind == db.KindAudio && len(tags) == 0 && audio != nil {
+		tags = audio.Tags
+	}
 	m.Title = tag(tags, "title")
 	m.Artist = firstOf(tag(tags, "artist"), tag(tags, "album_artist"))
 	// Its own field rather than a fallback for Artist: they differ on exactly

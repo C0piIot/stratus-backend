@@ -1061,6 +1061,13 @@ TRACK
   curl -fsS -u "$davuser:$davpass" -X PUT --data-binary "@scripts/testdata/tagged.flac" \
     "http://$davhost/files/tagged.flac" >/dev/null 2>&1
 
+  # And an Opus with tags on it (#349), because an Ogg container keeps them on
+  # the stream where every other container states them on the format, and the
+  # unit tests read a captured report: whether the shipped ffprobe and the
+  # reader agree about where they are is asserted here, on the real file.
+  curl -fsS -u "$davuser:$davpass" -X PUT --data-binary "@scripts/testdata/tagged.opus" \
+    "http://$davhost/files/tagged.opus" >/dev/null 2>&1
+
   # The two properties that made PROPFIND change libraries (#136): whether a
   # file has a preview, and how much room is left, both in the listing a client
   # was making anyway. Asserted from outside, because what matters is the
@@ -1504,6 +1511,22 @@ TRACK
     ok "a client walks /music/ down to a track ($track)"
   else
     bad "a client walks /music/ down to a track" "artist '$artist', album '$album'"
+  fi
+
+  # The Opus track's artist is a second collection here (#349). Until the
+  # reader looked at the stream, every Opus and Vorbis track was indexed with
+  # no title and was in the tree and in no library at all.
+  opus_artist=""
+  for _ in $(seq 1 50); do
+    opus_artist="$(curl -s -u "$davuser:$davpass" -X PROPFIND -H 'Depth: 1' "http://$davhost/music/" |
+      grep -o '/music/Yellow[^<]*/' | head -1 || true)"
+    [ -n "$opus_artist" ] && break
+    sleep 0.2
+  done
+  if [ -n "$opus_artist" ]; then
+    ok "an Opus track's tags reach the library ($opus_artist)"
+  else
+    bad "an Opus track's tags reach the library" "no artist for tagged.opus under /music/"
   fi
 
   page=""
