@@ -45,6 +45,22 @@ var passSizes = []thumbSize{thumbSmall, thumbMedium}
 // upload waits to be indexed.
 const ThumbBatch = 8
 
+// Refused reports whether the index says this build has already tried to draw
+// a file and could not, and that the verdict still stands.
+//
+// It is the one rule every reader of the column shares -- a listing, a grid
+// and the `has-preview` a WebDAV client reads -- so it is here, beside the
+// pass that writes the verdict, rather than copied into each of them.
+//
+// **The week is what makes a page safe to believe it.** It is the same
+// files.CacheRetention the pass gives a refusal and the sweep gives the note
+// beside the picture: what this build cannot draw today an upgraded one may,
+// and a page that stopped offering for ever would be the reason nothing ever
+// tried again.
+func Refused(state db.MediaState, now time.Time) bool {
+	return state.Thumb == db.ThumbRefused && now.Sub(state.ThumbAt) < files.CacheRetention
+}
+
 // Prepare makes the pictures a grid and a listing will ask for, before either
 // does, and writes down what became of them.
 //

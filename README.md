@@ -204,7 +204,10 @@ pictures on its own, with nothing to run and nothing already made thrown away.
 **The listing says which files have a preview and how much room is left.** A
 client drawing a grid of a few hundred files would otherwise ask for every
 thumbnail and count the ones that come back missing; it can read the answer out
-of the `PROPFIND` it was making anyway. Free space is reported the way RFC 4331
+of the `PROPFIND` it was making anyway. It is two questions and both are
+answered: what this build can decode at all, and what it has already tried and
+could not — so a recording in a codec this image was not built with says no in
+the listing instead of saying yes and answering `404`. Free space is reported the way RFC 4331
 says — `quota-available-bytes` and `quota-used-bytes` — which is what a mounted
 volume draws its bar from, so Finder and `rclone about` understand it without
 being told anything.

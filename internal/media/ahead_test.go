@@ -221,7 +221,34 @@ func TestAPassWorksThroughTheLibrary(t *testing.T) {
 	}
 }
 
-// indexAs writes the media row a picture's verdict hangs off, which is what
+// TestARefusalIsBelievedForAWeek is the rule every reader of the column
+// shares, and the week is the whole of it: a page that stopped offering for
+// ever would be the reason nothing ever tried again after an upgrade that can
+// read the format.
+func TestARefusalIsBelievedForAWeek(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+
+	tests := map[string]struct {
+		state db.MediaState
+		want  bool
+	}{
+		"nothing has tried":   {db.MediaState{}, false},
+		"the picture is made": {db.MediaState{Thumb: db.ThumbMade, ThumbAt: now}, false},
+		"refused just now":    {db.MediaState{Thumb: db.ThumbRefused, ThumbAt: now}, true},
+		"refused yesterday":   {db.MediaState{Thumb: db.ThumbRefused, ThumbAt: now.AddDate(0, 0, -1)}, true},
+		"refused a week ago": {
+			db.MediaState{Thumb: db.ThumbRefused, ThumbAt: now.Add(-files.CacheRetention - time.Minute)}, false,
+		},
+	}
+	for name, tc := range tests {
+		if got := Refused(tc.state, now); got != tc.want {
+			t.Errorf("%s: Refused = %v, want %v", name, got, tc.want)
+		}
+	}
+}
+
+// indexAs writes the media row a picture's verdict hangs off// indexAs writes the media row a picture's verdict hangs off, which is what
 // the extractor would have written first: a pass works from the index rather
 // than from the tree.
 func indexAs(t *testing.T, meta db.MediaIndex, f db.File, kind db.Kind) {

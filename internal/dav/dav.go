@@ -33,18 +33,33 @@ import (
 	"github.com/C0piIot/stratus-backend/internal/storage"
 )
 
+// Index is what this adapter asks the metadata port, which is two questions
+// and not a repository: what a SEARCH matches, and what became of a file's
+// pictures, in one query for a whole listing rather than one per row.
+//
+// Narrow on purpose, the way #29 put the indexer behind MediaIndex rather than
+// behind the store: an inbound adapter that could write a media row is an
+// adapter that one day will.
+type Index interface {
+	db.Finder
+
+	// MediaStates is the batch half of db.MediaIndex, and the only half this
+	// surface has any business with.
+	MediaStates(ctx context.Context, fileIDs []int64) (map[int64]db.MediaState, error)
+}
+
 // Handler serves WebDAV under prefix, for whoever the request was
 // authenticated as.
 //
 // The prefix is stripped here rather than by the caller because the backend
 // speaks in storage paths and the handler speaks in URLs, and exactly one place
 // should know the difference.
-func Handler(prefix string, service *files.Service, finder db.Finder) http.Handler {
+func Handler(prefix string, service *files.Service, index Index) http.Handler {
 	prefix = strings.TrimSuffix(prefix, "/")
-	fs := &fileSystem{files: service, prefix: prefix, locks: MemoryLocks(), now: time.Now}
+	fs := &fileSystem{files: service, index: index, prefix: prefix, locks: MemoryLocks(), now: time.Now}
 	// The same handler the origin mounts, asked about the same library: what
 	// differs is which collection a scope has to name. See search.go.
-	search := Searchable(prefix, prefix, finder)
+	search := Searchable(prefix, prefix, index)
 	dav := &webdav.Handler{FileSystem: fs}
 	// Everything that writes goes through the lock gate first. See locks.go.
 	guarded := fs.enforceLocks(dav)
@@ -96,6 +111,9 @@ func Handler(prefix string, service *files.Service, finder db.Finder) http.Handl
 
 type fileSystem struct {
 	files *files.Service
+	// index is what has-preview is answered from, one listing at a time. See
+	// propfind.go.
+	index Index
 	// prefix is stripped from the request path by the handler above, but it is
 	// still on the Destination header, and it has to be put back on every href
 	// in a multistatus or the client follows a link to nowhere.
