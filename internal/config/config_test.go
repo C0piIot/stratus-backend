@@ -293,6 +293,21 @@ func TestLoadSentryDSN(t *testing.T) {
 	}
 }
 
+// TestLoadThumbsAhead pins the default as much as the parsing: on, because a
+// personal cloud is judged on the first look at its photo grid (#341).
+func TestLoadThumbsAhead(t *testing.T) {
+	t.Parallel()
+	for value, want := range map[string]bool{"": true, "on": true, "off": false} {
+		cfg, err := config.Load(env(map[string]string{"STRATUS_THUMBS_AHEAD": value}))
+		if err != nil || cfg.ThumbsAhead != want {
+			t.Errorf("%q: %v, %v; want %v", value, cfg.ThumbsAhead, err, want)
+		}
+	}
+	if _, err := config.Load(env(map[string]string{"STRATUS_THUMBS_AHEAD": "yes"})); err == nil {
+		t.Error("STRATUS_THUMBS_AHEAD=yes was accepted")
+	}
+}
+
 func TestLoadVideoTranscode(t *testing.T) {
 	t.Parallel()
 	for value, want := range map[string]string{

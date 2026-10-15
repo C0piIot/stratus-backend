@@ -74,7 +74,7 @@ func browserOverStore(t *testing.T) (http.Handler, *files.Service, storage.Stora
 	blobs, meta := backends(t)
 	s := files.New(blobs, meta)
 	creds := credentials()
-	thumbs := media.NewThumbs(blobs, s, "ffmpeg", t.TempDir())
+	thumbs := media.NewThumbs(blobs, s, meta, "ffmpeg", t.TempDir())
 	return web.Handler(version, buildDate, creds, auth.NewSessions(creds, auth.DefaultSessionTTL), auth.NewShares(creds),
 		s, thumbs, meta, indexing(meta), nil, web.Video{}), s, blobs
 }
@@ -85,7 +85,7 @@ func handlerIndexing(t *testing.T, s *files.Service, blobs storage.Storage, ix w
 	t.Helper()
 	creds := credentials()
 	return web.Handler(version, buildDate, creds, auth.NewSessions(creds, auth.DefaultSessionTTL), auth.NewShares(creds),
-		s, media.NewThumbs(blobs, s, "ffmpeg", t.TempDir()), nil, ix, nil, web.Video{})
+		s, media.NewThumbs(blobs, s, ix.Index, "ffmpeg", t.TempDir()), nil, ix, nil, web.Video{})
 }
 
 // service is the real file layer over real backends in a temporary directory,
@@ -98,7 +98,7 @@ func pieces(t *testing.T) (*files.Service, *media.Thumbs, db.Store) {
 	t.Helper()
 	blobs, meta := backends(t)
 	s := files.New(blobs, meta)
-	return s, media.NewThumbs(blobs, s, "ffmpeg", t.TempDir()), meta
+	return s, media.NewThumbs(blobs, s, meta, "ffmpeg", t.TempDir()), meta
 }
 
 // indexing is what the status page and the listing's marks read, with the
@@ -137,7 +137,7 @@ func handlerOver(t *testing.T, s *files.Service, blobs storage.Storage, index db
 	t.Helper()
 	creds := credentials()
 	return web.Handler(version, buildDate, creds, auth.NewSessions(creds, auth.DefaultSessionTTL), auth.NewShares(creds),
-		s, media.NewThumbs(blobs, s, "ffmpeg", t.TempDir()), nil, indexing(index), nil, web.Video{})
+		s, media.NewThumbs(blobs, s, index, "ffmpeg", t.TempDir()), nil, indexing(index), nil, web.Video{})
 }
 
 // handlerImports is the UI over an import folder, for the one page that reports
@@ -146,7 +146,7 @@ func handlerImports(t *testing.T, s *files.Service, blobs storage.Storage, meta 
 	t.Helper()
 	creds := credentials()
 	return web.Handler(version, buildDate, creds, auth.NewSessions(creds, auth.DefaultSessionTTL), auth.NewShares(creds),
-		s, media.NewThumbs(blobs, s, "ffmpeg", t.TempDir()), nil, indexing(meta), imports, web.Video{})
+		s, media.NewThumbs(blobs, s, meta, "ffmpeg", t.TempDir()), nil, indexing(meta), imports, web.Video{})
 }
 
 // handlerOverIndex is the UI over an index somebody else assembled, which is
@@ -154,8 +154,12 @@ func handlerImports(t *testing.T, s *files.Service, blobs storage.Storage, meta 
 func handlerOverIndex(t *testing.T, s *files.Service, blobs storage.Storage, index web.Index) http.Handler {
 	t.Helper()
 	creds := credentials()
+	// A metadata store of its own for the generator: what these tests put
+	// behind the page is a search index rather than a whole repository, and
+	// nothing here asks for a picture.
+	_, meta := backends(t)
 	return web.Handler(version, buildDate, creds, auth.NewSessions(creds, auth.DefaultSessionTTL), auth.NewShares(creds),
-		s, media.NewThumbs(blobs, s, "ffmpeg", t.TempDir()), index, indexing(nil), nil, web.Video{})
+		s, media.NewThumbs(blobs, s, meta, "ffmpeg", t.TempDir()), index, indexing(nil), nil, web.Video{})
 }
 
 // refusing answers every login with one error, for the arms a correct password

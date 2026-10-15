@@ -95,6 +95,6 @@ func waitFor(t *testing.T, th *Thumbs, n int64) {
 
 // unrefused is the note a queue test does not care about: a key nothing has
 // written, so every request reaches the decoder it is here to queue for.
-func unrefused(key string) refusal {
-	return refusal{key: key + "-none", says: ErrNoThumbnail}
+func unrefused(key string) verdict {
+	return verdict{note: key + "-none", says: ErrNoThumbnail}
 }

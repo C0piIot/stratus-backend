@@ -1884,6 +1884,10 @@ Restraint here is principle 3, not laziness:
   cannot stop early (#158). Running that every minute to learn something we
   already knew is the thing this stopped doing.
 
+  **The thumbnails are the same queue a second time** (#341), which is why
+  they are in this loop rather than one of their own: see the pass in the
+  thumbnail section above.
+
   So `internal/files` takes a watcher, the composition root points it at the
   indexer, and **the notice carries the file**. That is not a second extractor:
   `IndexFile` and `IndexBatch` reach the same one, and what differs is how the
@@ -2157,8 +2161,52 @@ Restraint here is principle 3, not laziness:
   answer to the same thing a verdict cannot know, now reached without anything
   having to delete an object to cause it.
 
-  The pass that fills it in before anybody asks is the second half of #341;
-  what is here is the column, the two queries and the verdict.
+  **And the pass that fills it in is the indexer's second half** (#341),
+  which is the shape rather than a second goroutine: the write announces the
+  file, a query finds the rest, a verdict goes on the row either way. What
+  stays rejected is what was rejected at the top of this section -- generating
+  in the upload path, with the client waiting on a decode per `PUT`. Sharing
+  the indexer's goroutine is also what keeps the two halves from bidding
+  against each other for the one CPU a small instance has.
+
+  **It loses to whoever is looking, by construction.** `Prepare` takes a
+  decoder only when the counter in front of them is zero, so a picture is made
+  with a CPU that was idle and never with the slot a grid is waiting for.
+  There is no second semaphore and no priority: "is anybody else here" is a
+  question that counter already answers. The batch is eight files, so a file
+  that has just landed is indexed rather than queueing behind a long pass, and
+  when a request does arrive the pass stands aside for a minute rather than
+  until the hour's tick.
+
+  **One decode, two sizes**, which is what it is worth over the lazy path: the
+  decode is the cost and a second encode is a hundredth of it, so 96 and 300
+  are made together. 1200 stays lazy, because it is one photograph at a time
+  in the viewer, where a wait is a wait for the picture somebody is looking
+  at. On the ffmpeg path the frame comes back scaled to the larger of the two
+  and the smaller is reduced from that, so those pixels are not bit for bit
+  what a decode straight to 96 gives -- the same picture at the same size,
+  against a second 4K decode to save a resize.
+
+  **Newest first, photographs before films**, by `sort_at`, the column the
+  gallery already pages on: what somebody opens is the roll that just arrived.
+  And a file that has just been written gets its picture there and then, out
+  of the notice the indexer already takes -- the camera-roll case, where the
+  phone that uploaded it is the one about to open the grid.
+
+  It replaces nothing: the lazy path still answers for a bucket adopted in
+  place, an import, a generation bump and any file opened before the pass
+  reaches it. `STRATUS_THUMBS_AHEAD=off` turns it off and it is on by default,
+  because what a personal cloud is judged on is the first look at its photo
+  grid and what the pass spends is a CPU that was idle.
+
+  **The one verdict a pass writes that a request does not** is for a file this
+  build cannot read at all -- `CanThumbnail` false, which is a property of the
+  build rather than of the file. A request writes nothing for it, because
+  nothing was read; a pass has to, because its queue is ordered by date and
+  limited, so an unreadable file at the head of it would be offered again on
+  every batch for ever. What makes recording a property of the build safe is
+  the same week as everything else here: the verdict goes stale and the file
+  comes back.
 
   **A picture inside a track is read in Go rather than by ffmpeg**, and that is
   the same argument as EXIF: the storage port reads ranges, so a parser that

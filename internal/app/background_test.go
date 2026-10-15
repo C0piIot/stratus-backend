@@ -8,7 +8,12 @@ package app_test
 // belongs to internal/files and internal/media and is covered there.
 
 import (
+	"bytes"
 	"errors"
+	"fmt"
+	"image"
+	"image/color"
+	"image/jpeg"
 	"net/http"
 	"os"
 	"os/exec"
@@ -298,6 +303,207 @@ func TestIndexerRuns(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 	}
 	t.Error("the uploaded file was never indexed")
+}
+
+// TestThumbnailsAreMadeAhead is the indexer's second half wired up (#341):
+// the write announces the file, the extractor gives it a kind, and the
+// picture a grid will ask for is made before anybody asks -- which is the
+// camera-roll case, where the phone that uploaded it is about to open the
+// gallery.
+//
+// A JPEG, so the decode is Go's: the stub on the PATH that stands in for
+// ffmpeg fails on purpose, and a test that needed it would be testing the
+// stub.
+//
+// Not parallel, because it changes the process environment.
+func TestThumbnailsAreMadeAhead(t *testing.T) {
+	const password = "an example password"
+
+	dataDir := filepath.Join(t.TempDir(), "data")
+	base, stop := liveServer(t, map[string]string{
+		"STRATUS_DATA_DIR":       dataDir,
+		"STRATUS_USERNAME":       "edu",
+		"STRATUS_PASSWORD":       password,
+		"STRATUS_INDEX_INTERVAL": "10m",
+	})
+	defer stop()
+	upload(t, base, password, "holiday.jpg", photograph(t))
+
+	store := openStore(t, dataDir)
+	deadline := time.Now().Add(20 * time.Second)
+	for time.Now().Before(deadline) {
+		if state, ok := thumbState(t, store, "holiday.jpg"); ok && state == db.ThumbMade {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Error("the uploaded photograph never got its picture")
+}
+
+// TestThumbnailsAreMadeForWhatNobodyAnnounced is the pass's other half, the
+// one an adopted bucket and an import depend on: a row nothing announced --
+// here one put back to "no picture" behind the server's back -- is found by
+// the query rather than by a notice.
+//
+// Not parallel, because it changes the process environment.
+func TestThumbnailsAreMadeForWhatNobodyAnnounced(t *testing.T) {
+	const password = "an example password"
+
+	dataDir := filepath.Join(t.TempDir(), "data")
+	base, stop := liveServer(t, map[string]string{
+		"STRATUS_DATA_DIR":       dataDir,
+		"STRATUS_USERNAME":       "edu",
+		"STRATUS_PASSWORD":       password,
+		"STRATUS_INDEX_INTERVAL": "200ms",
+	})
+	defer stop()
+
+	// A whole batch of them, so the pass fills one and comes straight back for
+	// the next rather than waiting for the tick it was started by.
+	names := make([]string, media.ThumbBatch)
+	for i := range names {
+		names[i] = fmt.Sprintf("holiday-%d.jpg", i)
+		upload(t, base, password, names[i], photograph(t))
+	}
+
+	store := openStore(t, dataDir)
+	waitForPictures(t, store, names)
+
+	// Back to rows that say nothing was ever tried, which is what an imported
+	// library looks like and what no notice will ever mention.
+	for _, name := range names {
+		f, err := store.FileByPath(t.Context(), "edu", name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := store.PutThumbVerdict(t.Context(), db.ThumbVerdict{FileID: f.ID, At: time.Now()}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	waitForPictures(t, store, names)
+}
+
+// waitForPictures blocks until every one of those files has its pictures made,
+// which is the only thing a background pass says out loud.
+func waitForPictures(t *testing.T, store db.Store, names []string) {
+	t.Helper()
+	for deadline := time.Now().Add(20 * time.Second); time.Now().Before(deadline); {
+		made := 0
+		for _, name := range names {
+			if state, _ := thumbState(t, store, name); state == db.ThumbMade {
+				made++
+			}
+		}
+		if made == len(names) {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatal("the photographs never got their pictures")
+}
+
+// TestThumbnailsAreNotMadeAheadWhenTurnedOff is the other half of the switch,
+// and the reason there is one: a pass costs CPU and writes to somebody's
+// bucket for files nobody may ever look at.
+//
+// Not parallel, because it changes the process environment.
+func TestThumbnailsAreNotMadeAheadWhenTurnedOff(t *testing.T) {
+	const password = "an example password"
+
+	dataDir := filepath.Join(t.TempDir(), "data")
+	base, stop := liveServer(t, map[string]string{
+		"STRATUS_DATA_DIR":       dataDir,
+		"STRATUS_USERNAME":       "edu",
+		"STRATUS_PASSWORD":       password,
+		"STRATUS_INDEX_INTERVAL": "10m",
+		"STRATUS_THUMBS_AHEAD":   "off",
+	})
+	defer stop()
+	upload(t, base, password, "holiday.jpg", photograph(t))
+
+	// The file is indexed either way, which is what makes the negative worth
+	// asserting: the loop ran and reached this file. With the pass on, the
+	// picture is made in the same turn of that loop, so a second of watching
+	// the row afterwards is what would catch it.
+	store := openStore(t, dataDir)
+	deadline := time.Now().Add(20 * time.Second)
+	var indexed bool
+	for !indexed && time.Now().Before(deadline) {
+		_, indexed = thumbState(t, store, "holiday.jpg")
+		time.Sleep(50 * time.Millisecond)
+	}
+	if !indexed {
+		t.Fatal("the uploaded photograph was never indexed")
+	}
+
+	for until := time.Now().Add(time.Second); time.Now().Before(until); {
+		if state, _ := thumbState(t, store, "holiday.jpg"); state != db.ThumbUntried {
+			t.Fatalf("a picture was made with the pass turned off: %v", state)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// thumbState is what the row says became of a file's pictures, and whether
+// anything has indexed it at all.
+func thumbState(t *testing.T, store db.Store, path string) (db.ThumbState, bool) {
+	t.Helper()
+	f, err := store.FileByPath(t.Context(), "edu", path)
+	if err != nil {
+		return 0, false
+	}
+	states, err := store.MediaStates(t.Context(), []int64{f.ID})
+	if err != nil {
+		t.Fatalf("MediaStates: %v", err)
+	}
+	state, indexed := states[f.ID]
+	return state.Thumb, indexed
+}
+
+// openStore reads the database the server is writing, which is what these
+// cases assert against: the surfaces say nothing about a background pass.
+func openStore(t *testing.T, dataDir string) db.Store {
+	t.Helper()
+	store, err := sqlite.New(t.Context(), filepath.Join(dataDir, "stratus.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	return store
+}
+
+// upload puts a file where a WebDAV client would.
+func upload(t *testing.T, base, password, path string, body []byte) {
+	t.Helper()
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPut, base+"/files/"+path, bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.SetBasicAuth("edu", password)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("PUT %q = %d", path, resp.StatusCode)
+	}
+}
+
+// photograph is a small real JPEG, since what is under test decodes it.
+func photograph(t *testing.T) []byte {
+	t.Helper()
+	img := image.NewRGBA(image.Rect(0, 0, 120, 90))
+	for y := range 90 {
+		for x := range 120 {
+			img.Set(x, y, color.RGBA{R: uint8(x), G: uint8(y), B: 0x40, A: 0xff})
+		}
+	}
+	var body bytes.Buffer
+	if err := jpeg.Encode(&body, img, nil); err != nil {
+		t.Fatal(err)
+	}
+	return body.Bytes()
 }
 
 // stubTools writes something called ffprobe and something called ffmpeg into a

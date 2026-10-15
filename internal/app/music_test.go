@@ -57,7 +57,7 @@ func TestAPlayFromTheWebUICounts(t *testing.T) {
 	cfg := runConfig(t, map[string]string{"STRATUS_USERNAME": "edu", "STRATUS_PASSWORD": password})
 	h := app.New(cfg, "test", "2026-01-01T09:30:00Z").Handler(app.Deps{
 		Storage: blobs, Database: meta, Files: service,
-		Thumbs: media.NewThumbs(blobs, service, "ffmpeg", t.TempDir()),
+		Thumbs: media.NewThumbs(blobs, service, meta, "ffmpeg", t.TempDir()),
 	})
 
 	form := url.Values{"username": {"edu"}, "password": {password}}
