@@ -106,7 +106,7 @@ func (h *handler) search(w http.ResponseWriter, r *http.Request, user string) {
 	}
 
 	files, moreFiles := trim(found.Files)
-	v.Entries = entries(files, h.indexingOf(r, files), "")
+	v.Entries = entries(files, h.statesOf(r.Context(), r.URL.Path, files), "")
 	v.Only = only
 	if moreFiles {
 		v.NextPage = searchLink(term, inFiles, db.After(files[len(files)-1]))
@@ -119,7 +119,7 @@ func (h *handler) search(w http.ResponseWriter, r *http.Request, user string) {
 	}
 
 	photos, morePhotos := trim(found.Photos)
-	v.Tiles = shots(photos)
+	v.Tiles = shots(photos, h.statesOf(r.Context(), r.URL.Path, photos))
 	if morePhotos {
 		v.MorePhotos = searchLink(term, inPhotos, db.After(photos[len(photos)-1]))
 	}
@@ -255,11 +255,11 @@ func foundAlbums(albums []db.Album) []foundAlbum {
 // shots is the photographs of a result, as the cells the gallery's grid is made
 // of. The viewer is the gallery's too: a photograph found here opens where it
 // would have opened there, with the ones either side of it a click away.
-func shots(photos []db.File) []tile {
+func shots(photos []db.File, states map[int64]rowState) []tile {
 	out := make([]tile, 0, len(photos))
 	for _, p := range photos {
 		cell := tile{Href: photoByFileHref(p.Path), Name: path.Base(p.Path)}
-		if media.CanThumbnail(p.Path, p.Size) {
+		if media.CanThumbnail(p.Path, p.Size) && !states[p.ID].NoPicture {
 			cell.Thumb = thumbURL(p, tileThumb)
 		}
 		out = append(out, cell)

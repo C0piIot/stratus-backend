@@ -194,7 +194,9 @@ refusal is written down beside where the picture would have been kept, and the
 next request is answered from it without either. In the browser none of this
 is a broken image: a square with no picture in it draws a mark instead, which
 is also what a grid shows while it is still fetching and what it shows for a
-thumbnail refused with the `503` above. A week and not for ever,
+thumbnail refused with the `503` above — and a page that has been told a file
+has no picture stops asking for one at all, for as long as that answer
+stands. A week and not for ever,
 because what the note cannot know is whether the build that wrote it is still
 the build running: an upgrade that can read the format starts making those
 pictures on its own, with nothing to run and nothing already made thrown away.
@@ -326,7 +328,9 @@ first pass after an upgrade is not free.
 metadata was extracted from against the file's, so overwriting a video with a
 different one does not leave the old duration behind. `/status` in the web UI
 reports how much of the library has been read, how much is waiting and what
-could not be read at all.
+could not be read at all — and, separately, how many of the photographs and
+films have a picture and how many cannot have one, since a file that was read
+and a file that can be drawn fail for different reasons.
 
 **A file that could not be reached is tried again in an hour.** A file nothing
 can parse is read once and never again — that is what "could not be read" on

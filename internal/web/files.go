@@ -106,7 +106,7 @@ func (h *handler) browse(w http.ResponseWriter, r *http.Request, user string) {
 		Shared:  token,
 		Notice:  uploaded(r.URL.Query().Get("added")),
 		Crumbs:  crumbs(p, token, root),
-		Entries: entries(children, h.indexingOf(r, children), token),
+		Entries: entries(children, h.statesOf(r.Context(), r.URL.Path, children), token),
 		Columns: columns(href(p), state, token),
 		Rows:    rowChoices(href(p), state, token),
 		// Where this page's two forms post: into the directory being listed.
@@ -465,7 +465,7 @@ type entry struct {
 // and it is the query's job rather than this function's: regrouping a page
 // afterwards would only group that page, so a listing scrolled through would
 // show folders, then files, then folders again.
-func entries(children []db.File, indexing map[int64]string, token string) []entry {
+func entries(children []db.File, states map[int64]rowState, token string) []entry {
 	out := make([]entry, 0, len(children))
 	for _, c := range children {
 		target := href(c.Path)
@@ -485,11 +485,14 @@ func entries(children []db.File, indexing map[int64]string, token string) []entr
 		}
 		if !c.IsDir {
 			e.Size = humanSize(c.Size)
-			e.Indexing = indexing[c.ID]
+			e.Indexing = states[c.ID].Indexing
 			e.Info = link(infoPrefix, c.Path)
 			e.Film = media.IsVideo(c.Path)
 			e.Picture = e.Film || media.IsImage(c.Path)
-			if media.CanThumbnail(c.Path, c.Size) {
+			// A row that has been tried and refused keeps its mark and is
+			// offered no picture: the request would be a 404, and the mark is
+			// what the square draws either way (#341).
+			if media.CanThumbnail(c.Path, c.Size) && !states[c.ID].NoPicture {
 				// The thumbnail carries the signature too. Without it a shared
 				// listing is a grid of broken images, which is the half of this
 				// that fails quietly.

@@ -179,11 +179,16 @@ type MediaIndex interface {
 	// one, and a test that has to wait an hour is a test nobody runs.
 	PendingMedia(ctx context.Context, version int, now time.Time, limit int) ([]File, error)
 
-	// MediaCounts says how much of the library is indexed, for the page that
-	// reports it. One query, and it walks every file row: there is no way to
-	// count an absence from an index, and this is asked for by somebody looking
-	// at a page rather than by a loop.
-	MediaCounts(ctx context.Context, version int) (MediaCounts, error)
+	// MediaCounts says how much of the library is indexed and how much of what
+	// a grid draws has a picture, for the page that reports both. One query,
+	// and it walks every file row: there is no way to count an absence from an
+	// index, and this is asked for by somebody looking at a page rather than
+	// by a loop.
+	//
+	// generation is files.DerivedGeneration, so that what counts as made is
+	// made by the generator running now -- raising it is exactly the moment
+	// somebody watches this page.
+	MediaCounts(ctx context.Context, version, generation int) (MediaCounts, error)
 
 	// MediaStates returns what is known about the metadata of the files named,
 	// for the ones that have a row at all. It exists for a listing that wants
@@ -230,10 +235,32 @@ type MediaCounts struct {
 	Files   int64
 	Indexed int64
 	Failed  int64
+	// Pictures is the other half of the same walk (#341): how much of what a
+	// grid draws has a thumbnail. Counted here because the rows are already
+	// being looked at, and reported as its own three numbers because "read"
+	// and "drawn" fail for different reasons -- one percentage over both
+	// would hide a library of films nothing can decode behind a library that
+	// indexed perfectly.
+	Pictures ThumbCounts
 }
 
 // Pending is what is left to do.
 func (c MediaCounts) Pending() int64 { return c.Files - c.Indexed - c.Failed }
+
+// ThumbCounts is how many files could have a picture, how many have one from
+// the generator running now, and how many this build could not make.
+//
+// A refusal counts as refused even once it is stale enough to be tried again:
+// what the page reports is where the library stands, not what the next pass
+// will do about it.
+type ThumbCounts struct {
+	Files   int64
+	Made    int64
+	Refused int64
+}
+
+// Waiting is what no pass has reached yet.
+func (c ThumbCounts) Waiting() int64 { return c.Files - c.Made - c.Refused }
 
 // MediaState is the part of a media row a listing needs to say whether a file
 // has been looked at, without reading everything an extractor found.
