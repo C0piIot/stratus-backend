@@ -147,10 +147,21 @@ func (s *Store) Put(ctx context.Context, key string, r io.Reader, size int64) (s
 		return storage.ObjectInfo{}, err
 	}
 
+	// With no part size the client sizes the one buffer of an unknown-length
+	// upload for the largest object S3 allows in ten thousand parts: 528 MiB,
+	// allocated per PUT, which is the whole of a small instance (#348). Bounded
+	// to this backend's part, the same one AppendUpload holds in memory, and
+	// the same 156 GiB ceiling on the object. A known size needs none of it: a
+	// body under a part is one request, and a larger one is streamed a part
+	// at a time whatever is set here.
+	var opts minio.PutObjectOptions
+	if size < 0 {
+		opts.PartSize = uint64(s.partSize) //nolint:gosec // a constant well under any overflow
+	}
 	// storage.ExactReader is load-bearing: with a known size the client sends
 	// exactly that many bytes and ignores the rest, so an over-long body would
 	// otherwise be stored truncated and reported as a success.
-	if _, err := s.client.PutObject(ctx, s.bucket, key, storage.ExactReader(r, size), size, minio.PutObjectOptions{}); err != nil {
+	if _, err := s.client.PutObject(ctx, s.bucket, key, storage.ExactReader(r, size), size, opts); err != nil {
 		return storage.ObjectInfo{}, mapErr(key, err)
 	}
 	// A PUT response carries no Last-Modified, so the timestamp comes from a

@@ -104,7 +104,9 @@ func Handler(prefix string, service *files.Service, index Index) http.Handler {
 		case http.MethodOptions:
 			dav.ServeHTTP(&advertiseLocking{ResponseWriter: w}, r)
 		default:
-			guarded.ServeHTTP(w, r)
+			// A PUT's length goes through on the context, since the library
+			// drops it. See length.go.
+			guarded.ServeHTTP(w, withContentLength(r))
 		}
 	}))
 }
@@ -227,9 +229,9 @@ func (f *fileSystem) Create(ctx context.Context, name string, body io.ReadCloser
 		}
 	}
 
-	// Size is unknown here: WebDAV clients may send chunked, and the port takes
-	// -1 for that.
-	file, err := f.files.Write(ctx, owner, p, body, -1, mimeType(p))
+	// The length the client declared, or -1 for a chunked body, which the
+	// port takes for unknown. See length.go for why it is on the context.
+	file, err := f.files.Write(ctx, owner, p, body, contentLength(ctx), mimeType(p))
 	if err != nil {
 		// RFC 4918 9.7.1: a PUT whose parent collection does not exist is 409,
 		// not 404. The resource being created is not the one that is missing.
