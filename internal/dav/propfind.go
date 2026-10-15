@@ -5,6 +5,7 @@ import (
 	"encoding/xml"
 	"errors"
 	"io/fs"
+	"log/slog"
 	"net/http"
 	"os"
 	"path"
@@ -44,8 +45,11 @@ import (
 // request alone. See readOnlyFS for why it cannot be shared.
 func (f *fileSystem) propfindHandler(ctx context.Context, owner string) http.Handler {
 	return &xnet.Handler{
-		Prefix:     f.prefix,
-		FileSystem: &readOnlyFS{files: f.files, owner: owner, listed: map[string]db.File{}},
+		Prefix: f.prefix,
+		FileSystem: &readOnlyFS{
+			files: f.files, index: f.index, owner: owner, ctx: ctx,
+			listed: map[string]db.File{}, drawn: map[int64]db.MediaState{},
+		},
 		// The server's own rather than one built for this request (#174), bound
 		// to this one's context because the locks are rows (#243) and x/net's
 		// interface carries none. x/net uses it for nothing this route reaches
@@ -68,8 +72,18 @@ func (f *fileSystem) propfindHandler(ctx context.Context, owner string) http.Han
 // answered from memory.
 type readOnlyFS struct {
 	files  *files.Service
+	index  Index
 	owner  string
 	listed map[string]db.File
+	// drawn is what the index says became of each file's pictures, which is
+	// what has-preview answers from (#341). Filled a listing at a time for
+	// the reason listed is: the walk reopens every child, so asking per file
+	// would be one query per row where one covers the whole folder.
+	drawn map[int64]db.MediaState
+	// ctx is the request's, kept because x/net's DeadProps carries none and
+	// the question behind it is a query. The same reason boundLocks holds one
+	// (#243), and safe for the same reason readOnlyFS is built per request.
+	ctx context.Context
 }
 
 // errReadOnly is what the methods PROPFIND cannot reach return. They are on the
@@ -154,19 +168,75 @@ func (f *readOnlyFile) Readdir(count int) ([]os.FileInfo, error) {
 	}
 
 	out := make([]os.FileInfo, 0, len(children))
+	ids := make([]int64, 0, len(children))
 	for _, child := range children {
 		// What the walk is about to ask for again, one open per child. This is
 		// the cache earning its place.
 		f.fs.listed[child.Path] = child
+		if !child.IsDir {
+			ids = append(ids, child.ID)
+		}
 		out = append(out, rowInfo{child})
 	}
+	f.fs.drawnStates(ids)
 	if count <= 0 {
 		return out, nil
 	}
 	return out[min(f.read, len(out)):], nil
 }
 
-// rowInfo is a db.File wearing os.FileInfo, which is the shape x/net speaks.
+// hasPreview is the answer that property carries: what this build can read,
+// minus what it has already tried and could not (#341).
+//
+// Two halves because they are two different facts. **What this build can
+// read** is a property of the binary and of the name, so it is computed and
+// stored nowhere -- the day a recipe gains a decoder, every file of that
+// format changes its answer with no byte moved. **What it tried and could
+// not** is a property of the bytes, and it is on the row because the store
+// answers one key at a time and a listing is a hundred rows.
+//
+// A file the index knows nothing about says yes, which is the honest answer:
+// nothing has tried, and the client finding out by asking is what this
+// property is saving it from doing for everything else.
+func (f *readOnlyFile) hasPreview() bool {
+	if !media.CanThumbnail(f.row.Path, f.row.Size) {
+		return false
+	}
+	return !media.Refused(f.fs.drawnState(f.row.ID), time.Now())
+}
+
+// drawnState is what the index says about one file, from what the listing
+// fetched or, for a PROPFIND of a single file, by asking about that one.
+func (r *readOnlyFS) drawnState(id int64) db.MediaState {
+	if state, known := r.drawn[id]; known {
+		return state
+	}
+	r.drawnStates([]int64{id})
+	return r.drawn[id]
+}
+
+// drawnStates fills the cache for a page of files, and leaves it empty for the
+// ones the index has nothing to say about -- an entry either way, so that a
+// second question about the same file is not a second query.
+//
+// A failure here is not a failure of the listing: what it costs is a client
+// told a file may have a picture when nothing can make one, which is the
+// answer this property gave for everything before it could read a row. So it
+// is logged and the walk carries on.
+func (r *readOnlyFS) drawnStates(ids []int64) {
+	if len(ids) == 0 {
+		return
+	}
+	states, err := r.index.MediaStates(r.ctx, ids)
+	if err != nil {
+		slog.ErrorContext(r.ctx, "reading what has a picture", "err", err)
+	}
+	for _, id := range ids {
+		r.drawn[id] = states[id]
+	}
+}
+
+// rowInfo is a db.File wearing os.FileInfo, which is the shape x/net speaks.// rowInfo is a db.File wearing os.FileInfo, which is the shape x/net speaks.
 type rowInfo struct{ row db.File }
 
 func (i rowInfo) Name() string       { return path.Base(i.row.Path) }
@@ -251,8 +321,7 @@ func (f *readOnlyFile) DeadProps() (map[xml.Name]xnet.Property, error) {
 		// Whether a picture of this file can be made, which is the question a
 		// client drawing a grid of a few hundred rows would otherwise answer by
 		// asking for each one and counting the 404s (#136).
-		props[hasPreviewName] = property(hasPreviewName, strconv.FormatBool(
-			media.CanThumbnail(f.row.Path, f.row.Size)))
+		props[hasPreviewName] = property(hasPreviewName, strconv.FormatBool(f.hasPreview()))
 		return props, nil
 	}
 

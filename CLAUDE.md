@@ -1592,6 +1592,27 @@ Restraint here is principle 3, not laziness:
   that only checks the first thing written cannot tell a listing from a
   failure.**
 
+  **`has-preview` answers from the row now, not from the name** (#341). It
+  was `media.CanThumbnail` alone, which is a function of the build and of the
+  extension -- so an AV1 recording and a truncated photograph, which are an
+  `.mp4` and a `.jpg`, said yes until the client asked and got a `404`. The
+  two halves are now both asked: what this build can read, which is still
+  computed and stored nowhere, and what it has already tried and could not,
+  which is on the row because the store answers one key at a time. A file
+  nothing has tried still says yes, which is the honest answer -- and a
+  verdict is believed for the week `media.Refused` gives it, the same week
+  everything else here gives one.
+
+  **It costs one query per listing and not one per row**, which is the rule
+  this file already had for `ListFiles`: `Readdir` asks `MediaStates` about
+  every child at once and `DeadProps` reads the answer out of the same
+  per-request cache the rows live in. A `PROPFIND` of a single file asks about
+  that one. `TestPropfindDoesNotAskOncePerChild` counts both.
+
+  The narrow interface is deliberate: this adapter takes `dav.Index`, which is
+  `db.Finder` plus `MediaStates`, rather than the repository -- an inbound
+  adapter that could write a media row is one that eventually will.
+
   And the property needs somewhere to point: `/thumb/` takes HTTP Basic as well
   as a session -- as every page does now -- because the client that reads
   `has-preview` authenticates over WebDAV and could not reach it otherwise. **That is the extension principle 2

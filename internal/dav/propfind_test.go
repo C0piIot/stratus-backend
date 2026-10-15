@@ -10,9 +10,11 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/C0piIot/stratus-backend/internal/dav"
 	"github.com/C0piIot/stratus-backend/internal/db"
+	"github.com/C0piIot/stratus-backend/internal/db/dbtest"
 	"github.com/C0piIot/stratus-backend/internal/db/sqlite"
 	"github.com/C0piIot/stratus-backend/internal/files"
 	"github.com/C0piIot/stratus-backend/internal/storage/disk"
@@ -225,17 +227,29 @@ func TestPropfindDoesNotAskOncePerChild(t *testing.T) {
 		t.Errorf("a listing of %d children cost %d lookups: the cache is not being used",
 			children, counted.lookups)
 	}
+	// And what has a picture is one question about the whole folder, which is
+	// the same rule one property down: a listing asks once (#341).
+	if counted.states != 1 {
+		t.Errorf("a listing of %d children asked the index %d times, want once",
+			children, counted.states)
+	}
 }
 
-// countingStore counts the one call that would grow with the folder.
+// countingStore counts the two calls that would grow with the folder.
 type countingStore struct {
 	db.Store
 	lookups int
+	states  int
 }
 
 func (c *countingStore) FileByPath(ctx context.Context, owner, path string) (db.File, error) {
 	c.lookups++
 	return c.Store.FileByPath(ctx, owner, path)
+}
+
+func (c *countingStore) MediaStates(ctx context.Context, fileIDs []int64) (map[int64]db.MediaState, error) {
+	c.states++
+	return c.Store.MediaStates(ctx, fileIDs)
 }
 
 // TestPropfindListsAPhotograph is the bug the library swap shipped, and the
@@ -363,7 +377,83 @@ func TestPropfindAnswersHasPreview(t *testing.T) {
 	}
 }
 
-// TestPropfindAnswersQuota is RFC 4331, and the reason it is worth having is
+// TestPropfindSaysWhatCouldNotBeDrawn is the half the name alone cannot
+// answer (#341): an AV1 recording and a truncated photograph are an .mp4 and
+// a .jpg, so the extension says yes and only the attempt says no. Once
+// something has tried, the row knows, and the listing can say so without the
+// client finding out by asking.
+func TestPropfindSaysWhatCouldNotBeDrawn(t *testing.T) {
+	t.Parallel()
+	svc, store := service(t)
+	h := withUser(dav.Handler(prefix, svc, store), "edu")
+	do(t, h, "MKCOL", "/files/album", "")
+	do(t, h, http.MethodPut, "/files/album/holiday.mp4", "not really a recording")
+	do(t, h, http.MethodPut, "/files/album/photo.jpg", "not really a photograph")
+	refuse(t, store, "album/holiday.mp4")
+
+	props := propsOf(t, do(t, h, "PROPFIND", "/files/album", "", "Depth", "1",
+		"Content-Type", "application/xml").Body.String())
+
+	if got := props["/files/album/holiday.mp4"]["has-preview"]; got != "false" {
+		t.Errorf("a recording nothing could draw = %q, want false", got)
+	}
+	if got := props["/files/album/photo.jpg"]["has-preview"]; got != "true" {
+		t.Errorf("a photograph nothing has tried = %q, want true", got)
+	}
+
+	// And one file on its own is asked about on its own: a client fetching a
+	// single resource gets the same answer as the listing gave.
+	one := propsOf(t, do(t, h, "PROPFIND", "/files/album/holiday.mp4", "", "Depth", "0",
+		"Content-Type", "application/xml").Body.String())
+	if got := one["/files/album/holiday.mp4"]["has-preview"]; got != "false" {
+		t.Errorf("the recording on its own = %q, want false", got)
+	}
+}
+
+// refuse writes down that this build tried to draw that file and could not,
+// which is what internal/media does on the way back from a decode.
+func refuse(t *testing.T, store db.Store, path string) {
+	t.Helper()
+	f, err := store.FileByPath(t.Context(), "edu", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := db.Media{FileID: f.ID, Kind: db.KindVideo, IndexedAt: time.Now(), Version: 1, ETag: f.ETag}
+	if err := store.PutMedia(t.Context(), row); err != nil {
+		t.Fatal(err)
+	}
+	verdict := db.ThumbVerdict{
+		FileID: f.ID, State: db.ThumbRefused, BlobKey: f.BlobKey,
+		Generation: files.DerivedGeneration, At: time.Now(),
+	}
+	if err := store.PutThumbVerdict(t.Context(), verdict); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestPropfindListsWhenTheIndexWillNotAnswer is the same rule the pages have
+// about this fact: it is decoration on a listing, so a database that will not
+// answer costs a client the property and not the folder.
+func TestPropfindListsWhenTheIndexWillNotAnswer(t *testing.T) {
+	t.Parallel()
+	svc, store := service(t)
+	broken := dbtest.FailOn(t, store, "MediaStates")
+	h := withUser(dav.Handler(prefix, svc, broken), "edu")
+	do(t, h, "MKCOL", "/files/album", "")
+	do(t, h, http.MethodPut, "/files/album/photo.jpg", "not really a photograph")
+
+	rec := do(t, h, "PROPFIND", "/files/album", "", "Depth", "1", "Content-Type", "application/xml")
+	if rec.Code != http.StatusMultiStatus {
+		t.Fatalf("PROPFIND with the index broken = %d, want the listing anyway", rec.Code)
+	}
+	// And the answer is the one the name gives, which is what this property
+	// said for everything before it could read a row.
+	if got := propsOf(t, rec.Body.String())["/files/album/photo.jpg"]["has-preview"]; got != "true" {
+		t.Errorf("a photograph = %q, want true", got)
+	}
+}
+
+// TestPropfindAnswersQuota is RFC 4331// TestPropfindAnswersQuota is RFC 4331, and the reason it is worth having is
 // that it is not ours: Finder draws its bar from these and rclone about reads
 // them.
 func TestPropfindAnswersQuota(t *testing.T) {

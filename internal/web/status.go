@@ -233,13 +233,9 @@ func (h *handler) statesOf(ctx context.Context, where string, children []db.File
 		case state.Failed:
 			row.Indexing = "unreadable"
 		}
-		// A refusal is good for a week, which is the week the pass gives it
-		// and the week the sweep gives the note beside the picture: what this
-		// build cannot draw today it may draw after an upgrade, so the answer
-		// expires rather than standing. Without that, a page that stopped
-		// offering would be the thing that stopped anything ever trying
-		// again.
-		row.NoPicture = state.Thumb == db.ThumbRefused && time.Since(state.ThumbAt) < files.CacheRetention
+		// Whether this build has already tried and could not, which is the
+		// rule media.Refused owns because three surfaces read it now.
+		row.NoPicture = media.Refused(state, time.Now())
 		if row != (rowState{}) {
 			marks[c.ID] = row
 		}
