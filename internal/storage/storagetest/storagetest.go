@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -42,6 +43,7 @@ func Run(t *testing.T, newStore func(t *testing.T) storage.Storage) {
 		{"put and get round trip", putGetRoundTrip},
 		{"put overwrites atomically", putOverwrites},
 		{"put accepts an unknown size", putUnknownSize},
+		{"put of an unknown size holds at most a part", putUnknownSizeIsBounded},
 		{"put rejects a size that does not match", putSizeMismatch},
 		{"empty objects are objects", emptyObject},
 		{"large objects stream", largeObject},
@@ -131,6 +133,68 @@ func putUnknownSize(t *testing.T, s storage.Storage) {
 	if info.Size != int64(len(body)) {
 		t.Errorf("Size = %d, want %d", info.Size, len(body))
 	}
+}
+
+// unknownSizeBound is how much a backend may allocate to store a body it was
+// not told the length of, over and above the body itself. The disk backend
+// streams to a file and needs nothing; the S3 backend holds one part, and a
+// part is sixteen megabytes. What it refuses is what the S3 client does by
+// default when nobody says otherwise: a buffer sized for the largest object a
+// multipart upload can hold, 528 MiB per PUT, which killed a 512 MB instance
+// on the fourth file of a folder (#348).
+const unknownSizeBound = 128 << 20
+
+// putUnknownSizeIsBounded measures the allocation rather than trusting a
+// constant: TotalAlloc is cumulative, so it does not depend on when the
+// collector ran, and the body is generated rather than held, so the suite
+// itself adds nothing to the count.
+func putUnknownSizeIsBounded(t *testing.T, s storage.Storage) {
+	const key = "unknown-length-large"
+	// Past one part and into a second, so a backend that uploads in parts is
+	// measured doing so.
+	const size = 24 << 20
+
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	info, err := s.Put(t.Context(), key, io.LimitReader(&pattern{}, size), -1)
+	runtime.ReadMemStats(&after)
+	if err != nil {
+		t.Fatalf("Put with size -1: %v", err)
+	}
+	if info.Size != size {
+		t.Errorf("Size = %d, want %d", info.Size, size)
+	}
+	if grew := after.TotalAlloc - before.TotalAlloc; grew > unknownSizeBound {
+		t.Errorf("storing %d MiB of unknown length allocated %d MiB, want at most %d",
+			size>>20, grew>>20, unknownSizeBound>>20)
+	}
+
+	// And it is the body that was stored, start, seam and end.
+	for _, off := range []int64{0, (16 << 20) - 3, size - 7} {
+		got := get(t, s, key, storage.Slice(off, 7))
+		want := make([]byte, 7)
+		_, _ = pattern{}.readAt(want, off)
+		if !bytes.Equal(got, want) {
+			t.Errorf("bytes at %d = %v, want %v", off, got, want)
+		}
+	}
+}
+
+// pattern is an endless reader whose byte at any offset is a function of the
+// offset, so a slice of what was stored can be checked without a copy of it.
+type pattern struct{ off int64 }
+
+func (p *pattern) Read(b []byte) (int, error) {
+	n, _ := pattern{}.readAt(b, p.off)
+	p.off += int64(n)
+	return n, nil
+}
+
+func (pattern) readAt(b []byte, off int64) (int, error) {
+	for i := range b {
+		b[i] = byte((off + int64(i)) * 7) //nolint:gosec // the truncation is the pattern
+	}
+	return len(b), nil
 }
 
 func putSizeMismatch(t *testing.T, s storage.Storage) {

@@ -867,6 +867,20 @@ flight, a tail rewritten on every append under a part (at most five times the
 bytes against the bucket, for a client chunking small), and a ceiling of ten
 thousand parts: 156 GiB for a client that sends everything in one request.
 
+**A `Put` of unknown length holds the same one part, and that had to be said
+to the client** (#348). Told no size and no part, minio sizes the buffer of an
+unknown-length upload for the largest object ten thousand parts can hold --
+528 MiB, allocated per request -- and four of those is a 512 MB instance
+killed on the fourth file of a folder. `Put` names the part when it is not
+told the size, which is the same 16 MiB and the same ceiling as above, and the
+conformance suite measures the allocation rather than trusting the constant:
+both backends store 24 MiB of unknown length inside 128 MiB. A known size
+needs none of it, which is why `internal/dav` now reads the `Content-Length`
+off a `PUT` before the library drops it: every client in the README sends one,
+and a body under a part is then a single request with no buffer at all. The
+web UI's upload still passes -1, because a multipart part declares no length,
+and it is the bounded case rather than the fixed one.
+
 The tail is written even when the connection has gone -- under a context of its
 own, since the request's is cancelled -- because **what is read is kept** unless
 the store refuses it. The conformance suite holds every backend to that, and
