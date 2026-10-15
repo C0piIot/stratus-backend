@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -406,53 +407,140 @@ func TestSubsonicIsWired(t *testing.T) {
 	}
 }
 
-// TestSubsonicSharesTheRateLimitWithWebDAV is why app.Handler builds one
-// verifier and hands it to both surfaces. Two throttles would be two budgets
-// for guesses at the same single password, and the second one would be reached
+// TestEverySurfaceSpendsTheSameRateLimit is #342's acceptance, and it is this
+// table rather than the two surfaces that used to be walked. There is one
+// password here, so there is one budget of guesses at it: app.Handler builds a
+// single auth.Throttle and hands it to every mount, to the pages behind them
+// and to the login form. A mount wired with the credentials instead would
+// compile, refuse a wrong password correctly, and be a second budget reached
 // by changing a URL.
 //
-// The assertion is the delay rather than a refusal: the throttle answers the
-// free failures immediately and holds the next, so a guess that arrives on the
-// other surface having to wait is the shared counter, observable.
-func TestSubsonicSharesTheRateLimitWithWebDAV(t *testing.T) {
+// The burst is spent on one surface and every other one guesses at once, so
+// what each has to show is that it did not answer for free: auth.Default-
+// Throttle answers three failures immediately, holds the next two and refuses
+// what is behind them. Which of the two a surface gets depends on the order
+// its goroutine arrived in, so either is the assertion -- a surface with a
+// throttle of its own gets neither, because its own burst is unspent.
+func TestEverySurfaceSpendsTheSameRateLimit(t *testing.T) {
 	t.Parallel()
+	const user, password = "edu", "an example password"
 	base, stop := liveServer(t, map[string]string{
-		"STRATUS_USERNAME": "edu",
-		"STRATUS_PASSWORD": "an example password",
+		"STRATUS_USERNAME": user,
+		"STRATUS_PASSWORD": password,
 	})
 	defer stop()
 
-	// Spend the burst on WebDAV. auth.DefaultThrottle answers three failures
-	// without waiting, so these are instant.
-	for i := range 3 {
-		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, base+"/files/", nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		req.SetBasicAuth("edu", "not it")
+	// Error rather than Fatal throughout: the guesses run in goroutines of
+	// their own, and only the test's own may call FailNow.
+	do := func(t *testing.T, req *http.Request) (int, string) {
+		t.Helper()
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
-			t.Fatal(err)
+			t.Error(err)
+			return 0, ""
 		}
-		_ = resp.Body.Close()
-		if resp.StatusCode != http.StatusUnauthorized {
-			t.Fatalf("failed Basic login %d = %d, want 401", i, resp.StatusCode)
+		defer func() { _ = resp.Body.Close() }()
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Error(err)
+			return resp.StatusCode, ""
+		}
+		return resp.StatusCode, string(body)
+	}
+	// A wrong password in a header, which is how every WebDAV mount, tus and
+	// the pages take one.
+	header := func(method, target string) func(*testing.T) (int, string) {
+		return func(t *testing.T) (int, string) {
+			t.Helper()
+			req, err := http.NewRequestWithContext(t.Context(), method, base+target, nil)
+			if err != nil {
+				t.Error(err)
+				return 0, ""
+			}
+			req.SetBasicAuth(user, "not it")
+			req.Header.Set("Depth", "0")
+			return do(t, req)
+		}
+	}
+	// And one on the query string, which is OpenSubsonic's own way in.
+	queried := func(query string) func(*testing.T) (int, string) {
+		return func(t *testing.T) (int, string) {
+			t.Helper()
+			req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, base+"/rest/ping.view?c=stratus-tests&"+query, nil)
+			if err != nil {
+				t.Error(err)
+				return 0, ""
+			}
+			return do(t, req)
+		}
+	}
+	// 429 everywhere except OpenSubsonic, which answers every call with 200
+	// and puts the refusal in the envelope -- as code 0 and not 40, because
+	// the credentials were never judged.
+	status := func(status int, _ string) bool { return status == http.StatusTooManyRequests }
+	envelope := func(_ int, body string) bool { return strings.Contains(body, `code="0"`) }
+
+	surfaces := []struct {
+		name    string
+		guess   func(*testing.T) (int, string)
+		refused func(int, string) bool
+	}{
+		{"WebDAV /", header("PROPFIND", "/"), status},
+		{"WebDAV /files/", header("PROPFIND", "/files/"), status},
+		{"WebDAV /music/", header("PROPFIND", "/music/"), status},
+		{"WebDAV /photos/", header("PROPFIND", "/photos/"), status},
+		{"WebDAV /playlists/", header("PROPFIND", "/playlists/"), status},
+		{"WebDAV /trash/", header("PROPFIND", "/trash/"), status},
+		{"WebDAV /videos/", header("PROPFIND", "/videos/"), status},
+		{"tus", header(http.MethodPost, "/tus/"), status},
+		{"the pages", header(http.MethodGet, "/files/"), status},
+		{"/status", header(http.MethodGet, "/status"), status},
+		{"/thumb/", header(http.MethodGet, "/thumb/holiday.jpg"), status},
+		{"OpenSubsonic with a password", queried("u=" + user + "&p=not+it"), envelope},
+		{"OpenSubsonic with a token", queried("u=" + user + "&t=00000000000000000000000000000000&s=salt"), envelope},
+		{"OpenSubsonic with Basic", header(http.MethodGet, "/rest/ping.view?c=stratus-tests"), envelope},
+		{"the login form", func(t *testing.T) (int, string) {
+			t.Helper()
+			form := url.Values{"username": {user}, "password": {"not it"}}
+			req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, base+"/login", strings.NewReader(form.Encode()))
+			if err != nil {
+				t.Error(err)
+				return 0, ""
+			}
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			return do(t, req)
+		}, status},
+	}
+
+	// Spend the burst, which is what makes a mistyped password free, on the
+	// one surface the table then does not ask again.
+	for i := range 3 {
+		if code, _ := header("PROPFIND", "/files/")(t); code != http.StatusUnauthorized {
+			t.Fatalf("failed Basic login %d = %d, want 401", i, code)
 		}
 	}
 
-	// The fourth guess arrives on the other surface, and finds the bucket empty.
-	start := time.Now()
-	body := answer(t, base+"/rest/ping.view?c=stratus-tests&u=edu&p=not+it")
-	elapsed := time.Since(start)
-
-	if !strings.Contains(body, `code="40"`) {
-		t.Errorf("a wrong password = %s", body)
+	// Together, so that the slowest to be dispatched still arrives while the
+	// queue is longer than auth.DefaultThrottle.MaxWait.
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	for _, s := range surfaces {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			began := time.Now()
+			code, body := s.guess(t)
+			// Half of the configured second: the assertion is about there
+			// being a wait at all rather than about its length, and a budget
+			// of its own would answer in microseconds.
+			if elapsed := time.Since(began); elapsed < 500*time.Millisecond && !s.refused(code, body) {
+				t.Errorf("%s answered a wrong password in %v with %d: it has a rate limit of its own", s.name, elapsed, code)
+			}
+		}()
 	}
-	// Half of the configured second, so the assertion is about there being a
-	// wait at all rather than about its exact length.
-	if elapsed < 500*time.Millisecond {
-		t.Errorf("the guess was answered in %v: the surfaces have separate rate limits", elapsed)
-	}
+	close(start)
+	wg.Wait()
 }
 
 // TestSubsonicIsNotMountedWithoutCredentials is TestWebDAVIsNotMountedWithout-
