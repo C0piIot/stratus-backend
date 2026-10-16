@@ -36,6 +36,12 @@ func logRequests(h http.Handler) http.Handler {
 		// through a tus PATCH, a gallery scrolled past a thumbnail. Neither is
 		// this server's fault, and at error level each one was a crash report.
 		case r.Context().Err() != nil:
+		// A 503 with a time to come back is the server at the capacity it was
+		// configured for -- every decode or transcode slot taken -- and a grid
+		// on a small machine says it a lot. Worth seeing, not worth a crash
+		// report. A 503 without one is something that broke.
+		case rec.status == http.StatusServiceUnavailable && w.Header().Get("Retry-After") != "":
+			level = slog.LevelWarn
 		case rec.status >= http.StatusInternalServerError:
 			level = slog.LevelError
 		}
