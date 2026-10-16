@@ -52,9 +52,6 @@ type PlaylistSource interface {
 	Playlist(ctx context.Context, owner string, id int64) (db.Playlist, []db.Track, error)
 }
 
-// playlistMIME is the type players recognise an .m3u8 by.
-const playlistMIME = "audio/x-mpegurl"
-
 // playlistMethods is everything this mount answers.
 const playlistMethods = "OPTIONS, GET, HEAD, PROPFIND"
 
@@ -275,7 +272,7 @@ func (i playlistInfo) ContentType(context.Context) (string, error) {
 	if i.dir {
 		return "httpd/unix-directory", nil
 	}
-	return playlistMIME, nil
+	return music.M3U8MIME, nil
 }
 
 // ETag is a digest of what is served, because nothing else changes exactly when

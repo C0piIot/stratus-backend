@@ -365,10 +365,10 @@ func TestCoverArtOfSomethingUndecodable(t *testing.T) {
 	l.write(t, "music/Broken/cover.jpg", "this is not a JPEG")
 
 	rec := get(t, l, "getCoverArt", query("id", albumIDOf("Broken", "Broken")))
-	// The generic code rather than 70: the file is there and we cannot read it,
-	// which is worth telling apart in a log even though a client draws the same
-	// placeholder either way.
-	assertXMLError(t, rec, 0)
+	// 70, as the album page answers for the same file (#362): a client draws
+	// the same placeholder for any code, and the distinction worth keeping --
+	// the file is there and cannot be read -- is a line in the log.
+	assertXMLError(t, rec, 70)
 }
 
 // TestCoverArtSurvivesAClientHangingUp: the picture is already in hand when

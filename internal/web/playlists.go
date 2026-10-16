@@ -70,17 +70,14 @@ func (h *handler) playlistPages(w http.ResponseWriter, r *http.Request, user str
 		// The file itself, which is what a player asked for. Written here
 		// rather than served through ServeContent: it is generated, so there
 		// is no modification time to condition on and nothing to seek in.
-		w.Header().Set("Content-Type", playlistMIME)
+		w.Header().Set("Content-Type", music.M3U8MIME)
 		_, _ = w.Write(music.M3U8(pl, tracks, filesPrefix))
 		return
 	}
 
 	pv := &playlistView{Name: pl.Name, File: link(playlistsPrefix, raw)}
 	for i, t := range tracks {
-		title := t.Media.Title
-		if title == "" {
-			title = t.File.Path[strings.LastIndex(t.File.Path, "/")+1:]
-		}
+		title := music.Title(t)
 		pv.Tracks = append(pv.Tracks, trackRow{
 			Number: i + 1, Title: title, Duration: clock(t.Media.DurationMS),
 			// The file's own address, which is where the .m3u8 points too: a
@@ -110,8 +107,3 @@ func (h *handler) playlistIndex(w http.ResponseWriter, r *http.Request, user str
 	}
 	h.render(w, http.StatusOK, pagePlaylists, view{Title: "Playlists", User: user, Gallery: "Playlists", Playlists: rows})
 }
-
-// playlistMIME is the type players recognise an .m3u8 by. The same constant
-// internal/dav reports on the file, spelled out here because adapters do not
-// import each other.
-const playlistMIME = "audio/x-mpegurl"

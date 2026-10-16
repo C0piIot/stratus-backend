@@ -28,10 +28,7 @@ func M3U8(pl db.Playlist, tracks []db.Track, filesPrefix string) []byte {
 	b.WriteString("#EXTM3U\n")
 	fmt.Fprintf(&b, "#PLAYLIST:%s\n", oneLine(pl.Name))
 	for _, t := range tracks {
-		title := t.Media.Title
-		if title == "" {
-			title = t.File.Path[strings.LastIndex(t.File.Path, "/")+1:]
-		}
+		title := Title(t)
 		if t.Media.Artist != "" {
 			title = t.Media.Artist + " - " + title
 		}

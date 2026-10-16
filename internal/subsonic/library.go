@@ -9,6 +9,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/C0piIot/stratus-backend/internal/db"
+	"github.com/C0piIot/stratus-backend/internal/music"
 )
 
 // The browse payloads.
@@ -242,12 +243,7 @@ func albumChild(a db.Album) child {
 
 // titleOf falls back to the file name. A track with no title tag would
 // otherwise be a blank row a client cannot even select.
-func titleOf(t db.Track) string {
-	if t.Media.Title != "" {
-		return t.Media.Title
-	}
-	return path.Base(t.File.Path)
-}
+func titleOf(t db.Track) string { return music.Title(t) }
 
 func suffixOf(p string) string {
 	return strings.TrimPrefix(strings.ToLower(path.Ext(p)), ".")
