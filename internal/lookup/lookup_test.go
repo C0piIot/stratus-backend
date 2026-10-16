@@ -80,6 +80,10 @@ func newSources(t *testing.T) *sources {
 		s.mu.Unlock()
 		var groups []map[string]any
 		switch {
+		case strings.Contains(q, `artist:"Autechre, Someone Else"`):
+			// A credit of several names matches nothing, as on the real
+			// service; the first name alone does.
+			groups = nil
 		case strings.Contains(q, `releasegroup:"Amber"`):
 			groups = []map[string]any{
 				// A near miss first, so the score is what decides.
@@ -290,6 +294,30 @@ func TestAPassIdentifiesAnAlbumAndFetchesItsCover(t *testing.T) {
 	// Both asked with what narrows the answer: the album and the length.
 	if !strings.Contains(strings.Join(queries, "\n"), "album_name=Amber&artist_name=Autechre&duration=255&track_name=Foil") {
 		t.Errorf("LRCLIB was asked %q", queries)
+	}
+}
+
+// TestACreditOfSeveralNamesIsAskedByItsFirst: the full credit matches
+// nothing on MusicBrainz, which files the record under the band, so the
+// first name is asked next -- and only then.
+func TestACreditOfSeveralNamesIsAskedByItsFirst(t *testing.T) {
+	t.Parallel()
+	l, s := newLibrary(t), newSources(t)
+	l.track(t, "music/amber/01.flac", song("Autechre, Someone Else", "Amber", "Foil", 1))
+
+	done, err := service(t, l, s, time.Now()).Pass(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if done.Albums != 1 || done.Covers != 1 {
+		t.Errorf("Pass = %+v, want the album identified and its cover fetched", done)
+	}
+	if n := s.mbCalls.Load(); n != 2 {
+		t.Errorf("MusicBrainz was asked %d times, want the full credit and then the first name", n)
+	}
+	row, err := l.meta.AlbumLookup(t.Context(), owner, "Autechre, Someone Else", "Amber")
+	if err != nil || row.ReleaseGroup != amberGroup {
+		t.Errorf("the album's row is %+v, %v", row, err)
 	}
 }
 

@@ -26,7 +26,46 @@ const minScore = 90
 // either, and a group is every pressing of the record at once, so it has a
 // cover when any one of them does. Which pressing the user has is not a
 // question the tags can answer without the id Picard writes.
+//
+// Asked once with the artist as tagged and, when that finds nothing and the
+// tag reads as several names, once more with the first of them. A credit
+// such as "Architecture In Helsinki, Cameron Bird" is what a track ripped
+// from a video site carries, and MusicBrainz files the record under the band:
+// the full credit matched nothing and the first name matched with a score of
+// a hundred, on the first real library this ran against.
 func (s *Service) releaseGroup(ctx context.Context, artist, album string) (string, error) {
+	for _, name := range creditNames(artist) {
+		id, err := s.searchReleaseGroup(ctx, name, album)
+		if err != nil || id != "" {
+			return id, err
+		}
+	}
+	return "", nil
+}
+
+// creditSeparators are what joins several names into one artist tag, each
+// with the spaces that keep it from cutting a name in two: "AC/DC" has no
+// space around its slash and "Simon & Garfunkel" is one act, which is why
+// the ampersand is the last tried and only after a comma has not split it.
+var creditSeparators = []string{", ", "; ", " feat. ", " feat ", " ft. ", " featuring ", " & "}
+
+// creditNames is the artist as tagged and, when the tag reads as several
+// names, the first of them: at most two questions for one album.
+func creditNames(artist string) []string {
+	names := []string{artist}
+	for _, sep := range creditSeparators {
+		first, _, found := strings.Cut(artist, sep)
+		first = strings.TrimSpace(first)
+		if found && first != "" && !strings.EqualFold(first, artist) {
+			return append(names, first)
+		}
+	}
+	return names
+}
+
+// searchReleaseGroup is one search: the album as a phrase under the artist
+// as a phrase, and the first result scored high enough to believe.
+func (s *Service) searchReleaseGroup(ctx context.Context, artist, album string) (string, error) {
 	q := url.Values{
 		"query": {`releasegroup:` + lucene(album) + ` AND artist:` + lucene(artist)},
 		"fmt":   {"json"},
