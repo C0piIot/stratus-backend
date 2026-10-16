@@ -31,6 +31,7 @@ const shareParam = "k"
 func (h *handler) signedIn(page func(http.ResponseWriter, *http.Request, string)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if user, err := h.session(r); err == nil {
+			h.renewSession(w, r)
 			page(w, r, user)
 			return
 		}

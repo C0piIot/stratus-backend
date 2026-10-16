@@ -12,6 +12,20 @@ func setSession(w http.ResponseWriter, r *http.Request, value string, expires ti
 	http.SetCookie(w, cookie(r, value, int(time.Until(expires).Seconds())))
 }
 
+// renewSession is what a page does for the cookie it was opened with: a
+// session lasts a fortnight from its last use, and this is where the use is
+// counted. The gate calls it before the page writes anything, because a
+// header after the first byte of a body is a header nobody receives.
+func (h *handler) renewSession(w http.ResponseWriter, r *http.Request) {
+	c, err := r.Cookie(auth.SessionCookie)
+	if err != nil {
+		return
+	}
+	if value, expires, ok := h.sessions.Renew(c.Value, time.Now()); ok {
+		setSession(w, r, value, expires)
+	}
+}
+
 // clearSession is what signing out does. A stateless session has nothing on the
 // server to delete, so this is the whole of it.
 func clearSession(w http.ResponseWriter, r *http.Request) {

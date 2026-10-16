@@ -335,10 +335,16 @@ Hard constraints, in the same spirit as the rest of the project:
   What that buys is no state and no migration, and a password change that
   revokes every session already issued. What it costs is the revocation in
   between: signing out clears the browser's cookie and there is nothing else to
-  delete, so a copied cookie works until it expires -- hence a **seven-day
-  ceiling that is not renewed on use**, which is the only bound the design has.
-  A map in memory was the alternative: real revocation, at the price of a
-  restart signing everybody out.
+  delete, so a copied cookie works until it expires. It expired on a hard
+  seven-day ceiling at first, as the only bound a copied cookie had; that
+  signed out a person using the UI daily on every seventh day, so the window
+  **slides now, fourteen days from the last use and re-signed once a day**
+  (#334), and it slides without a cap by decision -- a copied cookie in use
+  lives until the password changes, which is the revocation that is actually
+  reached for. The gate renews it, before the page writes a byte, and only the
+  UI's own gate: `auth.Session` on the protocol surfaces reads the cookie and
+  never sets one. A map in memory was the alternative: real revocation, at the
+  price of a restart signing everybody out.
 - **A share link is the ordinary URL with a signature on it, and that is the
   whole of the design** (#169). `internal/auth/share.go` is the fourth
   credential adapter beside the other three, derived from the same password with
