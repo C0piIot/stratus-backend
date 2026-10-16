@@ -322,9 +322,20 @@ func notFound(what string) apiError {
 // client's log is not the place for it. The protocol has no code for "my fault"
 // either, so it is the generic one with a message that does not pretend the
 // request was wrong.
+//
+// A client that hung up is not one: a cover scrolled past cancels the read
+// it asked for, and at error level every one of those was a crash report.
+// The request log already says it at info, so this says it at debug.
 func (h *handler) internal(r *http.Request, what string, err error) apiError {
-	slog.ErrorContext(r.Context(), "subsonic: cannot "+what, "err", err)
+	slog.Log(r.Context(), failureLevel(r, err), "subsonic: cannot "+what, "err", err)
 	return apiError{errGeneric, "the server could not answer that"}
+}
+
+func failureLevel(r *http.Request, err error) slog.Level {
+	if gone := r.Context().Err(); gone != nil && errors.Is(err, gone) {
+		return slog.LevelDebug
+	}
+	return slog.LevelError
 }
 
 func ptr(e apiError) *apiError { return &e }
