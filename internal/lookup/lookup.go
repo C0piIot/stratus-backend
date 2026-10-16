@@ -294,7 +294,7 @@ func (s *Service) lookupLyrics(ctx context.Context, t db.Track, now time.Time) (
 	switch {
 	case errors.Is(err, errNothing):
 		row.RetryAt = now.Add(retryNothing)
-		row.Error = "not found on LRCLIB"
+		row.Error = err.Error()
 	case err != nil:
 		row.RetryAt = now.Add(retryUnreachable)
 		row.Error = err.Error()

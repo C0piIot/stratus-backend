@@ -357,8 +357,8 @@ func TestNothingThereIsAskedAgainInAMonth(t *testing.T) {
 // saying stop, and asking seven more times is how an agent gets blocked. What
 // was refused is asked again in an hour, what was not reached stays pending
 // for the next pass -- and the other half still runs, since LRCLIB is not
-// MusicBrainz. The fake refuses everything, and LRCLIB's 503 is a deferral
-// per track rather than a refusal, so both tracks are asked and deferred.
+// MusicBrainz. The fake refuses everything, and LRCLIB's 503 is "not held"
+// per track rather than a refusal, so both tracks are asked and answered.
 func TestARefusalStopsItsHalfOfThePass(t *testing.T) {
 	t.Parallel()
 	l, s := newLibrary(t), newSources(t)
@@ -372,8 +372,8 @@ func TestARefusalStopsItsHalfOfThePass(t *testing.T) {
 	if err != nil {
 		t.Fatalf("a refusal is not an error of the pass: %v", err)
 	}
-	if done.Deferred != 3 || done.Albums != 0 || done.Lyrics != 0 || done.More {
-		t.Errorf("Pass = %+v, want the album and both tracks deferred", done)
+	if done.Deferred != 1 || done.Albums != 0 || done.Lyrics != 2 || done.More {
+		t.Errorf("Pass = %+v, want the album deferred and both tracks answered as not held", done)
 	}
 	if n := s.mbCalls.Load(); n != 1 {
 		t.Errorf("MusicBrainz was asked %d times after refusing", n)
@@ -657,11 +657,11 @@ func TestARefusedLyricsLookupStopsItsHalf(t *testing.T) {
 	}
 }
 
-// TestLRCLIBBusyIsThisTrackInAnHour: LRCLIB answers 503 for a track it does
-// not hold and would have to fetch while it is busy, which is about the track
-// and not about this client. The pass goes on to the next one, and a full
-// batch still says there is more.
-func TestLRCLIBBusyIsThisTrackInAnHour(t *testing.T) {
+// TestLRCLIBBusyIsNotHeld: LRCLIB answers 503 for a track it does not hold
+// and would have to fetch while it is busy, which is about the track and not
+// about this client. It is asked about again in a month like any track they
+// have nothing for, and the pass goes on to the next one.
+func TestLRCLIBBusyIsNotHeld(t *testing.T) {
 	t.Parallel()
 	l, s := newLibrary(t), newSources(t)
 	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
@@ -683,15 +683,15 @@ func TestLRCLIBBusyIsThisTrackInAnHour(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if done.Lyrics != 1 || done.Deferred != 1 {
-		t.Errorf("Pass = %+v, want one track answered and one deferred", done)
+	if done.Lyrics != 2 || done.Deferred != 0 {
+		t.Errorf("Pass = %+v, want both tracks answered, one of them with nothing", done)
 	}
 	words, err := l.meta.LyricsOf(t.Context(), []int64{unheard.ID, foil.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if w := words[unheard.ID]; w.Found() || !w.RetryAt.Equal(now.Add(time.Hour)) || !strings.Contains(w.Error, "503") {
-		t.Errorf("the busy track is %+v, want a retry in an hour", w)
+	if w := words[unheard.ID]; w.Found() || !w.RetryAt.Equal(now.Add(30*24*time.Hour)) || !strings.Contains(w.Error, "503") {
+		t.Errorf("the busy track is %+v, want a retry in a month with the reason", w)
 	}
 	if !words[foil.ID].Found() {
 		t.Errorf("the track behind the busy one was not asked about: %+v", words[foil.ID])
