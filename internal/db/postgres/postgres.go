@@ -73,11 +73,14 @@ func (s *Store) Tx(ctx context.Context, fn func(db.Repo) error) error {
 
 type repo struct{ q sqlutil.Querier }
 
+// times is how this engine keeps a time (#360).
+var times = sqlutil.Timestamps{}
+
 // isDirProbe is what sqlutil.CheckAffected asks when a statement changed
 // nothing: the placeholders are why it cannot live in that package.
 const isDirProbe = `SELECT is_dir FROM files WHERE owner_id = $1 AND path = $2`
 
-const fileColumns = `id, owner_id, path, blob_key, size, mtime, etag, mime_type, is_dir`
+const fileColumns = sqlutil.FileColumns
 
 // PutFile implements db.Repo.
 func (r *repo) PutFile(ctx context.Context, f db.File) (db.File, error) {
@@ -283,28 +286,22 @@ func (r *repo) ListFilesPage(
 	return out, nil
 }
 
-const mediaColumns = `file_id, kind, indexed_at, version, etag, error, retry_at, taken_at, width, height, orientation, latitude, longitude, camera, duration_ms, codec, bitrate, sample_rate, channels, bit_depth, codec_profile, level, frame_rate, audio_codec, color_primaries, color_transfer, color_space, dovi_profile, artist, album, title, track_no, disc_no, year, genre, album_artist, mb_release_group, mb_release`
+const mediaColumns = sqlutil.MediaColumns
 
 // mediaWriteColumns is the read list plus the four folded columns a search
 // matches on. They are written and filtered but never read back: they are how
 // the row is stored, not part of what a db.Media is, so scanMedia does not know
 // about them.
-const mediaWriteColumns = mediaColumns + `, search_title, search_artist, search_album, search_album_artist, search_photo`
+const mediaWriteColumns = sqlutil.MediaWriteColumns
 
 // PutMedia implements db.MediaIndex.
 func (r *repo) PutMedia(ctx context.Context, m db.Media) error {
 	m = m.Normalize()
 	folded := m.Fold()
 
-	var takenAt any
-	if !m.TakenAt.IsZero() {
-		takenAt = m.TakenAt
-	}
+	takenAt := times.NullArg(m.TakenAt)
 
-	var retryAt any
-	if !m.RetryAt.IsZero() {
-		retryAt = m.RetryAt
-	}
+	retryAt := times.NullArg(m.RetryAt)
 
 	var lat, lon any
 	if m.GPS != nil {
@@ -522,41 +519,14 @@ type mediaStateRow struct {
 }
 
 func scanMediaState(rows *sql.Rows) (mediaStateRow, error) {
-	var row mediaStateRow
-	var thumbAt sql.NullTime
-	err := rows.Scan(&row.id, &row.state.Version, &row.state.ETag, &row.state.Failed,
-		&row.state.Thumb, &thumbAt)
-	if thumbAt.Valid {
-		row.state.ThumbAt = thumbAt.Time.UTC()
-	}
-	return row, err
+	id, state, err := sqlutil.ScanMediaState(rows, times)
+	return mediaStateRow{id: id, state: state}, err
 }
 
 func scanMedia(row *sql.Row) (db.Media, error) {
-	var m db.Media
-	var kind string
-	var lat, lon sql.NullFloat64
-	var indexedAt time.Time
-	var takenAt, retryAt sql.NullTime
-
-	err := row.Scan(&m.FileID, &kind, &indexedAt, &m.Version, &m.ETag, &m.Error, &retryAt, &takenAt,
-		&m.Width, &m.Height, &m.Orientation, &lat, &lon, &m.Camera,
-		&m.DurationMS, &m.Codec, &m.Bitrate, &m.SampleRate, &m.Channels, &m.BitDepth, &m.CodecProfile, &m.Level, &m.FrameRate, &m.AudioCodec, &m.ColorPrimaries, &m.ColorTransfer, &m.ColorSpace, &m.DoViProfile, &m.Artist, &m.Album, &m.Title,
-		&m.TrackNo, &m.DiscNo, &m.Year, &m.Genre, &m.AlbumArtist, &m.MBReleaseGroup, &m.MBRelease)
+	m, err := sqlutil.ScanMedia(row, times)
 	if err != nil {
 		return db.Media{}, mapErr(err)
-	}
-
-	m.Kind = db.Kind(kind)
-	m.IndexedAt = indexedAt.UTC()
-	if takenAt.Valid {
-		m.TakenAt = takenAt.Time.UTC()
-	}
-	if retryAt.Valid {
-		m.RetryAt = retryAt.Time.UTC()
-	}
-	if lat.Valid && lon.Valid {
-		m.GPS = &db.GPS{Latitude: lat.Float64, Longitude: lon.Float64}
 	}
 	return m, nil
 }
@@ -564,8 +534,8 @@ func scanMedia(row *sql.Row) (db.Media, error) {
 // joinedFileColumns and joinedMediaColumns are the same lists qualified for a
 // join, where both tables carry columns the other also has.
 var (
-	joinedFileColumns  = "f." + strings.ReplaceAll(fileColumns, ", ", ", f.")
-	joinedMediaColumns = "m." + strings.ReplaceAll(mediaColumns, ", ", ", m.")
+	joinedFileColumns  = sqlutil.Joined("f", fileColumns)
+	joinedMediaColumns = sqlutil.Joined("m", mediaColumns)
 )
 
 // Artists implements db.Repo.
@@ -834,28 +804,11 @@ func (r *repo) Search(ctx context.Context, owner string, f db.SearchFilter) (db.
 	return out, nil
 }
 
-func scanGenre(rows *sql.Rows) (db.Genre, error) {
-	var g db.Genre
-	err := rows.Scan(&g.Name, &g.SongCount, &g.AlbumCount)
-	return g, err
-}
+func scanGenre(rows *sql.Rows) (db.Genre, error) { return sqlutil.ScanGenre(rows) }
 
-func scanArtist(rows *sql.Rows) (db.Artist, error) {
-	var a db.Artist
-	err := rows.Scan(&a.Name, &a.AlbumCount)
-	return a, err
-}
+func scanArtist(rows *sql.Rows) (db.Artist, error) { return sqlutil.ScanArtist(rows) }
 
-func scanAlbum(rows *sql.Rows) (db.Album, error) {
-	var a db.Album
-	var created time.Time
-	if err := rows.Scan(&a.Artist, &a.Name, &a.SongCount, &a.DurationMS,
-		&a.Year, &a.Genre, &created); err != nil {
-		return db.Album{}, err
-	}
-	a.Created = created.UTC()
-	return a, nil
-}
+func scanAlbum(rows *sql.Rows) (db.Album, error) { return sqlutil.ScanAlbum(rows, times) }
 
 // scanTrack reads a file row and a media row from one joined result. The two
 // halves are scanned the same way the single-table readers do it, because the
@@ -865,38 +818,7 @@ func scanTrack(rows *sql.Rows) (db.Track, error) { return scanTrackWith(rows) }
 // scanTrackWith is scanTrack for a query that selects more after the two
 // halves: the extra destinations are scanned in the same call.
 func scanTrackWith(rows *sql.Rows, extra ...any) (db.Track, error) {
-	var t db.Track
-	var kind string
-	var lat, lon sql.NullFloat64
-	var takenAt, retryAt sql.NullTime
-
-	err := rows.Scan(append([]any{
-		&t.File.ID, &t.File.OwnerID, &t.File.Path, &t.File.BlobKey, &t.File.Size,
-		&t.File.MTime, &t.File.ETag, &t.File.MIMEType, &t.File.IsDir,
-		&t.Media.FileID, &kind, &t.Media.IndexedAt, &t.Media.Version, &t.Media.ETag, &t.Media.Error, &retryAt, &takenAt,
-		&t.Media.Width, &t.Media.Height, &t.Media.Orientation, &lat, &lon, &t.Media.Camera,
-		&t.Media.DurationMS, &t.Media.Codec,
-		&t.Media.Bitrate, &t.Media.SampleRate, &t.Media.Channels, &t.Media.BitDepth, &t.Media.CodecProfile,
-		&t.Media.Level, &t.Media.FrameRate, &t.Media.AudioCodec,
-		&t.Media.ColorPrimaries, &t.Media.ColorTransfer, &t.Media.ColorSpace, &t.Media.DoViProfile, &t.Media.Artist, &t.Media.Album, &t.Media.Title,
-		&t.Media.TrackNo, &t.Media.DiscNo, &t.Media.Year, &t.Media.Genre, &t.Media.AlbumArtist, &t.Media.MBReleaseGroup, &t.Media.MBRelease}, extra...)...)
-	if err != nil {
-		return db.Track{}, err
-	}
-
-	t.File.MTime = t.File.MTime.UTC()
-	t.Media.Kind = db.Kind(kind)
-	t.Media.IndexedAt = t.Media.IndexedAt.UTC()
-	if takenAt.Valid {
-		t.Media.TakenAt = takenAt.Time.UTC()
-	}
-	if retryAt.Valid {
-		t.Media.RetryAt = retryAt.Time.UTC()
-	}
-	if lat.Valid && lon.Valid {
-		t.Media.GPS = &db.GPS{Latitude: lat.Float64, Longitude: lon.Float64}
-	}
-	return t, nil
+	return sqlutil.ScanTrack(rows, times, extra...)
 }
 
 // BlobKeys implements db.Repo.
@@ -979,21 +901,13 @@ func (r *repo) DeleteFile(ctx context.Context, owner, path string) error {
 }
 
 // scanFileRow reads one row of fileColumns, for the queries that return many.
-func scanFileRow(rows *sql.Rows) (db.File, error) {
-	var f db.File
-	if err := rows.Scan(&f.ID, &f.OwnerID, &f.Path, &f.BlobKey, &f.Size, &f.MTime, &f.ETag, &f.MIMEType, &f.IsDir); err != nil {
-		return db.File{}, err
-	}
-	f.MTime = f.MTime.UTC()
-	return f, nil
-}
+func scanFileRow(rows *sql.Rows) (db.File, error) { return sqlutil.ScanFile(rows, times) }
 
 func scanFile(row *sql.Row) (db.File, error) {
-	var f db.File
-	if err := row.Scan(&f.ID, &f.OwnerID, &f.Path, &f.BlobKey, &f.Size, &f.MTime, &f.ETag, &f.MIMEType, &f.IsDir); err != nil {
+	f, err := sqlutil.ScanFile(row, times)
+	if err != nil {
 		return db.File{}, mapErr(err)
 	}
-	f.MTime = f.MTime.UTC()
 	return f, nil
 }
 
@@ -1017,7 +931,7 @@ func mapErr(err error) error {
 	return err
 }
 
-const uploadColumns = `id, owner_id, path, size, received, blob_key, store_id, digest, mime_type, expires_at`
+const uploadColumns = sqlutil.UploadColumns
 
 // PutUpload implements db.Uploads.
 func (r *repo) PutUpload(ctx context.Context, u db.Upload) error {
@@ -1073,26 +987,14 @@ func (r *repo) ExpiredUploads(ctx context.Context, now time.Time) iter.Seq2[db.U
 }
 
 func scanUpload(row *sql.Row) (db.Upload, error) {
-	var u db.Upload
-	var expires time.Time
-	if err := row.Scan(&u.ID, &u.OwnerID, &u.Path, &u.Size, &u.Received,
-		&u.BlobKey, &u.StoreID, &u.Digest, &u.MIMEType, &expires); err != nil {
+	u, err := sqlutil.ScanUpload(row, times)
+	if err != nil {
 		return db.Upload{}, mapErr(err)
 	}
-	u.ExpiresAt = expires.UTC()
 	return u, nil
 }
 
-func scanUploadRow(rows *sql.Rows) (db.Upload, error) {
-	var u db.Upload
-	var expires time.Time
-	if err := rows.Scan(&u.ID, &u.OwnerID, &u.Path, &u.Size, &u.Received,
-		&u.BlobKey, &u.StoreID, &u.Digest, &u.MIMEType, &expires); err != nil {
-		return db.Upload{}, err
-	}
-	u.ExpiresAt = expires.UTC()
-	return u, nil
-}
+func scanUploadRow(rows *sql.Rows) (db.Upload, error) { return sqlutil.ScanUpload(rows, times) }
 
 // nameFlat is the term flattened the way search_name is, so that what is
 // compared is the same shape on both sides -- searching photo.jpg has to match

@@ -1,17 +1,25 @@
 // Package sqlutil is the plumbing the SQL drivers share, and nothing else.
 //
-// It exists because the two adapters for internal/db are hand-written per
+// It exists because the three adapters for internal/db are hand-written per
 // dialect on purpose, and that made them accumulate identical non-SQL
 // machinery: the querier interface, the transaction wrapper, the row loop and
 // the "nothing changed, why?" probe. Each new table copied all of it again.
 //
 // The line this package must not cross is SQL. Not one query string, not one
-// placeholder, not one type or error mapping lives here -- those are the parts
-// that genuinely differ between SQLite and PostgreSQL, and a third dialect
-// would differ again: MySQL has no RETURNING and spells an upsert
-// ON DUPLICATE KEY UPDATE. A helper here that knew how to insert a row and read
-// its id back is exactly what such a driver would force us to undo, so there
-// isn't one.
+// placeholder, not one error mapping lives here -- those are the parts that
+// genuinely differ between SQLite and PostgreSQL, and the third dialect
+// differs again: MySQL has no RETURNING and spells an upsert ON DUPLICATE KEY
+// UPDATE. A helper here that knew how to insert a row and read its id back is
+// exactly what such a driver would force us to undo, so there isn't one.
+//
+// What is here since #360, beside the plumbing, is the port's entities read
+// off a row (scan.go) and the one thing about a row that is a dialect's
+// choice rather than SQL: how a time is kept (times.go). Sixteen scanners per
+// driver were the same text apart from that, and a column added to media was
+// twelve edits in three packages. The driver still names its codec and still
+// owns every query; the column lists moved beside the scanners because a
+// scanner over a fixed column order is only safe when the order is in the
+// same file.
 //
 // It also sits below the port rather than inside it: internal/db declares the
 // interface, the sentinels and the entities, and internal/files has no business

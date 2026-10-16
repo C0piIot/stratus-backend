@@ -121,11 +121,14 @@ func (s *Store) Tx(ctx context.Context, fn func(db.Repo) error) error {
 
 type repo struct{ q sqlutil.Querier }
 
+// times is how this engine keeps a time (#360).
+var times = sqlutil.Millis{}
+
 // isDirProbe is what sqlutil.CheckAffected asks when a statement changed
 // nothing: the placeholders are why it cannot live in that package.
 const isDirProbe = `SELECT is_dir FROM files WHERE owner_id = ? AND path = ?`
 
-const fileColumns = `id, owner_id, path, blob_key, size, mtime, etag, mime_type, is_dir`
+const fileColumns = sqlutil.FileColumns
 
 // PutFile implements db.Repo.
 func (r *repo) PutFile(ctx context.Context, f db.File) (db.File, error) {
@@ -144,7 +147,7 @@ func (r *repo) PutFile(ctx context.Context, f db.File) (db.File, error) {
 
 	err := r.q.QueryRowContext(ctx, query,
 		f.OwnerID, f.Path, db.ParentOf(f.Path), f.BlobKey, f.Size,
-		f.MTime.UnixMilli(), f.ETag, f.MIMEType,
+		times.Arg(f.MTime), f.ETag, f.MIMEType,
 	).Scan(&f.ID)
 	if errors.Is(err, sql.ErrNoRows) {
 		// The upsert declined to update, which the WHERE above only does for a
@@ -170,7 +173,7 @@ func (r *repo) CreateDir(ctx context.Context, owner, path string) (db.File, erro
 	dir := db.File{OwnerID: owner, Path: path, MTime: time.Now(), IsDir: true}.Normalize()
 	err := r.q.QueryRowContext(ctx, query,
 		dir.OwnerID, dir.Path, db.ParentOf(dir.Path), "", 0,
-		dir.MTime.UnixMilli(), "", "",
+		times.Arg(dir.MTime), "", "",
 	).Scan(&dir.ID)
 	if err != nil {
 		return db.File{}, fmt.Errorf("create directory %q: %w", path, mapErr(err))
@@ -258,7 +261,7 @@ func listPageArgs(order db.FileOrder, owner, dir string, isDir bool, after db.Cu
 		case db.SortSize:
 			args = append(args, after.Size, after.Path)
 		case db.SortMTime:
-			args = append(args, after.MTime.UnixMilli(), after.Path)
+			args = append(args, times.Arg(after.MTime), after.Path)
 		default:
 			args = append(args, after.Path)
 		}
@@ -326,28 +329,22 @@ func (r *repo) ListFilesPage(
 	return out, nil
 }
 
-const mediaColumns = `file_id, kind, indexed_at, version, etag, error, retry_at, taken_at, width, height, orientation, latitude, longitude, camera, duration_ms, codec, bitrate, sample_rate, channels, bit_depth, codec_profile, level, frame_rate, audio_codec, color_primaries, color_transfer, color_space, dovi_profile, artist, album, title, track_no, disc_no, year, genre, album_artist, mb_release_group, mb_release`
+const mediaColumns = sqlutil.MediaColumns
 
 // mediaWriteColumns is the read list plus the four folded columns a search
 // matches on. They are written and filtered but never read back: they are how
 // the row is stored, not part of what a db.Media is, so scanMedia does not know
 // about them.
-const mediaWriteColumns = mediaColumns + `, search_title, search_artist, search_album, search_album_artist, search_photo`
+const mediaWriteColumns = sqlutil.MediaWriteColumns
 
 // PutMedia implements db.MediaIndex.
 func (r *repo) PutMedia(ctx context.Context, m db.Media) error {
 	m = m.Normalize()
 	folded := m.Fold()
 
-	var takenAt any
-	if !m.TakenAt.IsZero() {
-		takenAt = m.TakenAt.UnixMilli()
-	}
+	takenAt := times.NullArg(m.TakenAt)
 
-	var retryAt any
-	if !m.RetryAt.IsZero() {
-		retryAt = m.RetryAt.UnixMilli()
-	}
+	retryAt := times.NullArg(m.RetryAt)
 
 	var lat, lon any
 	if m.GPS != nil {
@@ -375,7 +372,7 @@ func (r *repo) PutMedia(ctx context.Context, m db.Media) error {
 			search_photo = excluded.search_photo`
 
 	_, err := r.q.ExecContext(ctx, query,
-		m.FileID, string(m.Kind), m.IndexedAt.UnixMilli(), m.Version, m.ETag, m.Error, retryAt, takenAt,
+		m.FileID, string(m.Kind), times.Arg(m.IndexedAt), m.Version, m.ETag, m.Error, retryAt, takenAt,
 		m.Width, m.Height, m.Orientation, lat, lon, m.Camera,
 		m.DurationMS, m.Codec, m.Bitrate, m.SampleRate, m.Channels, m.BitDepth, m.CodecProfile, m.Level, m.FrameRate, m.AudioCodec, m.ColorPrimaries, m.ColorTransfer, m.ColorSpace, m.DoViProfile, m.Artist, m.Album, m.Title,
 		m.TrackNo, m.DiscNo, m.Year, m.Genre,
@@ -423,7 +420,7 @@ func (r *repo) PendingMedia(ctx context.Context, version int, now time.Time, lim
 			OR (m.retry_at IS NOT NULL AND m.retry_at <= ?))
 		ORDER BY f.id LIMIT ?`
 
-	out, err := sqlutil.Collect(ctx, r.q, scanFileRow, query, version, now.UnixMilli(), limit)
+	out, err := sqlutil.Collect(ctx, r.q, scanFileRow, query, version, times.Arg(now), limit)
 	if err != nil {
 		return nil, fmt.Errorf("list pending media: %w", mapErr(err))
 	}
@@ -479,7 +476,7 @@ var (
 // PendingThumbs implements db.MediaIndex.
 func (r *repo) PendingThumbs(ctx context.Context, kind db.Kind, generation int, staleBefore time.Time, limit int) ([]db.File, error) {
 	out, err := sqlutil.Collect(ctx, r.q, scanFileRow, pendingThumbs,
-		string(kind), generation, staleBefore.UnixMilli(), limit)
+		string(kind), generation, times.Arg(staleBefore), limit)
 	if err != nil {
 		return nil, fmt.Errorf("list pending thumbnails: %w", mapErr(err))
 	}
@@ -497,7 +494,7 @@ func (r *repo) PutThumbVerdict(ctx context.Context, v db.ThumbVerdict) error {
 		SET thumb_state = ?, thumb_blob_key = ?, thumb_generation = ?, thumb_at = ?
 		WHERE file_id = ?`
 
-	result, err := r.q.ExecContext(ctx, query, int(v.State), v.BlobKey, v.Generation, v.At.UnixMilli(), v.FileID)
+	result, err := r.q.ExecContext(ctx, query, int(v.State), v.BlobKey, v.Generation, times.Arg(v.At), v.FileID)
 	if err != nil {
 		return fmt.Errorf("record thumbnail state: %w", mapErr(err))
 	}
@@ -575,41 +572,14 @@ type mediaStateRow struct {
 }
 
 func scanMediaState(rows *sql.Rows) (mediaStateRow, error) {
-	var row mediaStateRow
-	var thumbAt sql.NullInt64
-	err := rows.Scan(&row.id, &row.state.Version, &row.state.ETag, &row.state.Failed,
-		&row.state.Thumb, &thumbAt)
-	if thumbAt.Valid {
-		row.state.ThumbAt = time.UnixMilli(thumbAt.Int64).UTC()
-	}
-	return row, err
+	id, state, err := sqlutil.ScanMediaState(rows, times)
+	return mediaStateRow{id: id, state: state}, err
 }
 
 func scanMedia(row *sql.Row) (db.Media, error) {
-	var m db.Media
-	var kind string
-	var lat, lon sql.NullFloat64
-	var indexedAt int64
-	var takenAt, retryAt sql.NullInt64
-
-	err := row.Scan(&m.FileID, &kind, &indexedAt, &m.Version, &m.ETag, &m.Error, &retryAt, &takenAt,
-		&m.Width, &m.Height, &m.Orientation, &lat, &lon, &m.Camera,
-		&m.DurationMS, &m.Codec, &m.Bitrate, &m.SampleRate, &m.Channels, &m.BitDepth, &m.CodecProfile, &m.Level, &m.FrameRate, &m.AudioCodec, &m.ColorPrimaries, &m.ColorTransfer, &m.ColorSpace, &m.DoViProfile, &m.Artist, &m.Album, &m.Title,
-		&m.TrackNo, &m.DiscNo, &m.Year, &m.Genre, &m.AlbumArtist, &m.MBReleaseGroup, &m.MBRelease)
+	m, err := sqlutil.ScanMedia(row, times)
 	if err != nil {
 		return db.Media{}, mapErr(err)
-	}
-
-	m.Kind = db.Kind(kind)
-	m.IndexedAt = time.UnixMilli(indexedAt).UTC()
-	if takenAt.Valid {
-		m.TakenAt = time.UnixMilli(takenAt.Int64).UTC()
-	}
-	if retryAt.Valid {
-		m.RetryAt = time.UnixMilli(retryAt.Int64).UTC()
-	}
-	if lat.Valid && lon.Valid {
-		m.GPS = &db.GPS{Latitude: lat.Float64, Longitude: lon.Float64}
 	}
 	return m, nil
 }
@@ -617,8 +587,8 @@ func scanMedia(row *sql.Row) (db.Media, error) {
 // joinedFileColumns and joinedMediaColumns are the same lists qualified for a
 // join, where both tables carry columns the other also has.
 var (
-	joinedFileColumns  = "f." + strings.ReplaceAll(fileColumns, ", ", ", f.")
-	joinedMediaColumns = "m." + strings.ReplaceAll(mediaColumns, ", ", ", m.")
+	joinedFileColumns  = sqlutil.Joined("f", fileColumns)
+	joinedMediaColumns = sqlutil.Joined("m", mediaColumns)
 )
 
 // Artists implements db.Repo.
@@ -972,28 +942,11 @@ func ftsColumn(column, term string) string {
 	return column + " : " + ftsPhrase(term)
 }
 
-func scanGenre(rows *sql.Rows) (db.Genre, error) {
-	var g db.Genre
-	err := rows.Scan(&g.Name, &g.SongCount, &g.AlbumCount)
-	return g, err
-}
+func scanGenre(rows *sql.Rows) (db.Genre, error) { return sqlutil.ScanGenre(rows) }
 
-func scanArtist(rows *sql.Rows) (db.Artist, error) {
-	var a db.Artist
-	err := rows.Scan(&a.Name, &a.AlbumCount)
-	return a, err
-}
+func scanArtist(rows *sql.Rows) (db.Artist, error) { return sqlutil.ScanArtist(rows) }
 
-func scanAlbum(rows *sql.Rows) (db.Album, error) {
-	var a db.Album
-	var created int64
-	if err := rows.Scan(&a.Artist, &a.Name, &a.SongCount, &a.DurationMS,
-		&a.Year, &a.Genre, &created); err != nil {
-		return db.Album{}, err
-	}
-	a.Created = time.UnixMilli(created).UTC()
-	return a, nil
-}
+func scanAlbum(rows *sql.Rows) (db.Album, error) { return sqlutil.ScanAlbum(rows, times) }
 
 // scanTrack reads a file row and a media row from one joined result. The two
 // halves are scanned the same way the single-table readers do it, because the
@@ -1003,39 +956,7 @@ func scanTrack(rows *sql.Rows) (db.Track, error) { return scanTrackWith(rows) }
 // scanTrackWith is scanTrack for a query that selects more after the two
 // halves: the extra destinations are scanned in the same call.
 func scanTrackWith(rows *sql.Rows, extra ...any) (db.Track, error) {
-	var t db.Track
-	var mtime, indexedAt int64
-	var kind string
-	var lat, lon sql.NullFloat64
-	var takenAt, retryAt sql.NullInt64
-
-	err := rows.Scan(append([]any{
-		&t.File.ID, &t.File.OwnerID, &t.File.Path, &t.File.BlobKey, &t.File.Size,
-		&mtime, &t.File.ETag, &t.File.MIMEType, &t.File.IsDir,
-		&t.Media.FileID, &kind, &indexedAt, &t.Media.Version, &t.Media.ETag, &t.Media.Error, &retryAt, &takenAt,
-		&t.Media.Width, &t.Media.Height, &t.Media.Orientation, &lat, &lon, &t.Media.Camera,
-		&t.Media.DurationMS, &t.Media.Codec,
-		&t.Media.Bitrate, &t.Media.SampleRate, &t.Media.Channels, &t.Media.BitDepth, &t.Media.CodecProfile,
-		&t.Media.Level, &t.Media.FrameRate, &t.Media.AudioCodec,
-		&t.Media.ColorPrimaries, &t.Media.ColorTransfer, &t.Media.ColorSpace, &t.Media.DoViProfile, &t.Media.Artist, &t.Media.Album, &t.Media.Title,
-		&t.Media.TrackNo, &t.Media.DiscNo, &t.Media.Year, &t.Media.Genre, &t.Media.AlbumArtist, &t.Media.MBReleaseGroup, &t.Media.MBRelease}, extra...)...)
-	if err != nil {
-		return db.Track{}, err
-	}
-
-	t.File.MTime = time.UnixMilli(mtime).UTC()
-	t.Media.Kind = db.Kind(kind)
-	t.Media.IndexedAt = time.UnixMilli(indexedAt).UTC()
-	if takenAt.Valid {
-		t.Media.TakenAt = time.UnixMilli(takenAt.Int64).UTC()
-	}
-	if retryAt.Valid {
-		t.Media.RetryAt = time.UnixMilli(retryAt.Int64).UTC()
-	}
-	if lat.Valid && lon.Valid {
-		t.Media.GPS = &db.GPS{Latitude: lat.Float64, Longitude: lon.Float64}
-	}
-	return t, nil
+	return sqlutil.ScanTrack(rows, times, extra...)
 }
 
 // BlobKeys implements db.Repo.
@@ -1122,23 +1043,13 @@ func (r *repo) DeleteFile(ctx context.Context, owner, path string) error {
 }
 
 // scanFileRow reads one row of fileColumns, for the queries that return many.
-func scanFileRow(rows *sql.Rows) (db.File, error) {
-	var f db.File
-	var mtime int64
-	if err := rows.Scan(&f.ID, &f.OwnerID, &f.Path, &f.BlobKey, &f.Size, &mtime, &f.ETag, &f.MIMEType, &f.IsDir); err != nil {
-		return db.File{}, err
-	}
-	f.MTime = time.UnixMilli(mtime).UTC()
-	return f, nil
-}
+func scanFileRow(rows *sql.Rows) (db.File, error) { return sqlutil.ScanFile(rows, times) }
 
 func scanFile(row *sql.Row) (db.File, error) {
-	var f db.File
-	var mtime int64
-	if err := row.Scan(&f.ID, &f.OwnerID, &f.Path, &f.BlobKey, &f.Size, &mtime, &f.ETag, &f.MIMEType, &f.IsDir); err != nil {
+	f, err := sqlutil.ScanFile(row, times)
+	if err != nil {
 		return db.File{}, mapErr(err)
 	}
-	f.MTime = time.UnixMilli(mtime).UTC()
 	return f, nil
 }
 
@@ -1164,7 +1075,7 @@ func mapErr(err error) error {
 	return err
 }
 
-const uploadColumns = `id, owner_id, path, size, received, blob_key, store_id, digest, mime_type, expires_at`
+const uploadColumns = sqlutil.UploadColumns
 
 // PutUpload implements db.Uploads.
 func (r *repo) PutUpload(ctx context.Context, u db.Upload) error {
@@ -1183,7 +1094,7 @@ func (r *repo) PutUpload(ctx context.Context, u db.Upload) error {
 
 	_, err := r.q.ExecContext(ctx, query,
 		u.ID, u.OwnerID, u.Path, u.Size, u.Received, u.BlobKey, u.StoreID,
-		u.Digest, u.MIMEType, u.ExpiresAt.UnixMilli(),
+		u.Digest, u.MIMEType, times.Arg(u.ExpiresAt),
 	)
 	if err != nil {
 		return fmt.Errorf("put upload %q: %w", u.ID, mapErr(err))
@@ -1216,30 +1127,18 @@ func (r *repo) DeleteUpload(ctx context.Context, owner, id string) error {
 func (r *repo) ExpiredUploads(ctx context.Context, now time.Time) iter.Seq2[db.Upload, error] {
 	const query = `SELECT ` + uploadColumns + ` FROM uploads WHERE expires_at <= ? ORDER BY expires_at`
 
-	return sqlutil.Label(sqlutil.Seq(ctx, r.q, scanUploadRow, query, now.UnixMilli()), "list expired uploads")
+	return sqlutil.Label(sqlutil.Seq(ctx, r.q, scanUploadRow, query, times.Arg(now)), "list expired uploads")
 }
 
 func scanUpload(row *sql.Row) (db.Upload, error) {
-	var u db.Upload
-	var expires int64
-	if err := row.Scan(&u.ID, &u.OwnerID, &u.Path, &u.Size, &u.Received,
-		&u.BlobKey, &u.StoreID, &u.Digest, &u.MIMEType, &expires); err != nil {
+	u, err := sqlutil.ScanUpload(row, times)
+	if err != nil {
 		return db.Upload{}, mapErr(err)
 	}
-	u.ExpiresAt = time.UnixMilli(expires).UTC()
 	return u, nil
 }
 
-func scanUploadRow(rows *sql.Rows) (db.Upload, error) {
-	var u db.Upload
-	var expires int64
-	if err := rows.Scan(&u.ID, &u.OwnerID, &u.Path, &u.Size, &u.Received,
-		&u.BlobKey, &u.StoreID, &u.Digest, &u.MIMEType, &expires); err != nil {
-		return db.Upload{}, err
-	}
-	u.ExpiresAt = time.UnixMilli(expires).UTC()
-	return u, nil
-}
+func scanUploadRow(rows *sql.Rows) (db.Upload, error) { return sqlutil.ScanUpload(rows, times) }
 
 // ftsPhrase wraps a term as an FTS5 phrase: the words it holds, in that order
 // and next to each other, which is what db.Finder promises for more than one.

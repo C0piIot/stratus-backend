@@ -30,17 +30,17 @@ func (r *repo) Timeline(ctx context.Context, owner string, f db.CaptureFilter) (
 	query := captureSelect + ` WHERE m.kind = ? AND f.owner_id = ?`
 	args := []any{string(f.Kind), owner}
 	if !f.After.AtStart() {
-		at := f.After.At.UnixMilli()
+		at := times.Arg(f.After.At)
 		query += ` AND (m.sort_at, m.file_id) < (?, ?)`
 		args = append(args, at, f.After.FileID)
 	}
 	if !f.From.IsZero() {
 		query += ` AND m.sort_at >= ?`
-		args = append(args, f.From.UnixMilli())
+		args = append(args, times.Arg(f.From))
 	}
 	if !f.To.IsZero() {
 		query += ` AND m.sort_at < ?`
-		args = append(args, f.To.UnixMilli())
+		args = append(args, times.Arg(f.To))
 	}
 	query += ` ORDER BY m.sort_at DESC, m.file_id DESC LIMIT ?`
 	args = append(args, f.Limit)
@@ -64,7 +64,7 @@ func (r *repo) Around(ctx context.Context, owner string, kind db.Kind, fileID in
 		return db.Around{}, fmt.Errorf("get photo %d: %w", fileID, db.ErrNotFound)
 	}
 	around := db.Around{Capture: got[0]}
-	at := around.Capture.SortAt.UnixMilli()
+	at := times.Arg(around.Capture.SortAt)
 
 	newer := captureSelect + `
 		WHERE m.kind = ? AND f.owner_id = ? AND (m.sort_at, m.file_id) > (?, ?)
@@ -104,25 +104,18 @@ func (r *repo) Months(ctx context.Context, owner string, kind db.Kind) ([]db.Mon
 	var out []db.Month
 	query, args := newest, []any{string(kind), owner}
 	for {
-		var at int64
-		err := r.q.QueryRowContext(ctx, query, args...).Scan(&at)
+		var at time.Time
+		err := r.q.QueryRowContext(ctx, query, args...).Scan(times.Dest(&at))
 		if errors.Is(err, sql.ErrNoRows) {
 			return out, nil
 		}
 		if err != nil {
 			return nil, fmt.Errorf("list photo months: %w", mapErr(err))
 		}
-		month := db.MonthOf(time.UnixMilli(at))
+		month := db.MonthOf(at)
 		out = append(out, month)
-		query, args = before, []any{string(kind), owner, month.Start().UnixMilli()}
+		query, args = before, []any{string(kind), owner, times.Arg(month.Start())}
 	}
 }
 
-func scanCapture(rows *sql.Rows) (db.Capture, error) {
-	var at int64
-	t, err := scanTrackWith(rows, &at)
-	if err != nil {
-		return db.Capture{}, err
-	}
-	return db.Capture{Track: t, SortAt: time.UnixMilli(at).UTC()}, nil
-}
+func scanCapture(rows *sql.Rows) (db.Capture, error) { return sqlutil.ScanCapture(rows, times) }

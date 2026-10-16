@@ -36,9 +36,7 @@ func (r *repo) PendingAlbumLookups(ctx context.Context, version int, now time.Ti
 }
 
 func scanAlbumCandidate(rows *sql.Rows) (db.AlbumCandidate, error) {
-	var c db.AlbumCandidate
-	err := rows.Scan(&c.Owner, &c.Artist, &c.Album, &c.ReleaseGroup, &c.Release)
-	return c, err
+	return sqlutil.ScanAlbumCandidate(rows)
 }
 
 // PutAlbumLookup implements db.Lookups.
@@ -50,10 +48,7 @@ func (r *repo) PutAlbumLookup(ctx context.Context, l db.AlbumLookup) error {
 			release_group = excluded.release_group, cover_blob = excluded.cover_blob, error = excluded.error,
 			search_version = excluded.search_version`
 
-	var retryAt any
-	if !l.RetryAt.IsZero() {
-		retryAt = l.RetryAt
-	}
+	retryAt := times.NullArg(l.RetryAt)
 	_, err := r.q.ExecContext(ctx, query, l.Owner, l.Artist, l.Album, l.LookedUpAt, retryAt,
 		l.ReleaseGroup, l.CoverBlob, l.Error, l.SearchVersion)
 	if err != nil {
@@ -62,22 +57,15 @@ func (r *repo) PutAlbumLookup(ctx context.Context, l db.AlbumLookup) error {
 	return nil
 }
 
-const albumLookupColumns = `owner_id, artist, album, looked_up_at, retry_at, release_group, cover_blob, error, search_version`
+const albumLookupColumns = sqlutil.AlbumLookupColumns
 
 // AlbumLookup implements db.Lookups.
 func (r *repo) AlbumLookup(ctx context.Context, owner, artist, album string) (db.AlbumLookup, error) {
 	const query = `SELECT ` + albumLookupColumns + ` FROM album_lookups WHERE owner_id = $1 AND artist = $2 AND album = $3`
 
-	var l db.AlbumLookup
-	var retryAt sql.NullTime
-	err := r.q.QueryRowContext(ctx, query, owner, artist, album).
-		Scan(&l.Owner, &l.Artist, &l.Album, &l.LookedUpAt, &retryAt, &l.ReleaseGroup, &l.CoverBlob, &l.Error, &l.SearchVersion)
+	l, err := sqlutil.ScanAlbumLookup(r.q.QueryRowContext(ctx, query, owner, artist, album), times)
 	if err != nil {
 		return db.AlbumLookup{}, fmt.Errorf("read album lookup for %q / %q: %w", artist, album, mapErr(err))
-	}
-	l.LookedUpAt = l.LookedUpAt.UTC()
-	if retryAt.Valid {
-		l.RetryAt = retryAt.Time.UTC()
 	}
 	return l, nil
 }
@@ -137,10 +125,7 @@ func (r *repo) PutLyrics(ctx context.Context, l db.Lyrics) error {
 			plain = excluded.plain, synced = excluded.synced, instrumental = excluded.instrumental,
 			error = excluded.error`
 
-	var retryAt any
-	if !l.RetryAt.IsZero() {
-		retryAt = l.RetryAt
-	}
+	retryAt := times.NullArg(l.RetryAt)
 	_, err := r.q.ExecContext(ctx, query, l.FileID, l.ETag, l.FetchedAt, retryAt,
 		l.Plain, l.Synced, l.Instrumental, l.Error)
 	if err != nil {
@@ -161,7 +146,7 @@ func (r *repo) LyricsOf(ctx context.Context, fileIDs []int64) (map[int64]db.Lyri
 		marks[i] = "$" + strconv.Itoa(i+1)
 		args[i] = id
 	}
-	query := `SELECT file_id, etag, fetched_at, retry_at, plain, synced, instrumental, error
+	query := `SELECT ` + sqlutil.LyricsColumns + `
 		FROM lyrics WHERE file_id IN (` + strings.Join(marks, ", ") + `)`
 	rows, err := sqlutil.Collect(ctx, r.q, scanLyrics, query, args...)
 	if err != nil {
@@ -173,19 +158,7 @@ func (r *repo) LyricsOf(ctx context.Context, fileIDs []int64) (map[int64]db.Lyri
 	return out, nil
 }
 
-func scanLyrics(rows *sql.Rows) (db.Lyrics, error) {
-	var l db.Lyrics
-	var retryAt sql.NullTime
-	err := rows.Scan(&l.FileID, &l.ETag, &l.FetchedAt, &retryAt, &l.Plain, &l.Synced, &l.Instrumental, &l.Error)
-	if err != nil {
-		return db.Lyrics{}, err
-	}
-	l.FetchedAt = l.FetchedAt.UTC()
-	if retryAt.Valid {
-		l.RetryAt = retryAt.Time.UTC()
-	}
-	return l, nil
-}
+func scanLyrics(rows *sql.Rows) (db.Lyrics, error) { return sqlutil.ScanLyrics(rows, times) }
 
 // LookupCounts implements db.Lookups.
 func (r *repo) LookupCounts(ctx context.Context) (db.LookupCounts, error) {
