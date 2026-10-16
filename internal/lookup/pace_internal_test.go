@@ -2,6 +2,7 @@ package lookup
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 )
@@ -118,5 +119,24 @@ func TestFrontCoverNeedsAnID(t *testing.T) {
 	s := New(nil, nil, "t")
 	if _, err := s.frontCover(t.Context(), "", ""); err == nil {
 		t.Error("a cover was fetched for no id at all")
+	}
+}
+
+func TestCreditNames(t *testing.T) {
+	t.Parallel()
+	tests := map[string][]string{
+		"Autechre":                               {"Autechre"},
+		"Architecture In Helsinki, Cameron Bird": {"Architecture In Helsinki, Cameron Bird", "Architecture In Helsinki"},
+		"Zero 7 feat. Sia":                       {"Zero 7 feat. Sia", "Zero 7"},
+		"Simon & Garfunkel":                      {"Simon & Garfunkel", "Simon"},
+		"AC/DC":                                  {"AC/DC"},
+		"Crosby, Stills & Nash":                  {"Crosby, Stills & Nash", "Crosby"},
+		", Nobody":                               {", Nobody"},
+	}
+	for in, want := range tests {
+		got := creditNames(in)
+		if strings.Join(got, "|") != strings.Join(want, "|") {
+			t.Errorf("creditNames(%q) = %q, want %q", in, got, want)
+		}
 	}
 }
