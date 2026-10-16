@@ -7,10 +7,12 @@ import (
 	"testing"
 )
 
-// TestBothDriversCarryTheSameMigrations catches the cheapest mistake there is to
-// make with two hand-written migration sets: writing one half of a pair. Migrate
-// decides what to apply from MAX(version), so a 0002 that exists only in sqlite
-// leaves a Postgres database a version behind with nothing saying so.
+// TestEveryDriverCarriesTheSameMigrations catches the cheapest mistake there is
+// to make with three hand-written migration sets: writing one of a triple.
+// Migrate decides what to apply from MAX(version), so a 0002 that exists only
+// in sqlite leaves a Postgres database a version behind with nothing saying
+// so. All three, since #364: it compared two for the first eight months of
+// there being a third.
 //
 // What this deliberately no longer checks is that the two sets describe the same
 // schema. It used to compare every statement and every column in order, and that
@@ -43,13 +45,14 @@ import (
 // one this catches.
 var oneSided = map[string]string{}
 
-func TestBothDriversCarryTheSameMigrations(t *testing.T) {
+func TestEveryDriverCarriesTheSameMigrations(t *testing.T) {
 	t.Parallel()
 
 	lite := shared(names(load(t, "sqlite")))
-	pg := shared(names(load(t, "postgres")))
-	if !slices.Equal(lite, pg) {
-		t.Errorf("the two drivers do not carry the same migrations:\n  sqlite:   %v\n  postgres: %v", lite, pg)
+	for _, driver := range []string{"postgres", "mysql"} {
+		if got := shared(names(load(t, driver))); !slices.Equal(lite, got) {
+			t.Errorf("the drivers do not carry the same migrations:\n  sqlite: %v\n  %s: %v", lite, driver, got)
+		}
 	}
 }
 
