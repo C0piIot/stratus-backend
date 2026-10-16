@@ -98,6 +98,9 @@ type Thumbnails interface {
 type Library interface {
 	db.Music
 	AnnotationsOf(ctx context.Context, owner string, subjects []db.Subject) (map[db.Subject]db.Annotation, error)
+	// LyricsOf is what outside sources said a track's words are (#217),
+	// read for the album page and written by nothing here.
+	LyricsOf(ctx context.Context, fileIDs []int64) (map[int64]db.Lyrics, error)
 }
 
 type handler struct {

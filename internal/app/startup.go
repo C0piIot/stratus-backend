@@ -25,6 +25,7 @@ import (
 	"github.com/C0piIot/stratus-backend/internal/db/sqlite"
 	"github.com/C0piIot/stratus-backend/internal/files"
 	"github.com/C0piIot/stratus-backend/internal/incoming"
+	"github.com/C0piIot/stratus-backend/internal/lookup"
 	"github.com/C0piIot/stratus-backend/internal/media"
 	"github.com/C0piIot/stratus-backend/internal/storage"
 	"github.com/C0piIot/stratus-backend/internal/storage/disk"
@@ -143,6 +144,16 @@ func (a *App) open(ctx context.Context) (deps Deps, err error) {
 	// single user: with none configured there is no owner and nothing to do.
 	if a.cfg.IncomingDir != "" && a.cfg.IncomingInterval > 0 && credentials(a.cfg).Configured() {
 		deps.Incoming = incoming.New(a.cfg.IncomingDir, a.cfg.Username, deps.Files)
+	}
+
+	// The third source of an album's cover, read by every surface that serves
+	// one: the rows are there whether or not the pass that fills them runs.
+	deps.Thumbs.WithLookups(deps.Database)
+	if a.cfg.MusicLookup && credentials(a.cfg).Configured() {
+		deps.Lookup = lookup.New(deps.Database, deps.Thumbs, a.version)
+		slog.Info("music metadata is looked up outside", "sources", "musicbrainz, coverartarchive, lrclib")
+	} else {
+		slog.Info("music metadata is not looked up outside", "reason", "STRATUS_MUSIC_LOOKUP is off")
 	}
 
 	if credentials(a.cfg).Configured() {

@@ -57,6 +57,8 @@ type envelope struct {
 	Starred       *starred       `xml:"starred,omitempty" json:"starred,omitempty"`
 
 	TranscodeDecision *transcodeDecision `xml:"transcodeDecision,omitempty" json:"transcodeDecision,omitempty"`
+	LyricsList        *lyricsList        `xml:"lyricsList,omitempty" json:"lyricsList,omitempty"`
+	AlbumInfo         *albumInfo         `xml:"albumInfo,omitempty" json:"albumInfo,omitempty"`
 
 	// Extensions is the one payload that is a bare array on the response rather
 	// than the container-and-element pair every legacy payload uses. It has to

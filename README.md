@@ -523,6 +523,30 @@ the argument that a CPU and a bucket should not be spent on files nobody is
 going to open. Either way a picture is made when it is asked for, so turning
 this off costs the wait and nothing else.
 
+`STRATUS_MUSIC_LOOKUP` is whether outside sources are asked about the music
+library: `off`, the default, or `on`. **Off because on means tags leave the
+machine**, and a self-hosted server has to work with no route out. With it on,
+a pass in the background asks three services, one request a second to each and
+with a `User-Agent` that names this project:
+
+- **[MusicBrainz](https://musicbrainz.org)**, sent an album's artist and name
+  as a search, to learn which record it is. An album whose tags already carry
+  the MusicBrainz ids a tagger such as Picard writes is not searched at all.
+- **[Cover Art Archive](https://coverartarchive.org)**, sent that id, for the
+  front cover of an album that has no `cover.jpg` beside it and no picture
+  inside its first track. The user's own picture always wins.
+- **[LRCLIB](https://lrclib.net)**, sent a track's artist, title, album and
+  length, for its words, synced where they have them.
+
+Nothing is sent about photographs, videos or files, and nothing is ever written
+into a file: what comes back is rows beside the library and a cover kept under
+`derived/` with the thumbnails, which is what makes the sweep able to collect
+it with the track. A source that has nothing for an album is asked again a
+month later, and one that did not answer an hour later. `/status` says how far
+it has got, and what was fetched stays when the setting is turned off again.
+What is **not** done: no audio fingerprinting, no artist biographies, no
+service that needs an account or a key, and no correction of tags.
+
 ## A folder that drops files in
 
 **`STRATUS_INCOMING_DIR` is a directory on this machine's own filesystem whose
@@ -790,13 +814,23 @@ this client has already been told whether the original would do.
 
 What is not there yet, and it is better to know before installing a client:
 
-- **Cover art comes from two places, and Ogg is the one gap.** A `cover.jpg`,
+- **Cover art comes from three places, and Ogg is the one gap.** A `cover.jpg`,
   `folder.jpg` or `front.jpg` beside the tracks is preferred, because finding it
   is a listing the request already did; failing that, the picture inside the
   first track is read — FLAC, MP3 and MP4 tags. Vorbis and Opus keep theirs
-  base64-encoded inside a comment and are not read yet. Albums always advertise
+  base64-encoded inside a comment and are not read yet. Third, and only with
+  `STRATUS_MUSIC_LOOKUP=on`, the front cover the Cover Art Archive holds for
+  the album. Albums always advertise
   a `coverArt` id, and asking for one that is not there is answered as "there is
   none", which is what a client draws a placeholder for.
+- **Lyrics and album identity answer from what was looked up, which with the
+  setting off is nothing.** `getLyricsBySongId` is the `songLyrics` extension,
+  advertised, and answers the words LRCLIB had for the track — the synced form
+  with a time on every line, and the plain one — or an empty list. The
+  `getLyrics` of the old API, by artist and title, is not there.
+  `getAlbumInfo2` answers the album's MusicBrainz id and nothing else: no
+  notes, no images, and no `getArtistInfo2`, because the only source of a
+  biography is Wikipedia and that is a second decision.
 - **A file is in the library once the indexer has read it**, which is also how
   long it takes to appear in a folder listing. That is the same rule for both
   views, so they cannot disagree.
@@ -980,7 +1014,8 @@ the browser counts as a play: the page makes the same `scrobble` call a
 Subsonic client does, to `/rest/`, with the session as its credential. With
 JavaScript off a track still plays and is not counted. Tracks play one at a
 time and do not follow on from each other, and a format the browser cannot
-decode does not play.
+decode does not play. A track whose words were looked up (`STRATUS_MUSIC_LOOKUP`)
+has them folded under its player, the plain text a line each.
 
 **A tag is not a filename**, so the names under `/music/` are generated: an
 artist called `AC/DC` is one collection called `AC_DC`, because a folder cannot
@@ -1563,6 +1598,9 @@ Working now:
   beside the music or out of the tags, and stars, ratings, plays and playlists
   kept, and tracks transcoded on request. No client has been tried against it
   yet.
+- Music metadata from outside, opt-in: album identity and covers from
+  MusicBrainz and the Cover Art Archive, lyrics from LRCLIB, fetched by a
+  paced background pass that never rewrites a file. `STRATUS_MUSIC_LOOKUP=on`.
 - EXIF, audio tags and video probing, indexed in the background and started by
   the upload itself, with a page saying how far it has got.
 - An import folder on local disk, swept into the library: `STRATUS_INCOMING_DIR`.
@@ -1575,7 +1613,7 @@ Working now:
   folders by date over WebDAV -- and a music library to browse and play. A signed-cookie session and a CSP that allows nothing but
   the binary's own assets.
 - A request log, migrations applied at startup, and a container asserted from
-  the outside by 133 smoke checks.
+  the outside by 142 smoke checks.
 
 Not there yet: CalDAV and sharing. Work
 and the decisions behind it are tracked on the

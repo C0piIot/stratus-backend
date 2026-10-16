@@ -145,6 +145,20 @@ func (b breaking) Starred(ctx context.Context, owner string) (db.StarredItems, e
 	return b.music.Starred(ctx, owner)
 }
 
+func (b breaking) LyricsOf(ctx context.Context, fileIDs []int64) (map[int64]db.Lyrics, error) {
+	if err := b.err("LyricsOf"); err != nil {
+		return nil, err
+	}
+	return b.music.LyricsOf(ctx, fileIDs)
+}
+
+func (b breaking) AlbumLookup(ctx context.Context, owner, artist, album string) (db.AlbumLookup, error) {
+	if err := b.err("AlbumLookup"); err != nil {
+		return db.AlbumLookup{}, err
+	}
+	return b.music.AlbumLookup(ctx, owner, artist, album)
+}
+
 func (b breaking) Playlists(ctx context.Context, owner string) ([]db.Playlist, error) {
 	if err := b.err("Playlists"); err != nil {
 		return nil, err
@@ -286,6 +300,10 @@ func TestABrokenBackendIsNotANotFound(t *testing.T) {
 		{name: "unstarring", call: "Unstar", method: "unstar", id: theTrack},
 		{name: "rating", call: "SetRating", method: "setRating", id: theTrack, extra: []string{"rating", "3"}},
 		{name: "scrobbling", call: "RecordPlay", method: "scrobble", id: theTrack},
+		{name: "reading lyrics", call: "LyricsOf", method: "getLyricsBySongId", id: theTrack},
+		{name: "finding the song whose lyrics are asked for", call: "TrackByFile", method: "getLyricsBySongId", id: theTrack},
+		{name: "reading an album's identity", call: "AlbumLookup", method: "getAlbumInfo2", extra: []string{"id", albumIDOf("Björk", "Homogenic")}},
+		{name: "finding the album whose identity is asked for", call: "Albums", method: "getAlbumInfo2", extra: []string{"id", albumIDOf("Björk", "Homogenic")}},
 		{name: "listing playlists", call: "Playlists", method: "getPlaylists"},
 		{name: "reading a playlist", call: "Playlist", method: "getPlaylist", extra: []string{"id", "pl-1"}},
 		{name: "reading the stars of a playlist", call: "AnnotationsOf", method: "getPlaylist", extra: []string{"id", "pl-1"}},

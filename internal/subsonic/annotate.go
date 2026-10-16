@@ -1,6 +1,7 @@
 package subsonic
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 	"time"
@@ -14,6 +15,10 @@ import (
 type Library interface {
 	db.Music
 	db.Annotations
+	// What outside sources said (#217), read here and never written: the
+	// pass that fills these rows is internal/lookup's.
+	LyricsOf(ctx context.Context, fileIDs []int64) (map[int64]db.Lyrics, error)
+	AlbumLookup(ctx context.Context, owner, artist, album string) (db.AlbumLookup, error)
 }
 
 // annotated is the part of a song, an album and an artist that says what the

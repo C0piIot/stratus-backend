@@ -136,6 +136,9 @@ type Thumbs struct {
 	// blob at a time, which is the right shape for the next request about
 	// that file and the wrong one for a hundred rows or a library.
 	meta db.MediaIndex
+	// lookups is where a fetched cover is found from, and nil until
+	// WithLookups: see art.go.
+	lookups db.Lookups
 }
 
 // NewThumbs wires the generator. It takes the blob store directly because a
@@ -171,9 +174,10 @@ func (t *Thumbs) File(ctx context.Context, owner, path string, px int) (io.ReadC
 
 // Cover returns the artwork for the folder dir, at about px pixels.
 //
-// Two places hold it and this is the only thing that knows there are two: a
-// picture beside the tracks, or one inside the first of them. A caller asks for
-// a folder's cover and gets bytes.
+// Three places hold it and this is the only thing that knows there are three:
+// a picture beside the tracks, one inside the first of them, or one fetched
+// for the album from outside (#217) -- in that order, because the first two
+// are the user's own. A caller asks for a folder's cover and gets bytes.
 func (t *Thumbs) Cover(ctx context.Context, owner, dir string, px int) (io.ReadCloser, int64, error) {
 	entries, err := t.files.List(ctx, owner, dir)
 	if err != nil {
@@ -184,7 +188,23 @@ func (t *Thumbs) Cover(ctx context.Context, owner, dir string, px int) (io.ReadC
 		return t.open(ctx, picture, px)
 	}
 	if track, ok := firstTrack(entries); ok {
-		return t.fromTrack(ctx, track, px)
+		body, size, err := t.fromTrack(ctx, track, px)
+		if !errors.Is(err, ErrNoEmbeddedCover) {
+			return body, size, err
+		}
+		// Nothing in the tag: the third place, which is what the pass fetched
+		// for the album (#217). Its own "nothing" keeps the tag's answer, so
+		// the surfaces above go on telling a 404 from a failure the way they
+		// always have.
+		body, size, ferr := t.fetchedArt(ctx, track, px)
+		switch {
+		case ferr == nil:
+			return body, size, nil
+		case errors.Is(ferr, errNoArt), errors.Is(ferr, storage.ErrNotFound), errors.Is(ferr, db.ErrNotFound):
+			return nil, 0, err
+		default:
+			return nil, 0, ferr
+		}
 	}
 	return nil, 0, fmt.Errorf("cover art in %q: %w", dir, storage.ErrNotFound)
 }

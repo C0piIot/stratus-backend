@@ -333,6 +333,7 @@ type Repo interface {
 	Captures
 	Uploads
 	Trash
+	Lookups
 }
 
 // Store is a database connection.

@@ -106,6 +106,11 @@ type Media struct {
 	// track. It falls back to Artist when the tag is absent, which is the
 	// common case for a record by one artist.
 	AlbumArtist string
+	// MBReleaseGroup and MBRelease are the MusicBrainz ids a tagger such as
+	// Picard writes into a file, empty when it carries none (#217). Read so
+	// that a library already identified is not identified again by a search
+	// that can get it wrong: an id in the tags is the album's own answer.
+	MBReleaseGroup, MBRelease string
 }
 
 // Folded is the lower-cased text a driver stores so that a search can match it.

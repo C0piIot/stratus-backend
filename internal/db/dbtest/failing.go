@@ -41,6 +41,8 @@ var repoMethods = []string{
 	"UpdatePlaylist", "SetPlaylistTracks", "Timeline", "Around", "Months",
 	"Artists", "Albums", "Tracks", "AnnotationsOf",
 	"Trash", "TrashBatches", "TrashTotals", "TrashedIn", "ExpiredTrash",
+	"LyricsOf", "AlbumLookup", "LookupCounts",
+	"PruneAlbumLookups", "PendingAlbumLookups", "PendingLyrics", "PutAlbumLookup", "PutLyrics",
 }
 
 // Failing is a db.Store that fails one named method and passes the rest
@@ -122,6 +124,70 @@ func (f *failingRepo) TrashedIn(ctx context.Context, owner, batch string) ([]db.
 		return nil, err
 	}
 	return f.Repo.TrashedIn(ctx, owner, batch)
+}
+
+// LyricsOf implements db.Repo.
+func (f *failingRepo) LyricsOf(ctx context.Context, fileIDs []int64) (map[int64]db.Lyrics, error) {
+	if err := f.fails("LyricsOf"); err != nil {
+		return nil, err
+	}
+	return f.Repo.LyricsOf(ctx, fileIDs)
+}
+
+// AlbumLookup implements db.Repo.
+func (f *failingRepo) AlbumLookup(ctx context.Context, owner, artist, album string) (db.AlbumLookup, error) {
+	if err := f.fails("AlbumLookup"); err != nil {
+		return db.AlbumLookup{}, err
+	}
+	return f.Repo.AlbumLookup(ctx, owner, artist, album)
+}
+
+// LookupCounts implements db.Repo.
+func (f *failingRepo) LookupCounts(ctx context.Context) (db.LookupCounts, error) {
+	if err := f.fails("LookupCounts"); err != nil {
+		return db.LookupCounts{}, err
+	}
+	return f.Repo.LookupCounts(ctx)
+}
+
+// PruneAlbumLookups implements db.Repo.
+func (f *failingRepo) PruneAlbumLookups(ctx context.Context) (int64, error) {
+	if err := f.fails("PruneAlbumLookups"); err != nil {
+		return 0, err
+	}
+	return f.Repo.PruneAlbumLookups(ctx)
+}
+
+// PendingAlbumLookups implements db.Repo.
+func (f *failingRepo) PendingAlbumLookups(ctx context.Context, now time.Time, limit int) ([]db.AlbumCandidate, error) {
+	if err := f.fails("PendingAlbumLookups"); err != nil {
+		return nil, err
+	}
+	return f.Repo.PendingAlbumLookups(ctx, now, limit)
+}
+
+// PendingLyrics implements db.Repo.
+func (f *failingRepo) PendingLyrics(ctx context.Context, now time.Time, limit int) ([]db.Track, error) {
+	if err := f.fails("PendingLyrics"); err != nil {
+		return nil, err
+	}
+	return f.Repo.PendingLyrics(ctx, now, limit)
+}
+
+// PutAlbumLookup implements db.Repo.
+func (f *failingRepo) PutAlbumLookup(ctx context.Context, l db.AlbumLookup) error {
+	if err := f.fails("PutAlbumLookup"); err != nil {
+		return err
+	}
+	return f.Repo.PutAlbumLookup(ctx, l)
+}
+
+// PutLyrics implements db.Repo.
+func (f *failingRepo) PutLyrics(ctx context.Context, l db.Lyrics) error {
+	if err := f.fails("PutLyrics"); err != nil {
+		return err
+	}
+	return f.Repo.PutLyrics(ctx, l)
 }
 
 // ExpiredTrash implements db.Repo.

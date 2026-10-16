@@ -124,6 +124,11 @@ func Handler(prefix, serverVersion string, v Verifier, lib Library, tree Tree, l
 	mux.HandleFunc("GET /download", h.authedBinary(h.download))
 	mux.HandleFunc("GET /getCoverArt", h.authedBinary(h.coverArt))
 
+	// What outside sources said about the library (#217): the words of a
+	// song, which is the songLyrics extension, and an album's identity.
+	mux.HandleFunc("GET /getLyricsBySongId", h.authed(h.lyricsBySong))
+	mux.HandleFunc("GET /getAlbumInfo2", h.authed(h.albumInfo2))
+
 	// A method this server does not implement gets an envelope with an error,
 	// not an HTML 404. Clients probe endpoints to decide which of their own
 	// features to enable, and a page they cannot parse tells them nothing.
@@ -220,7 +225,9 @@ func (h *handler) user(w http.ResponseWriter, r *http.Request, username string) 
 // the extension where a client describes itself and the server chooses.
 func (h *handler) extensions(w http.ResponseWriter, r *http.Request) {
 	env := h.ok()
-	list := []extension{}
+	// songLyrics is always advertised: the endpoint answers from the rows,
+	// which with the setting off are empty -- an empty list, not an error.
+	list := []extension{{Name: "songLyrics", Versions: []int{1}}}
 	if h.transcoder != nil {
 		list = append(list,
 			extension{Name: "transcodeOffset", Versions: []int{1}},

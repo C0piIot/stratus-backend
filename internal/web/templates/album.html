@@ -32,6 +32,15 @@
              credential. */}}
         <audio class="w-100" controls preload="none" src="{{.Src}}"
           hx-get="{{.Scrobble}}" hx-trigger="ended" hx-swap="none"></audio>
+        {{/* The words, when outside sources had them (#217), folded away:
+             most people press play, and a page of lyrics between every two
+             players would be a page nobody can find the next track on. A
+             <details> rather than a script, which is the deal every
+             disclosure here has. */}}
+        {{if .Lyrics}}<details class="mt-1">
+          <summary class="small text-body-secondary">Lyrics</summary>
+          <p class="small mb-0">{{range .Lyrics}}{{.}}<br>{{end}}</p>
+        </details>{{end}}
       </li>
       {{end}}
     </ol>
