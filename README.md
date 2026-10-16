@@ -275,7 +275,11 @@ answer logs its compressed size. No headers and no query string — one carries 
 credentials and the other is where a token would end up if a protocol ever put
 one there. `/healthz` and `/readyz` log at debug, because the container asks
 every thirty seconds and three thousand lines a day of nothing is not a log — a
-failed readiness check logs its own reason at error level instead.
+failed readiness check logs its own reason at error level instead. A `503`
+that carries a `Retry-After` is the server at the capacity it allows — every
+thumbnail or transcode slot taken — and logs at warn, and a request whose
+client hung up logs at info; neither is a failure, so neither reaches the error
+report below.
 
 ### Error reporting
 

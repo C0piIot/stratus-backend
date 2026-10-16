@@ -167,3 +167,23 @@ func TestRecoverPanicsLogsAndAborts(t *testing.T) {
 	}()
 	h.ServeHTTP(httptest.NewRecorder(), req)
 }
+
+// TestBusyIsAWarning: a 503 that says when to come back is a server at
+// capacity rather than one that failed, so it stays out of the error report.
+// One that says nothing is still an error.
+func TestBusyIsAWarning(t *testing.T) {
+	busy := capture(t, slog.LevelInfo, "/thumb/a.mp4", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Retry-After", "5")
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	if busy == nil || busy["level"] != "WARN" {
+		t.Errorf("a busy 503 was logged as %v, want WARN", busy)
+	}
+
+	broken := capture(t, slog.LevelInfo, "/thumb/a.mp4", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	if broken == nil || broken["level"] != "ERROR" {
+		t.Errorf("a 503 with no Retry-After was logged as %v, want ERROR", broken)
+	}
+}
