@@ -4,10 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
-	"path"
 	"strconv"
 	"strings"
 	"time"
@@ -239,12 +239,8 @@ func (h *handler) album(w http.ResponseWriter, r *http.Request, user string, tre
 	var total int64
 	for i, t := range tracks {
 		m, note := t.Media, notes[db.TrackSubject(t.File.ID)]
-		title := m.Title
-		if title == "" {
-			title = path.Base(t.File.Path)
-		}
 		av.Tracks = append(av.Tracks, trackRow{
-			Number: m.TrackNo, Title: title, Duration: clock(m.DurationMS),
+			Number: m.TrackNo, Title: music.Title(t), Duration: clock(m.DurationMS),
 			// The track's own address here, not the file's under /files/:
 			// this page is the collection's other half, and one URL per thing
 			// is what the rest of this adapter promises.
@@ -279,13 +275,13 @@ func (h *handler) album(w http.ResponseWriter, r *http.Request, user string, tre
 // could have, and a listing would have to ask the thumbnailer about every
 // album to know whether to show it.
 func (h *handler) cover(w http.ResponseWriter, r *http.Request, user string, n music.Node) {
-	tracks, err := h.library.Tracks(r.Context(), user, n.Artist.Name, n.Album.Name)
-	if err != nil {
-		h.fail(w, r, user, err)
-		return
-	}
-	if len(tracks) == 0 {
+	first, err := music.FirstTrack(r.Context(), h.library, user, n.Artist.Name, n.Album.Name)
+	switch {
+	case errors.Is(err, db.ErrNotFound):
 		http.NotFound(w, r)
+		return
+	case err != nil:
+		h.fail(w, r, user, err)
 		return
 	}
 	size := coverTile
@@ -293,7 +289,7 @@ func (h *handler) cover(w http.ResponseWriter, r *http.Request, user string, n m
 		size = px
 	}
 
-	body, length, err := h.thumbs.CoverOf(r.Context(), user, tracks[0].File, size)
+	body, length, err := h.thumbs.CoverOf(r.Context(), user, first, size)
 	switch {
 	case errors.Is(err, media.ErrBusy):
 		w.Header().Set("Retry-After", "5")
@@ -301,7 +297,11 @@ func (h *handler) cover(w http.ResponseWriter, r *http.Request, user string, n m
 		return
 	case errors.Is(err, storage.ErrNotFound), errors.Is(err, media.ErrNoEmbeddedCover), errors.Is(err, media.ErrNoThumbnail):
 		// Half a library has no picture. The page draws the empty square it
-		// was going to fill.
+		// was going to fill -- and a picture that is there and will not draw
+		// is the same square with a line in the log, as getCoverArt does.
+		if errors.Is(err, media.ErrNoThumbnail) {
+			slog.WarnContext(r.Context(), "cover art that cannot be drawn", "album", n.Path(), "err", err)
+		}
 		http.NotFound(w, r)
 		return
 	case err != nil:

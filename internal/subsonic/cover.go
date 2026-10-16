@@ -10,6 +10,7 @@ import (
 
 	"github.com/C0piIot/stratus-backend/internal/db"
 	"github.com/C0piIot/stratus-backend/internal/media"
+	"github.com/C0piIot/stratus-backend/internal/music"
 	"github.com/C0piIot/stratus-backend/internal/storage"
 )
 
@@ -61,9 +62,16 @@ func (h *handler) coverArt(w http.ResponseWriter, r *http.Request, username stri
 		// this is the server doing what it was configured to do.
 		h.failXML(w, r, apiError{errGeneric, "too many pictures are being made at once"})
 		return
-	case errors.Is(err, storage.ErrNotFound), errors.Is(err, media.ErrNoEmbeddedCover):
+	case errors.Is(err, storage.ErrNotFound), errors.Is(err, media.ErrNoEmbeddedCover), errors.Is(err, media.ErrNoThumbnail):
 		// Not an error worth a code of its own: an album without a picture is
 		// the normal state of half a library, and a client draws a placeholder.
+		// A picture beside the tracks that will not turn into pixels is the
+		// same answer -- the one the album page gives, since #362 -- and a
+		// line in the log, because a cover.jpg that is not a JPEG is worth
+		// somebody's attention even though no client can tell it apart.
+		if errors.Is(err, media.ErrNoThumbnail) {
+			slog.WarnContext(r.Context(), "cover art that cannot be drawn", "id", id, "err", err)
+		}
 		h.failXML(w, r, notFound("cover art"))
 		return
 	case err != nil:
@@ -110,14 +118,14 @@ func (h *handler) coverSource(r *http.Request, username, id string) (func(contex
 		if !ok {
 			return nil, ptr(notFound("album"))
 		}
-		tracks, err := h.lib.Tracks(r.Context(), username, artist, name)
-		if err != nil {
+		first, err := music.FirstTrack(r.Context(), h.lib, username, artist, name)
+		switch {
+		case errors.Is(err, db.ErrNotFound):
+			return nil, ptr(notFound("album"))
+		case err != nil:
 			return nil, ptr(h.internal(r, "list tracks", err))
 		}
-		if len(tracks) == 0 {
-			return nil, ptr(notFound("album"))
-		}
-		return byTrack(tracks[0].File), nil
+		return byTrack(first), nil
 
 	default:
 		dir, ok := parseDirID(id)
