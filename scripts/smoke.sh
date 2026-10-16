@@ -51,7 +51,11 @@ fi
 # Raised from 25 MB with error reporting (#222): sentry-go is 0.6 MB, and main
 # was already at 24.4 on amd64, so it crossed the line by 49 KB. arm64 is a
 # megabyte smaller, which is why a local build does not show it.
-BIN_SIZE_FAIL=$((27 * 1024 * 1024))
+# Raised from 27 MB with the music lookup (#217): three HTTP clients and a
+# repository are 184 KB on amd64, and main was 12 KB under the line before
+# them -- 28,299,424 bytes against a budget of 28,311,552. Measured by building
+# the commit before and after with GOARCH=amd64; arm64 did not show it again.
+BIN_SIZE_FAIL=$((28 * 1024 * 1024))
 # ffprobe and ffmpeg together, which are trimmed builds of our own: 2.4 MB and
 # 13.2 MB on amd64 today against the 128 MB one general-purpose static FFmpeg costs.
 # Raised from 10 MB when ffmpeg learned audio and HTTPS (#50): the encoders and
