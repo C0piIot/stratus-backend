@@ -142,7 +142,14 @@ func putUnknownSize(t *testing.T, s storage.Storage) {
 // default when nobody says otherwise: a buffer sized for the largest object a
 // multipart upload can hold, 528 MiB per PUT, which killed a 512 MB instance
 // on the fourth file of a folder (#348).
-const unknownSizeBound = 128 << 20
+//
+// Twice what it was, because the measurement is the process's and not the
+// backend's (#356): TotalAlloc counts every goroutine, the cases of this
+// suite run in parallel, and the coverage and race runtimes allocate on top.
+// CI saw 134 and 198 MiB for a backend that needs sixteen. A bound of 256
+// still refuses the 528 the constant exists to catch, which is the whole of
+// what it promises.
+const unknownSizeBound = 256 << 20
 
 // putUnknownSizeIsBounded measures the allocation rather than trusting a
 // constant: TotalAlloc is cumulative, so it does not depend on when the
