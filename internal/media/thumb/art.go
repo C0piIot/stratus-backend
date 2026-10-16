@@ -1,4 +1,4 @@
-package media
+package thumb
 
 import (
 	"bytes"
@@ -13,6 +13,7 @@ import (
 
 	"github.com/C0piIot/stratus-backend/internal/db"
 	"github.com/C0piIot/stratus-backend/internal/files"
+	"github.com/C0piIot/stratus-backend/internal/media"
 	"github.com/C0piIot/stratus-backend/internal/storage"
 )
 
@@ -49,7 +50,7 @@ func artVerdictKey(blobKey string) string {
 // WithLookups gives the generator the rows that say which albums have a
 // fetched cover and where it is. Without them Cover answers from the folder
 // and the tag alone, which is what it did before #217.
-func (t *Thumbs) WithLookups(l db.Lookups) *Thumbs {
+func (t *Service) WithLookups(l db.Lookups) *Service {
 	t.lookups = l
 	return t
 }
@@ -60,7 +61,7 @@ func (t *Thumbs) WithLookups(l db.Lookups) *Thumbs {
 // because what arrives is somebody else's bytes: the archive's answer, or a
 // redirect that landed somewhere unexpected. Not re-encoded, since the sizes
 // are made from it on request the way they are from a tag's picture.
-func (t *Thumbs) StoreArt(ctx context.Context, f db.File, picture []byte) error {
+func (t *Service) StoreArt(ctx context.Context, f db.File, picture []byte) error {
 	cfg, _, err := image.DecodeConfig(bytes.NewReader(picture))
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrNotAPicture, err)
@@ -81,7 +82,7 @@ var errNoArt = errors.New("media: no fetched cover")
 
 // fetchedArt is the third source: the picture the pass filed for the album
 // the track belongs to, at the size asked for.
-func (t *Thumbs) fetchedArt(ctx context.Context, track db.File, px int) (io.ReadCloser, int64, error) {
+func (t *Service) fetchedArt(ctx context.Context, track db.File, px int) (io.ReadCloser, int64, error) {
 	if t.lookups == nil {
 		return nil, 0, errNoArt
 	}
@@ -120,12 +121,12 @@ func (t *Thumbs) fetchedArt(ctx context.Context, track db.File, px int) (io.Read
 			return nil, fmt.Errorf("%w: the fetched cover of %q / %q is gone", err, row.Artist, row.Album)
 		}
 		if err != nil {
-			return nil, fmt.Errorf("%w: read the fetched cover: %w", errUnreachable, err)
+			return nil, fmt.Errorf("%w: read the fetched cover: %w", media.ErrUnreachable, err)
 		}
 		defer func() { _ = body.Close() }()
 		data, err := io.ReadAll(io.LimitReader(body, maxThumbSource))
 		if err != nil {
-			return nil, fmt.Errorf("%w: read the fetched cover: %w", errUnreachable, err)
+			return nil, fmt.Errorf("%w: read the fetched cover: %w", media.ErrUnreachable, err)
 		}
 		return reduceTo(bytes.NewReader(data), "art.jpg", size)
 	})

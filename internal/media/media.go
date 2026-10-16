@@ -9,7 +9,9 @@ package media
 import (
 	"errors"
 	"path"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/C0piIot/stratus-backend/internal/db"
 )
@@ -62,7 +64,7 @@ import (
 const Version = 10
 
 // errTooLargeToRead is what a file gets instead of a local copy when it is
-// larger than maxSpool. It is a refusal rather than a failure, and it is
+// larger than MaxSpool. It is a refusal rather than a failure, and it is
 // recorded as the reason on the row so that /status can say it: silence would
 // be indistinguishable from "there was nothing in it to extract", and somebody
 // would ask why their films have no durations.
@@ -83,7 +85,7 @@ func kindOf(f db.File, sniffed db.Kind) db.Kind {
 	if sniffed != db.KindOther {
 		return sniffed
 	}
-	if kind := kindFromExtension(path.Ext(f.Path)); kind != "" {
+	if kind := KindFromExtension(path.Ext(f.Path)); kind != "" {
 		return kind
 	}
 	switch {
@@ -129,7 +131,9 @@ var byExtension = map[string]db.Kind{
 	".mts": db.KindVideo, ".m2ts": db.KindVideo, ".m2t": db.KindVideo,
 }
 
-func kindFromExtension(ext string) db.Kind {
+// KindFromExtension is what a name says a file is, and nothing for a name
+// this package does not know.
+func KindFromExtension(ext string) db.Kind {
 	return byExtension[strings.ToLower(ext)]
 }
 
@@ -141,5 +145,28 @@ func kindFromExtension(ext string) db.Kind {
 // -- which is the point: those are the rows that have no picture and therefore
 // the ones that need to say what they are.
 func IsImage(name string) bool {
-	return kindFromExtension(path.Ext(name)) == db.KindImage
+	return KindFromExtension(path.Ext(name)) == db.KindImage
+}
+
+// ErrBusy means this machine is already doing as much of some bounded job as
+// it allows: transcodes here, re-encoded segments in encode.go, thumbnails in
+// thumb.go. One sentinel for the three because each is returned by a call that
+// does one of them, so there is nothing for a caller to tell apart -- and
+// because what every caller does with it is the same shape, which is to answer
+// "not now" rather than "no".
+//
+// It is a state and never a verdict on the file: the same request a moment
+// later is answered.
+var ErrBusy = errors.New("media: at capacity")
+
+// Seconds is a duration in Seconds for a playlist or a probe, with three
+// decimals and no unit.
+func Seconds(d time.Duration) string {
+	return strconv.FormatFloat(d.Seconds(), 'f', -1, 64)
+}
+
+// IsVideo reports whether a name is a film's, by its extension -- which is
+// what a listing has to go on, since it does not read every row's metadata.
+func IsVideo(name string) bool {
+	return KindFromExtension(path.Ext(name)) == db.KindVideo
 }

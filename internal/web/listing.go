@@ -12,6 +12,7 @@ import (
 
 	"github.com/C0piIot/stratus-backend/internal/db"
 	"github.com/C0piIot/stratus-backend/internal/media"
+	"github.com/C0piIot/stratus-backend/internal/media/thumb"
 )
 
 // listPrefs is where a reader's last choice of ordering and page size is kept.
@@ -278,8 +279,8 @@ func (h *handler) statesOf(ctx context.Context, where string, children []db.File
 			row.Indexing = "unreadable"
 		}
 		// Whether this build has already tried and could not, which is the
-		// rule media.Refused owns because three surfaces read it now.
-		row.NoPicture = media.Refused(state, time.Now())
+		// rule thumb.Refused owns because three surfaces read it now.
+		row.NoPicture = thumb.Refused(state, time.Now())
 		if row != (rowState{}) {
 			marks[c.ID] = row
 		}

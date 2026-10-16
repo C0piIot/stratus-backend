@@ -1,4 +1,4 @@
-package media
+package thumb
 
 import (
 	"bytes"
@@ -11,6 +11,7 @@ import (
 
 	"github.com/C0piIot/stratus-backend/internal/db"
 	"github.com/C0piIot/stratus-backend/internal/files"
+	"github.com/C0piIot/stratus-backend/internal/media"
 	"github.com/C0piIot/stratus-backend/internal/storage"
 	"github.com/C0piIot/stratus-backend/internal/storage/storagetest"
 )
@@ -78,8 +79,8 @@ func TestAPassLosesToWhoeverIsLooking(t *testing.T) {
 	th.decoding <- struct{}{}
 	th.inQueue.Add(1)
 
-	if _, err := th.Prepare(t.Context(), f); !errors.Is(err, ErrBusy) {
-		t.Errorf("Prepare while a request is decoding = %v, want ErrBusy", err)
+	if _, err := th.Prepare(t.Context(), f); !errors.Is(err, media.ErrBusy) {
+		t.Errorf("Prepare while a request is decoding = %v, want media.ErrBusy", err)
 	}
 	if _, err := blobs.Stat(t.Context(), thumbKey(f.BlobKey, thumbMedium)); !errors.Is(err, storage.ErrNotFound) {
 		t.Errorf("a picture was made anyway: %v", err)
@@ -169,7 +170,7 @@ func TestAPassSaysNothingAboutBytesItCouldNotReach(t *testing.T) {
 	// itself, which is the shape of a bucket going quiet halfway: what fails
 	// is the read the decode is made of.
 	unreadable := files.New(storagetest.FailOn(t, blobs, "Get"), meta)
-	th := NewThumbs(blobs, unreadable, meta, stubFFmpeg(t), t.TempDir())
+	th := New(blobs, unreadable, meta, stubFFmpeg(t), t.TempDir())
 	if _, err := th.Prepare(t.Context(), f); !errors.Is(err, storagetest.ErrInjected) {
 		t.Errorf("Prepare against a store that will not read = %v, want the failure passed on", err)
 	}
@@ -254,7 +255,7 @@ func TestARefusalIsBelievedForAWeek(t *testing.T) {
 func indexAs(t *testing.T, meta db.MediaIndex, f db.File, kind db.Kind) {
 	t.Helper()
 	err := meta.PutMedia(t.Context(), db.Media{
-		FileID: f.ID, Kind: kind, IndexedAt: time.Now(), Version: Version, ETag: f.ETag,
+		FileID: f.ID, Kind: kind, IndexedAt: time.Now(), Version: media.Version, ETag: f.ETag,
 	})
 	if err != nil {
 		t.Fatalf("PutMedia(%q): %v", f.Path, err)

@@ -42,7 +42,7 @@ func runProbe(ctx context.Context, ffprobe, path string) (probeReport, error) {
 		// An exit code of -1 is the standard library's way of saying a signal
 		// ended it, and is the one form of this that is portable.
 		if errors.As(err, &exit) && exit.ExitCode() < 0 {
-			return probeReport{}, fmt.Errorf("%w: ffprobe stopped with %s", errUnreachable, exit.ProcessState)
+			return probeReport{}, fmt.Errorf("%w: ffprobe stopped with %s", ErrUnreachable, exit.ProcessState)
 		}
 		// ffprobe puts the reason on stderr and only an exit status in err, so
 		// without this every failure reads "exit status 1".
@@ -337,7 +337,7 @@ func pixelDepth(pixFmt string) int {
 }
 
 // milliRate turns ffprobe's rational frame rate into frames per thousand
-// seconds, and 0/0 into unknown.
+// Seconds, and 0/0 into unknown.
 func milliRate(rational string) int {
 	num, den, ok := strings.Cut(rational, "/")
 	if !ok {
@@ -389,12 +389,12 @@ func firstOf(values ...string) string {
 	return ""
 }
 
-// durationMS reads ffprobe's seconds-with-decimals into milliseconds.
-func durationMS(seconds string) int64 {
-	if seconds == "" || seconds == "N/A" {
+// durationMS reads ffprobe's Seconds-with-decimals into milliseconds.
+func durationMS(Seconds string) int64 {
+	if Seconds == "" || Seconds == "N/A" {
 		return 0
 	}
-	f, err := strconv.ParseFloat(seconds, 64)
+	f, err := strconv.ParseFloat(Seconds, 64)
 	if err != nil || f <= 0 {
 		return 0
 	}

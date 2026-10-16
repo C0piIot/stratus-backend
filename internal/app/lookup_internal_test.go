@@ -15,7 +15,7 @@ import (
 	"github.com/C0piIot/stratus-backend/internal/files"
 	"github.com/C0piIot/stratus-backend/internal/files/filestest"
 	"github.com/C0piIot/stratus-backend/internal/lookup"
-	"github.com/C0piIot/stratus-backend/internal/media"
+	"github.com/C0piIot/stratus-backend/internal/media/thumb"
 )
 
 // TestLookupLoopRunsAPassAndStopsWithTheContext: the loop is the scheduling
@@ -26,7 +26,7 @@ func TestLookupLoopRunsAPassAndStopsWithTheContext(t *testing.T) {
 	t.Parallel()
 	blobs, meta := filestest.Backends(t)
 	service := files.New(blobs, meta)
-	thumbs := media.NewThumbs(blobs, service, meta, "ffmpeg", t.TempDir()).WithLookups(meta)
+	thumbs := thumb.New(blobs, service, meta, "ffmpeg", t.TempDir()).WithLookups(meta)
 
 	// One album, so the pass has something to ask about -- and nowhere to
 	// ask: the addresses point at a port nothing listens on, which is the
@@ -137,7 +137,7 @@ func TestLookupLoopComesStraightBackWhileABatchFills(t *testing.T) {
 	t.Parallel()
 	blobs, meta := filestest.Backends(t)
 	service := files.New(blobs, meta)
-	thumbs := media.NewThumbs(blobs, service, meta, "ffmpeg", t.TempDir()).WithLookups(meta)
+	thumbs := thumb.New(blobs, service, meta, "ffmpeg", t.TempDir()).WithLookups(meta)
 	if _, err := service.Mkdir(t.Context(), "edu", "music"); err != nil {
 		t.Fatal(err)
 	}

@@ -20,7 +20,7 @@ import (
 	"github.com/C0piIot/stratus-backend/internal/files"
 	"github.com/C0piIot/stratus-backend/internal/files/filestest"
 	"github.com/C0piIot/stratus-backend/internal/lookup"
-	"github.com/C0piIot/stratus-backend/internal/media"
+	"github.com/C0piIot/stratus-backend/internal/media/thumb"
 )
 
 const owner = "edu"
@@ -168,14 +168,14 @@ func pngBytes(t *testing.T, w, h int) []byte {
 type library struct {
 	meta   db.Store
 	files  *files.Service
-	thumbs *media.Thumbs
+	thumbs *thumb.Service
 }
 
 func newLibrary(t *testing.T) *library {
 	t.Helper()
 	blobs, meta := filestest.Backends(t)
 	service := files.New(blobs, meta)
-	thumbs := media.NewThumbs(blobs, service, meta, "ffmpeg", t.TempDir()).WithLookups(meta)
+	thumbs := thumb.New(blobs, service, meta, "ffmpeg", t.TempDir()).WithLookups(meta)
 	return &library{meta: meta, files: service, thumbs: thumbs}
 }
 

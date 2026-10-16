@@ -261,10 +261,10 @@ func TestIndexRefusesToDownloadAFilm(t *testing.T) {
 	t.Parallel()
 	idx, service, meta := indexer(t)
 
-	// A small blob with a row that says it is a film. Small, so that a spool
+	// A small blob with a row that says it is a film. Small, so that a Spool
 	// would have worked: what is being tested is the refusal, not a failure.
 	f := write(t, service, "films/holiday.avi", readFixture(t, "moov-last.mp4"), "video/x-msvideo")
-	f.Size = maxSpool + 1
+	f.Size = MaxSpool + 1
 	stored, err := meta.PutFile(t.Context(), f)
 	if err != nil {
 		t.Fatal(err)

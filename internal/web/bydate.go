@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/C0piIot/stratus-backend/internal/db"
-	"github.com/C0piIot/stratus-backend/internal/media"
+	"github.com/C0piIot/stratus-backend/internal/media/thumb"
 	"github.com/C0piIot/stratus-backend/internal/timeline"
 )
 
@@ -318,7 +318,7 @@ func (h *handler) viewer(w http.ResponseWriter, r *http.Request, user string, l 
 	if m := around.Capture.Media; m.Width > 0 && m.Height > 0 {
 		pv.Dimensions = fmt.Sprintf("%d × %d", m.Width, m.Height)
 	}
-	if media.CanThumbnail(f.Path, f.Size) {
+	if thumb.CanThumbnail(f.Path, f.Size) {
 		pv.Image = thumbURL(f, viewerThumb)
 	}
 	if p := around.Newer; p != nil {
@@ -407,7 +407,7 @@ func (h *handler) tiles(ctx context.Context, l library, tree *timeline.Tree, pag
 			t.HeadingHref = l.href(monthPath(month)) + "/"
 			current = month
 		}
-		if media.CanThumbnail(p.File.Path, p.File.Size) && !states[p.File.ID].NoPicture {
+		if thumb.CanThumbnail(p.File.Path, p.File.Size) && !states[p.File.ID].NoPicture {
 			t.Thumb = thumbURL(p.File, tileThumb)
 		}
 		out = append(out, t)

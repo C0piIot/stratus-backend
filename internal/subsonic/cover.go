@@ -10,6 +10,7 @@ import (
 
 	"github.com/C0piIot/stratus-backend/internal/db"
 	"github.com/C0piIot/stratus-backend/internal/media"
+	"github.com/C0piIot/stratus-backend/internal/media/thumb"
 	"github.com/C0piIot/stratus-backend/internal/music"
 	"github.com/C0piIot/stratus-backend/internal/storage"
 )
@@ -62,14 +63,14 @@ func (h *handler) coverArt(w http.ResponseWriter, r *http.Request, username stri
 		// this is the server doing what it was configured to do.
 		h.failXML(w, r, apiError{errGeneric, "too many pictures are being made at once"})
 		return
-	case errors.Is(err, storage.ErrNotFound), errors.Is(err, media.ErrNoEmbeddedCover), errors.Is(err, media.ErrNoThumbnail):
+	case errors.Is(err, storage.ErrNotFound), errors.Is(err, thumb.ErrNoEmbeddedCover), errors.Is(err, thumb.ErrNoThumbnail):
 		// Not an error worth a code of its own: an album without a picture is
 		// the normal state of half a library, and a client draws a placeholder.
 		// A picture beside the tracks that will not turn into pixels is the
 		// same answer -- the one the album page gives, since #362 -- and a
 		// line in the log, because a cover.jpg that is not a JPEG is worth
 		// somebody's attention even though no client can tell it apart.
-		if errors.Is(err, media.ErrNoThumbnail) {
+		if errors.Is(err, thumb.ErrNoThumbnail) {
 			slog.WarnContext(r.Context(), "cover art that cannot be drawn", "id", id, "err", err)
 		}
 		h.failXML(w, r, notFound("cover art"))

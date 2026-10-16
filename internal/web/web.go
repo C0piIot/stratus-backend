@@ -110,7 +110,7 @@ type Deps struct {
 
 // Thumbnails is the picture half: a file's own and a folder's cover art. An
 // interface like the rest of this handler's dependencies rather than
-// *media.Thumbs, because the answers that are not pixels -- no picture, and
+// *thumb.Service, because the answers that are not pixels -- no picture, and
 // the generator at capacity -- are branches here and a test should not have to
 // saturate a real decoder to reach one.
 type Thumbnails interface {

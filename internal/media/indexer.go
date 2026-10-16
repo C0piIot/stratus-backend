@@ -114,7 +114,7 @@ func (i *Indexer) LostTrack() <-chan struct{} { return i.lost }
 //
 // A file deferred because the store would not answer does not count, which is
 // the brake: the loop in internal/app only comes straight back for more when a
-// pass filled its batch, so an unreachable store makes it wait for the interval
+// pass filled its batch, so an Unreachable store makes it wait for the interval
 // rather than walk the whole library against something that is not there.
 //
 // now is the caller's, the way files.CollectUploads takes it: what a deferred
@@ -224,7 +224,7 @@ type attempt struct {
 // judgement files.Collect makes before it deletes anything, and nothing is
 // written down about any of them.
 func (a attempt) deferred(batch []attempt) bool {
-	if unreachable(a.err) {
+	if Unreachable(a.err) {
 		return true
 	}
 	if !errors.Is(a.err, storage.ErrNotFound) {
@@ -273,7 +273,7 @@ func (i *Indexer) index(ctx context.Context, f db.File) attempt {
 // extract reads the file once, through one reader.
 //
 // One open and not three: every extractor below seeks to where it wants to
-// start, so the same body serves the sniff, the ranged probe and the spool --
+// start, so the same body serves the sniff, the ranged probe and the Spool --
 // and a single reader is also what makes the failure classifiable, since it is
 // the only thing that sees a store's error before a parser rephrases it.
 func (i *Indexer) extract(ctx context.Context, f db.File) (db.Media, error) {
@@ -283,18 +283,18 @@ func (i *Indexer) extract(ctx context.Context, f db.File) (db.Media, error) {
 	}
 	defer func() { _ = body.Close() }()
 
-	r := &storeReader{ReadSeekCloser: body}
+	r := &StoreReader{ReadSeekCloser: body}
 	m, err := i.extractFrom(ctx, r, f)
-	if err == nil || r.err == nil {
+	if err == nil || r.Err == nil {
 		return m, err
 	}
 	// The store failed on the way, whatever the error says now. That is not a
 	// verdict on the file -- except the one answer from that side which is
 	// about the file, and which the caller recognises for itself.
-	if errors.Is(r.err, storage.ErrNotFound) {
-		return m, r.err
+	if errors.Is(r.Err, storage.ErrNotFound) {
+		return m, r.Err
 	}
-	return m, fmt.Errorf("%w: %w", errUnreachable, r.err)
+	return m, fmt.Errorf("%w: %w", ErrUnreachable, r.Err)
 }
 
 func (i *Indexer) extractFrom(ctx context.Context, body io.ReadSeeker, f db.File) (db.Media, error) {
@@ -320,14 +320,14 @@ func (i *Indexer) extractFrom(ctx context.Context, body io.ReadSeeker, f db.File
 		// Everything else needs a local copy, and that is where the line is:
 		// nothing large is downloaded to be looked at. What a file does not say
 		// in its head stays unsaid.
-		if f.Size > maxSpool {
+		if f.Size > MaxSpool {
 			return db.Media{Kind: kind}, errTooLargeToRead
 		}
 
 		if _, err := body.Seek(0, io.SeekStart); err != nil {
 			return db.Media{}, fmt.Errorf("rewind %q: %w", f.Path, err)
 		}
-		path, cleanup, err := spool(body, i.tmpDir, f.Path)
+		path, cleanup, err := Spool(body, i.tmpDir, f.Path)
 		if err != nil {
 			return db.Media{}, err
 		}
@@ -355,7 +355,7 @@ func (i *Indexer) extractFrom(ctx context.Context, body io.ReadSeeker, f db.File
 func (i *Indexer) classify(body io.ReadSeeker, f db.File) (db.Kind, error) {
 	head := make([]byte, sniff.HeadSize)
 	n, err := io.ReadFull(body, head)
-	// A file shorter than the window is ordinary, and an empty one is a file
+	// A file shorter than the Window is ordinary, and an empty one is a file
 	// too: neither is a failure, and both are classified from what there is.
 	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
 		return db.KindOther, fmt.Errorf("read the head of %q: %w", f.Path, err)
@@ -381,7 +381,7 @@ func probeInPlace(body io.ReadSeeker, f db.File) (db.Media, error) {
 // readableInPlace reports whether one of the readers here claims the file.
 func readableInPlace(name string) bool { return isobmff(name) || matroska(name) }
 
-// spool copies a blob to a local file, because the tools seek and the storage
+// Spool copies a blob to a local file, because the tools seek and the storage
 // port streams.
 //
 // For a large video on S3 this downloads the whole thing once. That is the
@@ -392,12 +392,12 @@ func readableInPlace(name string) bool { return isobmff(name) || matroska(name) 
 //
 // No context here: what makes it cancellable is the reader, which is a ranged
 // read off the store carrying the caller's.
-// Its failures are marked unreachable: a full disk and a directory that is not
+// Its failures are marked Unreachable: a full disk and a directory that is not
 // there are facts about this machine, not about the recording.
-func spool(body io.Reader, dir, name string) (string, func(), error) {
-	tmp, err := os.CreateTemp(dir, "spool-*")
+func Spool(body io.Reader, dir, name string) (string, func(), error) {
+	tmp, err := os.CreateTemp(dir, "Spool-*")
 	if err != nil {
-		return "", nil, fmt.Errorf("%w: spool %q: %w", errUnreachable, name, err)
+		return "", nil, fmt.Errorf("%w: Spool %q: %w", ErrUnreachable, name, err)
 	}
 	cleanup := func() {
 		_ = tmp.Close()
@@ -406,11 +406,11 @@ func spool(body io.Reader, dir, name string) (string, func(), error) {
 
 	if _, err := io.Copy(tmp, body); err != nil {
 		cleanup()
-		return "", nil, fmt.Errorf("%w: spool %q: %w", errUnreachable, name, err)
+		return "", nil, fmt.Errorf("%w: Spool %q: %w", ErrUnreachable, name, err)
 	}
 	if err := tmp.Close(); err != nil {
 		cleanup()
-		return "", nil, fmt.Errorf("%w: spool %q: %w", errUnreachable, name, err)
+		return "", nil, fmt.Errorf("%w: Spool %q: %w", ErrUnreachable, name, err)
 	}
 	return tmp.Name(), func() { _ = os.Remove(tmp.Name()) }, nil
 }
@@ -436,3 +436,17 @@ func TempDir(dataDir string) (string, error) {
 	}
 	return dir, nil
 }
+
+// MaxSpool is the line nothing crosses: a file larger than this is never copied
+// to be looked at.
+//
+// It is the whole of the rule that arrived with #145 -- **a large file is not
+// downloaded to be read, and what its head does not say stays unsaid**. Before
+// it, one film on a bucket was four gigabytes of egress to learn that it lasts
+// two hours, and a thumbnail of it was four more.
+//
+// Sixty-four megabytes: larger than any photograph and any ordinary music
+// track, smaller than any film. A constant and not a setting, because it is not
+// a preference -- it is where reading a whole file to look at its head stops
+// being a reasonable thing to do.
+const MaxSpool = 64 << 20

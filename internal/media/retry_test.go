@@ -19,7 +19,7 @@ import (
 // way (#157).
 
 // TestAStoreThatWillNotAnswerIsNotAVerdict is the case the issue was filed for.
-// A bucket that times out for thirty seconds marked every file it touched as
+// A bucket that times out for thirty Seconds marked every file it touched as
 // unreadable for good; now it costs them an hour.
 func TestAStoreThatWillNotAnswerIsNotAVerdict(t *testing.T) {
 	t.Parallel()

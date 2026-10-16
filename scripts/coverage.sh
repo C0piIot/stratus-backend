@@ -117,7 +117,9 @@ internal/dav:88
 internal/files:91
 internal/incoming:86
 internal/lookup:92
-internal/media:89
+internal/media:88
+internal/media/thumb:91
+internal/media/stream:89
 internal/music:100
 internal/timeline:92
 internal/nextcloud:87
@@ -232,6 +234,12 @@ internal/web:96
 # byte slice should be: every signature it knows is a case, every answer it
 # refuses to give is a case, and what is left uncovered is a branch of the text
 # check that needs a rune cut in three places at once.
+#
+# internal/media went 89 -> 88 when it became three packages (#361): the
+# pictures and the streaming left for internal/media/thumb and
+# internal/media/stream with the tests they had, 91 and 89 on the day, and
+# what stayed behind -- the readers over ranges, the probe, the indexer -- is
+# the half ffprobe keeps below the rest.
 #
 # internal/media went 88 -> 89 with the wake-up (#48): what a notice is -- never
 # blocking, and holding one so that five hundred uploads are one pass -- is two

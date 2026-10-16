@@ -1,4 +1,9 @@
-package media
+// Package stream is what plays: the decision between the original and a
+// transcode, the transcode itself over an ffmpeg that reads the blob through
+// the loopback, and a film as HLS, remuxed or re-encoded a segment at a time.
+// It reads what internal/media knows about a file and makes no pictures,
+// which is internal/media/thumb's.
+package stream
 
 import (
 	"strings"

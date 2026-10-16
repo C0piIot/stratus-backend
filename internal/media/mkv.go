@@ -19,7 +19,7 @@ import (
 // costs a few kilobytes to describe rather than a few gigabytes to download.
 // What makes it possible here is that Matroska states its duration -- measured,
 // in #145: the first megabyte of a thirty-second file gives the same 30.0
-// seconds the whole file does, while AVI and MPEG-TS give 7.5 and 6.9, because
+// Seconds the whole file does, while AVI and MPEG-TS give 7.5 and 6.9, because
 // those have no duration to state and ffprobe works it out from what it can
 // reach. That is why this reads Matroska and nothing else.
 //

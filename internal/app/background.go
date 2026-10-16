@@ -17,6 +17,7 @@ import (
 	"github.com/C0piIot/stratus-backend/internal/db"
 	"github.com/C0piIot/stratus-backend/internal/files"
 	"github.com/C0piIot/stratus-backend/internal/media"
+	"github.com/C0piIot/stratus-backend/internal/media/thumb"
 )
 
 // indexPeriodically extracts metadata from files that have none, and makes the
@@ -134,7 +135,7 @@ func (a *App) thumbsAhead(ctx context.Context, deps Deps) time.Duration {
 		slog.Info("made thumbnails ahead", "files", made)
 	}
 
-	if made < media.ThumbBatch {
+	if made < thumb.Batch {
 		return 0
 	}
 	return thumbPause

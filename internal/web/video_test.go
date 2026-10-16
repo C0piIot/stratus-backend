@@ -17,6 +17,7 @@ import (
 	"github.com/C0piIot/stratus-backend/internal/db"
 	"github.com/C0piIot/stratus-backend/internal/files"
 	"github.com/C0piIot/stratus-backend/internal/media"
+	"github.com/C0piIot/stratus-backend/internal/media/stream"
 	"github.com/C0piIot/stratus-backend/internal/web"
 )
 
@@ -24,12 +25,12 @@ import (
 // answers with their names.
 type fakeSegments struct {
 	mu    sync.Mutex
-	asked []media.Segment
-	remux []media.Remux
+	asked []stream.Segment
+	remux []stream.Remux
 	err   error
 }
 
-func (f *fakeSegments) Segment(_ context.Context, _ db.File, r media.Remux, s media.Segment) (io.ReadCloser, error) {
+func (f *fakeSegments) Segment(_ context.Context, _ db.File, r stream.Remux, s stream.Segment) (io.ReadCloser, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.asked, f.remux = append(f.asked, s), append(f.remux, r)
@@ -294,14 +295,14 @@ func TestAFilmWithoutAQueryIsTheFile(t *testing.T) {
 // fakeEncoder stands in for libx264.
 type fakeEncoder struct {
 	mu    sync.Mutex
-	asked []media.Segment
+	asked []stream.Segment
 }
 
-func (f *fakeEncoder) Segment(_ context.Context, _ db.File, _ media.Encode, s media.Segment) (io.ReadCloser, error) {
+func (f *fakeEncoder) Segment(_ context.Context, _ db.File, _ stream.Encode, s stream.Segment) (io.ReadCloser, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.asked = append(f.asked, s)
-	return io.NopCloser(strings.NewReader("encoded " + media.EncodedName(s))), nil
+	return io.NopCloser(strings.NewReader("encoded " + stream.EncodedName(s))), nil
 }
 
 func newEncodingCinema(t *testing.T) (*cinema, *fakeEncoder) {

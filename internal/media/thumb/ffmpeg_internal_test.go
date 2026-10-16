@@ -1,4 +1,4 @@
-package media
+package thumb
 
 import (
 	"context"
@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/C0piIot/stratus-backend/internal/media"
 )
 
 // stubFFmpeg is what the tests that never reach the binary are wired with: a
@@ -119,7 +121,7 @@ func TestThumbnailWhenTheSpoolFails(t *testing.T) {
 	write(t, service, "holiday.heic", readFixture(t, "tiny.heic"), "image/heic")
 
 	if _, _, err := th.File(t.Context(), owner, "holiday.heic", 96); err == nil {
-		t.Error("a thumbnail was made with nowhere to spool the file")
+		t.Error("a thumbnail was made with nowhere to media.Spool the file")
 	}
 }
 
@@ -249,20 +251,20 @@ func TestCanThumbnail(t *testing.T) {
 	// what the listing offers has to be exactly what can be made.
 	const enormous = 8 << 30 // a film
 
-	// Nothing is copied at this size, but a window is enough to take a frame
+	// Nothing is copied at this size, but a media.Window is enough to take a frame
 	// out of these two (#149).
 	for _, name := range []string{"film.mkv", "holiday.mp4"} {
 		if !CanThumbnail(name, enormous) {
-			t.Errorf("%s of %d bytes is offered no picture, though a window would do", name, enormous)
+			t.Errorf("%s of %d bytes is offered no picture, though a media.Window would do", name, enormous)
 		}
 	}
-	// And there is no window to take of these, so above the bound they keep the
+	// And there is no media.Window to take of these, so above the bound they keep the
 	// refusal #145 gave them.
 	for _, name := range []string{"film.avi", "recording.wmv"} {
 		if CanThumbnail(name, enormous) {
 			t.Errorf("%s of %d bytes is offered a picture that would cost the whole file", name, enormous)
 		}
-		if !CanThumbnail(name, maxSpool) {
+		if !CanThumbnail(name, media.MaxSpool) {
 			t.Errorf("%s at the bound is refused; the bound is inclusive", name)
 		}
 	}
@@ -289,7 +291,7 @@ func opaqueBlack(img image.Image) bool {
 // that opens on nothing, because a phone starts before the sensor settles or an
 // edit begins with a fade.
 //
-// The fixture is two seconds of black and then a test pattern. Measured with
+// The fixture is two media.Seconds of black and then a test pattern. Measured with
 // ffmpeg itself, the first frame and the frame one second in -- which is where
 // this project asked for one until #149 -- both average zero brightness. The
 // thumbnail filter picks something out of the batch instead.
@@ -302,7 +304,7 @@ func TestTheFrameIsNotBlack(t *testing.T) {
 		t.Fatalf("decodeScaled: %v", err)
 	}
 	if opaqueBlack(frame) {
-		t.Fatal("the frame is entirely black, which is the first two seconds of this film")
+		t.Fatal("the frame is entirely black, which is the first two media.Seconds of this film")
 	}
 
 	// Not merely "a pixel is lit": a frame that is nearly black would pass that

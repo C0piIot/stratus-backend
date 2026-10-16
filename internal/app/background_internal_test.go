@@ -20,6 +20,7 @@ import (
 	"github.com/C0piIot/stratus-backend/internal/files/filestest"
 	"github.com/C0piIot/stratus-backend/internal/incoming"
 	"github.com/C0piIot/stratus-backend/internal/media"
+	"github.com/C0piIot/stratus-backend/internal/media/thumb"
 	"github.com/C0piIot/stratus-backend/internal/storage"
 )
 
@@ -73,10 +74,10 @@ func TestThePicturePassPacesItself(t *testing.T) {
 	a := New(config.Config{ThumbsAhead: true}, "test", "2026-01-01T09:30:00Z")
 	deps := Deps{
 		Storage: blobs, Database: meta, Files: service,
-		Thumbs: media.NewThumbs(blobs, service, meta, "ffmpeg", t.TempDir()),
+		Thumbs: thumb.New(blobs, service, meta, "ffmpeg", t.TempDir()),
 	}
 	// One more than a batch, so the first pass fills and the second does not.
-	for i := range media.ThumbBatch + 1 {
+	for i := range thumb.Batch + 1 {
 		writePhoto(t, service, meta, fmt.Sprintf("%d.jpg", i))
 	}
 
@@ -98,7 +99,7 @@ func TestThePicturePassPacesItself(t *testing.T) {
 
 	// And a pass that cannot ask the database waits for the tick like every
 	// other loop here: a background goroutine is not where an outage starts.
-	deps.Thumbs = media.NewThumbs(blobs, service, dbtest.FailOn(t, meta, "PendingThumbs"), "ffmpeg", t.TempDir())
+	deps.Thumbs = thumb.New(blobs, service, dbtest.FailOn(t, meta, "PendingThumbs"), "ffmpeg", t.TempDir())
 	if wait := a.thumbsAhead(t.Context(), deps); wait != 0 {
 		t.Errorf("a pass that could not read the queue waits %v, want the tick", wait)
 	}
@@ -145,7 +146,7 @@ func TestThePicturePassStandsAside(t *testing.T) {
 	writePhoto(t, files.New(blobs, meta), meta, "holiday.jpg")
 
 	a := New(config.Config{ThumbsAhead: true}, "test", "2026-01-01T09:30:00Z")
-	thumbs := media.NewThumbs(blobs, service, meta, "ffmpeg", t.TempDir())
+	thumbs := thumb.New(blobs, service, meta, "ffmpeg", t.TempDir())
 	deps := Deps{Storage: blobs, Database: meta, Files: service, Thumbs: thumbs}
 
 	go func() { _, _, _ = thumbs.File(t.Context(), "edu", "holiday.jpg", 96) }()

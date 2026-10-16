@@ -1,4 +1,4 @@
-package media
+package stream
 
 import (
 	"bytes"
@@ -15,11 +15,12 @@ import (
 	"time"
 
 	"github.com/C0piIot/stratus-backend/internal/db"
+	"github.com/C0piIot/stratus-backend/internal/media"
 )
 
 func sec(s float64) time.Duration { return time.Duration(s * float64(time.Second)) }
 
-// TestSegments: about six seconds each, every one starting on a keyframe, the
+// TestSegments: about six media.Seconds each, every one starting on a keyframe, the
 // first at zero and the last running to the end -- with the frames each holds
 // and where its seek is aimed.
 func TestSegments(t *testing.T) {
@@ -32,23 +33,23 @@ func TestSegments(t *testing.T) {
 		return out
 	}
 	for name, c := range map[string]struct {
-		ix   Index
+		ix   media.Index
 		want []Segment
 	}{
 		"an MP4, counted from its sample table": {
-			Index{Keyframes: []time.Duration{0, sec(2), sec(4), sec(6), sec(8)}, KeySamples: []int{0, 50, 100, 150, 200}, Samples: 250, Duration: sec(10)},
+			media.Index{Keyframes: []time.Duration{0, sec(2), sec(4), sec(6), sec(8)}, KeySamples: []int{0, 50, 100, 150, 200}, Samples: 250, Duration: sec(10)},
 			[]Segment{{0, sec(6), 150, 0}, {sec(6), sec(4), 100, sec(6.15)}},
 		},
 		"a Matroska file, counted from its frame duration": {
-			Index{Keyframes: []time.Duration{sec(0.023), sec(2.023), sec(4.023), sec(6.023), sec(8.023)}, FrameDuration: 40 * time.Millisecond, Duration: sec(10)},
+			media.Index{Keyframes: []time.Duration{sec(0.023), sec(2.023), sec(4.023), sec(6.023), sec(8.023)}, FrameDuration: 40 * time.Millisecond, Duration: sec(10)},
 			[]Segment{{0, sec(6.023), 150, 0}, {sec(6.023), sec(3.977), 100, sec(6.173)}},
 		},
 		"sparse keyframes make long segments": {
-			Index{Keyframes: []time.Duration{0, sec(20)}, KeySamples: []int{0, 500}, Samples: 625, Duration: sec(25)},
+			media.Index{Keyframes: []time.Duration{0, sec(20)}, KeySamples: []int{0, 500}, Samples: 625, Duration: sec(25)},
 			[]Segment{{0, sec(20), 500, 0}, {sec(20), sec(5), 125, sec(20.15)}},
 		},
 		"all intra: the seek stays short of the next keyframe": {
-			Index{Keyframes: every(40*time.Millisecond, sec(12)), FrameDuration: 40 * time.Millisecond, Duration: sec(12)},
+			media.Index{Keyframes: every(40*time.Millisecond, sec(12)), FrameDuration: 40 * time.Millisecond, Duration: sec(12)},
 			[]Segment{{0, sec(6), 150, 0}, {sec(6), sec(6), 151, sec(6.02)}},
 		},
 	} {
@@ -56,7 +57,7 @@ func TestSegments(t *testing.T) {
 			t.Errorf("%s:\n got  %v\n want %v", name, got, c.want)
 		}
 	}
-	if got := Segments(Index{Keyframes: []time.Duration{0, sec(8)}, Duration: sec(10)}); got != nil {
+	if got := Segments(media.Index{Keyframes: []time.Duration{0, sec(8)}, Duration: sec(10)}); got != nil {
 		t.Errorf("a film whose frames cannot be counted = %v, want no segments", got)
 	}
 }
@@ -169,7 +170,7 @@ func TestSegmentsAreContiguous(t *testing.T) {
 	dir := t.TempDir()
 	for _, name := range []string{"gop.mp4", "gop.mkv"} {
 		body := readFixture(t, name)
-		ix, err := KeyframesOf(bytes.NewReader(body), db.File{Path: name, Size: int64(len(body))})
+		ix, err := media.KeyframesOf(bytes.NewReader(body), db.File{Path: name, Size: int64(len(body))})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -219,7 +220,7 @@ func TestSegmentsAreContiguous(t *testing.T) {
 func segmentsOf(t *testing.T, name string) []Segment {
 	t.Helper()
 	body := readFixture(t, name)
-	ix, err := KeyframesOf(bytes.NewReader(body), db.File{Path: name, Size: int64(len(body))})
+	ix, err := media.KeyframesOf(bytes.NewReader(body), db.File{Path: name, Size: int64(len(body))})
 	if err != nil {
 		t.Fatalf("%s: %v", name, err)
 	}
@@ -246,7 +247,7 @@ func segmentBytes(t *testing.T, tr *Transcoder, name string, r Remux, s Segment)
 
 func TestIsVideoAndPlaysInBrowser(t *testing.T) {
 	t.Parallel()
-	if !IsVideo("a/film.MKV") || IsVideo("a/track.flac") || IsVideo("notes.txt") {
+	if !media.IsVideo("a/film.MKV") || media.IsVideo("a/track.flac") || media.IsVideo("notes.txt") {
 		t.Error("IsVideo does not go by the extension")
 	}
 	for name, c := range map[string]struct {

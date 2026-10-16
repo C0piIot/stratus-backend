@@ -1,4 +1,4 @@
-package media
+package stream
 
 import (
 	"context"
@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"path"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/C0piIot/stratus-backend/internal/db"
+	"github.com/C0piIot/stratus-backend/internal/media"
 )
 
 // A film as HLS, for the players that cannot take it as it is (#50).
@@ -48,7 +48,7 @@ import (
 // remux cannot carry, or its container does not say where its keyframes are.
 var ErrNoHLS = errors.New("media: this film cannot be remuxed to HLS")
 
-// segmentTarget is how long a segment is meant to be. Six seconds is what
+// segmentTarget is how long a segment is meant to be. Six media.Seconds is what
 // Apple recommends and what a Chromecast buffers comfortably; a segment ends
 // at the first keyframe past it, so a film with sparse keyframes has longer
 // ones.
@@ -117,7 +117,7 @@ const seekBackoff = 150 * time.Millisecond
 // starting on one; the first starts at zero, so nothing before the first
 // keyframe is lost, and the last runs to the end. It returns nil for a film
 // whose frames between keyframes cannot be counted.
-func Segments(ix Index) []Segment {
+func Segments(ix media.Index) []Segment {
 	counted := len(ix.KeySamples) == len(ix.Keyframes) && ix.Samples > 0
 	if len(ix.Keyframes) == 0 || (!counted && ix.FrameDuration <= 0) {
 		return nil
@@ -230,7 +230,7 @@ func segmentArgs(r Remux, s Segment) func(url string) []string {
 	return func(url string) []string {
 		args := []string{"-hide_banner", "-v", "error", "-nostdin"}
 		if s.Seek > 0 {
-			args = append(args, "-ss", seconds(s.Seek))
+			args = append(args, "-ss", media.Seconds(s.Seek))
 		}
 		args = append(args,
 			"-protocol_whitelist", "http,tcp",
@@ -241,7 +241,7 @@ func segmentArgs(r Remux, s Segment) func(url string) []string {
 			// the output keeps the film's own timestamps, and -t measured
 			// against those ends every segment but the first before it begins.
 			"-frames:v", strconv.Itoa(s.Frames),
-			"-to", seconds(s.Start+s.Length),
+			"-to", media.Seconds(s.Start+s.Length),
 			"-c:v", "copy",
 		)
 		if r.CopyAudio {
@@ -256,28 +256,18 @@ func segmentArgs(r Remux, s Segment) func(url string) []string {
 			// constant, because B-frames give the first segment a decode time
 			// below zero and the muxer would shift that one segment alone --
 			// by 80 ms on the fixtures, enough to overlap its neighbour.
-			// -muxdelay 0 stops the muxer adding its own 1.4 seconds.
-			"-copyts", "-output_ts_offset", seconds(timelineOffset),
+			// -muxdelay 0 stops the muxer adding its own 1.4 media.Seconds.
+			"-copyts", "-output_ts_offset", media.Seconds(timelineOffset),
 			"-muxdelay", "0", "-muxpreload", "0",
 			"-f", "mpegts", "-",
 		)
 	}
 }
 
-// timelineOffset is added to every segment's timestamps. Ten seconds is far
+// timelineOffset is added to every segment's timestamps. Ten media.Seconds is far
 // more than any B-frame delay, and a player takes the timeline from where the
 // first segment starts.
 const timelineOffset = 10 * time.Second
-
-func seconds(d time.Duration) string {
-	return strconv.FormatFloat(d.Seconds(), 'f', -1, 64)
-}
-
-// IsVideo reports whether a name is a film's, by its extension -- which is
-// what a listing has to go on, since it does not read every row's metadata.
-func IsVideo(name string) bool {
-	return kindFromExtension(path.Ext(name)) == db.KindVideo
-}
 
 // PlaysInBrowser reports whether a browser takes a film as it is: a container
 // every one of them opens, a picture every one decodes and a sound likewise.

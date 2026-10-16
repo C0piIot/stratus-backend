@@ -64,7 +64,7 @@ type Index interface {
 }
 
 // ArtStore keeps a fetched front cover beside the pictures a track's own tag
-// would have made. *media.Thumbs is the one implementation: it owns the names
+// would have made. *thumb.Service is the one implementation: it owns the names
 // derived objects are kept under, and the sweep reads them back.
 type ArtStore interface {
 	StoreArt(ctx context.Context, f db.File, picture []byte) error

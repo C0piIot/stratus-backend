@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/C0piIot/stratus-backend/internal/media"
+	"github.com/C0piIot/stratus-backend/internal/media/stream"
 )
 
 // The transcoding extension (#50): a client describes what it can play, the
@@ -62,15 +63,15 @@ type clientInfo struct {
 
 // capabilities is the payload in internal/media's terms, which are the same
 // ones by design. Only audio codec profiles exist in version 1.
-func (c clientInfo) capabilities() media.Capabilities {
-	caps := media.Capabilities{MaxBitrate: c.MaxAudioBitrate, MaxTranscodeBitrate: c.MaxTranscodingAudioBitrate}
+func (c clientInfo) capabilities() stream.Capabilities {
+	caps := stream.Capabilities{MaxBitrate: c.MaxAudioBitrate, MaxTranscodeBitrate: c.MaxTranscodingAudioBitrate}
 	for _, p := range c.DirectPlayProfiles {
-		caps.Direct = append(caps.Direct, media.DirectProfile{
+		caps.Direct = append(caps.Direct, stream.DirectProfile{
 			Containers: p.Containers, Codecs: p.AudioCodecs, Protocols: p.Protocols, MaxChannels: p.MaxAudioChannels,
 		})
 	}
 	for _, p := range c.TranscodingProfiles {
-		caps.Targets = append(caps.Targets, media.TargetProfile{
+		caps.Targets = append(caps.Targets, stream.TargetProfile{
 			Container: p.Container, Codec: p.AudioCodec, Protocol: p.Protocol, MaxChannels: p.MaxAudioChannels,
 		})
 	}
@@ -78,9 +79,9 @@ func (c clientInfo) capabilities() media.Capabilities {
 		if p.Type != "AudioCodec" {
 			continue
 		}
-		cp := media.CodecProfile{Codec: p.Name}
+		cp := stream.CodecProfile{Codec: p.Name}
 		for _, l := range p.Limitations {
-			cp.Limits = append(cp.Limits, media.Limit{Name: l.Name, Comparison: l.Comparison, Values: l.Values, Required: l.Required})
+			cp.Limits = append(cp.Limits, stream.Limit{Name: l.Name, Comparison: l.Comparison, Values: l.Values, Required: l.Required})
 		}
 		caps.Codecs = append(caps.Codecs, cp)
 	}
@@ -110,7 +111,7 @@ type streamDetails struct {
 	AudioBitdepth   int    `xml:"audioBitdepth,attr" json:"audioBitdepth"`
 }
 
-func details(s media.Stream) *streamDetails {
+func details(s stream.Stream) *streamDetails {
 	return &streamDetails{
 		Protocol: s.Protocol, Container: s.Container, Codec: s.Codec, AudioChannels: s.Channels,
 		AudioBitrate: s.Bitrate, AudioProfile: s.Profile, AudioSamplerate: s.SampleRate, AudioBitdepth: s.BitDepth,
@@ -140,7 +141,7 @@ func (h *handler) transcodeDecision(w http.ResponseWriter, r *http.Request, user
 		return
 	}
 
-	d := media.DecideFor(t.File, t.Media, info.capabilities())
+	d := stream.DecideFor(t.File, t.Media, info.capabilities())
 	out := &transcodeDecision{
 		CanDirectPlay: d.Direct, CanTranscode: d.Transcode, ErrorReason: d.Error, SourceStream: details(d.Source),
 	}
@@ -179,7 +180,7 @@ func (h *handler) transcodeStream(w http.ResponseWriter, r *http.Request, userna
 		http.Error(w, "there is no media of that type here", http.StatusNotFound)
 		return
 	}
-	plan, err := media.PlanFromParams(q.Get("transcodeParams"))
+	plan, err := stream.PlanFromParams(q.Get("transcodeParams"))
 	if err != nil {
 		http.Error(w, "transcodeParams is not one getTranscodeDecision gave", http.StatusBadRequest)
 		return

@@ -1,4 +1,4 @@
-package media
+package thumb
 
 import (
 	"bytes"
@@ -10,6 +10,7 @@ import (
 
 	"github.com/C0piIot/stratus-backend/internal/db"
 	"github.com/C0piIot/stratus-backend/internal/files"
+	"github.com/C0piIot/stratus-backend/internal/media"
 	"github.com/C0piIot/stratus-backend/internal/storage"
 )
 
@@ -36,14 +37,14 @@ import (
 // ask.
 var passSizes = []thumbSize{thumbSmall, thumbMedium}
 
-// ThumbBatch is how many files one pass looks at before the loop driving it
+// Batch is how many files one pass looks at before the loop driving it
 // goes back to what else has arrived.
 //
 // Small, and it is the indexer's number divided by what a file costs here: a
 // batch of metadata is a few ranged reads and a batch of pictures is a decode
 // each, so eight is about the longest this may hold the loop while somebody's
 // upload waits to be indexed.
-const ThumbBatch = 8
+const Batch = 8
 
 // Refused reports whether the index says this build has already tried to draw
 // a file and could not, and that the verdict still stands.
@@ -65,11 +66,11 @@ func Refused(state db.MediaState, now time.Time) bool {
 // does, and writes down what became of them.
 //
 // Three ways it does not make one, and only the last is the file's fault:
-// ErrBusy, which is the pass losing to whoever is looking; an error reaching
+// media.ErrBusy, which is the pass losing to whoever is looking; an error reaching
 // the bytes, which is nobody's verdict and leaves the row untouched so the
 // next pass tries again (#157); and a file this build cannot read, which is
 // remembered.
-func (t *Thumbs) Prepare(ctx context.Context, f db.File) (db.ThumbState, error) {
+func (t *Service) Prepare(ctx context.Context, f db.File) (db.ThumbState, error) {
 	v := verdict{note: verdictKey(f.BlobKey), says: ErrNoThumbnail, file: f.ID, blobKey: f.BlobKey}
 
 	if !CanThumbnail(f.Path, f.Size) {
@@ -100,7 +101,7 @@ func (t *Thumbs) Prepare(ctx context.Context, f db.File) (db.ThumbState, error) 
 
 	release, taken := t.decodeIfIdle()
 	if !taken {
-		return 0, ErrBusy
+		return 0, media.ErrBusy
 	}
 	defer release()
 
@@ -125,30 +126,30 @@ func (t *Thumbs) Prepare(ctx context.Context, f db.File) (db.ThumbState, error) 
 	return db.ThumbMade, nil
 }
 
-// PrepareBatch makes the pictures of up to ThumbBatch files that have none,
+// PrepareBatch makes the pictures of up to Batch files that have none,
 // newest first, and answers how many it reached a verdict about.
 //
 // Photographs before films, and the batch is shared: a library is mostly
 // photographs, the gallery is the grid somebody opens, and a film nobody has
-// reached still makes its own picture the moment anybody looks at it. ErrBusy
+// reached still makes its own picture the moment anybody looks at it. media.ErrBusy
 // is not a failure -- it is the pass standing aside, and the caller decides
 // when to come back.
-func (t *Thumbs) PrepareBatch(ctx context.Context, now time.Time) (int, error) {
+func (t *Service) PrepareBatch(ctx context.Context, now time.Time) (int, error) {
 	var done int
 	for _, kind := range []db.Kind{db.KindImage, db.KindVideo} {
 		// The week is files.CacheRetention, which is the same one the sweep
 		// takes a note after: the two halves of a refusal expire together
 		// because they are given the same number (#338).
 		pending, err := t.meta.PendingThumbs(ctx, kind, files.DerivedGeneration,
-			now.Add(-files.CacheRetention), ThumbBatch-done)
+			now.Add(-files.CacheRetention), Batch-done)
 		if err != nil {
 			return done, fmt.Errorf("find pictures to make: %w", err)
 		}
 
 		for _, f := range pending {
 			switch _, err := t.Prepare(ctx, f); {
-			case errors.Is(err, ErrBusy):
-				return done, ErrBusy
+			case errors.Is(err, media.ErrBusy):
+				return done, media.ErrBusy
 			case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
 				return done, err
 			case err != nil:
@@ -158,7 +159,7 @@ func (t *Thumbs) PrepareBatch(ctx context.Context, now time.Time) (int, error) {
 			}
 			done++
 		}
-		if done >= ThumbBatch {
+		if done >= Batch {
 			break
 		}
 	}
@@ -170,7 +171,7 @@ func (t *Thumbs) PrepareBatch(ctx context.Context, now time.Time) (int, error) {
 //
 // A Stat each, which is a HEAD each on S3 -- paid once per file, because what
 // it learns is then on the row and the query does the asking from there.
-func (t *Thumbs) missingSizes(ctx context.Context, f db.File) ([]thumbSize, error) {
+func (t *Service) missingSizes(ctx context.Context, f db.File) ([]thumbSize, error) {
 	var missing []thumbSize
 	for _, size := range passSizes {
 		switch _, err := t.blobs.Stat(ctx, thumbKey(f.BlobKey, size)); {
@@ -178,17 +179,17 @@ func (t *Thumbs) missingSizes(ctx context.Context, f db.File) ([]thumbSize, erro
 		case errors.Is(err, storage.ErrNotFound):
 			missing = append(missing, size)
 		default:
-			return nil, fmt.Errorf("%w: look for a thumbnail of %q: %w", errUnreachable, f.Path, err)
+			return nil, fmt.Errorf("%w: look for a thumbnail of %q: %w", media.ErrUnreachable, f.Path, err)
 		}
 	}
 	return missing, nil
 }
 
 // keep stores one picture a pass made.
-func (t *Thumbs) keep(ctx context.Context, f db.File, size thumbSize, picture []byte) error {
+func (t *Service) keep(ctx context.Context, f db.File, size thumbSize, picture []byte) error {
 	key := thumbKey(f.BlobKey, size)
 	if _, err := t.blobs.Put(ctx, key, bytes.NewReader(picture), int64(len(picture))); err != nil {
-		return fmt.Errorf("%w: store %q: %w", errUnreachable, key, err)
+		return fmt.Errorf("%w: store %q: %w", media.ErrUnreachable, key, err)
 	}
 	return nil
 }
@@ -201,7 +202,7 @@ func (t *Thumbs) keep(ctx context.Context, f db.File, size thumbSize, picture []
 // anything but zero has its answer. It counts itself in while it decodes, so a
 // request arriving meanwhile queues as it would behind any other decode rather
 // than being told the machine is free.
-func (t *Thumbs) decodeIfIdle() (func(), bool) {
+func (t *Service) decodeIfIdle() (func(), bool) {
 	if t.inQueue.Load() != 0 {
 		return nil, false
 	}
