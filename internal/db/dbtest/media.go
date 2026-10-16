@@ -161,6 +161,8 @@ func media(f db.File) db.Media {
 		DiscNo:         2,
 		Year:           1998,
 		Genre:          "Electronic",
+		MBReleaseGroup: "4cf8ba42-5d0b-3a4d-8e8f-4c8f2f3d1a1b",
+		MBRelease:      "e1a8b6a4-9a1c-4ed2-9a7f-5b3d7c0e2f44",
 	}
 }
 

@@ -55,7 +55,11 @@ import (
 // so it carried a codec, a duration and no title -- and a row with empty tags
 // and no error is one the queue has finished with, which is what this
 // mechanism is for.
-const Version = 9
+//
+// And to 10 for the MusicBrainz ids a tagger writes into a file (#217), two
+// columns the pass that asks outside sources about an album reads first: an
+// id already in the tags is a search that need not be made.
+const Version = 10
 
 // errTooLargeToRead is what a file gets instead of a local copy when it is
 // larger than maxSpool. It is a refusal rather than a failure, and it is

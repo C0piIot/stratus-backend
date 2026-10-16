@@ -308,6 +308,22 @@ func TestLoadThumbsAhead(t *testing.T) {
 	}
 }
 
+// TestLoadMusicLookup pins the default as much as the parsing: off, because
+// on means tags leave the machine and a self-hosted server must work with no
+// route out (#217).
+func TestLoadMusicLookup(t *testing.T) {
+	t.Parallel()
+	for value, want := range map[string]bool{"": false, "off": false, "on": true} {
+		cfg, err := config.Load(env(map[string]string{"STRATUS_MUSIC_LOOKUP": value}))
+		if err != nil || cfg.MusicLookup != want {
+			t.Errorf("%q: %v, %v; want %v", value, cfg.MusicLookup, err, want)
+		}
+	}
+	if _, err := config.Load(env(map[string]string{"STRATUS_MUSIC_LOOKUP": "yes"})); err == nil {
+		t.Error("STRATUS_MUSIC_LOOKUP=yes was accepted")
+	}
+}
+
 func TestLoadVideoTranscode(t *testing.T) {
 	t.Parallel()
 	for value, want := range map[string]string{

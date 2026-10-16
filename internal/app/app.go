@@ -18,6 +18,7 @@ import (
 	"github.com/C0piIot/stratus-backend/internal/db"
 	"github.com/C0piIot/stratus-backend/internal/files"
 	"github.com/C0piIot/stratus-backend/internal/incoming"
+	"github.com/C0piIot/stratus-backend/internal/lookup"
 	"github.com/C0piIot/stratus-backend/internal/media"
 	"github.com/C0piIot/stratus-backend/internal/music"
 	"github.com/C0piIot/stratus-backend/internal/storage"
@@ -79,6 +80,10 @@ type App struct {
 	cfg       config.Config
 	version   string
 	buildDate string
+	// lookupPause is the breath between two lookup passes that both filled
+	// a batch: a field set from the constant, so a test can watch the loop
+	// come back without standing there for it.
+	lookupPause time.Duration
 }
 
 // Deps are the backends the protocol surfaces are built on.
@@ -114,6 +119,10 @@ type Deps struct {
 	// which is the default, and also what no credentials means, since an
 	// import needs somebody to file things under.
 	Incoming *incoming.Watcher
+	// Lookup asks outside sources about the music library (#217), and is nil
+	// unless STRATUS_MUSIC_LOOKUP is on: nothing leaves the machine by
+	// default.
+	Lookup *lookup.Service
 }
 
 // Close releases whatever is open, and tolerates a partly built Deps because
@@ -135,7 +144,7 @@ func (d Deps) Close() error {
 
 // New wires an App. It performs no I/O.
 func New(cfg config.Config, version, buildDate string) *App {
-	return &App{cfg: cfg, version: version, buildDate: buildDate}
+	return &App{cfg: cfg, version: version, buildDate: buildDate, lookupPause: lookupPause}
 }
 
 // Handler builds the HTTP routes. Separate from Run so every protocol surface
@@ -169,7 +178,10 @@ func (a *App) Handler(deps Deps) http.Handler {
 		// why the cookie counts only on a request the browser calls its own.
 		sessions := auth.NewSessions(creds, auth.DefaultSessionTTL)
 		browser := web.Handler(a.version, a.buildDate, verifier, sessions, shares, service, deps.Thumbs, deps.Database,
-			web.Indexing{Index: deps.Database, Interval: a.cfg.IndexInterval, Ahead: a.cfg.ThumbsAhead}, imports(deps), films(deps))
+			web.Indexing{
+				Index: deps.Database, Interval: a.cfg.IndexInterval, Ahead: a.cfg.ThumbsAhead,
+				Lookups: deps.Database, Lookup: a.cfg.MusicLookup,
+			}, imports(deps), films(deps))
 
 		// One URL, two protocols, split by method (#279). The browser half is
 		// the handler mounted at "/" below -- it already routes /files/ and is
@@ -309,6 +321,15 @@ func (a *App) Run(ctx context.Context) error {
 			defer background.Done()
 			keepRunning(ctx, "importing what arrived on disk", restartPause,
 				func() { a.importPeriodically(ctx, deps) })
+		}()
+	}
+
+	if deps.Lookup != nil {
+		background.Add(1)
+		go func() {
+			defer background.Done()
+			keepRunning(ctx, "looking up music metadata", restartPause,
+				func() { a.lookupPeriodically(ctx, deps) })
 		}()
 	}
 	defer background.Wait()

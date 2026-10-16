@@ -102,6 +102,9 @@ type trackRow struct {
 	Starred  bool
 	Rating   string
 	Plays    int64
+	// Lyrics is the words, a line each, when outside sources had them
+	// (#217); the page folds them under the player.
+	Lyrics []string
 }
 
 // music is every address under /music/, split by what is at it. Resolution is
@@ -217,6 +220,15 @@ func (h *handler) album(w http.ResponseWriter, r *http.Request, user string, tre
 		h.fail(w, r, user, err)
 		return
 	}
+	ids := make([]int64, 0, len(tracks))
+	for _, t := range tracks {
+		ids = append(ids, t.File.ID)
+	}
+	words, err := h.library.LyricsOf(r.Context(), ids)
+	if err != nil {
+		h.fail(w, r, user, err)
+		return
+	}
 
 	av := &albumView{
 		Artist: artist, ArtistHref: musicHref(n.ArtistName, true),
@@ -239,6 +251,7 @@ func (h *handler) album(w http.ResponseWriter, r *http.Request, user string, tre
 			Src:      musicHref(children[i].Path(), false),
 			Scrobble: scrobbleURL(t.File.ID),
 			Starred:  !note.Starred.IsZero(), Rating: stars(note.Rating), Plays: note.PlayCount,
+			Lyrics: lyricLines(words[t.File.ID]),
 		})
 		total += m.DurationMS
 		if av.Year == 0 {
@@ -378,4 +391,30 @@ func clock(ms int64) string {
 		return fmt.Sprintf("%d:%02d:%02d", int(d.Hours()), int(d.Minutes())%60, int(d.Seconds())%60)
 	}
 	return fmt.Sprintf("%d:%02d", int(d.Minutes()), int(d.Seconds())%60)
+}
+
+// lyricLines is the words as the page shows them: the plain text a line each,
+// or the synced text with the times taken off its front when that is all
+// there is. A page is read, not sung along to.
+func lyricLines(l db.Lyrics) []string {
+	text := l.Plain
+	if text == "" {
+		text = l.Synced
+	}
+	if text == "" {
+		return nil
+	}
+	var lines []string
+	for raw := range strings.SplitSeq(strings.ReplaceAll(text, "\r\n", "\n"), "\n") {
+		line := raw
+		for strings.HasPrefix(line, "[") {
+			end := strings.IndexByte(line, ']')
+			if end < 0 {
+				break
+			}
+			line = line[end+1:]
+		}
+		lines = append(lines, strings.TrimSpace(line))
+	}
+	return lines
 }

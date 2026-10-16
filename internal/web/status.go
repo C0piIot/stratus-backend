@@ -29,6 +29,19 @@ type Indexing struct {
 	// number of pictures then only moves when somebody browses, which looks
 	// like a pass that is stuck.
 	Ahead bool
+	// Lookups is what outside sources said about the music library (#217),
+	// and Lookup whether the pass that asks them is on. The rows are read
+	// either way: what was fetched is still here with the setting off, and
+	// the page says which of the two it is looking at.
+	Lookups db.Lookups
+	Lookup  bool
+}
+
+// lookupView is the music half of the status page: how much of the library
+// has been identified outside, and whether anything is still asking.
+type lookupView struct {
+	On bool
+	db.LookupCounts
 }
 
 // Imports is the import folder, and nil when none is configured -- which is the
@@ -65,6 +78,7 @@ func (h *handler) status(w http.ResponseWriter, r *http.Request, user string) {
 		IndexVersion: media.Version,
 		IndexingOff:  h.indexing.Interval == 0,
 		PicturesOff:  !h.indexing.Ahead,
+		Lookup:       h.lookupOf(r),
 	}
 
 	if r.Header.Get("HX-Request") == "true" {
@@ -72,6 +86,25 @@ func (h *handler) status(w http.ResponseWriter, r *http.Request, user string) {
 		return
 	}
 	h.render(w, http.StatusOK, pageStatus, v)
+}
+
+// lookupOf is what the page says about music metadata from outside, and nil
+// when there is nothing to say: the pass is off and nothing was ever fetched.
+// Logged rather than failed like the other lines that are not the page's
+// point.
+func (h *handler) lookupOf(r *http.Request) *lookupView {
+	if h.indexing.Lookups == nil {
+		return nil
+	}
+	counts, err := h.indexing.Lookups.LookupCounts(r.Context())
+	if err != nil {
+		slog.WarnContext(r.Context(), "counting music lookups", "err", err)
+		return nil
+	}
+	if !h.indexing.Lookup && counts.AlbumsTried == 0 && counts.TracksTried == 0 {
+		return nil
+	}
+	return &lookupView{On: h.indexing.Lookup, LookupCounts: counts}
 }
 
 // incomingOf is what the page says about the import folder, and nil when there

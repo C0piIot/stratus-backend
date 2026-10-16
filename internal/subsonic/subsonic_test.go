@@ -495,19 +495,26 @@ func TestGetOpenSubsonicExtensionsNeedsNoCredentials(t *testing.T) {
 		ext, _ := e.(map[string]any)
 		got = append(got, fmt.Sprintf("%v %v", ext["name"], ext["versions"]))
 	}
-	if want := "[transcodeOffset [1] transcoding [1]]"; fmt.Sprint(got) != want {
+	if want := "[songLyrics [1] transcodeOffset [1] transcoding [1]]"; fmt.Sprint(got) != want {
 		t.Errorf("openSubsonicExtensions = %v, want %s", got, want)
 	}
 }
 
-// TestNoTranscoderAdvertisesNothing: a server that cannot transcode must not
-// tell a client it can seek inside a transcode.
-func TestNoTranscoderAdvertisesNothing(t *testing.T) {
+// TestNoTranscoderAdvertisesNoTranscoding: a server that cannot transcode must
+// not tell a client it can seek inside a transcode. The lyrics extension stays,
+// since that one answers from rows and not from a binary.
+func TestNoTranscoderAdvertisesNoTranscoding(t *testing.T) {
 	t.Parallel()
 	h := subsonic.Handler(prefix, serverVersion, nil, nil, nil, nil, nil, nil)
 	env := response(t, get(t, h, "getOpenSubsonicExtensions", "f=json"))
-	if list, _ := env["openSubsonicExtensions"].([]any); len(list) != 0 {
-		t.Errorf("openSubsonicExtensions = %v, want none without a transcoder", list)
+	list, _ := env["openSubsonicExtensions"].([]any)
+	var got []string
+	for _, e := range list {
+		ext, _ := e.(map[string]any)
+		got = append(got, fmt.Sprint(ext["name"]))
+	}
+	if want := "[songLyrics]"; fmt.Sprint(got) != want {
+		t.Errorf("openSubsonicExtensions = %v, want %s without a transcoder", got, want)
 	}
 }
 

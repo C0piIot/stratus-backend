@@ -167,7 +167,45 @@ func (p probeReport) mediaFrom(kind db.Kind) db.Media {
 		m.Year = leadingInt(tag(tags, "year"))
 	}
 	m.TakenAt = parseProbeTime(tag(tags, "creation_time"))
+	// Two spellings each, because Picard writes a Vorbis comment one way and
+	// an ID3 or iTunes freeform frame the other, and ffprobe hands both over
+	// as it found them (#217).
+	m.MBReleaseGroup = mbid(tag(tags, "MUSICBRAINZ_RELEASEGROUPID"), tag(tags, "MusicBrainz Release Group Id"))
+	m.MBRelease = mbid(tag(tags, "MUSICBRAINZ_ALBUMID"), tag(tags, "MusicBrainz Album Id"))
 	return m
+}
+
+// mbid is the first of the values that is a MusicBrainz id, lower-cased, and
+// nothing for anything else. The shape is checked because the id ends up in a
+// URL path: a tag holding something that is not a UUID is a tag, not an
+// address.
+func mbid(values ...string) string {
+	for _, v := range values {
+		v = strings.ToLower(strings.TrimSpace(v))
+		if isUUID(v) {
+			return v
+		}
+	}
+	return ""
+}
+
+func isUUID(s string) bool {
+	if len(s) != 36 {
+		return false
+	}
+	for i, c := range s {
+		switch i {
+		case 8, 13, 18, 23:
+			if c != '-' {
+				return false
+			}
+		default:
+			if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // audioStream fills what a transcode decision is made from (#197).

@@ -77,6 +77,15 @@ const (
 	ThumbsAheadOff = "off"
 )
 
+// The values STRATUS_MUSIC_LOOKUP takes. Off is the default, and that is not
+// a preference: a self-hosted server must keep working with no route out, and
+// on means artist, album and title tags leave the machine for MusicBrainz, the
+// Cover Art Archive and LRCLIB (#217). The README says exactly what is sent.
+const (
+	MusicLookupOn  = "on"
+	MusicLookupOff = "off"
+)
+
 // Config is the fully resolved configuration for one process.
 type Config struct {
 	// Addr is the listen address, in host:port form.
@@ -114,6 +123,11 @@ type Config struct {
 	// since it is that loop's pass: with the indexer off there is nothing to
 	// carry it.
 	ThumbsAhead bool
+	// MusicLookup is whether outside sources are asked about the music
+	// library (#217): album identity and covers from MusicBrainz and the
+	// Cover Art Archive, lyrics from LRCLIB. Off by default, because on
+	// means tags leave the machine.
+	MusicLookup bool
 	// Username and Password are the single user's credentials, and the
 	// password is held as configured rather than hashed: OpenSubsonic's token
 	// auth is md5(password + salt), which a hash cannot produce. See
@@ -223,6 +237,15 @@ func Load(getenv func(string) string) (Config, error) {
 		cfg.ThumbsAhead = false
 	default:
 		return Config{}, errors.New("STRATUS_THUMBS_AHEAD: must be on or off")
+	}
+
+	switch mode := lookup(getenv, "STRATUS_MUSIC_LOOKUP", MusicLookupOff); mode {
+	case MusicLookupOn:
+		cfg.MusicLookup = true
+	case MusicLookupOff:
+		cfg.MusicLookup = false
+	default:
+		return Config{}, errors.New("STRATUS_MUSIC_LOOKUP: must be on or off")
 	}
 
 	switch mode := lookup(getenv, "STRATUS_VIDEO_TRANSCODE", VideoTranscodeAuto); mode {

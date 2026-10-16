@@ -185,6 +185,9 @@ type view struct {
 	FreeSpace string
 	// Incoming is the import folder, and nil when none is configured.
 	Incoming *importsView
+	// Lookup is music metadata from outside (#217), and nil when the pass is
+	// off and nothing was ever fetched.
+	Lookup *lookupView
 	// Shared is the signature this page was reached with, empty for a request
 	// that arrived with a session. Every link the page emits carries it, or the
 	// second click is a login form.

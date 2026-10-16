@@ -2284,6 +2284,60 @@ Restraint here is principle 3, not laziness:
   pixels Go cannot produce. FLAC's PICTURE block, ID3v2's APIC frame and MP4's
   covr atom cover a real library; Vorbis and Opus keep theirs base64-encoded in
   a comment and are not read yet.
+- **Outside sources are asked about the music library, and only when asked
+  to** (#217). `internal/lookup` is a feature package with a pass in the
+  indexer's shape: what is pending is a query -- an album with no row, a track
+  with no row, a row whose time to ask again has come -- so nothing is
+  enqueued, a restart loses nothing, and a library adopted or imported turns
+  up on its own. Three services, chosen because none needs an account or a
+  key: MusicBrainz for which record an album is, the Cover Art Archive for
+  its front cover, LRCLIB for a track's words. The first cut and the decision
+  behind it are on the issue; what was left out on purpose is fingerprinting
+  (a binary in the image and CPU per file), Last.fm and the rest (a key per
+  user), artist biographies (Wikipedia through Wikidata is two more services
+  and a licence with attribution, a second decision), and **correcting tags**,
+  which is refused rather than deferred: the tags are the truth every surface
+  reads, music.go says there are no derived tables on purpose, and a layer of
+  corrections over them would be exactly that.
+
+  **Off by default, and that is principle 1 read outward.** A self-hosted
+  server has to work with no route out, and `on` means artist, album and
+  title tags leave the machine. The README says exactly what is sent to whom,
+  which is the condition the setting was granted under.
+
+  **Polite by construction.** One request a second to each service is what
+  MusicBrainz publishes for an address and what the other two are given as a
+  courtesy, held by a pacer per service rather than a token bucket (a pass is
+  a loop and would spend any burst in its first second). Every request names
+  this project and its repository in the `User-Agent`, which MusicBrainz
+  requires of anybody it does not throttle. A 503 or a 429 **ends the pass
+  where it is** -- asking seven more times after one is how an agent gets
+  blocked -- and what was refused is asked again in an hour, what a source
+  had nothing for in a month, and what was found never, until something loses
+  it.
+
+  **An id in the tags is the album's own answer.** `media` carries the two
+  MusicBrainz ids Picard writes, and an album that has one is not searched: a
+  search can be wrong, and a wrong cover is worse than none -- which is also
+  why a result under a score of ninety is not believed.
+
+  **The cover is the third place `Thumbs.Cover` looks, and a derived object
+  under one of the album's tracks.** Third because the folder and the tag are
+  the user's own; under a track because that is what the sweep collects by,
+  so a deleted or replaced track takes the picture with it and nothing here
+  needs a rule of its own. The row says which track, so any track of the
+  album finds it; when the picture is gone -- the track was replaced and the
+  sweep followed -- the read path tells the row and the next pass fetches it
+  again under whichever track is first now. That is a write from a read
+  path, the same one `record` already makes for a thumbnail's verdict.
+
+  **What comes back is rows, never bytes in a file.** `album_lookups` is keyed
+  like `tag_annotations`, an album being its album artist and name; `lyrics`
+  hangs off the file like `track_annotations`, and carries the etag the words
+  were fetched against so a replaced file is asked about again and a
+  re-index is not. Both are read by the Subsonic adapter (`getLyricsBySongId`
+  as the `songLyrics` extension, `getAlbumInfo2` with the id and nothing
+  else) and by the album page, and written by nothing but the pass.
 - **A track is transcoded when a client asks, by one ffmpeg per playback**
   (#50). Three pieces, and each is where it is for a reason.
 

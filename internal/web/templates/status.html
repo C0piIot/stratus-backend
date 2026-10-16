@@ -109,6 +109,19 @@
     <dt class="col-sm-4 fw-normal text-body-secondary">Extractor</dt>
     <dd class="col-sm-8">version {{.IndexVersion}}</dd>
 
+    {{/* Music metadata from outside (#217), only when the pass is on or
+         something was fetched before it was turned off: a row saying nothing
+         was looked up because nothing is asked is a row about nothing. Two
+         lines, because an album and a track are asked different questions of
+         different services. */}}
+    {{with .Lookup}}
+    <dt class="col-sm-4 fw-normal text-body-secondary">Albums identified</dt>
+    <dd class="col-sm-8" data-count="albums-identified">{{.Identified}} of {{.Albums}}<span class="text-body-secondary small"> · {{.Covers}} with a fetched cover{{if not .On}} · <code>STRATUS_MUSIC_LOOKUP</code> is off{{end}}</span></dd>
+
+    <dt class="col-sm-4 fw-normal text-body-secondary">Lyrics found</dt>
+    <dd class="col-sm-8" data-count="lyrics">{{.Lyrics}} of {{.Tracks}}{{if .On}}<span class="text-body-secondary small"> · {{.TracksTried}} asked about</span>{{end}}</dd>
+    {{end}}
+
     {{/* Only when a folder is configured, which it is not by default: a row
          saying nothing is waiting in a folder nobody has is noise. It rides
          the same fragment as the counts, so a file dropped in appears here

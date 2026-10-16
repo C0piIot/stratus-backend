@@ -311,3 +311,56 @@ func panicked(task string, fn func()) (did bool) {
 	fn()
 	return false
 }
+
+// lookupInterval is how often the pass asks what is left to look up when the
+// last pass found nothing. An hour, like the indexer's safety net and for the
+// same reasons: what waits behind it is a row whose retry time has come, and
+// a library that arrived while nothing was running.
+const lookupInterval = time.Hour
+
+// lookupPause is the breath between two passes that both filled a batch. A
+// few seconds and not nothing, because a pass is already paced a second per
+// request and the pause is what lets a shutdown in between.
+const lookupPause = 5 * time.Second
+
+// lookupPeriodically asks outside sources about the music library, for as
+// long as ctx lives (#217).
+//
+// The pass paces itself -- one request a second to each service -- so this
+// loop only decides when to run one: again soon while a batch keeps filling,
+// and on the hour otherwise. A source that is refusing requests ends a pass
+// early and this waits for the hour rather than asking again in five seconds,
+// which is what the rows' own retry time is for.
+func (a *App) lookupPeriodically(ctx context.Context, deps Deps) {
+	slog.Info("looking up music metadata", "safety_net", lookupInterval)
+
+	ticker := time.NewTicker(lookupInterval)
+	defer ticker.Stop()
+
+	// Armed at once: whatever is pending was pending while nothing ran.
+	again := time.After(0)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		case <-again:
+		}
+		again = nil
+
+		done, err := deps.Lookup.Pass(ctx)
+		switch {
+		case errors.Is(err, context.Canceled):
+			return
+		case err != nil:
+			slog.Error("looking up music metadata", "err", err)
+			continue
+		case done.Albums > 0 || done.Lyrics > 0 || done.Deferred > 0:
+			slog.Info("looked up music metadata",
+				"albums", done.Albums, "covers", done.Covers, "lyrics", done.Lyrics, "deferred", done.Deferred)
+		}
+		if done.More {
+			again = time.After(a.lookupPause)
+		}
+	}
+}
