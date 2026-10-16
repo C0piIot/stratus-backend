@@ -183,18 +183,24 @@ func (a *App) Handler(deps Deps) http.Handler {
 				Lookups: deps.Database, Lookup: a.cfg.MusicLookup,
 			}, imports(deps), films(deps))
 
-		// One URL, two protocols, split by method (#279). The browser half is
-		// the handler mounted at "/" below -- it already routes /files/ and is
-		// handed the whole path -- and the WebDAV half is this one. A signed
-		// link needs no wrapper here: it authorises GET and HEAD, which are
-		// the browser's side of the split, and the page that verifies it is
-		// the one that serves them.
-		mux.Handle(filesPrefix, davOrBrowser(
-			auth.Session(sessions, auth.Basic(auth.Realm, verifier, dav.Handler(filesPrefix, service, deps.Database))),
-			browser))
-		// The same realm and the same throttle: it is the same credentials, and
-		// a second budget of guesses would be a second way in.
-		mux.Handle(tusPrefix, auth.Session(sessions, auth.Basic(auth.Realm, verifier, tus.Handler(tusPrefix, filesPrefix, service))))
+		// Every protocol surface is behind the same realm and the same
+		// throttle -- it is the same credentials, and a second budget of
+		// guesses would be a second way in -- and the session opens each of
+		// them for the UI's own pages (#234).
+		guard := func(h http.Handler) http.Handler {
+			return auth.Session(sessions, auth.Basic(auth.Realm, verifier, h))
+		}
+		// One URL, two protocols, split by method (#279): a WebDAV method is
+		// the collection's, everything else the browser's. The browser half is
+		// the handler mounted at "/" below -- it already routes every prefix
+		// and is handed the whole path. A signed link needs no wrapper here:
+		// it authorises GET and HEAD, which are the browser's side of the
+		// split, and the page that verifies it is the one that serves them.
+		collection := func(h http.Handler) http.Handler { return davOrBrowser(guard(h), browser) }
+
+		mux.Handle(filesPrefix, collection(dav.Handler(filesPrefix, service, deps.Database)))
+		// tus is the one surface with no browser half.
+		mux.Handle(tusPrefix, guard(tus.Handler(tusPrefix, filesPrefix, service)))
 		// The same verifier, deliberately. Subsonic authenticates per request
 		// from the query string rather than through auth.Basic, and a second
 		// NewThrottle here would give an attacker a second budget of guesses at
@@ -204,58 +210,31 @@ func (a *App) Handler(deps Deps) http.Handler {
 		// row and never will.
 		thumbs := deps.Thumbs
 		playlists := music.New(deps.Database)
+		// Subsonic authenticates per request from the query string rather
+		// than through auth.Basic, so it takes the session alone and the
+		// verifier itself.
 		mux.Handle(subsonicPrefix, auth.Session(sessions,
 			subsonic.Handler(subsonicPrefix, a.version, verifier, deps.Database, service, playlists, thumbs, transcoder(deps))))
-		// The same realm and throttle as the file surface, for the reason tus
-		// shares them -- and the same split by method as the tree and the
-		// photographs: the .m3u8 and the page it describes are one address.
-		mux.Handle(playlistsPrefix, davOrBrowser(
-			auth.Session(sessions, auth.Basic(auth.Realm, verifier,
-				dav.Playlists(playlistsPrefix, filesPrefix, playlists))),
-			browser))
-		// The library by tag, the last of the generated collections to speak
-		// both (#279). Its browser half is the music pages, which have always
-		// been at these URLs.
-		mux.Handle(musicPrefix, davOrBrowser(
-			auth.Session(sessions, auth.Basic(auth.Realm, verifier, dav.Music(musicPrefix, deps.Database))),
-			browser))
-		// What has been deleted, beside the collections it was deleted from
-		// (#323). Read-only: a copy out of here is not a restore, and putting
-		// something back is the page's. Its browser half serves the bytes, as
-		// every generated mount's does.
-		mux.Handle(trashPrefix, davOrBrowser(
-			auth.Session(sessions, auth.Basic(auth.Realm, verifier, dav.Trash(trashPrefix, service))),
-			browser))
-		// The photographs by date are one address and two protocols, like the
-		// tree above (#279): the browser's methods are answered with the grid,
-		// a year, a month or the photograph itself, and everything else by the
-		// mount. The byte-serving half is the browser's -- see dav.Photos.
-		mux.Handle(photosPrefix, davOrBrowser(
-			auth.Session(sessions, auth.Basic(auth.Realm, verifier,
-				dav.ByDate(photosPrefix, deps.Database, db.KindImage))),
-			browser))
-		// And the videos beside them, which is the same handler over the same
-		// tree with a different kind in it (#215).
-		mux.Handle(videosPrefix, davOrBrowser(
-			auth.Session(sessions, auth.Basic(auth.Realm, verifier,
-				dav.ByDate(videosPrefix, deps.Database, db.KindVideo))),
-			browser))
+		// The generated collections, each one address and two protocols: the
+		// .m3u8 and the page it describes (#203), the library by tag whose
+		// browser half is the music pages (#279), what has been deleted beside
+		// the collections it was deleted from (#323), and what a camera made
+		// by date -- the same handler over the same tree with a different kind
+		// in it (#213, #215). Every one's byte-serving half is the browser's.
+		mux.Handle(playlistsPrefix, collection(dav.Playlists(playlistsPrefix, filesPrefix, playlists)))
+		mux.Handle(musicPrefix, collection(dav.Music(musicPrefix, deps.Database)))
+		mux.Handle(trashPrefix, collection(dav.Trash(trashPrefix, service)))
+		mux.Handle(photosPrefix, collection(dav.ByDate(photosPrefix, deps.Database, db.KindImage)))
+		mux.Handle(videosPrefix, collection(dav.ByDate(videosPrefix, deps.Database, db.KindVideo)))
 
 		// The browser surface, at the root, so everything the prefixes above did
-		// not claim is a page rather than a bare 404. Same verifier again, and
-		// the same sessions: see auth.Sessions for what that buys and what it
-		// costs.
-		//
-		// And in front of it, the collection the whole server is (#279): a
-		// WebDAV method at the origin is answered by a synthetic listing of
-		// the mounts below it, while everything else is the page it always was.
-		// It is also what the Windows redirector probes before it will mount
-		// anything at all (#281).
-		mux.Handle("/", davOrBrowser(
-			auth.Session(sessions, auth.Basic(auth.Realm, verifier,
-				dav.Root("/", dav.Searchable("/", filesPrefix, deps.Database),
-					"files", "music", "photos", "playlists", "trash", "videos"))),
-			browser))
+		// not claim is a page rather than a bare 404 -- and in front of it, the
+		// collection the whole server is (#279): a WebDAV method at the origin
+		// is answered by a synthetic listing of the mounts below it, which is
+		// also what the Windows redirector probes before it will mount anything
+		// at all (#281).
+		mux.Handle("/", collection(dav.Root("/", dav.Searchable("/", filesPrefix, deps.Database),
+			"files", "music", "photos", "playlists", "trash", "videos")))
 	}
 	// The log is outside the compression so that the bytes it counts are the
 	// bytes that went out rather than the ones the handler wrote, and the
@@ -295,42 +274,28 @@ func (a *App) Run(ctx context.Context) error {
 	// else. It stops with the context and is waited for before Run returns, so
 	// a shutdown never leaves a half-finished sweep behind.
 	var background sync.WaitGroup
-	if a.cfg.GCInterval > 0 {
+	start := func(task string, loop func(context.Context, Deps)) {
 		background.Add(1)
 		go func() {
 			defer background.Done()
-			keepRunning(ctx, "collecting orphan blobs", restartPause, func() { a.collectPeriodically(ctx, deps) })
+			keepRunning(ctx, task, restartPause, func() { loop(ctx, deps) })
 		}()
+	}
+	if a.cfg.GCInterval > 0 {
+		start("collecting orphan blobs", a.collectPeriodically)
 	} else {
 		slog.Warn("orphan blob collection disabled", "reason", "STRATUS_GC_INTERVAL is zero")
 	}
-
 	if a.cfg.IndexInterval > 0 && deps.Indexer != nil {
-		background.Add(1)
-		go func() {
-			defer background.Done()
-			keepRunning(ctx, "indexing media", restartPause, func() { a.indexPeriodically(ctx, deps) })
-		}()
+		start("indexing media", a.indexPeriodically)
 	} else {
 		slog.Warn("media indexing disabled", "reason", "STRATUS_INDEX_INTERVAL is zero")
 	}
-
 	if deps.Incoming != nil {
-		background.Add(1)
-		go func() {
-			defer background.Done()
-			keepRunning(ctx, "importing what arrived on disk", restartPause,
-				func() { a.importPeriodically(ctx, deps) })
-		}()
+		start("importing what arrived on disk", a.importPeriodically)
 	}
-
 	if deps.Lookup != nil {
-		background.Add(1)
-		go func() {
-			defer background.Done()
-			keepRunning(ctx, "looking up music metadata", restartPause,
-				func() { a.lookupPeriodically(ctx, deps) })
-		}()
+		start("looking up music metadata", a.lookupPeriodically)
 	}
 	defer background.Wait()
 
