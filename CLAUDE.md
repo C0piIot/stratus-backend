@@ -2318,9 +2318,14 @@ Restraint here is principle 3, not laziness:
   something loses it. **LRCLIB's 503 is the exception, and it was measured on
   the live service**: a track it does not hold is one it fetches from outside
   while answering, and "the server is busy" is what it says instead when it
-  will not -- the same title answers 200 from its cache and 503 past it. That
-  is about the track and not the client, so it is that track in an hour and
-  the pass goes on; its 429 is still a refusal.
+  will not -- the same title answers 200 from its database and 503 past it,
+  and on the first real library that was the answer for most tracks. That is
+  "they do not hold it" and not "stop asking", so it is that track in a month
+  like a 404 and the pass goes on; its 429 is still a refusal. The other
+  thing the first deploy showed is that **MusicBrainz's limit is per address
+  and Fly's egress address is shared between tenants**, so a 503 from it can
+  arrive with this server well inside its own second; the album waits an hour
+  and the rest of the batch the next pass, which is the right price.
 
   **An id in the tags is the album's own answer.** `media` carries the two
   MusicBrainz ids Picard writes, and an album that has one is not searched: a
