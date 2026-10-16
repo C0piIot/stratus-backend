@@ -195,7 +195,7 @@ func (a *App) collectPeriodically(ctx context.Context, deps Deps) {
 
 	slog.Info("collecting orphan blobs, abandoned uploads and the trash",
 		"every", a.cfg.GCInterval, "grace", a.cfg.GCGrace,
-		"upload_ttl", files.DefaultUploadTTL, "trash_retention", files.DefaultTrashRetention)
+		"upload_ttl", files.DefaultUploadTTL, "trash_retention", retention(a.cfg.TrashRetention))
 	for {
 		select {
 		case <-ctx.Done():
@@ -206,14 +206,8 @@ func (a *App) collectPeriodically(ctx context.Context, deps Deps) {
 		// The trash first, because what leaves it becomes garbage the sweep
 		// below can then take in the same pass rather than a day later: the
 		// rows go, and the blobs with them.
-		switch done, err := service.EmptyTrash(ctx, time.Now().Add(-files.DefaultTrashRetention)); {
-		case errors.Is(err, context.Canceled):
+		if !a.emptyTrash(ctx, service) {
 			return
-		case err != nil:
-			slog.Error("emptying the trash", "err", err)
-		case done.Batches > 0:
-			slog.Info("emptied the trash",
-				"deletions", done.Batches, "files", done.Files, "bytes", done.Bytes)
 		}
 
 		// Uploads next: an abandoned one holds bytes that are invisible to a
@@ -374,4 +368,36 @@ func (a *App) lookupPeriodically(ctx context.Context, deps Deps) {
 			again = time.After(a.lookupPause)
 		}
 	}
+}
+
+// emptyTrash is the trash's third of a collector pass, and false when the
+// context has gone.
+//
+// With the retention at never it does nothing at all, and only this: the
+// uploads and the blob sweep behind it still run, and the trashed keys are
+// still what Collect counts as referenced, so holding the trash is not a
+// reason for the sweep to eat it (#296).
+func (a *App) emptyTrash(ctx context.Context, service *files.Service) bool {
+	if a.cfg.TrashRetention == 0 {
+		return true
+	}
+	switch done, err := service.EmptyTrash(ctx, time.Now().Add(-a.cfg.TrashRetention)); {
+	case errors.Is(err, context.Canceled):
+		return false
+	case err != nil:
+		slog.Error("emptying the trash", "err", err)
+	case done.Batches > 0:
+		slog.Info("emptied the trash",
+			"deletions", done.Batches, "files", done.Files, "bytes", done.Bytes)
+	}
+	return true
+}
+
+// retention is the setting as a log value: zero is never, and a log line
+// saying "0s" would say the opposite.
+func retention(d time.Duration) any {
+	if d == 0 {
+		return "never"
+	}
+	return d
 }

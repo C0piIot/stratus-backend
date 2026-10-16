@@ -226,7 +226,8 @@ type view struct {
 	Playlist  *playlistView
 
 	// Deletions is a page of the trash, TrashSize what it is holding onto in
-	// all, and Kept how many days a deletion is given.
+	// all, and Kept how many days a deletion is given -- zero when the trash
+	// is held and nothing in it is destroyed until somebody says so.
 	Deletions []deletion
 	// Unaccounted is the other kind of trash row: blobs the sweep found that
 	// no row claims, which have no path and therefore no way back.
@@ -236,6 +237,9 @@ type view struct {
 	// none -- which is what a healthy server looks like.
 	Unclaimed string
 	Kept      int
+	// TrashHeld is the status page's half of Kept: the retention is never,
+	// which is a state to see and not only a number of bytes (#296).
+	TrashHeld bool
 }
 
 // Shows reports whether a result page is showing one of its buckets: all of

@@ -1016,7 +1016,12 @@ was written; what changed is which table names it, which is also why `Collect`
 adds `TrashKeys` to what it considers referenced. Deleting therefore costs
 nothing and frees nothing, and `EmptyTrash` -- the third pass on the
 collector's tick, before the uploads and the sweep -- is what frees it, a
-`files.DefaultTrashRetention` of thirty days later.
+`config.DefaultTrashRetention` of thirty days later. That is
+`STRATUS_TRASH_RETENTION` (#296), whose `never` skips this pass and nothing
+else -- the uploads and the sweep still run, and `TrashKeys` still protects
+what is held -- and the pages and `/status` say the trash is held rather than
+quoting a number of days. It is `never` and not `0` because `0` switches the
+other intervals off.
 
 What the move costs is the cascades: `media`, `track_annotations` and
 `playlist_entries` hang off `files(id)`, so the extracted metadata, the stars

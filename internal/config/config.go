@@ -39,6 +39,13 @@ const (
 	// it. Writes go blob first and row second, so a blob with no row may be a
 	// write still in flight rather than one that failed.
 	DefaultGCGrace = time.Hour
+	// DefaultTrashRetention is how long a deletion is kept before it is
+	// destroyed for good (#274). A month, which is long enough to notice an
+	// accident -- including the kind that is only noticed when somebody goes
+	// looking for a photograph months later, which this does not cover and
+	// nothing can. It was a constant in internal/files until somebody
+	// restoring a database needed the sweep not to run meanwhile (#296).
+	DefaultTrashRetention = 30 * 24 * time.Hour
 	// DefaultIndexInterval is how often the indexer asks the database what is
 	// missing. Hourly, because it is the safety net and not the way anything
 	// ordinarily gets indexed: a write hands the file over and it is read then
@@ -102,6 +109,11 @@ type Config struct {
 	GCInterval time.Duration
 	// GCGrace is how long a blob is left alone before it can be collected.
 	GCGrace time.Duration
+	// TrashRetention is how long a deletion is kept before the sweep destroys
+	// it, and zero means never (#296). The variable spells that "never"
+	// rather than 0, because 0 turns the other intervals off and here it would
+	// read as the opposite of what it does.
+	TrashRetention time.Duration
 	// IndexInterval is how often the media indexer looks for work nobody told
 	// it about. Zero disables indexing altogether, notices included.
 	IndexInterval time.Duration
@@ -205,6 +217,12 @@ func Load(getenv func(string) string) (Config, error) {
 		return Config{}, errors.New("STRATUS_GC_GRACE: must be greater than zero, or a sweep can delete an upload still in flight")
 	}
 	cfg.GCGrace = grace
+
+	retention, err := trashRetention(lookup(getenv, "STRATUS_TRASH_RETENTION", DefaultTrashRetention.String()))
+	if err != nil {
+		return Config{}, fmt.Errorf("STRATUS_TRASH_RETENTION: %w", err)
+	}
+	cfg.TrashRetention = retention
 
 	cfg.IncomingDir = getenv("STRATUS_INCOMING_DIR")
 	incoming, err := time.ParseDuration(lookup(getenv, "STRATUS_INCOMING_INTERVAL", DefaultIncomingInterval.String()))
@@ -326,4 +344,26 @@ func parseLevel(raw string) (slog.Level, error) {
 		return 0, fmt.Errorf("%q is not a level, try debug, info, warn or error", raw)
 	}
 	return lvl, nil
+}
+
+// TrashNever is the STRATUS_TRASH_RETENTION that keeps every deletion until
+// somebody empties it by hand.
+const TrashNever = "never"
+
+// trashRetention reads STRATUS_TRASH_RETENTION, with zero standing for never.
+//
+// Less than a day is refused: a trash that empties within the hour is a delete
+// with a delay on it, and whoever typed 1h most likely meant something else.
+func trashRetention(value string) (time.Duration, error) {
+	if value == TrashNever {
+		return 0, nil
+	}
+	d, err := time.ParseDuration(value)
+	if err != nil || d == 0 {
+		return 0, errors.New("not a duration, try 2160h, or never to keep everything")
+	}
+	if d < 24*time.Hour {
+		return 0, errors.New("must be at least 24h, or never to keep everything")
+	}
+	return d, nil
 }

@@ -17,17 +17,6 @@ import (
 // EmptyTrash runs before Collect so that what leaves the trash is garbage the
 // same pass can take.
 
-// DefaultTrashRetention is how long a deletion is kept before it is destroyed
-// for good (#274).
-//
-// A month, which is long enough to notice an accident -- including the kind
-// that is only noticed when somebody goes looking for a photograph months
-// later, which this does not cover and nothing can. It is a constant and not
-// a setting, like the grace and the cache retention beside it: nobody has
-// needed another number yet, and the page lets anybody who wants the room back
-// have it now.
-const DefaultTrashRetention = 30 * 24 * time.Hour
-
 // Emptied is what one pass of the trash did, for the log line that follows it.
 type Emptied struct {
 	Batches int

@@ -16,6 +16,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/C0piIot/stratus-backend/internal/auth"
 	"github.com/C0piIot/stratus-backend/internal/db"
@@ -106,6 +107,9 @@ type Deps struct {
 	Imports Imports
 	// Video is the player and HLS, and a zero one means neither is offered.
 	Video Video
+	// TrashRetention is how long a deletion is kept, for the pages that say
+	// so, and zero when the trash is held and never emptied (#296).
+	TrashRetention time.Duration
 }
 
 // Thumbnails is the picture half: a file's own and a folder's cover art. An
@@ -161,6 +165,8 @@ type handler struct {
 	playlists PlaylistReader
 	// video is the player and HLS, and a zero one means neither is offered.
 	video Video
+	// kept is Deps.TrashRetention.
+	kept time.Duration
 }
 
 // Handler builds the UI. It is mounted at the root, so it is also what answers
@@ -174,7 +180,7 @@ func Handler(d Deps) http.Handler {
 	h := &handler{
 		version: d.Version, buildDate: d.BuildDate, verifier: d.Verifier, sessions: d.Sessions, shares: d.Shares,
 		files: d.Files, thumbs: d.Thumbs, captures: d.Index, library: d.Index, finder: d.Index, playlists: d.Playlists,
-		indexing: d.Indexing, imports: d.Imports, video: d.Video,
+		indexing: d.Indexing, imports: d.Imports, video: d.Video, kept: d.TrashRetention,
 	}
 
 	mux := http.NewServeMux()
@@ -269,4 +275,10 @@ func secureHeaders(h http.Handler) http.Handler {
 		head.Set("Referrer-Policy", "same-origin")
 		h.ServeHTTP(w, r)
 	})
+}
+
+// keptDays is the retention as the pages say it, and zero when the trash is
+// held.
+func (h *handler) keptDays() int {
+	return int(h.kept / (24 * time.Hour))
 }
