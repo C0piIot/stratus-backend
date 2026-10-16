@@ -92,6 +92,9 @@ type PlaylistReader interface {
 type Thumbnails interface {
 	File(ctx context.Context, owner, path string, px int) (io.ReadCloser, int64, error)
 	Cover(ctx context.Context, owner, dir string, px int) (io.ReadCloser, int64, error)
+	// CoverOf is an album's picture by one of its own tracks, which is not
+	// the folder's when the folder holds several albums.
+	CoverOf(ctx context.Context, owner string, f db.File, px int) (io.ReadCloser, int64, error)
 }
 
 // Library is the music half of Index.

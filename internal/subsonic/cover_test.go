@@ -482,6 +482,10 @@ func (atCapacityArt) Cover(context.Context, string, string, int) (io.ReadCloser,
 	return nil, 0, media.ErrBusy
 }
 
+func (atCapacityArt) CoverOf(context.Context, string, db.File, int) (io.ReadCloser, int64, error) {
+	return nil, 0, media.ErrBusy
+}
+
 // TestCoverArtAtCapacityIsNotACoverThatIsMissing: a client filling a home
 // screen asks for more pictures than a small machine makes at once. The ones
 // over the line are an error and not code 70 -- "no such cover art" says the

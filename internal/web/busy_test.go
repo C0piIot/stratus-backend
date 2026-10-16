@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/C0piIot/stratus-backend/internal/auth"
+	"github.com/C0piIot/stratus-backend/internal/db"
 	"github.com/C0piIot/stratus-backend/internal/files"
 	"github.com/C0piIot/stratus-backend/internal/media"
 	"github.com/C0piIot/stratus-backend/internal/web"
@@ -21,6 +22,10 @@ func (atCapacity) File(context.Context, string, string, int) (io.ReadCloser, int
 }
 
 func (atCapacity) Cover(context.Context, string, string, int) (io.ReadCloser, int64, error) {
+	return nil, 0, media.ErrBusy
+}
+
+func (atCapacity) CoverOf(context.Context, string, db.File, int) (io.ReadCloser, int64, error) {
 	return nil, 0, media.ErrBusy
 }
 

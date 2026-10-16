@@ -1,7 +1,10 @@
 package web_test
 
 import (
+	"bytes"
 	htmlstd "html"
+	"image"
+	"image/png"
 	"net/http"
 	"strings"
 	"testing"
@@ -135,5 +138,46 @@ func TestStatusWhenTheLookupCountsWillNotAnswer(t *testing.T) {
 	rec := get(t, h, "/status", signIn(t, h))
 	if rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), "Albums identified") {
 		t.Errorf("GET /status = %d with the lookup counts refusing; want 200 without the lines", rec.Code)
+	}
+}
+
+// TestAnAlbumsCoverInAFlatFolderIsItsOwn is #217's flat-library bug on the
+// album page: the cover is asked for through the album's own first track, so
+// an album with none does not get its neighbour's.
+func TestAnAlbumsCoverInAFlatFolderIsItsOwn(t *testing.T) {
+	t.Parallel()
+	blobs, meta := backends(t)
+	s := files.New(blobs, meta)
+	creds := credentials()
+	thumbs := media.NewThumbs(blobs, s, meta, "ffmpeg", t.TempDir()).WithLookups(meta)
+	h := web.Handler(version, buildDate, creds, auth.NewSessions(creds, auth.DefaultSessionTTL), auth.NewShares(creds),
+		s, thumbs, meta, indexing(meta), nil, web.Video{})
+	cookie := signIn(t, h)
+
+	addTrack(t, s, meta, "80KIDZ - This Is My Shit.flac", db.Media{
+		AlbumArtist: "80KIDZ", Artist: "80KIDZ", Album: "This Is My Shit", Title: "This Is My Shit", TrackNo: 1,
+	})
+	obel := addTrack(t, s, meta, "Agnes Obel - Familiar.flac", db.Media{
+		AlbumArtist: "Agnes Obel", Artist: "Agnes Obel", Album: "Aventine", Title: "Familiar", TrackNo: 1,
+	})
+	var picture bytes.Buffer
+	if err := png.Encode(&picture, image.NewRGBA(image.Rect(0, 0, 300, 300))); err != nil {
+		t.Fatal(err)
+	}
+	if err := thumbs.StoreArt(t.Context(), obel, picture.Bytes()); err != nil {
+		t.Fatal(err)
+	}
+	if err := meta.PutAlbumLookup(t.Context(), db.AlbumLookup{
+		Owner: username, Artist: "Agnes Obel", Album: "Aventine", LookedUpAt: time.Now(),
+		ReleaseGroup: "4cf8ba42-5d0b-3a4d-8e8f-4c8f2f3d1a1b", CoverBlob: obel.BlobKey,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if rec := get(t, h, "/music/Agnes%20Obel/Aventine/?cover=96", cookie); rec.Code != http.StatusOK {
+		t.Errorf("the album with a fetched cover = %d", rec.Code)
+	}
+	if rec := get(t, h, "/music/80KIDZ/This%20Is%20My%20Shit/?cover=96", cookie); rec.Code != http.StatusNotFound {
+		t.Errorf("the album with no cover of its own = %d, want 404 rather than its neighbour's picture", rec.Code)
 	}
 }

@@ -229,6 +229,13 @@ func (b breaking) Cover(ctx context.Context, owner, dir string, px int) (io.Read
 	return b.art.Cover(ctx, owner, dir, px)
 }
 
+func (b breaking) CoverOf(ctx context.Context, owner string, f db.File, px int) (io.ReadCloser, int64, error) {
+	if err := b.err("CoverOf"); err != nil {
+		return nil, 0, err
+	}
+	return b.art.CoverOf(ctx, owner, f, px)
+}
+
 // TestABrokenBackendIsNotANotFound walks every call a browse or stream request
 // makes and breaks it, one at a time.
 //
@@ -317,8 +324,12 @@ func TestABrokenBackendIsNotANotFound(t *testing.T) {
 			method: "getCoverArt", id: fixed(albumIDOf("Björk", "Homogenic")), binary: true,
 		},
 		{
-			name: "reading the cover", call: "Cover",
+			name: "reading the cover", call: "CoverOf",
 			method: "getCoverArt", id: fixed(albumIDOf("Björk", "Homogenic")), binary: true,
+		},
+		{
+			name: "reading a folder's cover", call: "Cover",
+			method: "getCoverArt", id: fixed(dirIDOf("music/Homogenic")), binary: true,
 		},
 	}
 

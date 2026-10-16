@@ -21,7 +21,10 @@ import (
 // and not about the protocol. And the size is a number of pixels rather than one
 // of a named set, so that deciding which sizes exist stays where they are made.
 type Art interface {
+	// Cover is a folder's picture, and CoverOf an album's by one of its own
+	// tracks: the two differ in a folder holding several albums.
 	Cover(ctx context.Context, owner, dir string, px int) (io.ReadCloser, int64, error)
+	CoverOf(ctx context.Context, owner string, f db.File, px int) (io.ReadCloser, int64, error)
 }
 
 // defaultCoverSize is what a client that does not say gets. The specification
@@ -44,13 +47,13 @@ func (h *handler) coverArt(w http.ResponseWriter, r *http.Request, username stri
 		return
 	}
 
-	dir, apiErr := h.coverDirectory(r, username, id)
+	source, apiErr := h.coverSource(r, username, id)
 	if apiErr != nil {
 		h.failXML(w, r, *apiErr)
 		return
 	}
 
-	body, size, err := h.art.Cover(r.Context(), username, dir, coverSize(r))
+	body, size, err := source(r.Context(), coverSize(r))
 	switch {
 	case errors.Is(err, media.ErrBusy):
 		// The protocol has no code for "not now", so it is the generic one
@@ -81,41 +84,49 @@ func (h *handler) coverArt(w http.ResponseWriter, r *http.Request, username stri
 	}
 }
 
-// coverDirectory turns an id into the folder whose picture is being asked for.
+// coverSource turns an id into the question to ask the generator.
 //
-// Three of the four id kinds resolve: a song sits in a folder, an album's first
-// track does, and a folder is one. It is the album's *first track* rather than
-// the album because an album is a pair of tags and not a place -- if its tracks
-// are spread over two folders, the picture comes from where the first one is.
-func (h *handler) coverDirectory(r *http.Request, username, id string) (string, *apiError) {
+// Three of the four id kinds resolve: a song is asked by itself, an album by
+// its first track, and a folder as a folder. An album is a pair of tags and
+// not a place, which is why it is asked through a track of its own and not
+// through the folder that track is in: a flat library keeps every album in
+// one folder, and that folder's first track belongs to one of them.
+func (h *handler) coverSource(r *http.Request, username, id string) (func(context.Context, int) (io.ReadCloser, int64, error), *apiError) {
+	byTrack := func(f db.File) func(context.Context, int) (io.ReadCloser, int64, error) {
+		return func(ctx context.Context, px int) (io.ReadCloser, int64, error) {
+			return h.art.CoverOf(ctx, username, f, px)
+		}
+	}
 	switch {
 	case isSongID(id):
 		t, apiErr := h.audioTrack(r, username, id)
 		if apiErr != nil {
-			return "", apiErr
+			return nil, apiErr
 		}
-		return db.ParentOf(t.File.Path), nil
+		return byTrack(t.File), nil
 
 	case isAlbumID(id):
 		artist, name, ok := parseAlbumID(id)
 		if !ok {
-			return "", ptr(notFound("album"))
+			return nil, ptr(notFound("album"))
 		}
 		tracks, err := h.lib.Tracks(r.Context(), username, artist, name)
 		if err != nil {
-			return "", ptr(h.internal(r, "list tracks", err))
+			return nil, ptr(h.internal(r, "list tracks", err))
 		}
 		if len(tracks) == 0 {
-			return "", ptr(notFound("album"))
+			return nil, ptr(notFound("album"))
 		}
-		return db.ParentOf(tracks[0].File.Path), nil
+		return byTrack(tracks[0].File), nil
 
 	default:
 		dir, ok := parseDirID(id)
 		if !ok {
-			return "", ptr(notFound("cover art"))
+			return nil, ptr(notFound("cover art"))
 		}
-		return dir, nil
+		return func(ctx context.Context, px int) (io.ReadCloser, int64, error) {
+			return h.art.Cover(ctx, username, dir, px)
+		}, nil
 	}
 }
 
