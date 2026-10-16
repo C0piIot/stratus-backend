@@ -22,7 +22,7 @@ package tus
 import (
 	"encoding/base64"
 	"errors"
-	"fmt"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -155,7 +155,7 @@ func (h *handler) create(w http.ResponseWriter, r *http.Request) {
 
 	u, err := h.files.BeginUpload(r.Context(), owner, path, length, meta["filetype"])
 	if err != nil {
-		writeErr(w, err)
+		writeErr(w, r, err)
 		return
 	}
 
@@ -174,7 +174,7 @@ func (h *handler) status(w http.ResponseWriter, r *http.Request, id string) {
 
 	u, err := h.files.Upload(r.Context(), owner, id)
 	if err != nil {
-		writeErr(w, err)
+		writeErr(w, r, err)
 		return
 	}
 
@@ -205,7 +205,7 @@ func (h *handler) patch(w http.ResponseWriter, r *http.Request, id string) {
 
 	u, err := h.files.AppendUpload(r.Context(), owner, id, offset, r.Body)
 	if err != nil {
-		writeErr(w, err)
+		writeErr(w, r, err)
 		return
 	}
 
@@ -213,7 +213,7 @@ func (h *handler) patch(w http.ResponseWriter, r *http.Request, id string) {
 	// said it would be, and the file appears then.
 	if u.Received == u.Size {
 		if _, cerr := h.files.CompleteUpload(r.Context(), owner, id); cerr != nil {
-			writeErr(w, cerr)
+			writeErr(w, r, cerr)
 			return
 		}
 	}
@@ -232,11 +232,11 @@ func (h *handler) terminate(w http.ResponseWriter, r *http.Request, id string) {
 	}
 
 	if _, err := h.files.Upload(r.Context(), owner, id); err != nil {
-		writeErr(w, err)
+		writeErr(w, r, err)
 		return
 	}
 	if err := h.files.AbortUpload(r.Context(), owner, id); err != nil {
-		writeErr(w, err)
+		writeErr(w, r, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -267,7 +267,11 @@ func parseMetadata(header string) map[string]string {
 // writeErr turns this project's sentinels into the status codes the protocol
 // is specific about. It is the one piece of translation the layer below cannot
 // do for us.
-func writeErr(w http.ResponseWriter, err error) {
+//
+// What is not a sentinel is logged and not served (#366): a driver's error
+// can carry a host or a DSN, and the client is told that the upload failed,
+// which is what it can act on. The other adapters have always done the same.
+func writeErr(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, db.ErrNotFound):
 		// Covers both an upload id that is not there and a parent directory
@@ -279,6 +283,7 @@ func writeErr(w http.ResponseWriter, err error) {
 	case errors.Is(err, db.ErrInvalidPath):
 		http.Error(w, "that is not a path this server will store", http.StatusBadRequest)
 	default:
-		http.Error(w, fmt.Sprintf("the upload failed: %v", err), http.StatusInternalServerError)
+		slog.ErrorContext(r.Context(), "serving an upload", "method", r.Method, "path", r.URL.Path, "err", err)
+		http.Error(w, "the upload failed", http.StatusInternalServerError)
 	}
 }
