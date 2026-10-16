@@ -159,11 +159,11 @@ func (f *failingRepo) PruneAlbumLookups(ctx context.Context) (int64, error) {
 }
 
 // PendingAlbumLookups implements db.Repo.
-func (f *failingRepo) PendingAlbumLookups(ctx context.Context, now time.Time, limit int) ([]db.AlbumCandidate, error) {
+func (f *failingRepo) PendingAlbumLookups(ctx context.Context, version int, now time.Time, limit int) ([]db.AlbumCandidate, error) {
 	if err := f.fails("PendingAlbumLookups"); err != nil {
 		return nil, err
 	}
-	return f.Repo.PendingAlbumLookups(ctx, now, limit)
+	return f.Repo.PendingAlbumLookups(ctx, version, now, limit)
 }
 
 // PendingLyrics implements db.Repo.

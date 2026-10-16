@@ -28,6 +28,7 @@ func RunLookups(t *testing.T, newRepo func(t *testing.T) db.Repo) {
 		{"forgetting a cover puts the album back in the queue", lookupsForgetCover},
 		{"a retagged album's row is pruned and a live one is not", lookupsPrune},
 		{"an album lookup that is not there is ErrNotFound", lookupsAlbumMissing},
+		{"a better search asks again what found nothing", lookupsSearchVersion},
 		{"lyrics are pending for a track with a title and an artist", lookupsLyricsPending},
 		{"lyrics survive a round trip", lookupsLyricsRoundTrip},
 		{"lyrics say when to ask again", lookupsLyricsRetry},
@@ -63,7 +64,7 @@ func lookupsAlbumPending(t *testing.T, s db.Repo) {
 	untitled := song("", "Someone", "", "Untitled", 1)
 	track(t, s, owner, "music/loose.flac", untitled)
 
-	pending, err := s.PendingAlbumLookups(t.Context(), time.Now(), 10)
+	pending, err := s.PendingAlbumLookups(t.Context(), 1, time.Now(), 10)
 	if err != nil {
 		t.Fatalf("PendingAlbumLookups: %v", err)
 	}
@@ -78,11 +79,12 @@ func lookupsAlbumRoundTrip(t *testing.T, s db.Repo) {
 
 	want := db.AlbumLookup{
 		Owner: owner, Artist: "Autechre", Album: "Amber",
-		LookedUpAt:   time.Date(2026, 3, 1, 10, 0, 0, 0, time.UTC),
-		RetryAt:      time.Date(2026, 4, 1, 10, 0, 0, 0, time.UTC),
-		ReleaseGroup: releaseGroup,
-		CoverBlob:    "blobs/music-amber-01.flac",
-		Error:        "the archive had no front cover",
+		LookedUpAt:    time.Date(2026, 3, 1, 10, 0, 0, 0, time.UTC),
+		RetryAt:       time.Date(2026, 4, 1, 10, 0, 0, 0, time.UTC),
+		ReleaseGroup:  releaseGroup,
+		CoverBlob:     "blobs/music-amber-01.flac",
+		Error:         "the archive had no front cover",
+		SearchVersion: 3,
 	}
 	if err := s.PutAlbumLookup(t.Context(), want); err != nil {
 		t.Fatalf("PutAlbumLookup: %v", err)
@@ -112,7 +114,7 @@ func lookupsAlbumSettled(t *testing.T, s db.Repo) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	pending, err := s.PendingAlbumLookups(t.Context(), time.Now().Add(365*24*time.Hour), 10)
+	pending, err := s.PendingAlbumLookups(t.Context(), 1, time.Now().Add(365*24*time.Hour), 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,20 +126,21 @@ func lookupsAlbumSettled(t *testing.T, s db.Repo) {
 func lookupsAlbumRetry(t *testing.T, s db.Repo) {
 	track(t, s, owner, "music/amber/01.flac", song("Autechre", "Autechre", "Amber", "Foil", 1))
 	now := time.Now()
+	// Written by this search, so only the time decides.
 	if err := s.PutAlbumLookup(t.Context(), db.AlbumLookup{
-		Owner: owner, Artist: "Autechre", Album: "Amber", LookedUpAt: now, RetryAt: now.Add(time.Hour),
+		Owner: owner, Artist: "Autechre", Album: "Amber", LookedUpAt: now, RetryAt: now.Add(time.Hour), SearchVersion: 1,
 	}); err != nil {
 		t.Fatal(err)
 	}
 
-	before, err := s.PendingAlbumLookups(t.Context(), now, 10)
+	before, err := s.PendingAlbumLookups(t.Context(), 1, now, 10)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(before) != 0 {
 		t.Errorf("pending before its time: %+v", before)
 	}
-	after, err := s.PendingAlbumLookups(t.Context(), now.Add(2*time.Hour), 10)
+	after, err := s.PendingAlbumLookups(t.Context(), 1, now.Add(2*time.Hour), 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +170,7 @@ func lookupsForgetCover(t *testing.T, s db.Repo) {
 	if row.CoverBlob != "" || row.ReleaseGroup != releaseGroup {
 		t.Errorf("after ForgetCover the row is %+v", row)
 	}
-	pending, err := s.PendingAlbumLookups(t.Context(), now, 10)
+	pending, err := s.PendingAlbumLookups(t.Context(), 1, now, 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -365,5 +368,35 @@ func lookupsCounts(t *testing.T, s db.Repo) {
 	want := db.LookupCounts{Albums: 2, AlbumsTried: 1, Identified: 1, Covers: 1, Tracks: 3, TracksTried: 1, Lyrics: 1}
 	if got != want {
 		t.Errorf("LookupCounts = %+v, want %+v", got, want)
+	}
+}
+
+func lookupsSearchVersion(t *testing.T, s db.Repo) {
+	track(t, s, owner, "music/amber/01.flac", song("Autechre", "Autechre", "Amber", "Foil", 1))
+	track(t, s, owner, "music/geogaddi/01.flac", song("Boards of Canada", "Boards of Canada", "Geogaddi", "Dandelion", 1))
+	now := time.Now()
+	// One album found nothing under search 1, the other found its id.
+	for _, row := range []db.AlbumLookup{
+		{Owner: owner, Artist: "Autechre", Album: "Amber", LookedUpAt: now, RetryAt: now.Add(720 * time.Hour), SearchVersion: 1},
+		{Owner: owner, Artist: "Boards of Canada", Album: "Geogaddi", LookedUpAt: now, ReleaseGroup: releaseGroup, SearchVersion: 1},
+	} {
+		if err := s.PutAlbumLookup(t.Context(), row); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	same, err := s.PendingAlbumLookups(t.Context(), 1, now, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(same) != 0 {
+		t.Errorf("pending under the same search: %+v", same)
+	}
+	better, err := s.PendingAlbumLookups(t.Context(), 2, now, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(better) != 1 || better[0].Album != "Amber" {
+		t.Errorf("pending under a better search = %+v, want only the album that found nothing", better)
 	}
 }

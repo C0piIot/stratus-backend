@@ -37,6 +37,13 @@ const (
 	lyricsBatch = 16
 )
 
+// SearchVersion is which search this build makes, written on every album's
+// row. Raising it asks again, once, about every album an older search found
+// nothing for -- media.Version's mechanism for the extractor, applied to the
+// question rather than the file. It went to 1 when the search learned to ask
+// by the first credited name after the whole credit found nothing.
+const SearchVersion = 1
+
 // How long a row waits before it is asked about again.
 //
 // A month for a source that answered "nothing": covers are uploaded and lyrics
@@ -153,7 +160,7 @@ func (s *Service) Pass(ctx context.Context) (Done, error) {
 		slog.Info("forgot albums the library no longer has", "rows", pruned)
 	}
 
-	albums, err := s.index.PendingAlbumLookups(ctx, now, albumBatch)
+	albums, err := s.index.PendingAlbumLookups(ctx, SearchVersion, now, albumBatch)
 	if err != nil {
 		return done, fmt.Errorf("find albums to look up: %w", err)
 	}
@@ -226,7 +233,7 @@ func (d *Done) add(o outcome) {
 // lookupAlbum settles one album: its release group, from the tags or from a
 // search, and then the front cover filed under that.
 func (s *Service) lookupAlbum(ctx context.Context, c db.AlbumCandidate, now time.Time) (outcome, error) {
-	row := db.AlbumLookup{Owner: c.Owner, Artist: c.Artist, Album: c.Album, LookedUpAt: now}
+	row := db.AlbumLookup{Owner: c.Owner, Artist: c.Artist, Album: c.Album, LookedUpAt: now, SearchVersion: SearchVersion}
 
 	group, release := c.ReleaseGroup, c.Release
 	if group == "" && release == "" {
