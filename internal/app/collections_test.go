@@ -305,7 +305,7 @@ func TestPhotosAreOneAddressAndTwoProtocols(t *testing.T) {
 		t.Fatalf("the month as a page = %d", month.Code)
 	}
 	// The same name the multistatus gave, which is the point of sharing
-	// internal/photos between the two.
+	// internal/timeline between the two.
 	if !strings.Contains(month.Body.String(), at+"?view") {
 		t.Errorf("the page does not link to %s:\n%s", at, month.Body.String())
 	}

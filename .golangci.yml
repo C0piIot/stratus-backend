@@ -111,6 +111,8 @@ linters:
               desc: inbound adapters must not import each other
             - pkg: github.com/C0piIot/stratus-backend/internal/web$
               desc: inbound adapters must not import each other
+            - pkg: github.com/C0piIot/stratus-backend/internal/tus$
+              desc: inbound adapters must not import each other
         no-cross-protocol-subsonic:
           list-mode: lax
           files:
@@ -120,6 +122,8 @@ linters:
               desc: inbound adapters must not import each other
             - pkg: github.com/C0piIot/stratus-backend/internal/web$
               desc: inbound adapters must not import each other
+            - pkg: github.com/C0piIot/stratus-backend/internal/tus$
+              desc: inbound adapters must not import each other
         no-cross-protocol-web:
           list-mode: lax
           files:
@@ -128,6 +132,21 @@ linters:
             - pkg: github.com/C0piIot/stratus-backend/internal/dav$
               desc: inbound adapters must not import each other
             - pkg: github.com/C0piIot/stratus-backend/internal/subsonic$
+              desc: inbound adapters must not import each other
+            - pkg: github.com/C0piIot/stratus-backend/internal/tus$
+              desc: inbound adapters must not import each other
+        # tus is the fourth adapter (#364): one surface, one package, the same
+        # rule.
+        no-cross-protocol-tus:
+          list-mode: lax
+          files:
+            - "**/internal/tus/**"
+          deny:
+            - pkg: github.com/C0piIot/stratus-backend/internal/dav$
+              desc: inbound adapters must not import each other
+            - pkg: github.com/C0piIot/stratus-backend/internal/subsonic$
+              desc: inbound adapters must not import each other
+            - pkg: github.com/C0piIot/stratus-backend/internal/web$
               desc: inbound adapters must not import each other
         # Ports, features and support packages sit below the adapters: the
         # dependency only ever points inwards. Nothing imports the composition
@@ -146,12 +165,18 @@ linters:
             - "**/internal/auth/**"
             - "**/internal/config/**"
             - "**/internal/nextcloud/**"
+            - "**/internal/lookup/**"
+            - "**/internal/incoming/**"
+            - "**/internal/trash/**"
+            - "**/internal/report/**"
           deny:
             - pkg: github.com/C0piIot/stratus-backend/internal/dav$
               desc: dependencies point inwards; a port or feature must not import a protocol adapter
             - pkg: github.com/C0piIot/stratus-backend/internal/subsonic$
               desc: dependencies point inwards; a port or feature must not import a protocol adapter
             - pkg: github.com/C0piIot/stratus-backend/internal/web$
+              desc: dependencies point inwards; a port or feature must not import a protocol adapter
+            - pkg: github.com/C0piIot/stratus-backend/internal/tus$
               desc: dependencies point inwards; a port or feature must not import a protocol adapter
             - pkg: github.com/C0piIot/stratus-backend/internal/app$
               desc: nothing imports the composition root

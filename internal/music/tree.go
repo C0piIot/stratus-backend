@@ -11,7 +11,7 @@ import (
 // The library as folders by tag: /Autechre/Amber/ holds that album's tracks,
 // wherever their files were filed (#279).
 //
-// It exists for the reason internal/photos does: these addresses are served
+// It exists for the reason internal/timeline does: these addresses are served
 // twice, as a WebDAV collection and as the pages at the same URLs, and the two
 // have to agree about what everything is called. The names are generated --
 // a tag is not a filename -- so the generator lives below both adapters.
