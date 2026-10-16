@@ -74,14 +74,38 @@ type Index interface {
 	db.Captures
 	db.Finder
 	Library
-	PlaylistReader
 }
 
-// PlaylistReader is the playlist half of Index: reading, and nothing else.
-// What an edit means is internal/music's, and no page here makes one.
+// PlaylistReader is the pages' view of the playlists: reading, and nothing
+// else. What an edit means is internal/music's, and no page here makes one.
+// It is that package's service and not the store, since #363, so the page
+// and the mount at one .m3u8 address go through the same layer.
 type PlaylistReader interface {
 	Playlists(ctx context.Context, owner string) ([]db.Playlist, error)
-	PlaylistTracks(ctx context.Context, owner string, id int64) ([]db.Track, error)
+	Playlist(ctx context.Context, owner string, id int64) (db.Playlist, []db.Track, error)
+}
+
+// Deps is what the handler is built from (#363): a struct rather than eleven
+// positional parameters, so a test can say the one thing it varies.
+type Deps struct {
+	Version, BuildDate string
+	Verifier           auth.Verifier
+	Sessions           *auth.Sessions
+	// Shares verifies the links somebody without an account can open.
+	Shares *auth.Shares
+	Files  *files.Service
+	// Thumbs takes the blob store directly, which is why it is passed in
+	// rather than built here: a derived object has no database row.
+	Thumbs Thumbnails
+	// Index is the media index by date and by tag and the text search.
+	Index     Index
+	Playlists PlaylistReader
+	// Indexing is read, never driven: this surface reports on the indexer.
+	Indexing Indexing
+	// Imports is the import folder, and nil when there is none.
+	Imports Imports
+	// Video is the player and HLS, and a zero one means neither is offered.
+	Video Video
 }
 
 // Thumbnails is the picture half: a file's own and a folder's cover art. An
@@ -146,13 +170,11 @@ type handler struct {
 // root, unlike the Basic auth in front of WebDAV: it is meaningless on any
 // other surface -- a WebDAV or Subsonic client is not a browser and sends no
 // cookie -- and a caller that forgot it would lose the defence silently.
-func Handler(version, buildDate string, v auth.Verifier, s *auth.Sessions, shares *auth.Shares,
-	service *files.Service, thumbs Thumbnails, index Index, indexing Indexing, imports Imports, video Video,
-) http.Handler {
+func Handler(d Deps) http.Handler {
 	h := &handler{
-		version: version, buildDate: buildDate, verifier: v, sessions: s, shares: shares,
-		files: service, thumbs: thumbs, captures: index, library: index, finder: index, playlists: index,
-		indexing: indexing, imports: imports, video: video,
+		version: d.Version, buildDate: d.BuildDate, verifier: d.Verifier, sessions: d.Sessions, shares: d.Shares,
+		files: d.Files, thumbs: d.Thumbs, captures: d.Index, library: d.Index, finder: d.Index, playlists: d.Playlists,
+		indexing: d.Indexing, imports: d.Imports, video: d.Video,
 	}
 
 	mux := http.NewServeMux()

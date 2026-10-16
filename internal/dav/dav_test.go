@@ -6,16 +6,15 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/C0piIot/stratus-backend/internal/auth"
 	"github.com/C0piIot/stratus-backend/internal/dav"
-	"github.com/C0piIot/stratus-backend/internal/db/sqlite"
+	"github.com/C0piIot/stratus-backend/internal/db"
 	"github.com/C0piIot/stratus-backend/internal/files"
-	"github.com/C0piIot/stratus-backend/internal/storage/disk"
+	"github.com/C0piIot/stratus-backend/internal/files/filestest"
 )
 
 const prefix = "/files/"
@@ -34,24 +33,9 @@ func server(t *testing.T) http.Handler {
 // an adapter tested only against fakes tests the fakes. The store comes back
 // beside it because the locks are rows in it (#243), so a handler cannot be
 // built without one.
-func service(t *testing.T) (*files.Service, *sqlite.Store) {
+func service(t *testing.T) (*files.Service, db.Store) {
 	t.Helper()
-	dir := t.TempDir()
-
-	blobs, err := disk.New(filepath.Join(dir, "blobs"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = blobs.Close() })
-
-	meta, err := sqlite.New(t.Context(), filepath.Join(dir, "stratus.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = meta.Close() })
-	if err := meta.Migrate(t.Context()); err != nil {
-		t.Fatal(err)
-	}
+	blobs, meta := filestest.Backends(t)
 	return files.New(blobs, meta), meta
 }
 
@@ -508,21 +492,7 @@ func TestContentTypeComesFromTheExtension(t *testing.T) {
 // wrong way to find out.
 func TestWithoutAnAuthenticatedUser(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
-
-	blobs, err := disk.New(filepath.Join(dir, "blobs"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = blobs.Close() })
-	meta, err := sqlite.New(t.Context(), filepath.Join(dir, "stratus.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = meta.Close() })
-	if merr := meta.Migrate(t.Context()); merr != nil {
-		t.Fatal(merr)
-	}
+	blobs, meta := filestest.Backends(t)
 
 	// No auth.Basic in front of it, so nothing put a user on the context.
 	h := dav.Handler(prefix, files.New(blobs, meta), meta)

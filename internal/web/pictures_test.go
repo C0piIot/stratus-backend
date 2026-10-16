@@ -115,8 +115,20 @@ func TestStatusSaysWhenPicturesAreOnlyMadeOnRequest(t *testing.T) {
 	t.Parallel()
 	s, thumbs, meta := pieces(t)
 	creds := credentials()
-	h := web.Handler(version, buildDate, creds, auth.NewSessions(creds, auth.DefaultSessionTTL), auth.NewShares(creds),
-		s, thumbs, meta, web.Indexing{Index: meta, Interval: time.Minute}, nil, web.Video{})
+	h := web.Handler(web.Deps{
+		Version:   version,
+		BuildDate: buildDate,
+		Verifier:  creds,
+		Sessions:  auth.NewSessions(creds, auth.DefaultSessionTTL),
+		Shares:    auth.NewShares(creds),
+		Files:     s,
+		Thumbs:    thumbs,
+		Index:     meta,
+		Playlists: playlistsOf(meta),
+		Indexing:  web.Indexing{Index: meta, Interval: time.Minute},
+		Imports:   nil,
+		Video:     web.Video{},
+	})
 	picture(t, s, meta, "IMG_0001.jpg")
 
 	body := get(t, h, "/status", signIn(t, h)).Body.String()

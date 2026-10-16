@@ -16,12 +16,11 @@ import (
 	"github.com/C0piIot/stratus-backend/internal/config"
 	"github.com/C0piIot/stratus-backend/internal/db"
 	"github.com/C0piIot/stratus-backend/internal/db/dbtest"
-	"github.com/C0piIot/stratus-backend/internal/db/sqlite"
 	"github.com/C0piIot/stratus-backend/internal/files"
+	"github.com/C0piIot/stratus-backend/internal/files/filestest"
 	"github.com/C0piIot/stratus-backend/internal/incoming"
 	"github.com/C0piIot/stratus-backend/internal/media"
 	"github.com/C0piIot/stratus-backend/internal/storage"
-	"github.com/C0piIot/stratus-backend/internal/storage/disk"
 )
 
 // TestCollectorSurvivesAFailedPass is the property the whole loop exists to
@@ -34,22 +33,7 @@ import (
 // survivable.
 func TestCollectorSurvivesAFailedPass(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
-
-	blobs, err := disk.New(filepath.Join(dir, "blobs"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = blobs.Close() })
-
-	meta, err := sqlite.New(t.Context(), filepath.Join(dir, "stratus.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = meta.Close() })
-	if err := meta.Migrate(t.Context()); err != nil {
-		t.Fatal(err)
-	}
+	blobs, meta := filestest.Backends(t)
 
 	a := New(config.Config{GCInterval: time.Millisecond, GCGrace: time.Hour}, "test", "2026-01-01T09:30:00Z")
 	broken := dbtest.FailOn(t, meta, "ExpiredUploads")
@@ -83,22 +67,7 @@ func TestCollectorSurvivesAFailedPass(t *testing.T) {
 // Internal because it drives that one decision directly.
 func TestThePicturePassPacesItself(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
-
-	blobs, err := disk.New(filepath.Join(dir, "blobs"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = blobs.Close() })
-
-	meta, err := sqlite.New(t.Context(), filepath.Join(dir, "stratus.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = meta.Close() })
-	if merr := meta.Migrate(t.Context()); merr != nil {
-		t.Fatal(merr)
-	}
+	blobs, meta := filestest.Backends(t)
 
 	service := files.New(blobs, meta)
 	a := New(config.Config{ThumbsAhead: true}, "test", "2026-01-01T09:30:00Z")
@@ -167,22 +136,7 @@ func TestThePicturePassPacesItself(t *testing.T) {
 // still filled in while somebody browses it, long enough to be out of the way.
 func TestThePicturePassStandsAside(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
-
-	blobs, err := disk.New(filepath.Join(dir, "blobs"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = blobs.Close() })
-
-	meta, err := sqlite.New(t.Context(), filepath.Join(dir, "stratus.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = meta.Close() })
-	if merr := meta.Migrate(t.Context()); merr != nil {
-		t.Fatal(merr)
-	}
+	blobs, meta := filestest.Backends(t)
 
 	// A store that holds the read of one file open, which is what a decode
 	// somebody is waiting for looks like from here.
@@ -245,24 +199,9 @@ func writePhoto(t *testing.T, s *files.Service, meta db.MediaIndex, path string)
 // dropped into one it can read is in the library a pass later.
 func TestImporterKeepsGoingAndStopsWithItsContext(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
+	blobs, meta := filestest.Backends(t)
 
-	blobs, err := disk.New(filepath.Join(dir, "blobs"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = blobs.Close() })
-
-	meta, err := sqlite.New(t.Context(), filepath.Join(dir, "stratus.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = meta.Close() })
-	if err := meta.Migrate(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-
-	from := filepath.Join(dir, "incoming")
+	from := filepath.Join(t.TempDir(), "incoming")
 	if err := os.MkdirAll(from, 0o750); err != nil {
 		t.Fatal(err)
 	}

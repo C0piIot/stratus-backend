@@ -51,8 +51,20 @@ func newCinema(t *testing.T) *cinema {
 	s, thumbs, meta := pieces(t)
 	segs := &fakeSegments{}
 	creds := credentials()
-	h := web.Handler(version, buildDate, creds, auth.NewSessions(creds, auth.DefaultSessionTTL), auth.NewShares(creds),
-		s, thumbs, meta, indexing(meta), nil, web.Video{Media: meta, Segments: segs})
+	h := web.Handler(web.Deps{
+		Version:   version,
+		BuildDate: buildDate,
+		Verifier:  creds,
+		Sessions:  auth.NewSessions(creds, auth.DefaultSessionTTL),
+		Shares:    auth.NewShares(creds),
+		Files:     s,
+		Thumbs:    thumbs,
+		Index:     meta,
+		Playlists: playlistsOf(meta),
+		Indexing:  indexing(meta),
+		Imports:   nil,
+		Video:     web.Video{Media: meta, Segments: segs},
+	})
 	return &cinema{Handler: h, files: s, meta: meta, segments: segs}
 }
 
@@ -297,8 +309,20 @@ func newEncodingCinema(t *testing.T) (*cinema, *fakeEncoder) {
 	s, thumbs, meta := pieces(t)
 	segs, enc := &fakeSegments{}, &fakeEncoder{}
 	creds := credentials()
-	h := web.Handler(version, buildDate, creds, auth.NewSessions(creds, auth.DefaultSessionTTL), auth.NewShares(creds),
-		s, thumbs, meta, indexing(meta), nil, web.Video{Media: meta, Segments: segs, Encoded: enc})
+	h := web.Handler(web.Deps{
+		Version:   version,
+		BuildDate: buildDate,
+		Verifier:  creds,
+		Sessions:  auth.NewSessions(creds, auth.DefaultSessionTTL),
+		Shares:    auth.NewShares(creds),
+		Files:     s,
+		Thumbs:    thumbs,
+		Index:     meta,
+		Playlists: playlistsOf(meta),
+		Indexing:  indexing(meta),
+		Imports:   nil,
+		Video:     web.Video{Media: meta, Segments: segs, Encoded: enc},
+	})
 	return &cinema{Handler: h, files: s, meta: meta, segments: segs}, enc
 }
 

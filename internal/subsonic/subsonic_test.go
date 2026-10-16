@@ -10,18 +10,17 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/C0piIot/stratus-backend/internal/auth"
 	"github.com/C0piIot/stratus-backend/internal/db"
-	"github.com/C0piIot/stratus-backend/internal/db/sqlite"
 	"github.com/C0piIot/stratus-backend/internal/files"
+	"github.com/C0piIot/stratus-backend/internal/files/filestest"
 	"github.com/C0piIot/stratus-backend/internal/media"
 	"github.com/C0piIot/stratus-backend/internal/music"
-	"github.com/C0piIot/stratus-backend/internal/storage/disk"
+	"github.com/C0piIot/stratus-backend/internal/storage"
 	"github.com/C0piIot/stratus-backend/internal/subsonic"
 )
 
@@ -48,8 +47,8 @@ func server(t *testing.T) http.Handler {
 type library struct {
 	http.Handler
 	files *files.Service
-	meta  *sqlite.Store
-	blobs *disk.Store
+	meta  db.Store
+	blobs storage.Storage
 	art   *media.Thumbs
 	// transcoder stands in for ffmpeg: it records what it was asked for and
 	// answers with bytes of its own (stream_test.go).
@@ -68,22 +67,7 @@ type library struct {
 
 func newLibrary(t *testing.T) *library {
 	t.Helper()
-	dir := t.TempDir()
-
-	blobs, err := disk.New(filepath.Join(dir, "blobs"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = blobs.Close() })
-
-	meta, err := sqlite.New(t.Context(), filepath.Join(dir, "stratus.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = meta.Close() })
-	if err := meta.Migrate(t.Context()); err != nil {
-		t.Fatal(err)
-	}
+	blobs, meta := filestest.Backends(t)
 
 	service := files.New(blobs, meta)
 	// Cover art is a JPEG or a PNG out of a tag, so nothing here reaches ffmpeg.

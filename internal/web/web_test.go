@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -13,11 +12,11 @@ import (
 
 	"github.com/C0piIot/stratus-backend/internal/auth"
 	"github.com/C0piIot/stratus-backend/internal/db"
-	"github.com/C0piIot/stratus-backend/internal/db/sqlite"
 	"github.com/C0piIot/stratus-backend/internal/files"
+	"github.com/C0piIot/stratus-backend/internal/files/filestest"
 	"github.com/C0piIot/stratus-backend/internal/media"
+	"github.com/C0piIot/stratus-backend/internal/music"
 	"github.com/C0piIot/stratus-backend/internal/storage"
-	"github.com/C0piIot/stratus-backend/internal/storage/disk"
 	"github.com/C0piIot/stratus-backend/internal/web"
 )
 
@@ -43,8 +42,20 @@ func newHandler(t *testing.T, v auth.Verifier) http.Handler {
 		v = creds
 	}
 	s, thumbs, meta := pieces(t)
-	return web.Handler(version, buildDate, v, auth.NewSessions(creds, auth.DefaultSessionTTL), auth.NewShares(creds),
-		s, thumbs, meta, indexing(meta), nil, web.Video{})
+	return web.Handler(web.Deps{
+		Version:   version,
+		BuildDate: buildDate,
+		Verifier:  v,
+		Sessions:  auth.NewSessions(creds, auth.DefaultSessionTTL),
+		Shares:    auth.NewShares(creds),
+		Files:     s,
+		Thumbs:    thumbs,
+		Index:     meta,
+		Playlists: playlistsOf(meta),
+		Indexing:  indexing(meta),
+		Imports:   nil,
+		Video:     web.Video{},
+	})
 }
 
 // browser is newHandler and the service behind it, for the tests that have to
@@ -53,8 +64,20 @@ func browser(t *testing.T) (http.Handler, *files.Service) {
 	t.Helper()
 	s, thumbs, meta := pieces(t)
 	creds := credentials()
-	return web.Handler(version, buildDate, creds, auth.NewSessions(creds, auth.DefaultSessionTTL), auth.NewShares(creds),
-		s, thumbs, meta, indexing(meta), nil, web.Video{}), s
+	return web.Handler(web.Deps{
+		Version:   version,
+		BuildDate: buildDate,
+		Verifier:  creds,
+		Sessions:  auth.NewSessions(creds, auth.DefaultSessionTTL),
+		Shares:    auth.NewShares(creds),
+		Files:     s,
+		Thumbs:    thumbs,
+		Index:     meta,
+		Playlists: playlistsOf(meta),
+		Indexing:  indexing(meta),
+		Imports:   nil,
+		Video:     web.Video{},
+	}), s
 }
 
 // browserOver is browser plus the store behind it, for the tests that have to
@@ -63,8 +86,20 @@ func browserOver(t *testing.T) (http.Handler, *files.Service, db.Store) {
 	t.Helper()
 	s, thumbs, meta := pieces(t)
 	creds := credentials()
-	return web.Handler(version, buildDate, creds, auth.NewSessions(creds, auth.DefaultSessionTTL), auth.NewShares(creds),
-		s, thumbs, meta, indexing(meta), nil, web.Video{}), s, meta
+	return web.Handler(web.Deps{
+		Version:   version,
+		BuildDate: buildDate,
+		Verifier:  creds,
+		Sessions:  auth.NewSessions(creds, auth.DefaultSessionTTL),
+		Shares:    auth.NewShares(creds),
+		Files:     s,
+		Thumbs:    thumbs,
+		Index:     meta,
+		Playlists: playlistsOf(meta),
+		Indexing:  indexing(meta),
+		Imports:   nil,
+		Video:     web.Video{},
+	}), s, meta
 }
 
 // browserOverStore is browser plus the blob store behind it, for the tests
@@ -75,8 +110,20 @@ func browserOverStore(t *testing.T) (http.Handler, *files.Service, storage.Stora
 	s := files.New(blobs, meta)
 	creds := credentials()
 	thumbs := media.NewThumbs(blobs, s, meta, "ffmpeg", t.TempDir())
-	return web.Handler(version, buildDate, creds, auth.NewSessions(creds, auth.DefaultSessionTTL), auth.NewShares(creds),
-		s, thumbs, meta, indexing(meta), nil, web.Video{}), s, blobs
+	return web.Handler(web.Deps{
+		Version:   version,
+		BuildDate: buildDate,
+		Verifier:  creds,
+		Sessions:  auth.NewSessions(creds, auth.DefaultSessionTTL),
+		Shares:    auth.NewShares(creds),
+		Files:     s,
+		Thumbs:    thumbs,
+		Index:     meta,
+		Playlists: playlistsOf(meta),
+		Indexing:  indexing(meta),
+		Imports:   nil,
+		Video:     web.Video{},
+	}), s, blobs
 }
 
 // handlerIndexing is handlerOver for the tests that care about what the status
@@ -84,8 +131,20 @@ func browserOverStore(t *testing.T) (http.Handler, *files.Service, storage.Stora
 func handlerIndexing(t *testing.T, s *files.Service, blobs storage.Storage, ix web.Indexing) http.Handler {
 	t.Helper()
 	creds := credentials()
-	return web.Handler(version, buildDate, creds, auth.NewSessions(creds, auth.DefaultSessionTTL), auth.NewShares(creds),
-		s, media.NewThumbs(blobs, s, ix.Index.(db.MediaIndex), "ffmpeg", t.TempDir()), nil, ix, nil, web.Video{})
+	return web.Handler(web.Deps{
+		Version:   version,
+		BuildDate: buildDate,
+		Verifier:  creds,
+		Sessions:  auth.NewSessions(creds, auth.DefaultSessionTTL),
+		Shares:    auth.NewShares(creds),
+		Files:     s,
+		Thumbs:    media.NewThumbs(blobs, s, ix.Index.(db.MediaIndex), "ffmpeg", t.TempDir()),
+		Index:     nil,
+		Playlists: nil,
+		Indexing:  ix,
+		Imports:   nil,
+		Video:     web.Video{},
+	})
 }
 
 // service is the real file layer over real backends in a temporary directory,
@@ -115,22 +174,7 @@ func indexing(index db.MediaIndex) web.Indexing {
 // injector in front of one of them.
 func backends(t *testing.T) (storage.Storage, db.Store) {
 	t.Helper()
-	dir := t.TempDir()
-
-	blobs, err := disk.New(filepath.Join(dir, "blobs"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = blobs.Close() })
-
-	meta, err := sqlite.New(t.Context(), filepath.Join(dir, "stratus.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = meta.Close() })
-	if err := meta.Migrate(t.Context()); err != nil {
-		t.Fatal(err)
-	}
+	blobs, meta := filestest.Backends(t)
 	return blobs, meta
 }
 
@@ -139,8 +183,20 @@ func backends(t *testing.T) (storage.Storage, db.Store) {
 func handlerOver(t *testing.T, s *files.Service, blobs storage.Storage, index db.MediaIndex) http.Handler {
 	t.Helper()
 	creds := credentials()
-	return web.Handler(version, buildDate, creds, auth.NewSessions(creds, auth.DefaultSessionTTL), auth.NewShares(creds),
-		s, media.NewThumbs(blobs, s, index, "ffmpeg", t.TempDir()), nil, indexing(index), nil, web.Video{})
+	return web.Handler(web.Deps{
+		Version:   version,
+		BuildDate: buildDate,
+		Verifier:  creds,
+		Sessions:  auth.NewSessions(creds, auth.DefaultSessionTTL),
+		Shares:    auth.NewShares(creds),
+		Files:     s,
+		Thumbs:    media.NewThumbs(blobs, s, index, "ffmpeg", t.TempDir()),
+		Index:     nil,
+		Playlists: nil,
+		Indexing:  indexing(index),
+		Imports:   nil,
+		Video:     web.Video{},
+	})
 }
 
 // handlerImports is the UI over an import folder, for the one page that reports
@@ -148,8 +204,20 @@ func handlerOver(t *testing.T, s *files.Service, blobs storage.Storage, index db
 func handlerImports(t *testing.T, s *files.Service, blobs storage.Storage, meta db.Store, imports web.Imports) http.Handler {
 	t.Helper()
 	creds := credentials()
-	return web.Handler(version, buildDate, creds, auth.NewSessions(creds, auth.DefaultSessionTTL), auth.NewShares(creds),
-		s, media.NewThumbs(blobs, s, meta, "ffmpeg", t.TempDir()), nil, indexing(meta), imports, web.Video{})
+	return web.Handler(web.Deps{
+		Version:   version,
+		BuildDate: buildDate,
+		Verifier:  creds,
+		Sessions:  auth.NewSessions(creds, auth.DefaultSessionTTL),
+		Shares:    auth.NewShares(creds),
+		Files:     s,
+		Thumbs:    media.NewThumbs(blobs, s, meta, "ffmpeg", t.TempDir()),
+		Index:     nil,
+		Playlists: nil,
+		Indexing:  indexing(meta),
+		Imports:   imports,
+		Video:     web.Video{},
+	})
 }
 
 // handlerOverIndex is the UI over an index somebody else assembled, which is
@@ -161,8 +229,20 @@ func handlerOverIndex(t *testing.T, s *files.Service, blobs storage.Storage, ind
 	// behind the page is a search index rather than a whole repository, and
 	// nothing here asks for a picture.
 	_, meta := backends(t)
-	return web.Handler(version, buildDate, creds, auth.NewSessions(creds, auth.DefaultSessionTTL), auth.NewShares(creds),
-		s, media.NewThumbs(blobs, s, meta, "ffmpeg", t.TempDir()), index, indexing(nil), nil, web.Video{})
+	return web.Handler(web.Deps{
+		Version:   version,
+		BuildDate: buildDate,
+		Verifier:  creds,
+		Sessions:  auth.NewSessions(creds, auth.DefaultSessionTTL),
+		Shares:    auth.NewShares(creds),
+		Files:     s,
+		Thumbs:    media.NewThumbs(blobs, s, meta, "ffmpeg", t.TempDir()),
+		Index:     index,
+		Playlists: playlistsOf(index),
+		Indexing:  indexing(nil),
+		Imports:   nil,
+		Video:     web.Video{},
+	})
 }
 
 // refusing answers every login with one error, for the arms a correct password
@@ -295,9 +375,20 @@ func TestASessionFromAnotherPasswordIsNotOne(t *testing.T) {
 
 	service, thumbs, meta := pieces(t)
 	changed := auth.Credentials{Username: username, Password: "example a different one"}
-	after := web.Handler(version, buildDate, credentials(),
-		auth.NewSessions(changed, auth.DefaultSessionTTL), auth.NewShares(changed),
-		service, thumbs, meta, indexing(meta), nil, web.Video{})
+	after := web.Handler(web.Deps{
+		Version:   version,
+		BuildDate: buildDate,
+		Verifier:  credentials(),
+		Sessions:  auth.NewSessions(changed, auth.DefaultSessionTTL),
+		Shares:    auth.NewShares(changed),
+		Files:     service,
+		Thumbs:    thumbs,
+		Index:     meta,
+		Playlists: playlistsOf(meta),
+		Indexing:  indexing(meta),
+		Imports:   nil,
+		Video:     web.Video{},
+	})
 
 	rec := get(t, after, "/files/", before)
 	if rec.Code != http.StatusSeeOther {
@@ -515,4 +606,14 @@ func TestNavbar(t *testing.T) {
 			t.Errorf("%s: the gallery menu says %q, want %q", path, label, want)
 		}
 	}
+}
+
+// playlistsOf is the playlist service over whatever a test put behind the
+// pages: the store, or a wrapper that breaks one of its calls. A page that
+// never reads a playlist is fine with none.
+func playlistsOf(index any) web.PlaylistReader {
+	if d, ok := index.(music.Database); ok {
+		return music.New(d)
+	}
+	return nil
 }

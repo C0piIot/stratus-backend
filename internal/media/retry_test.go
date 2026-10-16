@@ -8,10 +8,9 @@ import (
 	"time"
 
 	"github.com/C0piIot/stratus-backend/internal/db"
-	"github.com/C0piIot/stratus-backend/internal/db/sqlite"
 	"github.com/C0piIot/stratus-backend/internal/files"
+	"github.com/C0piIot/stratus-backend/internal/files/filestest"
 	"github.com/C0piIot/stratus-backend/internal/storage"
-	"github.com/C0piIot/stratus-backend/internal/storage/disk"
 	"github.com/C0piIot/stratus-backend/internal/storage/storagetest"
 )
 
@@ -236,20 +235,7 @@ func TestAFileNobodyCanParseIsStillFinal(t *testing.T) {
 func backends(t *testing.T, dir string) (storage.Storage, db.Store) {
 	t.Helper()
 
-	blobs, err := disk.New(filepath.Join(dir, "blobs"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = blobs.Close() })
-
-	meta, err := sqlite.New(t.Context(), filepath.Join(dir, "stratus.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = meta.Close() })
-	if merr := meta.Migrate(t.Context()); merr != nil {
-		t.Fatal(merr)
-	}
+	blobs, meta := filestest.Backends(t)
 	return blobs, meta
 }
 

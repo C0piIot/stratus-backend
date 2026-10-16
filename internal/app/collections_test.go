@@ -5,17 +5,15 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/C0piIot/stratus-backend/internal/app"
 	"github.com/C0piIot/stratus-backend/internal/db"
-	"github.com/C0piIot/stratus-backend/internal/db/sqlite"
 	"github.com/C0piIot/stratus-backend/internal/files"
+	"github.com/C0piIot/stratus-backend/internal/files/filestest"
 	"github.com/C0piIot/stratus-backend/internal/media"
-	"github.com/C0piIot/stratus-backend/internal/storage/disk"
 )
 
 // TestTheVideosAreTheirOwnCollection is #215 from outside both adapters: the
@@ -23,20 +21,7 @@ import (
 // multistatus to a client and a page to a browser.
 func TestTheVideosAreTheirOwnCollection(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
-	blobs, err := disk.New(filepath.Join(dir, "blobs"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = blobs.Close() })
-	meta, err := sqlite.New(t.Context(), filepath.Join(dir, "stratus.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = meta.Close() })
-	if err = meta.Migrate(t.Context()); err != nil {
-		t.Fatal(err)
-	}
+	blobs, meta := filestest.Backends(t)
 	service := files.New(blobs, meta)
 
 	taken := time.Date(2024, 6, 15, 10, 0, 0, 0, time.UTC)
@@ -111,20 +96,7 @@ func TestTheVideosAreTheirOwnCollection(t *testing.T) {
 // the client's PROPFIND land on the same generated name.
 func TestMusicIsOneAddressAndTwoProtocols(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
-	blobs, err := disk.New(filepath.Join(dir, "blobs"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = blobs.Close() })
-	meta, err := sqlite.New(t.Context(), filepath.Join(dir, "stratus.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = meta.Close() })
-	if err = meta.Migrate(t.Context()); err != nil {
-		t.Fatal(err)
-	}
+	blobs, meta := filestest.Backends(t)
 	service := files.New(blobs, meta)
 	f, err := service.Write(t.Context(), "edu", "01.flac", strings.NewReader("sound"), 5, "audio/flac")
 	if err != nil {
@@ -216,20 +188,7 @@ func TestMusicIsOneAddressAndTwoProtocols(t *testing.T) {
 // land on the same name.
 func TestPhotosAreOneAddressAndTwoProtocols(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
-	blobs, err := disk.New(filepath.Join(dir, "blobs"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = blobs.Close() })
-	meta, err := sqlite.New(t.Context(), filepath.Join(dir, "stratus.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = meta.Close() })
-	if err = meta.Migrate(t.Context()); err != nil {
-		t.Fatal(err)
-	}
+	blobs, meta := filestest.Backends(t)
 	service := files.New(blobs, meta)
 	f, err := service.Write(t.Context(), "edu", "IMG_0001.jpg", strings.NewReader("pixels"), 6, "image/jpeg")
 	if err != nil {
@@ -323,23 +282,10 @@ func TestPhotosAreOneAddressAndTwoProtocols(t *testing.T) {
 // finder the web UI's own box reads is the one answering.
 func TestSearchIsTheProtocolSurface(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
-	blobs, err := disk.New(filepath.Join(dir, "blobs"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = blobs.Close() })
-	meta, err := sqlite.New(t.Context(), filepath.Join(dir, "stratus.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = meta.Close() })
-	if err = meta.Migrate(t.Context()); err != nil {
-		t.Fatal(err)
-	}
+	blobs, meta := filestest.Backends(t)
 	service := files.New(blobs, meta)
 
-	if _, err = service.Mkdir(t.Context(), "edu", "holiday"); err != nil {
+	if _, err := service.Mkdir(t.Context(), "edu", "holiday"); err != nil {
 		t.Fatal(err)
 	}
 	for _, name := range []string{"lisbon tram.jpg", "notes.txt", "holiday/lisbon tram.jpg"} {
@@ -438,29 +384,16 @@ func TestSearchIsTheProtocolSurface(t *testing.T) {
 // is the split this package makes and neither adapter can see.
 func TestTheTrashIsOneAddressAndTwoProtocols(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
-	blobs, err := disk.New(filepath.Join(dir, "blobs"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = blobs.Close() })
-	meta, err := sqlite.New(t.Context(), filepath.Join(dir, "stratus.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = meta.Close() })
-	if err = meta.Migrate(t.Context()); err != nil {
-		t.Fatal(err)
-	}
+	blobs, meta := filestest.Backends(t)
 	service := files.New(blobs, meta)
-	if _, err = service.Mkdir(t.Context(), "edu", "album"); err != nil {
+	if _, err := service.Mkdir(t.Context(), "edu", "album"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = service.Write(t.Context(), "edu", "album/IMG_0001.jpg",
+	if _, err := service.Write(t.Context(), "edu", "album/IMG_0001.jpg",
 		strings.NewReader("pixels"), 6, "image/jpeg"); err != nil {
 		t.Fatal(err)
 	}
-	if err = service.Remove(t.Context(), "edu", "album"); err != nil {
+	if err := service.Remove(t.Context(), "edu", "album"); err != nil {
 		t.Fatal(err)
 	}
 

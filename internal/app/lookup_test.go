@@ -4,17 +4,15 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/C0piIot/stratus-backend/internal/app"
 	"github.com/C0piIot/stratus-backend/internal/db"
-	"github.com/C0piIot/stratus-backend/internal/db/sqlite"
 	"github.com/C0piIot/stratus-backend/internal/files"
+	"github.com/C0piIot/stratus-backend/internal/files/filestest"
 	"github.com/C0piIot/stratus-backend/internal/media"
-	"github.com/C0piIot/stratus-backend/internal/storage/disk"
 )
 
 // TestTheStatusPageKnowsWhetherLookupsAreOn is the wiring and nothing else
@@ -23,20 +21,7 @@ import (
 // library nobody is asking about as one with nothing to say.
 func TestTheStatusPageKnowsWhetherLookupsAreOn(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
-	blobs, err := disk.New(filepath.Join(dir, "blobs"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = blobs.Close() })
-	meta, err := sqlite.New(t.Context(), filepath.Join(dir, "stratus.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = meta.Close() })
-	if err = meta.Migrate(t.Context()); err != nil {
-		t.Fatal(err)
-	}
+	blobs, meta := filestest.Backends(t)
 	service := files.New(blobs, meta)
 	f, err := service.Write(t.Context(), "edu", "song.flac", strings.NewReader("sound"), 5, "audio/flac")
 	if err != nil {

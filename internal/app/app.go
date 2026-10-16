@@ -177,11 +177,16 @@ func (a *App) Handler(deps Deps) http.Handler {
 		// protocols rather than grow an API of its own: see auth.Session, and
 		// why the cookie counts only on a request the browser calls its own.
 		sessions := auth.NewSessions(creds, auth.DefaultSessionTTL)
-		browser := web.Handler(a.version, a.buildDate, verifier, sessions, shares, service, deps.Thumbs, deps.Database,
-			web.Indexing{
+		playlists := music.New(deps.Database)
+		browser := web.Handler(web.Deps{
+			Version: a.version, BuildDate: a.buildDate, Verifier: verifier, Sessions: sessions, Shares: shares,
+			Files: service, Thumbs: deps.Thumbs, Index: deps.Database, Playlists: playlists,
+			Indexing: web.Indexing{
 				Index: deps.Database, Interval: a.cfg.IndexInterval, Ahead: a.cfg.ThumbsAhead,
 				Lookups: deps.Database, Lookup: a.cfg.MusicLookup,
-			}, imports(deps), films(deps))
+			},
+			Imports: imports(deps), Video: films(deps),
+		})
 
 		// Every protocol surface is behind the same realm and the same
 		// throttle -- it is the same credentials, and a second budget of
@@ -209,7 +214,6 @@ func (a *App) Handler(deps Deps) http.Handler {
 		// generator takes the store directly: a derived object has no database
 		// row and never will.
 		thumbs := deps.Thumbs
-		playlists := music.New(deps.Database)
 		// Subsonic authenticates per request from the query string rather
 		// than through auth.Basic, so it takes the session alone and the
 		// verifier itself.

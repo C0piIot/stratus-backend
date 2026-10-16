@@ -4,28 +4,20 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/C0piIot/stratus-backend/internal/dav"
 	"github.com/C0piIot/stratus-backend/internal/db"
-	"github.com/C0piIot/stratus-backend/internal/db/sqlite"
+	"github.com/C0piIot/stratus-backend/internal/files/filestest"
 )
 
 const musicPrefix = "/music/"
 
 // musicServer is the mount over a real database with those tracks in it.
-func musicServer(t *testing.T, tracks ...[3]string) (http.Handler, *sqlite.Store) {
+func musicServer(t *testing.T, tracks ...[3]string) (http.Handler, db.Store) {
 	t.Helper()
-	meta, err := sqlite.New(t.Context(), filepath.Join(t.TempDir(), "stratus.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = meta.Close() })
-	if err := meta.Migrate(t.Context()); err != nil {
-		t.Fatal(err)
-	}
+	_, meta := filestest.Backends(t)
 
 	for i, tr := range tracks {
 		path, artist, album := tr[0], tr[1], tr[2]

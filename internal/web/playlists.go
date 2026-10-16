@@ -61,7 +61,7 @@ func (h *handler) playlistPages(w http.ResponseWriter, r *http.Request, user str
 		return
 	}
 
-	tracks, err := h.playlists.PlaylistTracks(r.Context(), user, pl.ID)
+	pl, tracks, err := h.playlists.Playlist(r.Context(), user, pl.ID)
 	if err != nil {
 		h.fail(w, r, user, err)
 		return

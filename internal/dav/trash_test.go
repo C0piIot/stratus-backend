@@ -9,7 +9,6 @@ import (
 
 	"github.com/C0piIot/stratus-backend/internal/dav"
 	"github.com/C0piIot/stratus-backend/internal/db"
-	"github.com/C0piIot/stratus-backend/internal/db/sqlite"
 	"github.com/C0piIot/stratus-backend/internal/files"
 )
 
@@ -17,7 +16,7 @@ const trashPrefix = "/trash/"
 
 // trashServer is the mount over the real file layer, so that what it lists is
 // what deleting actually wrote.
-func trashServer(t *testing.T) (http.Handler, *files.Service, *sqlite.Store) {
+func trashServer(t *testing.T) (http.Handler, *files.Service, db.Store) {
 	t.Helper()
 	svc, meta := service(t)
 	return withUser(dav.Trash(trashPrefix, svc), "edu"), svc, meta

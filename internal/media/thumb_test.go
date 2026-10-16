@@ -12,10 +12,9 @@ import (
 	"testing"
 
 	"github.com/C0piIot/stratus-backend/internal/db"
-	"github.com/C0piIot/stratus-backend/internal/db/sqlite"
 	"github.com/C0piIot/stratus-backend/internal/files"
+	"github.com/C0piIot/stratus-backend/internal/files/filestest"
 	"github.com/C0piIot/stratus-backend/internal/storage"
-	"github.com/C0piIot/stratus-backend/internal/storage/disk"
 	"github.com/C0piIot/stratus-backend/internal/storage/storagetest"
 )
 
@@ -31,22 +30,7 @@ func thumbs(t *testing.T) (*Thumbs, *files.Service, storage.Storage) {
 // something about a row rather than about a file.
 func thumbsOver(t *testing.T) (*Thumbs, *files.Service, storage.Storage, db.Store) {
 	t.Helper()
-	dir := t.TempDir()
-
-	blobs, err := disk.New(filepath.Join(dir, "blobs"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = blobs.Close() })
-
-	meta, err := sqlite.New(t.Context(), filepath.Join(dir, "stratus.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = meta.Close() })
-	if merr := meta.Migrate(t.Context()); merr != nil {
-		t.Fatal(merr)
-	}
+	blobs, meta := filestest.Backends(t)
 
 	service := files.New(blobs, meta)
 	return NewThumbs(blobs, service, meta, stubFFmpeg(t), t.TempDir()), service, blobs, meta

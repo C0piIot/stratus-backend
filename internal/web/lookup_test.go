@@ -75,9 +75,20 @@ func TestTheAlbumPageOverABackendThatWillNotAnswerForTheWords(t *testing.T) {
 	broken := dbtest.FailOn(t, meta, "LyricsOf")
 	s := files.New(blobs, broken)
 	creds := credentials()
-	h := web.Handler(version, buildDate, creds, auth.NewSessions(creds, auth.DefaultSessionTTL), auth.NewShares(creds),
-		s, media.NewThumbs(blobs, s, broken, "ffmpeg", t.TempDir()), broken,
-		web.Indexing{Index: broken, Interval: time.Minute}, nil, web.Video{})
+	h := web.Handler(web.Deps{
+		Version:   version,
+		BuildDate: buildDate,
+		Verifier:  creds,
+		Sessions:  auth.NewSessions(creds, auth.DefaultSessionTTL),
+		Shares:    auth.NewShares(creds),
+		Files:     s,
+		Thumbs:    media.NewThumbs(blobs, s, broken, "ffmpeg", t.TempDir()),
+		Index:     broken,
+		Playlists: playlistsOf(broken),
+		Indexing:  web.Indexing{Index: broken, Interval: time.Minute},
+		Imports:   nil,
+		Video:     web.Video{},
+	})
 	cookie := signIn(t, h)
 	homework(t, s, meta)
 
@@ -150,8 +161,20 @@ func TestAnAlbumsCoverInAFlatFolderIsItsOwn(t *testing.T) {
 	s := files.New(blobs, meta)
 	creds := credentials()
 	thumbs := media.NewThumbs(blobs, s, meta, "ffmpeg", t.TempDir()).WithLookups(meta)
-	h := web.Handler(version, buildDate, creds, auth.NewSessions(creds, auth.DefaultSessionTTL), auth.NewShares(creds),
-		s, thumbs, meta, indexing(meta), nil, web.Video{})
+	h := web.Handler(web.Deps{
+		Version:   version,
+		BuildDate: buildDate,
+		Verifier:  creds,
+		Sessions:  auth.NewSessions(creds, auth.DefaultSessionTTL),
+		Shares:    auth.NewShares(creds),
+		Files:     s,
+		Thumbs:    thumbs,
+		Index:     meta,
+		Playlists: playlistsOf(meta),
+		Indexing:  indexing(meta),
+		Imports:   nil,
+		Video:     web.Video{},
+	})
 	cookie := signIn(t, h)
 
 	addTrack(t, s, meta, "80KIDZ - This Is My Shit.flac", db.Media{
