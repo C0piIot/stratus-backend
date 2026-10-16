@@ -94,3 +94,19 @@ func TestTheStatusPageKnowsWhetherLookupsAreOn(t *testing.T) {
 		})
 	}
 }
+
+// TestRunStartsTheLookupWhenAsked is Run's half of #217: with the setting on
+// the loop is started beside the other background work and stops with the
+// process. The library is empty, so the pass asks nobody anything -- the
+// addresses it would ask are the real ones.
+func TestRunStartsTheLookupWhenAsked(t *testing.T) {
+	t.Parallel()
+	cfg := runConfig(t, map[string]string{
+		"STRATUS_USERNAME":     "edu",
+		"STRATUS_PASSWORD":     "example correct horse battery staple",
+		"STRATUS_MUSIC_LOOKUP": "on",
+	})
+	if err := runToShutdown(t, cfg); err != nil {
+		t.Errorf("Run with the lookup on = %v", err)
+	}
+}
