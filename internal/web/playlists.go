@@ -79,7 +79,7 @@ func (h *handler) playlistPages(w http.ResponseWriter, r *http.Request, user str
 	for i, t := range tracks {
 		title := music.Title(t)
 		pv.Tracks = append(pv.Tracks, trackRow{
-			Number: i + 1, Title: title, Duration: clock(t.Media.DurationMS),
+			Number: i + 1, Title: title, Duration: duration(t.Media.DurationMS),
 			// The file's own address, which is where the .m3u8 points too: a
 			// playlist is an order over the tree, not a place in it.
 			Src:      href(t.File.Path),

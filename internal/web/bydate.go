@@ -399,7 +399,7 @@ func (h *handler) tiles(ctx context.Context, l library, tree *timeline.Tree, pag
 		t := tile{
 			Href:     l.leafHref(at),
 			Name:     path.Base(p.File.Path),
-			Duration: clock(p.Media.DurationMS),
+			Duration: duration(p.Media.DurationMS),
 			Film:     l.kind == db.KindVideo,
 		}
 		if month := db.MonthOf(p.SortAt); month != current {

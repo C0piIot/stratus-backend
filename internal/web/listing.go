@@ -1,7 +1,9 @@
 package web
 
 import (
+	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"slices"
@@ -9,6 +11,7 @@ import (
 	"time"
 
 	"github.com/C0piIot/stratus-backend/internal/db"
+	"github.com/C0piIot/stratus-backend/internal/media"
 )
 
 // listPrefs is where a reader's last choice of ordering and page size is kept.
@@ -215,4 +218,71 @@ func rowChoices(here string, l listing, token string) []rowChoice {
 		})
 	}
 	return out
+}
+
+// rowState is what one query about a page of files tells the page: whether the
+// indexer has been there, and whether to offer a picture at all.
+type rowState struct {
+	// Indexing is the badge a listing draws, and empty for a file that has
+	// been read.
+	Indexing string
+	// NoPicture says this build has already tried and could not, so the page
+	// draws the mark alone rather than asking for a thumbnail that will
+	// answer 404 (#341).
+	NoPicture bool
+}
+
+// statesOf marks the rows of a page: the ones the indexer has not dealt with
+// yet, and the ones nothing here can draw.
+//
+// The states are one query for the page being rendered, and a failure here is
+// not a failure of the page: both marks are decoration, and a folder that will
+// not open because the decoration could not be fetched would be a worse page
+// than one without it. So it is logged and the page goes out plain -- which
+// for the picture means offering one that may not arrive, exactly as it did
+// before this was read at all.
+//
+// where is what the log line names, since this is called from pages that are
+// not listings.
+func (h *handler) statesOf(ctx context.Context, where string, children []db.File) map[int64]rowState {
+	ids := make([]int64, 0, len(children))
+	for _, c := range children {
+		if !c.IsDir {
+			ids = append(ids, c.ID)
+		}
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+
+	states, err := h.indexing.Index.MediaStates(ctx, ids)
+	if err != nil {
+		slog.Error("reading what is indexed", "path", where, "err", err)
+		return nil
+	}
+
+	marks := make(map[int64]rowState, len(ids))
+	for _, c := range children {
+		if c.IsDir {
+			continue
+		}
+		state, known := states[c.ID]
+		var row rowState
+		switch {
+		case !known, state.Version < media.Version, state.ETag != c.ETag:
+			// The same three conditions the queue asks about, which is what
+			// keeps the page from saying "waiting" about a file nothing will
+			// come back to, or "done" about one that is about to be read again.
+			row.Indexing = "waiting"
+		case state.Failed:
+			row.Indexing = "unreadable"
+		}
+		// Whether this build has already tried and could not, which is the
+		// rule media.Refused owns because three surfaces read it now.
+		row.NoPicture = media.Refused(state, time.Now())
+		if row != (rowState{}) {
+			marks[c.ID] = row
+		}
+	}
+	return marks
 }

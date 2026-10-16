@@ -2,7 +2,6 @@ package web
 
 import (
 	"errors"
-	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -10,7 +9,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/C0piIot/stratus-backend/internal/db"
 	"github.com/C0piIot/stratus-backend/internal/media"
@@ -240,7 +238,7 @@ func (h *handler) album(w http.ResponseWriter, r *http.Request, user string, tre
 	for i, t := range tracks {
 		m, note := t.Media, notes[db.TrackSubject(t.File.ID)]
 		av.Tracks = append(av.Tracks, trackRow{
-			Number: m.TrackNo, Title: music.Title(t), Duration: clock(m.DurationMS),
+			Number: m.TrackNo, Title: music.Title(t), Duration: duration(m.DurationMS),
 			// The track's own address here, not the file's under /files/:
 			// this page is the collection's other half, and one URL per thing
 			// is what the rest of this adapter promises.
@@ -257,7 +255,7 @@ func (h *handler) album(w http.ResponseWriter, r *http.Request, user string, tre
 			av.Genre = m.Genre
 		}
 	}
-	av.Duration = clock(total)
+	av.Duration = duration(total)
 
 	w.Header().Set("Content-Security-Policy", albumPolicy)
 	h.render(w, http.StatusOK, pageAlbum, view{
@@ -382,17 +380,6 @@ func stars(rating int) string {
 		return ""
 	}
 	return strings.Repeat("★", rating) + strings.Repeat("☆", 5-rating)
-}
-
-func clock(ms int64) string {
-	if ms <= 0 {
-		return ""
-	}
-	d := time.Duration(ms) * time.Millisecond
-	if d >= time.Hour {
-		return fmt.Sprintf("%d:%02d:%02d", int(d.Hours()), int(d.Minutes())%60, int(d.Seconds())%60)
-	}
-	return fmt.Sprintf("%d:%02d", int(d.Minutes()), int(d.Seconds())%60)
 }
 
 // lyricLines is the words as the page shows them: the plain text a line each,

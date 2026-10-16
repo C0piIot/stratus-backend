@@ -59,7 +59,7 @@ func TestListing(t *testing.T) {
 	if !strings.Contains(body, ">photos/<") {
 		t.Error("a directory is not shown as one")
 	}
-	if !strings.Contains(body, "2.0 KB") {
+	if !strings.Contains(body, "2.0 KiB") {
 		t.Error("the size is not there, or not in bytes a person reads")
 	}
 }
