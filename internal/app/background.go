@@ -323,14 +323,21 @@ const lookupInterval = time.Hour
 // request and the pause is what lets a shutdown in between.
 const lookupPause = 5 * time.Second
 
+// lookupBackoff is how long the loop stays away after a source turned the
+// client away. A minute: long enough to be a backoff -- MusicBrainz's limit
+// is per address, and on a platform whose egress address is shared with
+// other tenants a 503 says nothing about this server's own pace -- and short
+// enough that the rest of the batch is not an hour behind one refusal.
+const lookupBackoff = time.Minute
+
 // lookupPeriodically asks outside sources about the music library, for as
 // long as ctx lives (#217).
 //
 // The pass paces itself -- one request a second to each service -- so this
 // loop only decides when to run one: again soon while a batch keeps filling,
-// and on the hour otherwise. A source that is refusing requests ends a pass
-// early and this waits for the hour rather than asking again in five seconds,
-// which is what the rows' own retry time is for.
+// a minute away after a source turned the client away, and on the hour
+// otherwise. The refused rows themselves wait the hour their retry time
+// says; the minute is for the rest of the batch behind them.
 func (a *App) lookupPeriodically(ctx context.Context, deps Deps) {
 	slog.Info("looking up music metadata", "safety_net", lookupInterval)
 
@@ -359,7 +366,10 @@ func (a *App) lookupPeriodically(ctx context.Context, deps Deps) {
 			slog.Info("looked up music metadata",
 				"albums", done.Albums, "covers", done.Covers, "lyrics", done.Lyrics, "deferred", done.Deferred)
 		}
-		if done.More {
+		switch {
+		case done.Refused:
+			again = time.After(lookupBackoff)
+		case done.More:
 			again = time.After(a.lookupPause)
 		}
 	}

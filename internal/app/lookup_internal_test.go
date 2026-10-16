@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -57,11 +59,19 @@ func TestLookupLoopRunsAPassAndStopsWithTheContext(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// MusicBrainz turns the client away and the other two are nowhere at
+	// all, which is the shape of a server with no route out -- and the
+	// refusal is what makes the loop plan to come back in a minute rather
+	// than on the hour.
+	refusing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	t.Cleanup(refusing.Close)
 	nowhere := "http://127.0.0.1:1"
 	a := New(config.Config{MusicLookup: true}, "test", "2026-01-01T09:30:00Z")
 	deps := Deps{
 		Storage: blobs, Database: meta, Files: service, Thumbs: thumbs,
-		Lookup: lookup.New(meta, thumbs, "test", lookup.WithEndpoints(nowhere, nowhere, nowhere), lookup.WithPace(0)),
+		Lookup: lookup.New(meta, thumbs, "test", lookup.WithEndpoints(refusing.URL, nowhere, nowhere), lookup.WithPace(0)),
 	}
 
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
