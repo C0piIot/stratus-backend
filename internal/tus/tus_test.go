@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/C0piIot/stratus-backend/internal/auth"
+	"github.com/C0piIot/stratus-backend/internal/db/dbtest"
 	"github.com/C0piIot/stratus-backend/internal/db/sqlite"
 	"github.com/C0piIot/stratus-backend/internal/files"
 	"github.com/C0piIot/stratus-backend/internal/storage/disk"
@@ -369,4 +370,39 @@ func create(t *testing.T, h http.Handler, path string, length int64) string {
 		t.Fatalf("POST = %d, want 201: %s", rec.Code, rec.Body)
 	}
 	return rec.Header().Get("Location")
+}
+
+// TestABackendFailureIsNotServedToTheClient (#366): what the database said
+// can carry a host or a DSN, so the client is told the upload failed and the
+// log is told why.
+func TestABackendFailureIsNotServedToTheClient(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	blobs, err := disk.New(filepath.Join(dir, "blobs"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = blobs.Close() })
+	meta, err := sqlite.New(t.Context(), filepath.Join(dir, "stratus.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = meta.Close() })
+	if err := meta.Migrate(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	broken := dbtest.FailOn(t, meta, "PutUpload")
+	service := files.New(blobs, broken)
+	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		tus.Handler(prefix, filesPrefix, service).ServeHTTP(w, r.WithContext(auth.WithUser(r.Context(), owner)))
+	})
+
+	rec := do(t, h, http.MethodPost, prefix, "",
+		"Upload-Length", "5", "Upload-Metadata", metadata("files/notes.txt", "text/plain"))
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("POST over a database that refuses = %d, want 500", rec.Code)
+	}
+	if body := rec.Body.String(); body != "the upload failed\n" {
+		t.Errorf("the client was told %q, want a fixed sentence", body)
+	}
 }
