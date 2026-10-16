@@ -6,8 +6,8 @@
       <p class="mb-3">
         <code>{{.Name}}</code>
         {{if .IsDir}}and everything inside it{{end}}
-        will be moved to the <a href="/trash/">trash</a>, where it is kept for
-        {{.Kept}} days before it is destroyed for good.
+        will be moved to the <a href="/trash/">trash</a>, where it is kept
+        {{if .Kept}}for {{.Kept}} days before it is destroyed for good{{else}}until you delete it from there{{end}}.
       </p>
       <div class="d-flex gap-2">
         <form method="post" action="{{.Action}}">

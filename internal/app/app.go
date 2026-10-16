@@ -187,7 +187,7 @@ func (a *App) Handler(deps Deps) http.Handler {
 				Index: deps.Database, Interval: a.cfg.IndexInterval, Ahead: a.cfg.ThumbsAhead,
 				Lookups: deps.Database, Lookup: a.cfg.MusicLookup,
 			},
-			Imports: imports(deps), Video: films(deps),
+			Imports: imports(deps), Video: films(deps), TrashRetention: a.cfg.TrashRetention,
 		})
 
 		// Every protocol surface is behind the same realm and the same

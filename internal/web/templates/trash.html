@@ -9,16 +9,17 @@
   {{template "deletions" .}}
 </div>
 <p class="small text-body-secondary mt-3 mb-0">
-  A deletion is kept for {{.Kept}} days and then destroyed, with the pictures
-  made from it. Nothing was copied to put it here, so nothing is copied back —
+  {{if .Kept}}A deletion is kept for {{.Kept}} days and then destroyed, with the
+  pictures made from it.{{else}}Nothing here is destroyed until you say so: the
+  trash is being held, and nothing in it runs out.{{end}} Nothing was copied to put it here, so nothing is copied back —
   and if something has taken its name since, it comes back beside it rather
   than over it.
 </p>
 {{else}}
 <div class="card">
   <div class="card-body text-body-secondary">
-    Nothing has been deleted. What you delete lands here for {{.Kept}} days
-    before it is destroyed for good.
+    Nothing has been deleted. What you delete lands here
+    {{if .Kept}}for {{.Kept}} days before it is destroyed for good{{else}}and stays until you delete it from here{{end}}.
   </div>
 </div>
 {{end}}
@@ -41,8 +42,8 @@
   {{end}}
 </div>
 <p class="small text-body-secondary mt-3 mb-0">
-  Bytes that are in the store and that no row claims. They are kept for
-  {{.Kept}} days in case the index is the thing that is wrong — a database
+  Bytes that are in the store and that no row claims. They are kept
+  {{if .Kept}}for {{.Kept}} days{{else}}until you delete them{{end}} in case the index is the thing that is wrong — a database
   restored from a backup, or pointed somewhere new — and they cannot be put
   back, because what they were called was in that index.
 </p>

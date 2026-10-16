@@ -83,6 +83,7 @@ func (h *handler) status(w http.ResponseWriter, r *http.Request, user string) {
 		FreeSpace: h.freeSpace(r),
 		TrashSize: h.trashSize(r, user),
 		Unclaimed: h.trashSize(r, ""),
+		TrashHeld: h.kept == 0,
 		Incoming:  h.incomingOf(),
 		// The version is on the page because it is what a re-index moves: an
 		// operator who raised it wants to see the numbers fall and climb again.

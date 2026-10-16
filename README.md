@@ -506,6 +506,17 @@ sweep with no grace can take an upload whose row has not landed yet. The
 defaults are the answer for a normal install, which is why they are down here
 and not in the table above.
 
+**The trash can be held.** `STRATUS_TRASH_RETENTION` is how long a deletion,
+and anything the sweep found, waits before it is destroyed: `720h` by default,
+at least `24h`, or `never`. Never is for while something is being worked out —
+a database being restored is exactly when the month should not run — and it
+stops only that: abandoned uploads and orphan blobs are still collected, and
+what is in the trash still counts as referenced, so the sweep does not take it
+either. The status page says the trash is held for as long as it is, because
+it is a setting meant to be turned back off. It is `never` and not `0` because
+`0` turns the other intervals here off, and in this one it would read as the
+opposite.
+
 `STRATUS_VIDEO_TRANSCODE` is whether films are also offered re-encoded to H.264:
 `auto`, the default, is yes on four CPUs or more and no below — libx264 on one
 or two cores makes 1080p more slowly than it plays, and a player stalling on
@@ -1175,7 +1186,8 @@ so a restored file is read again — the status page is where that shows.
 
 Nothing is copied to put something there — the bytes stay exactly where they
 were written, and only the table that names them changes — so deleting still
-costs nothing and frees nothing until the thirty days are up or you say so. The
+costs nothing and frees nothing until the thirty days are up or you say so —
+or never, while `STRATUS_TRASH_RETENTION` holds the trash. The
 status page says how much room the trash is holding.
 
 What does *not* go there is the previous version of a file you overwrote. That
@@ -1316,6 +1328,7 @@ make up STRATUS_PORT=9000 STRATUS_DATA_PATH=/srv/stratus
 | `STRATUS_DB_DSN` | `sqlite://<data>/stratus.db` | metadata backend; likewise |
 | `STRATUS_USERNAME` | unset | the single user |
 | `STRATUS_PASSWORD` | unset | the single user's password |
+| `STRATUS_TRASH_RETENTION` | `720h` | how long a deletion stays in the trash; `never` keeps everything, see [the sweep](#orphaned-blobs) |
 
 ### Blob storage
 

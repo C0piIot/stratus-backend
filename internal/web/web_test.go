@@ -55,6 +55,8 @@ func newHandler(t *testing.T, v auth.Verifier) http.Handler {
 		Indexing:  indexing(meta),
 		Imports:   nil,
 		Video:     web.Video{},
+		// The default rather than zero, which is the trash held (#296).
+		TrashRetention: aMonth,
 	})
 }
 
@@ -65,24 +67,27 @@ func browser(t *testing.T) (http.Handler, *files.Service) {
 	s, thumbs, meta := pieces(t)
 	creds := credentials()
 	return web.Handler(web.Deps{
-		Version:   version,
-		BuildDate: buildDate,
-		Verifier:  creds,
-		Sessions:  auth.NewSessions(creds, auth.DefaultSessionTTL),
-		Shares:    auth.NewShares(creds),
-		Files:     s,
-		Thumbs:    thumbs,
-		Index:     meta,
-		Playlists: playlistsOf(meta),
-		Indexing:  indexing(meta),
-		Imports:   nil,
-		Video:     web.Video{},
+		Version:        version,
+		BuildDate:      buildDate,
+		Verifier:       creds,
+		Sessions:       auth.NewSessions(creds, auth.DefaultSessionTTL),
+		Shares:         auth.NewShares(creds),
+		Files:          s,
+		Thumbs:         thumbs,
+		Index:          meta,
+		Playlists:      playlistsOf(meta),
+		Indexing:       indexing(meta),
+		Imports:        nil,
+		Video:          web.Video{},
+		TrashRetention: aMonth,
 	}), s
 }
 
-// browserOver is browser plus the store behind it, for the tests that have to
-// write a media row or count one.
-func browserOver(t *testing.T) (http.Handler, *files.Service, db.Store) {
+// aMonth is the retention a deployment gets unless it says otherwise.
+const aMonth = 30 * 24 * time.Hour
+
+// heldBrowser is browser with the trash held: nothing in it runs out (#296).
+func heldBrowser(t *testing.T) (http.Handler, *files.Service) {
 	t.Helper()
 	s, thumbs, meta := pieces(t)
 	creds := credentials()
@@ -97,8 +102,29 @@ func browserOver(t *testing.T) (http.Handler, *files.Service, db.Store) {
 		Index:     meta,
 		Playlists: playlistsOf(meta),
 		Indexing:  indexing(meta),
-		Imports:   nil,
-		Video:     web.Video{},
+	}), s
+}
+
+// browserOver is browser plus the store behind it, for the tests that have to
+// write a media row or count one.
+func browserOver(t *testing.T) (http.Handler, *files.Service, db.Store) {
+	t.Helper()
+	s, thumbs, meta := pieces(t)
+	creds := credentials()
+	return web.Handler(web.Deps{
+		Version:        version,
+		BuildDate:      buildDate,
+		Verifier:       creds,
+		Sessions:       auth.NewSessions(creds, auth.DefaultSessionTTL),
+		Shares:         auth.NewShares(creds),
+		Files:          s,
+		Thumbs:         thumbs,
+		Index:          meta,
+		Playlists:      playlistsOf(meta),
+		Indexing:       indexing(meta),
+		Imports:        nil,
+		Video:          web.Video{},
+		TrashRetention: aMonth,
 	}), s, meta
 }
 
@@ -111,18 +137,19 @@ func browserOverStore(t *testing.T) (http.Handler, *files.Service, storage.Stora
 	creds := credentials()
 	thumbs := thumb.New(blobs, s, meta, "ffmpeg", t.TempDir())
 	return web.Handler(web.Deps{
-		Version:   version,
-		BuildDate: buildDate,
-		Verifier:  creds,
-		Sessions:  auth.NewSessions(creds, auth.DefaultSessionTTL),
-		Shares:    auth.NewShares(creds),
-		Files:     s,
-		Thumbs:    thumbs,
-		Index:     meta,
-		Playlists: playlistsOf(meta),
-		Indexing:  indexing(meta),
-		Imports:   nil,
-		Video:     web.Video{},
+		Version:        version,
+		BuildDate:      buildDate,
+		Verifier:       creds,
+		Sessions:       auth.NewSessions(creds, auth.DefaultSessionTTL),
+		Shares:         auth.NewShares(creds),
+		Files:          s,
+		Thumbs:         thumbs,
+		Index:          meta,
+		Playlists:      playlistsOf(meta),
+		Indexing:       indexing(meta),
+		Imports:        nil,
+		Video:          web.Video{},
+		TrashRetention: aMonth,
 	}), s, blobs
 }
 
@@ -132,18 +159,19 @@ func handlerIndexing(t *testing.T, s *files.Service, blobs storage.Storage, ix w
 	t.Helper()
 	creds := credentials()
 	return web.Handler(web.Deps{
-		Version:   version,
-		BuildDate: buildDate,
-		Verifier:  creds,
-		Sessions:  auth.NewSessions(creds, auth.DefaultSessionTTL),
-		Shares:    auth.NewShares(creds),
-		Files:     s,
-		Thumbs:    thumb.New(blobs, s, ix.Index.(db.MediaIndex), "ffmpeg", t.TempDir()),
-		Index:     nil,
-		Playlists: nil,
-		Indexing:  ix,
-		Imports:   nil,
-		Video:     web.Video{},
+		Version:        version,
+		BuildDate:      buildDate,
+		Verifier:       creds,
+		Sessions:       auth.NewSessions(creds, auth.DefaultSessionTTL),
+		Shares:         auth.NewShares(creds),
+		Files:          s,
+		Thumbs:         thumb.New(blobs, s, ix.Index.(db.MediaIndex), "ffmpeg", t.TempDir()),
+		Index:          nil,
+		Playlists:      nil,
+		Indexing:       ix,
+		Imports:        nil,
+		Video:          web.Video{},
+		TrashRetention: aMonth,
 	})
 }
 
@@ -184,18 +212,19 @@ func handlerOver(t *testing.T, s *files.Service, blobs storage.Storage, index db
 	t.Helper()
 	creds := credentials()
 	return web.Handler(web.Deps{
-		Version:   version,
-		BuildDate: buildDate,
-		Verifier:  creds,
-		Sessions:  auth.NewSessions(creds, auth.DefaultSessionTTL),
-		Shares:    auth.NewShares(creds),
-		Files:     s,
-		Thumbs:    thumb.New(blobs, s, index, "ffmpeg", t.TempDir()),
-		Index:     nil,
-		Playlists: nil,
-		Indexing:  indexing(index),
-		Imports:   nil,
-		Video:     web.Video{},
+		Version:        version,
+		BuildDate:      buildDate,
+		Verifier:       creds,
+		Sessions:       auth.NewSessions(creds, auth.DefaultSessionTTL),
+		Shares:         auth.NewShares(creds),
+		Files:          s,
+		Thumbs:         thumb.New(blobs, s, index, "ffmpeg", t.TempDir()),
+		Index:          nil,
+		Playlists:      nil,
+		Indexing:       indexing(index),
+		Imports:        nil,
+		Video:          web.Video{},
+		TrashRetention: aMonth,
 	})
 }
 
@@ -205,18 +234,19 @@ func handlerImports(t *testing.T, s *files.Service, blobs storage.Storage, meta 
 	t.Helper()
 	creds := credentials()
 	return web.Handler(web.Deps{
-		Version:   version,
-		BuildDate: buildDate,
-		Verifier:  creds,
-		Sessions:  auth.NewSessions(creds, auth.DefaultSessionTTL),
-		Shares:    auth.NewShares(creds),
-		Files:     s,
-		Thumbs:    thumb.New(blobs, s, meta, "ffmpeg", t.TempDir()),
-		Index:     nil,
-		Playlists: nil,
-		Indexing:  indexing(meta),
-		Imports:   imports,
-		Video:     web.Video{},
+		Version:        version,
+		BuildDate:      buildDate,
+		Verifier:       creds,
+		Sessions:       auth.NewSessions(creds, auth.DefaultSessionTTL),
+		Shares:         auth.NewShares(creds),
+		Files:          s,
+		Thumbs:         thumb.New(blobs, s, meta, "ffmpeg", t.TempDir()),
+		Index:          nil,
+		Playlists:      nil,
+		Indexing:       indexing(meta),
+		Imports:        imports,
+		Video:          web.Video{},
+		TrashRetention: aMonth,
 	})
 }
 
@@ -230,18 +260,19 @@ func handlerOverIndex(t *testing.T, s *files.Service, blobs storage.Storage, ind
 	// nothing here asks for a picture.
 	_, meta := backends(t)
 	return web.Handler(web.Deps{
-		Version:   version,
-		BuildDate: buildDate,
-		Verifier:  creds,
-		Sessions:  auth.NewSessions(creds, auth.DefaultSessionTTL),
-		Shares:    auth.NewShares(creds),
-		Files:     s,
-		Thumbs:    thumb.New(blobs, s, meta, "ffmpeg", t.TempDir()),
-		Index:     index,
-		Playlists: playlistsOf(index),
-		Indexing:  indexing(nil),
-		Imports:   nil,
-		Video:     web.Video{},
+		Version:        version,
+		BuildDate:      buildDate,
+		Verifier:       creds,
+		Sessions:       auth.NewSessions(creds, auth.DefaultSessionTTL),
+		Shares:         auth.NewShares(creds),
+		Files:          s,
+		Thumbs:         thumb.New(blobs, s, meta, "ffmpeg", t.TempDir()),
+		Index:          index,
+		Playlists:      playlistsOf(index),
+		Indexing:       indexing(nil),
+		Imports:        nil,
+		Video:          web.Video{},
+		TrashRetention: aMonth,
 	})
 }
 
@@ -376,18 +407,19 @@ func TestASessionFromAnotherPasswordIsNotOne(t *testing.T) {
 	service, thumbs, meta := pieces(t)
 	changed := auth.Credentials{Username: username, Password: "example a different one"}
 	after := web.Handler(web.Deps{
-		Version:   version,
-		BuildDate: buildDate,
-		Verifier:  credentials(),
-		Sessions:  auth.NewSessions(changed, auth.DefaultSessionTTL),
-		Shares:    auth.NewShares(changed),
-		Files:     service,
-		Thumbs:    thumbs,
-		Index:     meta,
-		Playlists: playlistsOf(meta),
-		Indexing:  indexing(meta),
-		Imports:   nil,
-		Video:     web.Video{},
+		Version:        version,
+		BuildDate:      buildDate,
+		Verifier:       credentials(),
+		Sessions:       auth.NewSessions(changed, auth.DefaultSessionTTL),
+		Shares:         auth.NewShares(changed),
+		Files:          service,
+		Thumbs:         thumbs,
+		Index:          meta,
+		Playlists:      playlistsOf(meta),
+		Indexing:       indexing(meta),
+		Imports:        nil,
+		Video:          web.Video{},
+		TrashRetention: aMonth,
 	})
 
 	rec := get(t, after, "/files/", before)

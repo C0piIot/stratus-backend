@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/C0piIot/stratus-backend/internal/db"
-	"github.com/C0piIot/stratus-backend/internal/files"
 	"github.com/C0piIot/stratus-backend/internal/trash"
 )
 
@@ -74,7 +73,7 @@ func (h *handler) trash(w http.ResponseWriter, r *http.Request, user string) {
 		Title: "Trash", User: user, Here: trashPrefix,
 		Deletions: deletions(page),
 		TrashSize: humanBytes(totals.Bytes),
-		Kept:      int(files.DefaultTrashRetention / (24 * time.Hour)),
+		Kept:      h.keptDays(),
 	}
 	if more {
 		last := page[len(page)-1]

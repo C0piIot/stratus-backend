@@ -3,10 +3,8 @@ package web
 import (
 	"net/http"
 	"path"
-	"time"
 
 	"github.com/C0piIot/stratus-backend/internal/db"
-	"github.com/C0piIot/stratus-backend/internal/files"
 )
 
 // deletePrefix is where a delete is confirmed. The page stays now that there
@@ -24,7 +22,7 @@ func (h *handler) deleteForm(w http.ResponseWriter, r *http.Request, user string
 		Title: "Delete", User: user,
 		Name: path.Base(target), IsDir: f.IsDir,
 		Action: link(deletePrefix, target), Back: href(db.ParentOf(target)),
-		Kept: int(files.DefaultTrashRetention / (24 * time.Hour)),
+		Kept: h.keptDays(),
 	})
 }
 

@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -55,6 +56,48 @@ func TestCollectorSurvivesAFailedPass(t *testing.T) {
 	case <-done:
 	case <-time.After(5 * time.Second):
 		t.Error("the collector did not stop with its context")
+	}
+}
+
+// TestTheTrashCanBeHeld is #296 from the collector's side: the same
+// deletion that a retention empties survives the pass with the retention at
+// never. The sweep behind it is not this function's, and runs either way.
+func TestTheTrashCanBeHeld(t *testing.T) {
+	t.Parallel()
+	blobs, meta := filestest.Backends(t)
+	service := files.New(blobs, meta)
+	if _, err := service.Write(t.Context(), "u", "old.txt", strings.NewReader("x"), 1, "text/plain"); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Remove(t.Context(), "u", "old.txt"); err != nil {
+		t.Fatal(err)
+	}
+	held := func() int64 {
+		totals, err := service.TrashTotals(t.Context(), "u")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return totals.Files
+	}
+
+	never := New(config.Config{}, "test", "2026-01-01T09:30:00Z")
+	if !never.emptyTrash(t.Context(), service) || held() != 1 {
+		t.Errorf("with the trash held the pass left %d files in it, want 1", held())
+	}
+	// A retention so short that the deletion is already past it, which only
+	// a test can set: config refuses anything under a day.
+	brief := New(config.Config{TrashRetention: time.Nanosecond}, "test", "2026-01-01T09:30:00Z")
+	if !brief.emptyTrash(t.Context(), service) || held() != 0 {
+		t.Errorf("with a retention the pass left %d files in the trash, want 0", held())
+	}
+
+	gone, cancel := context.WithCancel(t.Context())
+	cancel()
+	if brief.emptyTrash(gone, service) {
+		t.Error("a pass whose context had gone did not say so")
+	}
+	if retention(0) != "never" || retention(time.Hour) != time.Hour {
+		t.Error("the log value of the retention is wrong")
 	}
 }
 

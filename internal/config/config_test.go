@@ -264,6 +264,39 @@ func TestLoadGCInterval(t *testing.T) {
 	}
 }
 
+func TestLoadTrashRetention(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		value   string
+		want    time.Duration
+		wantErr bool
+	}{
+		{name: "unset is a month", want: config.DefaultTrashRetention},
+		{name: "ninety days", value: "2160h", want: 90 * 24 * time.Hour},
+		{name: "a day is the least", value: "24h", want: 24 * time.Hour},
+		{name: "never keeps everything", value: config.TrashNever, want: 0},
+		// Zero turns the other intervals off, and here it would mean the
+		// opposite, so it is not accepted in either sense (#296).
+		{name: "zero is refused", value: "0", wantErr: true},
+		{name: "less than a day is refused", value: "1h", wantErr: true},
+		{name: "negative is refused", value: "-24h", wantErr: true},
+		{name: "a typo is refused", value: "30days", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg, err := config.Load(env(map[string]string{"STRATUS_TRASH_RETENTION": tt.value}))
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("Load = %v, wantErr %v", err, tt.wantErr)
+			}
+			if err == nil && cfg.TrashRetention != tt.want {
+				t.Errorf("TrashRetention = %v, want %v", cfg.TrashRetention, tt.want)
+			}
+		})
+	}
+}
+
 func TestLoadSentryDSN(t *testing.T) {
 	t.Parallel()
 	const dsn = "https://0123abcd@o1.ingest.us.sentry.io/42"
