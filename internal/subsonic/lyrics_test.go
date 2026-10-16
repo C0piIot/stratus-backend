@@ -148,3 +148,36 @@ func TestGetAlbumInfo2(t *testing.T) {
 		}
 	}
 }
+
+// TestCoverArtOfAnAlbumInAFlatFolderIsItsOwn is #217's flat-library bug on
+// this surface: every album in one folder, a fetched cover for one of them,
+// and getCoverArt for the other has to say there is none rather than hand
+// over the neighbour's.
+func TestCoverArtOfAnAlbumInAFlatFolderIsItsOwn(t *testing.T) {
+	t.Parallel()
+	l := newLibrary(t)
+	// Path order puts this one first in the folder.
+	l.add(t, "music/80KIDZ - This Is My Shit.flac", song("80KIDZ", "This Is My Shit", "This Is My Shit", 1))
+	obel := l.add(t, "music/Agnes Obel - Familiar.flac", song("Agnes Obel", "Aventine", "Familiar", 1))
+	if err := l.art.StoreArt(t.Context(), obel, jpegBytes(t, 500, 500)); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.meta.PutAlbumLookup(t.Context(), db.AlbumLookup{
+		Owner: username, Artist: "Agnes Obel", Album: "Aventine", LookedUpAt: time.Now(),
+		ReleaseGroup: "4cf8ba42-5d0b-3a4d-8e8f-4c8f2f3d1a1b", CoverBlob: obel.BlobKey,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if rec := get(t, l, "getCoverArt", query("id", albumIDOf("Agnes Obel", "Aventine"), "size", "96")); rec.Code != 200 || rec.Header().Get("Content-Type") != "image/jpeg" {
+		t.Errorf("the album with a fetched cover = %d %s", rec.Code, rec.Header().Get("Content-Type"))
+	}
+	if rec := get(t, l, "getCoverArt", query("id", songIDOf(obel.ID), "size", "96")); rec.Code != 200 || rec.Header().Get("Content-Type") != "image/jpeg" {
+		t.Errorf("a song of that album = %d %s", rec.Code, rec.Header().Get("Content-Type"))
+	}
+	// A binary endpoint's errors are XML whatever f says.
+	rec := get(t, l, "getCoverArt", query("id", albumIDOf("80KIDZ", "This Is My Shit"), "size", "96"))
+	if !strings.Contains(rec.Body.String(), `code="70"`) {
+		t.Errorf("the album with no cover of its own = %d %q, want error 70 rather than its neighbour's picture", rec.Code, rec.Body.String())
+	}
+}

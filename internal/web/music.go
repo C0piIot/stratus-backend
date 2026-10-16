@@ -269,8 +269,10 @@ func (h *handler) album(w http.ResponseWriter, r *http.Request, user string, tre
 	})
 }
 
-// cover is an album's picture: from the folder its first track is in, beside
-// the tracks or inside one, which is where getCoverArt finds it too.
+// cover is an album's picture, asked for through its first track: beside it in
+// its folder, inside it, or fetched for its album -- which is where
+// getCoverArt finds it too, and not the folder's own answer, because a flat
+// library keeps every album in one folder.
 //
 // A query on the album's own address rather than a name inside it, because it
 // is derived: a file called "cover" in the collection would be a name no track
@@ -291,7 +293,7 @@ func (h *handler) cover(w http.ResponseWriter, r *http.Request, user string, n m
 		size = px
 	}
 
-	body, length, err := h.thumbs.Cover(r.Context(), user, db.ParentOf(tracks[0].File.Path), size)
+	body, length, err := h.thumbs.CoverOf(r.Context(), user, tracks[0].File, size)
 	switch {
 	case errors.Is(err, media.ErrBusy):
 		w.Header().Set("Retry-After", "5")

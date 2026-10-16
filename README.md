@@ -817,7 +817,9 @@ What is not there yet, and it is better to know before installing a client:
 - **Cover art comes from three places, and Ogg is the one gap.** A `cover.jpg`,
   `folder.jpg` or `front.jpg` beside the tracks is preferred, because finding it
   is a listing the request already did; failing that, the picture inside the
-  first track is read — FLAC, MP3 and MP4 tags. Vorbis and Opus keep theirs
+  album's first track is read — FLAC, MP3 and MP4 tags. The album's own first
+  track and not the folder's, because a flat library keeps every album in
+  one folder. Vorbis and Opus keep theirs
   base64-encoded inside a comment and are not read yet. Third, and only with
   `STRATUS_MUSIC_LOOKUP=on`, the front cover the Cover Art Archive holds for
   the album. Albums always advertise

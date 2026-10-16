@@ -178,6 +178,11 @@ func (t *Thumbs) File(ctx context.Context, owner, path string, px int) (io.ReadC
 // a picture beside the tracks, one inside the first of them, or one fetched
 // for the album from outside (#217) -- in that order, because the first two
 // are the user's own. A caller asks for a folder's cover and gets bytes.
+//
+// This is the folder's answer: the first track in it decides, whatever
+// album it belongs to. An album asks through CoverOf with a track of its own,
+// because a folder holding several albums -- a flat library -- has one first
+// track and they are not all its.
 func (t *Thumbs) Cover(ctx context.Context, owner, dir string, px int) (io.ReadCloser, int64, error) {
 	entries, err := t.files.List(ctx, owner, dir)
 	if err != nil {
@@ -188,25 +193,47 @@ func (t *Thumbs) Cover(ctx context.Context, owner, dir string, px int) (io.ReadC
 		return t.open(ctx, picture, px)
 	}
 	if track, ok := firstTrack(entries); ok {
-		body, size, err := t.fromTrack(ctx, track, px)
-		if !errors.Is(err, ErrNoEmbeddedCover) {
-			return body, size, err
-		}
-		// Nothing in the tag: the third place, which is what the pass fetched
-		// for the album (#217). Its own "nothing" keeps the tag's answer, so
-		// the surfaces above go on telling a 404 from a failure the way they
-		// always have.
-		body, size, ferr := t.fetchedArt(ctx, track, px)
-		switch {
-		case ferr == nil:
-			return body, size, nil
-		case errors.Is(ferr, errNoArt), errors.Is(ferr, storage.ErrNotFound), errors.Is(ferr, db.ErrNotFound):
-			return nil, 0, err
-		default:
-			return nil, 0, ferr
-		}
+		return t.trackCover(ctx, track, px)
 	}
 	return nil, 0, fmt.Errorf("cover art in %q: %w", dir, storage.ErrNotFound)
+}
+
+// CoverOf returns the artwork for the album track f belongs to, at about px
+// pixels: a picture beside it in its folder, else the one inside f itself,
+// else the one fetched for its album. The same three places as Cover, with
+// the track chosen by the caller rather than by the folder's listing -- which
+// is the difference between an album's cover and a folder's when the two are
+// not the same thing.
+func (t *Thumbs) CoverOf(ctx context.Context, owner string, f db.File, px int) (io.ReadCloser, int64, error) {
+	dir := db.ParentOf(f.Path)
+	entries, err := t.files.List(ctx, owner, dir)
+	if err != nil {
+		return nil, 0, fmt.Errorf("look for cover art in %q: %w", dir, err)
+	}
+	if picture, ok := folderCover(entries); ok {
+		return t.open(ctx, picture, px)
+	}
+	return t.trackCover(ctx, f, px)
+}
+
+// trackCover is the second and third place: the picture inside the track,
+// and failing that the one fetched for its album (#217). The fetched half's
+// own "nothing" keeps the tag's answer, so the surfaces above go on telling a
+// 404 from a failure the way they always have.
+func (t *Thumbs) trackCover(ctx context.Context, track db.File, px int) (io.ReadCloser, int64, error) {
+	body, size, err := t.fromTrack(ctx, track, px)
+	if !errors.Is(err, ErrNoEmbeddedCover) {
+		return body, size, err
+	}
+	body, size, ferr := t.fetchedArt(ctx, track, px)
+	switch {
+	case ferr == nil:
+		return body, size, nil
+	case errors.Is(ferr, errNoArt), errors.Is(ferr, storage.ErrNotFound), errors.Is(ferr, db.ErrNotFound):
+		return nil, 0, err
+	default:
+		return nil, 0, ferr
+	}
 }
 
 // open returns a thumbnail of f, making it if this is the first ask.

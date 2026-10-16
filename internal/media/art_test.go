@@ -278,3 +278,61 @@ func TestFetchedPictureOverBackendsThatWillNotAnswer(t *testing.T) {
 		_ = th
 	})
 }
+
+// TestCoverOfAnAlbumInAFlatFolder is the bug a flat library showed (#217): a
+// folder holding every album has one first track, and asking the folder gave
+// every album that track's cover. Asked through a track of its own, each
+// album gets its own picture -- and none at all when its own has none.
+func TestCoverOfAnAlbumInAFlatFolder(t *testing.T) {
+	t.Parallel()
+	th, service, blobs, meta := thumbsOver(t)
+	th.WithLookups(meta)
+
+	// Path order puts the 80KIDZ track first in the folder; the fetched
+	// picture belongs to the other album.
+	first := write(t, service, "music/80KIDZ - This Is My Shit.flac", []byte("fLaC"), "audio/flac")
+	if err := meta.PutMedia(t.Context(), db.Media{FileID: first.ID, Kind: db.KindAudio, IndexedAt: time.Now(), Version: 1,
+		AlbumArtist: "80KIDZ", Album: "This Is My Shit", Title: "This Is My Shit"}); err != nil {
+		t.Fatal(err)
+	}
+	obel := write(t, service, "music/Agnes Obel - Familiar.flac", []byte("fLaC"), "audio/flac")
+	fetchedFor(t, th, meta, obel, db.Media{AlbumArtist: "Agnes Obel", Artist: "Agnes Obel", Album: "Aventine", Title: "Familiar"})
+
+	body, _, err := th.CoverOf(t.Context(), owner, obel, 96)
+	if err != nil {
+		t.Fatalf("CoverOf the album with a fetched picture: %v", err)
+	}
+	_ = body.Close()
+	if _, _, err := th.CoverOf(t.Context(), owner, first, 96); !errors.Is(err, ErrNoEmbeddedCover) {
+		t.Errorf("CoverOf the album with none = %v, want ErrNoEmbeddedCover rather than its neighbour's", err)
+	}
+	// The folder's own answer is still its first track's, which is what a
+	// folder browser asks for.
+	if _, _, err := th.Cover(t.Context(), owner, "music", 96); !errors.Is(err, ErrNoEmbeddedCover) {
+		t.Errorf("Cover of the folder = %v, want the first track's answer", err)
+	}
+	if _, err := blobs.Stat(t.Context(), artSizeKey(obel.BlobKey, thumbSmall)); err != nil {
+		t.Errorf("the album's picture was not filed under its own track: %v", err)
+	}
+}
+
+// TestCoverOfPrefersThePictureBesideTheTrack: the folder's picture still wins
+// for an album asked by its track, as it does for the folder.
+func TestCoverOfPrefersThePictureBesideTheTrack(t *testing.T) {
+	t.Parallel()
+	th, service, blobs := thumbs(t)
+	track := write(t, service, "music/album/01.flac", flacWithCover(t, 400, 400), "audio/flac")
+	beside := writeImage(t, service, "music/album/cover.jpg", 300, 300)
+
+	body, _, err := th.CoverOf(t.Context(), owner, track, 96)
+	if err != nil {
+		t.Fatalf("CoverOf: %v", err)
+	}
+	_ = body.Close()
+	if _, err := blobs.Stat(t.Context(), thumbKey(beside.BlobKey, thumbSmall)); err != nil {
+		t.Errorf("the folder picture was not used: %v", err)
+	}
+	if _, err := blobs.Stat(t.Context(), coverKey(track.BlobKey, thumbSmall)); err == nil {
+		t.Error("the tag was parsed with a picture beside the track")
+	}
+}
