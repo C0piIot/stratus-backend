@@ -2,7 +2,6 @@ package web_test
 
 import (
 	"bytes"
-	htmlstd "html"
 	"image"
 	"image/png"
 	"net/http"
@@ -10,11 +9,13 @@ import (
 	"testing"
 	"time"
 
+	htmlstd "html"
+
 	"github.com/C0piIot/stratus-backend/internal/auth"
 	"github.com/C0piIot/stratus-backend/internal/db"
 	"github.com/C0piIot/stratus-backend/internal/db/dbtest"
 	"github.com/C0piIot/stratus-backend/internal/files"
-	"github.com/C0piIot/stratus-backend/internal/media"
+	"github.com/C0piIot/stratus-backend/internal/media/thumb"
 	"github.com/C0piIot/stratus-backend/internal/web"
 )
 
@@ -82,7 +83,7 @@ func TestTheAlbumPageOverABackendThatWillNotAnswerForTheWords(t *testing.T) {
 		Sessions:  auth.NewSessions(creds, auth.DefaultSessionTTL),
 		Shares:    auth.NewShares(creds),
 		Files:     s,
-		Thumbs:    media.NewThumbs(blobs, s, broken, "ffmpeg", t.TempDir()),
+		Thumbs:    thumb.New(blobs, s, broken, "ffmpeg", t.TempDir()),
 		Index:     broken,
 		Playlists: playlistsOf(broken),
 		Indexing:  web.Indexing{Index: broken, Interval: time.Minute},
@@ -160,7 +161,7 @@ func TestAnAlbumsCoverInAFlatFolderIsItsOwn(t *testing.T) {
 	blobs, meta := backends(t)
 	s := files.New(blobs, meta)
 	creds := credentials()
-	thumbs := media.NewThumbs(blobs, s, meta, "ffmpeg", t.TempDir()).WithLookups(meta)
+	thumbs := thumb.New(blobs, s, meta, "ffmpeg", t.TempDir()).WithLookups(meta)
 	h := web.Handler(web.Deps{
 		Version:   version,
 		BuildDate: buildDate,

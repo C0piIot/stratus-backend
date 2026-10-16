@@ -1,4 +1,4 @@
-package media
+package thumb
 
 import (
 	"bytes"
@@ -14,6 +14,7 @@ import (
 	"github.com/C0piIot/stratus-backend/internal/db"
 	"github.com/C0piIot/stratus-backend/internal/files"
 	"github.com/C0piIot/stratus-backend/internal/files/filestest"
+	"github.com/C0piIot/stratus-backend/internal/media"
 	"github.com/C0piIot/stratus-backend/internal/storage"
 	"github.com/C0piIot/stratus-backend/internal/storage/storagetest"
 )
@@ -21,19 +22,19 @@ import (
 // thumbs wires the real backends, like the indexer's fixture: a thumbnail is a
 // decode, a resize and an object in a blob store, and a fake store would only
 // prove the fake keeps what it is given.
-func thumbs(t *testing.T) (*Thumbs, *files.Service, storage.Storage) {
+func thumbs(t *testing.T) (*Service, *files.Service, storage.Storage) {
 	th, service, blobs, _ := thumbsOver(t)
 	return th, service, blobs
 }
 
 // thumbsOver is thumbs plus the metadata store, for the cases that have to say
 // something about a row rather than about a file.
-func thumbsOver(t *testing.T) (*Thumbs, *files.Service, storage.Storage, db.Store) {
+func thumbsOver(t *testing.T) (*Service, *files.Service, storage.Storage, db.Store) {
 	t.Helper()
 	blobs, meta := filestest.Backends(t)
 
 	service := files.New(blobs, meta)
-	return NewThumbs(blobs, service, meta, stubFFmpeg(t), t.TempDir()), service, blobs, meta
+	return New(blobs, service, meta, stubFFmpeg(t), t.TempDir()), service, blobs, meta
 }
 
 func TestSnapSize(t *testing.T) {
@@ -261,7 +262,7 @@ func TestFolderCoverWithNoPicture(t *testing.T) {
 	}
 }
 
-func read(t *testing.T, th *Thumbs, f db.File, px int) []byte {
+func read(t *testing.T, th *Service, f db.File, px int) []byte {
 	t.Helper()
 	body, size, err := th.open(t.Context(), f, px)
 	if err != nil {
@@ -454,7 +455,7 @@ func TestFirstTrack(t *testing.T) {
 	}
 }
 
-func coverBytes(t *testing.T, th *Thumbs, dir string, px int) []byte {
+func coverBytes(t *testing.T, th *Service, dir string, px int) []byte {
 	t.Helper()
 	body, size, err := th.Cover(t.Context(), owner, dir, px)
 	if err != nil {
@@ -496,7 +497,7 @@ func TestAThumbnailThatCannotBeStoredIsStillServed(t *testing.T) {
 	_, service, blobs, meta := thumbsOver(t)
 	f := writeImage(t, service, "photos/one.jpg", 400, 400)
 
-	th := NewThumbs(storagetest.FailOn(t, blobs, "Put"), service, meta, stubFFmpeg(t), t.TempDir())
+	th := New(storagetest.FailOn(t, blobs, "Put"), service, meta, stubFFmpeg(t), t.TempDir())
 	body, size, err := th.open(t.Context(), f, 96)
 	if err != nil {
 		t.Fatalf("open with a store that will not keep it = %v", err)
@@ -529,7 +530,7 @@ func TestOpenReportsAStoreItCannotRead(t *testing.T) {
 	_, service, blobs, meta := thumbsOver(t)
 	f := writeImage(t, service, "photos/one.jpg", 400, 400)
 
-	th := NewThumbs(storagetest.FailOn(t, blobs, "Get"), service, meta, stubFFmpeg(t), t.TempDir())
+	th := New(storagetest.FailOn(t, blobs, "Get"), service, meta, stubFFmpeg(t), t.TempDir())
 	if _, _, err := th.open(t.Context(), f, 96); !errors.Is(err, storagetest.ErrInjected) {
 		t.Errorf("open = %v, want the failure passed on", err)
 	}
@@ -565,5 +566,58 @@ func TestFile(t *testing.T) {
 	}
 	if _, _, err := th.File(t.Context(), owner, "missing.jpg", 96); !errors.Is(err, db.ErrNotFound) {
 		t.Errorf("File of a missing file = %v, want ErrNotFound", err)
+	}
+}
+
+// TestWindowedThumbnailOfAFilm is the whole way through, with the real binary:
+// a file the rule refuses to copy still gets a picture.
+func TestWindowedThumbnailOfAFilm(t *testing.T) {
+	t.Parallel()
+	ffmpeg := realFFmpeg(t)
+
+	th, service, _, meta := thumbsOver(t)
+	th.ffmpeg = ffmpeg
+	f := write(t, service, "films/holiday.mp4", readFixture(t, phone), "video/mp4")
+
+	// The row says it is a film; the bytes are the fixture, so what changes is
+	// the decision and not the decoding.
+	f.Size = media.MaxSpool + 1
+	if _, err := meta.PutFile(t.Context(), f); err != nil {
+		t.Fatal(err)
+	}
+
+	body, _, err := th.File(t.Context(), owner, "films/holiday.mp4", 96)
+	if err != nil {
+		t.Fatalf("File: %v", err)
+	}
+	_ = body.Close()
+}
+
+// TestWindowIsEnoughForAFrame is internal/media's Window read by this package's
+// decoder, which is the only reader it has: a film that the rule refuses to
+// copy still gives up a frame.
+func TestWindowIsEnoughForAFrame(t *testing.T) {
+	t.Parallel()
+	ffmpeg := realFFmpeg(t)
+
+	for _, name := range []string{phone, faststart, matroskaFixture} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			body := readFixture(t, name)
+
+			local, cleanup, err := media.Window(bytes.NewReader(body), int64(len(body)), name, t.TempDir(), media.WindowHead)
+			if err != nil {
+				t.Fatalf("Window: %v", err)
+			}
+			defer cleanup()
+
+			frame, err := decodeScaled(t.Context(), ffmpeg, local, 96, true)
+			if err != nil {
+				t.Fatalf("no frame came out of the Window: %v", err)
+			}
+			if b := frame.Bounds(); b.Dx() != 96 {
+				t.Errorf("bounds = %v", b)
+			}
+		})
 	}
 }

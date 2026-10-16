@@ -278,7 +278,7 @@ func parse(t *testing.T, s string) probeReport {
 }
 
 // TestProbeReportAudioStream is what a transcode decision is made from. The
-// first four are what ffprobe 7.1 printed for the same two seconds of sine
+// first four are what ffprobe 7.1 printed for the same two Seconds of sine
 // encoded four ways, trimmed to the fields that matter and with every quirk
 // left in: the rates are strings, a FLAC has no bitrate on its stream, a
 // lossless codec states its width in bits_per_raw_sample and a lossy one

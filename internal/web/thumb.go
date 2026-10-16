@@ -8,6 +8,7 @@ import (
 
 	"github.com/C0piIot/stratus-backend/internal/db"
 	"github.com/C0piIot/stratus-backend/internal/media"
+	"github.com/C0piIot/stratus-backend/internal/media/thumb"
 	"github.com/C0piIot/stratus-backend/internal/storage"
 )
 
@@ -49,7 +50,7 @@ func (h *handler) thumbnail(w http.ResponseWriter, r *http.Request, user string)
 		w.Header().Set("Retry-After", "5")
 		http.Error(w, "busy", http.StatusServiceUnavailable)
 		return
-	case errors.Is(err, media.ErrNoThumbnail), errors.Is(err, db.ErrNotFound), errors.Is(err, storage.ErrNotFound):
+	case errors.Is(err, thumb.ErrNoThumbnail), errors.Is(err, db.ErrNotFound), errors.Is(err, storage.ErrNotFound):
 		// One answer for "there is no such file" and "there is no picture of
 		// it": from a browser they are the same thing, an image that will not
 		// load, and telling them apart would only tell a guesser what exists.

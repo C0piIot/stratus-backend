@@ -14,8 +14,8 @@ import (
 	"github.com/C0piIot/stratus-backend/internal/db"
 )
 
-// The gop fixtures are ten seconds of 64x64 at 25 fps with a keyframe every
-// two seconds and three B-frames between references, muxed once as MP4 --
+// The gop fixtures are ten Seconds of 64x64 at 25 fps with a keyframe every
+// two Seconds and three B-frames between references, muxed once as MP4 --
 // which gives it composition offsets and an edit list -- and copied into
 // Matroska, which carries a 23 ms start the copy inherited from the audio.
 // The expected times are what ffprobe printed for the keyframe packets.
@@ -41,7 +41,7 @@ func TestKeyframesOf(t *testing.T) {
 			t.Errorf("%s: keyframes = %v, want %v", name, ix.Keyframes, want)
 		}
 		if ix.Duration < 9900*time.Millisecond || ix.Duration > 10100*time.Millisecond {
-			t.Errorf("%s: duration = %v, want about ten seconds", name, ix.Duration)
+			t.Errorf("%s: duration = %v, want about ten Seconds", name, ix.Duration)
 		}
 	}
 

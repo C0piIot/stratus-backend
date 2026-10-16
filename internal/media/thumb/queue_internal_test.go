@@ -1,9 +1,11 @@
-package media
+package thumb
 
 import (
 	"errors"
 	"testing"
 	"time"
+
+	"github.com/C0piIot/stratus-backend/internal/media"
 )
 
 // TestThumbnailsAreRefusedRatherThanQueuedForever is the bound a photo grid on
@@ -40,8 +42,8 @@ func TestThumbnailsAreRefusedRatherThanQueuedForever(t *testing.T) {
 	if _, _, err := th.cached(t.Context(), "refused", unrefused("refused"), func() ([]byte, error) {
 		t.Error("a refused request decoded anyway")
 		return nil, nil
-	}); !errors.Is(err, ErrBusy) {
-		t.Errorf("with the queue full, err = %v, want ErrBusy", err)
+	}); !errors.Is(err, media.ErrBusy) {
+		t.Errorf("with the queue full, err = %v, want media.ErrBusy", err)
 	}
 
 	// And the one that was waiting is served rather than collateral.
@@ -75,14 +77,14 @@ func TestAQueuedThumbnailGivesUp(t *testing.T) {
 	if _, _, err := th.cached(t.Context(), "gives up", unrefused("gives up"), func() ([]byte, error) {
 		t.Error("a request that gave up decoded anyway")
 		return nil, nil
-	}); !errors.Is(err, ErrBusy) {
-		t.Errorf("after the deadline, err = %v, want ErrBusy", err)
+	}); !errors.Is(err, media.ErrBusy) {
+		t.Errorf("after the deadline, err = %v, want media.ErrBusy", err)
 	}
 }
 
 // waitFor blocks until n requests are in the queue, so that a test does not
 // race the goroutine it just started.
-func waitFor(t *testing.T, th *Thumbs, n int64) {
+func waitFor(t *testing.T, th *Service, n int64) {
 	t.Helper()
 	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); {
 		if th.inQueue.Load() == n {

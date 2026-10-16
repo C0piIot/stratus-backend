@@ -12,6 +12,7 @@ import (
 
 	"github.com/C0piIot/stratus-backend/internal/db"
 	"github.com/C0piIot/stratus-backend/internal/media"
+	"github.com/C0piIot/stratus-backend/internal/media/thumb"
 	"github.com/C0piIot/stratus-backend/internal/music"
 	"github.com/C0piIot/stratus-backend/internal/storage"
 )
@@ -293,11 +294,11 @@ func (h *handler) cover(w http.ResponseWriter, r *http.Request, user string, n m
 		w.Header().Set("Retry-After", "5")
 		http.Error(w, "busy", http.StatusServiceUnavailable)
 		return
-	case errors.Is(err, storage.ErrNotFound), errors.Is(err, media.ErrNoEmbeddedCover), errors.Is(err, media.ErrNoThumbnail):
+	case errors.Is(err, storage.ErrNotFound), errors.Is(err, thumb.ErrNoEmbeddedCover), errors.Is(err, thumb.ErrNoThumbnail):
 		// Half a library has no picture. The page draws the empty square it
 		// was going to fill -- and a picture that is there and will not draw
 		// is the same square with a line in the log, as getCoverArt does.
-		if errors.Is(err, media.ErrNoThumbnail) {
+		if errors.Is(err, thumb.ErrNoThumbnail) {
 			slog.WarnContext(r.Context(), "cover art that cannot be drawn", "album", n.Path(), "err", err)
 		}
 		http.NotFound(w, r)

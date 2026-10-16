@@ -16,7 +16,7 @@ import (
 
 	"github.com/C0piIot/stratus-backend/internal/db"
 	"github.com/C0piIot/stratus-backend/internal/files"
-	"github.com/C0piIot/stratus-backend/internal/media"
+	"github.com/C0piIot/stratus-backend/internal/media/thumb"
 	"github.com/C0piIot/stratus-backend/internal/storage"
 )
 
@@ -199,10 +199,10 @@ func (f *readOnlyFile) Readdir(count int) ([]os.FileInfo, error) {
 // nothing has tried, and the client finding out by asking is what this
 // property is saving it from doing for everything else.
 func (f *readOnlyFile) hasPreview() bool {
-	if !media.CanThumbnail(f.row.Path, f.row.Size) {
+	if !thumb.CanThumbnail(f.row.Path, f.row.Size) {
 		return false
 	}
-	return !media.Refused(f.fs.drawnState(f.row.ID), time.Now())
+	return !thumb.Refused(f.fs.drawnState(f.row.ID), time.Now())
 }
 
 // drawnState is what the index says about one file, from what the listing

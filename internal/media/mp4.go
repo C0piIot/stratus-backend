@@ -3,6 +3,7 @@ package media
 import (
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"iter"
 	"math"
@@ -157,13 +158,13 @@ func readMoov(r io.ReadSeeker, size int64) ([]byte, error) {
 // findMoov leaves the reader at the first byte of the movie box and says where
 // that is and how long it runs.
 //
-// The offset is what the window in window.go needs and the body is what the
+// The offset is what the Window in Window.go needs and the body is what the
 // prober needs, so the walk is here and the reading is one caller up.
 func findMoov(r io.ReadSeeker, size int64) (offset, length int64, err error) {
 	if _, serr := r.Seek(0, io.SeekStart); serr != nil {
 		return 0, 0, errNotRead
 	}
-	length, err = findAtom(r, size, "moov")
+	length, err = FindAtom(r, size, "moov")
 	if err != nil {
 		return 0, 0, errNotRead
 	}
@@ -213,11 +214,11 @@ const epoch1904 = 2_082_844_800
 
 // movieTime turns one of this format's timestamps into a time, and zero into
 // "unknown" rather than into 1904.
-func movieTime(seconds uint64) time.Time {
-	if seconds <= epoch1904 {
+func movieTime(Seconds uint64) time.Time {
+	if Seconds <= epoch1904 {
 		return time.Time{}
 	}
-	return time.Unix(int64(seconds-epoch1904), 0).UTC() //nolint:gosec // checked above
+	return time.Unix(int64(Seconds-epoch1904), 0).UTC() //nolint:gosec // checked above
 }
 
 // handler reads what kind of track this is: "vide" and "soun" are the two
@@ -321,7 +322,7 @@ func colrBox(b []byte, m *db.Media) {
 	}
 }
 
-// frameRate is frames per thousand seconds: the samples the track holds over
+// frameRate is frames per thousand Seconds: the samples the track holds over
 // the track's own duration, which is how ffprobe arrives at an average.
 func frameRate(trak []byte) int {
 	mdhd, ok := box(trak, "mdia", "mdhd")
@@ -620,4 +621,49 @@ func box(buf []byte, path ...string) ([]byte, bool) {
 		}
 	}
 	return buf, true
+}
+
+// ErrNoAtom is what FindAtom returns, wrapped by each caller in its own
+// sentinel: the walk is shared by the cover reader and the video prober, and
+// neither one's failure means what the other's does.
+var ErrNoAtom = errors.New("media: no such atom")
+
+// FindAtom reads boxes from the current position until it finds want, leaving
+// the reader at its first byte and returning how many bytes it holds.
+func FindAtom(r io.ReadSeeker, within int64, want string) (int64, error) {
+	for read := int64(0); read+8 <= within; {
+		var header [8]byte
+		if _, err := io.ReadFull(r, header[:]); err != nil {
+			return 0, fmt.Errorf("%w: %s", ErrNoAtom, want)
+		}
+		size := int64(binary.BigEndian.Uint32(header[0:4]))
+		name := string(header[4:8])
+
+		switch size {
+		case 1:
+			// A 64-bit size follows the header, which real files use for the
+			// mdat of a long recording.
+			var extended [8]byte
+			if _, err := io.ReadFull(r, extended[:]); err != nil {
+				return 0, fmt.Errorf("%w: %s", ErrNoAtom, want)
+			}
+			size = int64(binary.BigEndian.Uint64(extended[:])) //nolint:gosec // bounded below
+			size -= 8
+		case 0:
+			// Runs to the end of the file.
+			size = within - read
+		}
+		if size < 8 || read+size > within {
+			return 0, fmt.Errorf("%w: a malformed %s atom", ErrNoAtom, name)
+		}
+		read += size
+
+		if name == want {
+			return size - 8, nil
+		}
+		if _, err := r.Seek(size-8, io.SeekCurrent); err != nil {
+			return 0, fmt.Errorf("%w: %s", ErrNoAtom, want)
+		}
+	}
+	return 0, fmt.Errorf("%w: no %s", ErrNoAtom, want)
 }

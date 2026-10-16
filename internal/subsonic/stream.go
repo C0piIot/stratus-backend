@@ -12,13 +12,14 @@ import (
 
 	"github.com/C0piIot/stratus-backend/internal/db"
 	"github.com/C0piIot/stratus-backend/internal/media"
+	"github.com/C0piIot/stratus-backend/internal/media/stream"
 )
 
 // Transcoder is what stream needs to turn a track into what a client asked for:
 // internal/media's, which starts ffmpeg over the file and hands back what it
 // writes.
 type Transcoder interface {
-	Transcode(ctx context.Context, f db.File, p media.Plan, offset time.Duration) (io.ReadCloser, error)
+	Transcode(ctx context.Context, f db.File, p stream.Plan, offset time.Duration) (io.ReadCloser, error)
 }
 
 // stream serves a track as it is stored or as the client asked for it (#50);
@@ -52,7 +53,7 @@ func (h *handler) stream(w http.ResponseWriter, r *http.Request, username string
 	}
 
 	q := r.URL.Query()
-	plan := media.Decide(t.Media, media.Request{
+	plan := stream.Decide(t.Media, stream.Request{
 		Format:     q.Get("format"),
 		MaxBitrate: intParam(q, "maxBitRate", 0) * 1000,
 	})
@@ -142,7 +143,7 @@ func (h *handler) original(w http.ResponseWriter, r *http.Request, t db.Track, a
 	http.ServeContent(w, r, name, t.File.MTime, body)
 }
 
-func transcodeHeaders(header http.Header, plan media.Plan, length int64) {
+func transcodeHeaders(header http.Header, plan stream.Plan, length int64) {
 	header.Set("Content-Type", plan.MIME)
 	header.Set("Accept-Ranges", "none")
 	if length >= 0 {
@@ -152,7 +153,7 @@ func transcodeHeaders(header http.Header, plan media.Plan, length int64) {
 
 // estimatedLength is the bitrate times what is left of the track, or -1 when
 // either is unknown -- a lossless target has no bitrate to multiply.
-func estimatedLength(plan media.Plan, durationMS int64, offset time.Duration) int64 {
+func estimatedLength(plan stream.Plan, durationMS int64, offset time.Duration) int64 {
 	left := durationMS - offset.Milliseconds()
 	if plan.Bitrate <= 0 || left <= 0 {
 		return -1

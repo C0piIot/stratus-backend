@@ -4,8 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"io/fs"
-	"os"
-	"runtime"
 	"strconv"
 	"strings"
 )
@@ -19,77 +17,11 @@ import (
 // with its one CPU meant four ffmpegs sharing a core and nearly all of its
 // memory. So it is now whichever runs out first, the CPUs or the memory.
 
-// decodeBudget is what one decode is allowed, and reservedMemory what is left
-// to the server itself before any. A decode was measured at seventy megabytes
-// at worst; the rest of the budget is for the 4K recordings that were not.
-const (
-	decodeBudget   = 128 << 20
-	reservedMemory = 128 << 20
-)
+// ReservedMemory is what is left to the server itself before any decode or
+// transcode is allowed a share of the rest.
+const ReservedMemory = 128 << 20
 
-// generating is the number of decodes the semaphore allows.
-func generating() int {
-	return decodeSlots(runtime.GOMAXPROCS(0), memoryLimit(os.DirFS("/")))
-}
-
-// decodeSlots is at most one decode per CPU -- decoding is CPU-bound and ffmpeg
-// runs on one thread, so a second decode on a core buys nothing but its memory
-// -- and at most as many as the memory past the reserve pays for. Never fewer
-// than one: a machine too small for the budget still makes thumbnails, slowly,
-// rather than none. A limit of zero means it could not be read, and the CPUs
-// decide alone.
-func decodeSlots(cpus int, limit int64) int {
-	slots := max(1, cpus)
-	if limit > 0 {
-		slots = min(slots, int((limit-reservedMemory)/decodeBudget))
-	}
-	return max(1, slots)
-}
-
-// waitingPerSlot is how many requests may stand in front of each decoder
-// before the rest are refused rather than queued.
-//
-// The queue used to have no bottom and no deadline, which on a one-CPU machine
-// is what made a photo grid look hung: forty tiles are asked for at once, one
-// is decoded at a time, and the thirty-ninth waits a minute while the only CPU
-// is pegged -- so the listing behind it is slow as well, and the stall is the
-// whole UI rather than one picture. Four deep is enough that a grid fills in
-// steadily and short enough that nobody waits behind a minute of work.
-const waitingPerSlot = 4
-
-// decodeQueue is the most requests that may be between the door and the end of
-// a decode: the ones waiting and the ones decoding, counted together because
-// what is being capped is how much of this machine thumbnails may hold, not
-// where a request is standing.
-func decodeQueue(slots int) int {
-	return slots + slots*waitingPerSlot
-}
-
-// transcodeBudget is what one audio transcode is allowed: measured at seven
-// megabytes for MP3, Opus and AAC out of a 96 kHz FLAC and fourteen for FLAC,
-// so a comfortable multiple of the worst. perCPU is how many share a core,
-// which is several: a transcode encodes faster than anybody listens and spends
-// the rest of the track waiting for the client to read.
-const (
-	transcodeBudget  = 32 << 20
-	transcodesPerCPU = 4
-)
-
-// transcodes is how many audio transcodes may run at once (transcoder.go).
-func transcodes() int {
-	return transcodeSlots(runtime.GOMAXPROCS(0), memoryLimit(os.DirFS("/")))
-}
-
-// transcodeSlots is decodeSlots for a lighter and longer job.
-func transcodeSlots(cpus int, limit int64) int {
-	slots := max(1, cpus) * transcodesPerCPU
-	if limit > 0 {
-		slots = min(slots, int((limit-reservedMemory)/transcodeBudget))
-	}
-	return max(1, slots)
-}
-
-// memoryLimit is the memory this process may use, in bytes, or zero when
+// MemoryLimit is the memory this process may use, in bytes, or zero when
 // neither place says.
 //
 // The cgroup's memory.max first, because that is what a container runtime
@@ -102,7 +34,7 @@ func transcodeSlots(cpus int, limit int64) int {
 // below two -- `--cpus 1` still gives two, measured -- and nothing in the
 // runtime does the same for memory, so this reads the two files itself. On
 // that one-CPU container with 256 MB it is the memory that brings it to one.
-func memoryLimit(root fs.FS) int64 {
+func MemoryLimit(root fs.FS) int64 {
 	if b, err := fs.ReadFile(root, "sys/fs/cgroup/memory.max"); err == nil {
 		if n, err := strconv.ParseInt(strings.TrimSpace(string(b)), 10, 64); err == nil && n > 0 {
 			return n

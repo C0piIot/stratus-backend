@@ -20,6 +20,8 @@ import (
 	"github.com/C0piIot/stratus-backend/internal/incoming"
 	"github.com/C0piIot/stratus-backend/internal/lookup"
 	"github.com/C0piIot/stratus-backend/internal/media"
+	"github.com/C0piIot/stratus-backend/internal/media/stream"
+	"github.com/C0piIot/stratus-backend/internal/media/thumb"
 	"github.com/C0piIot/stratus-backend/internal/music"
 	"github.com/C0piIot/stratus-backend/internal/storage"
 	"github.com/C0piIot/stratus-backend/internal/subsonic"
@@ -103,15 +105,15 @@ type Deps struct {
 	// Thumbs makes the pictures every surface offers, and is built here rather
 	// than per surface because it holds the path to ffmpeg and the directory a
 	// blob is put down in for it.
-	Thumbs *media.Thumbs
+	Thumbs *thumb.Service
 	// Transcoder turns a track into what a client asked for (#50), reading it
 	// through Loopback, which is the listener on 127.0.0.1 that hands a blob to
 	// ffmpeg without copying it first.
-	Transcoder *media.Transcoder
-	Loopback   *media.Loopback
+	Transcoder *stream.Transcoder
+	Loopback   *stream.Loopback
 	// Encoder re-encodes films to H.264, and is nil where this machine is not
 	// to: see videoEncoding.
-	Encoder *media.Encoder
+	Encoder *stream.Encoder
 	// Indexer is nil when there is nothing to index into, which today means no
 	// credentials and therefore no files.
 	Indexer *media.Indexer

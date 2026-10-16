@@ -1,4 +1,8 @@
-package media
+// Package thumb makes the pictures: a thumbnail of a photograph or a film, a
+// cover out of a track's head, a folder or a lookup, and the pass that makes
+// them ahead of anybody asking. It reads what internal/media knows about a file
+// and decides nothing about what plays, which is internal/media/stream's.
+package thumb
 
 import (
 	"bytes"
@@ -7,7 +11,6 @@ import (
 	"fmt"
 	"image"
 	"image/jpeg"
-	_ "image/png" // registered so a PNG cover decodes
 	"io"
 	"log/slog"
 	"os"
@@ -21,8 +24,11 @@ import (
 	"github.com/evanoberholster/imagemeta"
 	"golang.org/x/image/draw"
 
+	_ "image/png" // registered so a PNG cover decodes
+
 	"github.com/C0piIot/stratus-backend/internal/db"
 	"github.com/C0piIot/stratus-backend/internal/files"
+	"github.com/C0piIot/stratus-backend/internal/media"
 	"github.com/C0piIot/stratus-backend/internal/storage"
 )
 
@@ -84,20 +90,6 @@ const thumbQuality = 82
 // server. Nothing a camera produces comes close to this.
 const maxThumbSource = 50_000_000
 
-// maxSpool is the line nothing crosses: a file larger than this is never copied
-// to be looked at.
-//
-// It is the whole of the rule that arrived with #145 -- **a large file is not
-// downloaded to be read, and what its head does not say stays unsaid**. Before
-// it, one film on a bucket was four gigabytes of egress to learn that it lasts
-// two hours, and a thumbnail of it was four more.
-//
-// Sixty-four megabytes: larger than any photograph and any ordinary music
-// track, smaller than any film. A constant and not a setting, because it is not
-// a preference -- it is where reading a whole file to look at its head stops
-// being a reasonable thing to do.
-const maxSpool = 64 << 20
-
 // ErrNoThumbnail means the file is not something this build can turn into
 // pixels. HEIC and video need the ffmpeg path, which is not wired yet; camera
 // raw needs the embedded preview, which is a different technique.
@@ -109,8 +101,8 @@ var ErrNoThumbnail = errors.New("media: no thumbnail for this file")
 // behind which the queue is short but the wait is not.
 const defaultMaxWait = 10 * time.Second
 
-// Thumbs makes thumbnails and remembers them.
-type Thumbs struct {
+// Service makes thumbnails and remembers them.
+type Service struct {
 	blobs storage.Storage
 	files *files.Service
 	// ffmpeg is the path to the binary that reads what Go cannot, and tmpDir is
@@ -129,7 +121,7 @@ type Thumbs struct {
 	queue   int
 	// maxWait is how long one may stand in it. A field rather than the
 	// constant it is set from, so a test can reach the deadline without
-	// standing there for ten seconds.
+	// standing there for ten media.Seconds.
 	maxWait time.Duration
 	// meta is where a verdict is written down where a page and a pass can
 	// read it in one query (#341). The note beside the picture answers one
@@ -141,17 +133,17 @@ type Thumbs struct {
 	lookups db.Lookups
 }
 
-// NewThumbs wires the generator. It takes the blob store directly because a
+// New wires the generator. It takes the blob store directly because a
 // derived object has no database row -- the blob-plus-row invariant internal
 // files exists to hold does not apply to something regenerable.
-func NewThumbs(blobs storage.Storage, service *files.Service, meta db.MediaIndex, ffmpeg, tmpDir string) *Thumbs {
+func New(blobs storage.Storage, service *files.Service, meta db.MediaIndex, ffmpeg, tmpDir string) *Service {
 	slots := generating()
 	queue := decodeQueue(slots)
 	// Said once at startup, because it is worked out from the machine and a
 	// number nobody set is a number nobody would otherwise know.
 	slog.Info("thumbnails", "at_once", slots, "queue", queue,
-		"cpus", runtime.GOMAXPROCS(0), "memory_limit", memoryLimit(os.DirFS("/")))
-	return &Thumbs{
+		"cpus", runtime.GOMAXPROCS(0), "memory_limit", media.MemoryLimit(os.DirFS("/")))
+	return &Service{
 		blobs: blobs, files: service, meta: meta, ffmpeg: ffmpeg, tmpDir: tmpDir,
 		decoding: make(chan struct{}, slots), queue: queue, maxWait: defaultMaxWait,
 	}
@@ -159,7 +151,7 @@ func NewThumbs(blobs storage.Storage, service *files.Service, meta db.MediaIndex
 
 // File returns a thumbnail of the file at path, making it if this is the first
 // ask, and ErrNoThumbnail if this build cannot read that format.
-func (t *Thumbs) File(ctx context.Context, owner, path string, px int) (io.ReadCloser, int64, error) {
+func (t *Service) File(ctx context.Context, owner, path string, px int) (io.ReadCloser, int64, error) {
 	f, err := t.files.Stat(ctx, owner, path)
 	if err != nil {
 		return nil, 0, err
@@ -183,7 +175,7 @@ func (t *Thumbs) File(ctx context.Context, owner, path string, px int) (io.ReadC
 // album it belongs to. An album asks through CoverOf with a track of its own,
 // because a folder holding several albums -- a flat library -- has one first
 // track and they are not all its.
-func (t *Thumbs) Cover(ctx context.Context, owner, dir string, px int) (io.ReadCloser, int64, error) {
+func (t *Service) Cover(ctx context.Context, owner, dir string, px int) (io.ReadCloser, int64, error) {
 	entries, err := t.files.List(ctx, owner, dir)
 	if err != nil {
 		return nil, 0, fmt.Errorf("look for cover art in %q: %w", dir, err)
@@ -204,7 +196,7 @@ func (t *Thumbs) Cover(ctx context.Context, owner, dir string, px int) (io.ReadC
 // the track chosen by the caller rather than by the folder's listing -- which
 // is the difference between an album's cover and a folder's when the two are
 // not the same thing.
-func (t *Thumbs) CoverOf(ctx context.Context, owner string, f db.File, px int) (io.ReadCloser, int64, error) {
+func (t *Service) CoverOf(ctx context.Context, owner string, f db.File, px int) (io.ReadCloser, int64, error) {
 	dir := db.ParentOf(f.Path)
 	entries, err := t.files.List(ctx, owner, dir)
 	if err != nil {
@@ -220,7 +212,7 @@ func (t *Thumbs) CoverOf(ctx context.Context, owner string, f db.File, px int) (
 // and failing that the one fetched for its album (#217). The fetched half's
 // own "nothing" keeps the tag's answer, so the surfaces above go on telling a
 // 404 from a failure the way they always have.
-func (t *Thumbs) trackCover(ctx context.Context, track db.File, px int) (io.ReadCloser, int64, error) {
+func (t *Service) trackCover(ctx context.Context, track db.File, px int) (io.ReadCloser, int64, error) {
 	body, size, err := t.fromTrack(ctx, track, px)
 	if !errors.Is(err, ErrNoEmbeddedCover) {
 		return body, size, err
@@ -244,7 +236,7 @@ func (t *Thumbs) trackCover(ctx context.Context, track db.File, px int) (io.Read
 // single-flight would be machinery guarding against duplicated work rather than
 // against a wrong answer. It becomes worth adding when a photo grid asks for
 // five hundred at once, which is #8's problem.
-func (t *Thumbs) open(ctx context.Context, f db.File, px int) (io.ReadCloser, int64, error) {
+func (t *Service) open(ctx context.Context, f db.File, px int) (io.ReadCloser, int64, error) {
 	if !CanThumbnail(f.Path, f.Size) {
 		// Including the file that is simply too big, which is refused here
 		// rather than attempted: the listing does not offer one either, so
@@ -273,7 +265,7 @@ func (t *Thumbs) open(ctx context.Context, f db.File, px int) (io.ReadCloser, in
 // decode is the cost, a second encode is a hundredth of it, and the sizes a
 // grid and a listing use are 96 and 300. A request asks for one size and gets
 // the same path with one entry in it.
-func (t *Thumbs) decodeInto(ctx context.Context, f db.File, sizes []thumbSize, out map[thumbSize][]byte) error {
+func (t *Service) decodeInto(ctx context.Context, f db.File, sizes []thumbSize, out map[thumbSize][]byte) error {
 	return t.fromStore(ctx, f, func(body io.ReadSeeker) error {
 		pic, err := t.decode(ctx, f, body, largest(sizes))
 		if err != nil {
@@ -298,14 +290,14 @@ func (t *Thumbs) decodeInto(ctx context.Context, f db.File, sizes []thumbSize, o
 // there, that a binary opens files and seeks in them. What makes it acceptable
 // is that it happens once per file: the sizes come out of the frame, and the
 // next ask reads the derived blob.
-func (t *Thumbs) decode(ctx context.Context, f db.File, body io.ReadSeeker, size thumbSize) (decoded, error) {
+func (t *Service) decode(ctx context.Context, f db.File, body io.ReadSeeker, size thumbSize) (decoded, error) {
 	if decodableInGo(f.Path) {
 		return decodeInGo(body, f.Path)
 	}
 
 	// Small files are copied whole, which is the simplest thing and costs
 	// megabytes. Above the bound nothing is copied: what a decoder needs is
-	// the headers and the first frames, and window fetches exactly those
+	// the headers and the first frames, and media.Window fetches exactly those
 	// (#149).
 	local, cleanup, err := t.localCopy(body, f)
 	if err != nil {
@@ -313,7 +305,7 @@ func (t *Thumbs) decode(ctx context.Context, f db.File, body io.ReadSeeker, size
 	}
 	defer cleanup()
 
-	frame, err := decodeScaled(ctx, t.ffmpeg, local, int(size), isVideo(f.Path))
+	frame, err := decodeScaled(ctx, t.ffmpeg, local, int(size), media.IsVideo(f.Path))
 	if err != nil {
 		return decoded{}, fmt.Errorf("%w: %q: %w", ErrNoThumbnail, f.Path, err)
 	}
@@ -337,17 +329,17 @@ func largest(sizes []thumbSize) thumbSize {
 }
 
 // localCopy is the file handed to ffmpeg: the whole thing when that is cheap,
-// and a window onto it when it is not.
+// and a media.Window onto it when it is not.
 //
 // There is no third option. A film that cannot be windowed has no thumbnail,
 // because the alternative is the download the rule forbids -- and the listing
 // does not offer one for it either, so nothing here is answering a question
 // somebody could have asked.
-func (t *Thumbs) localCopy(body io.ReadSeeker, f db.File) (string, func(), error) {
-	if f.Size <= maxSpool {
-		return spool(body, t.tmpDir, f.Path)
+func (t *Service) localCopy(body io.ReadSeeker, f db.File) (string, func(), error) {
+	if f.Size <= media.MaxSpool {
+		return media.Spool(body, t.tmpDir, f.Path)
 	}
-	return window(body, f.Size, f.Path, t.tmpDir, windowHead)
+	return media.Window(body, f.Size, f.Path, t.tmpDir, media.WindowHead)
 }
 
 // fromTrack returns a thumbnail of the picture inside a track.
@@ -355,7 +347,7 @@ func (t *Thumbs) localCopy(body io.ReadSeeker, f db.File) (string, func(), error
 // Filed under the track's blob and not the picture's, because the picture has no
 // blob of its own -- which is what keeps the sweep able to collect it: delete the
 // track and its cover goes with it.
-func (t *Thumbs) fromTrack(ctx context.Context, f db.File, px int) (io.ReadCloser, int64, error) {
+func (t *Service) fromTrack(ctx context.Context, f db.File, px int) (io.ReadCloser, int64, error) {
 	size := snapSize(px)
 	// A track with no picture in its head is the normal state of half a music
 	// library, so what is remembered says exactly that: the album pages and
@@ -389,19 +381,19 @@ func (t *Thumbs) fromTrack(ctx context.Context, f db.File, px int) (io.ReadClose
 // every failed read as its own "these are not pixels". Only the reader between
 // the two knows which it was, and getting it wrong now costs more than it used
 // to -- a verdict is written down.
-func (t *Thumbs) fromStore(ctx context.Context, f db.File, use func(io.ReadSeeker) error) error {
+func (t *Service) fromStore(ctx context.Context, f db.File, use func(io.ReadSeeker) error) error {
 	body, err := t.files.OpenFile(ctx, f)
 	if err != nil {
-		return fmt.Errorf("%w: open %q: %w", errUnreachable, f.Path, err)
+		return fmt.Errorf("%w: open %q: %w", media.ErrUnreachable, f.Path, err)
 	}
 	defer func() { _ = body.Close() }()
 
-	r := &storeReader{ReadSeekCloser: body}
+	r := &media.StoreReader{ReadSeekCloser: body}
 	err = use(r)
-	if err == nil || r.err == nil {
+	if err == nil || r.Err == nil {
 		return err
 	}
-	return fmt.Errorf("%w: %w", errUnreachable, r.err)
+	return fmt.Errorf("%w: %w", media.ErrUnreachable, r.Err)
 }
 
 // verdict is where the outcome of a decode is written down, and what the next
@@ -432,7 +424,7 @@ type verdict struct {
 // cached is the lazy half: answer what is stored, or make it, keep it and
 // answer that -- or, for what has already been refused once, refuse it again
 // without reading a byte (#338).
-func (t *Thumbs) cached(
+func (t *Service) cached(
 	ctx context.Context, key string, refused verdict, make func() ([]byte, error),
 ) (io.ReadCloser, int64, error) {
 	body, info, err := t.blobs.Get(ctx, key, storage.All())
@@ -449,7 +441,7 @@ func (t *Thumbs) cached(
 
 	// And so is this one, for a stronger reason: a file nothing can decode must
 	// not take a place in the queue in front of one something can. An AV1
-	// recording in a folder of photographs used to cost a spool and an ffmpeg
+	// recording in a folder of photographs used to cost a media.Spool and an ffmpeg
 	// run on every page view, and on the one-CPU instance that is the slot the
 	// photograph beside it was waiting for.
 	if t.refusedBefore(ctx, refused.note) {
@@ -463,7 +455,7 @@ func (t *Thumbs) cached(
 	// behind it.
 	if t.inQueue.Add(1) > int64(t.queue) {
 		t.inQueue.Add(-1)
-		return nil, 0, ErrBusy
+		return nil, 0, media.ErrBusy
 	}
 	defer func() { t.inQueue.Add(-1) }()
 
@@ -473,7 +465,7 @@ func (t *Thumbs) cached(
 	case t.decoding <- struct{}{}:
 		defer func() { <-t.decoding }()
 	case <-wait.C:
-		return nil, 0, ErrBusy
+		return nil, 0, media.ErrBusy
 	case <-ctx.Done():
 		return nil, 0, ctx.Err()
 	}
@@ -500,7 +492,7 @@ func (t *Thumbs) cached(
 // the answer here is that there is one. A store that fails some other way says
 // no, which costs a decode -- the Get above has already passed on anything
 // worse than a missing object.
-func (t *Thumbs) refusedBefore(ctx context.Context, key string) bool {
+func (t *Service) refusedBefore(ctx context.Context, key string) bool {
 	_, err := t.blobs.Stat(ctx, key)
 	return err == nil
 }
@@ -515,7 +507,7 @@ func (t *Thumbs) refusedBefore(ctx context.Context, key string) bool {
 // a week later and with no generation raised and no thumbnail regenerated. The
 // price is one attempt per refused file per week, which is nothing, and it is
 // what makes it safe to be wrong here.
-func (t *Thumbs) remember(ctx context.Context, v verdict, why error) {
+func (t *Service) remember(ctx context.Context, v verdict, why error) {
 	if !isVerdict(ctx, why) {
 		return
 	}
@@ -532,7 +524,7 @@ func (t *Thumbs) remember(ctx context.Context, v verdict, why error) {
 // whether anything is written down at all.
 func isVerdict(ctx context.Context, why error) bool {
 	switch {
-	case unreachable(why), errors.Is(why, storage.ErrNotFound):
+	case media.Unreachable(why), errors.Is(why, storage.ErrNotFound):
 		// The bytes were not read, so there is nothing to judge. A blob the
 		// store does not have is the same answer: a database pointed at the
 		// wrong bucket would otherwise write a verdict for every file in the
@@ -553,7 +545,7 @@ func isVerdict(ctx context.Context, why error) bool {
 // extractor has not reached it yet, in which case the pass will, or it was
 // deleted while its picture was being made, in which case there is nothing to
 // record it against.
-func (t *Thumbs) record(ctx context.Context, v verdict, state db.ThumbState) {
+func (t *Service) record(ctx context.Context, v verdict, state db.ThumbState) {
 	if v.file == 0 {
 		return
 	}
@@ -746,7 +738,7 @@ func folderCover(entries []db.File) (db.File, bool) {
 func firstTrack(entries []db.File) (db.File, bool) {
 	best := db.File{}
 	for _, f := range entries {
-		if f.IsDir || byExtension[strings.ToLower(path.Ext(f.Path))] != db.KindAudio {
+		if f.IsDir || media.KindFromExtension(path.Ext(f.Path)) != db.KindAudio {
 			continue
 		}
 		if best.Path == "" || f.Path < best.Path {
@@ -849,15 +841,15 @@ func CanThumbnail(p string, size int64) bool {
 		return size <= maxThumbSource
 	case !decodableByFFmpeg(p):
 		return false
-	case windowable(p):
+	case media.Windowable(p):
 		// A film this size is not copied, but it can be looked at through a
-		// window: its headers and its first frames, which is a few megabytes
+		// media.Window: its headers and its first frames, which is a few megabytes
 		// whatever the film weighs (#149).
 		return true
 	default:
-		// AVI, WMV and MPEG-TS, where there is no window to take -- the same
+		// AVI, WMV and MPEG-TS, where there is no media.Window to take -- the same
 		// three the duration was refused to for the same reason.
-		return size <= maxSpool
+		return size <= media.MaxSpool
 	}
 }
 
@@ -897,10 +889,4 @@ func decodableByFFmpeg(p string) bool {
 		return true
 	}
 	return false
-}
-
-// isVideo says whether a frame has to be chosen, which is the one thing the
-// two ffmpeg cases do differently: a photograph is the only frame there is.
-func isVideo(p string) bool {
-	return byExtension[strings.ToLower(path.Ext(p))] == db.KindVideo
 }

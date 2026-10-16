@@ -27,6 +27,8 @@ import (
 	"github.com/C0piIot/stratus-backend/internal/incoming"
 	"github.com/C0piIot/stratus-backend/internal/lookup"
 	"github.com/C0piIot/stratus-backend/internal/media"
+	"github.com/C0piIot/stratus-backend/internal/media/stream"
+	"github.com/C0piIot/stratus-backend/internal/media/thumb"
 	"github.com/C0piIot/stratus-backend/internal/storage"
 	"github.com/C0piIot/stratus-backend/internal/storage/disk"
 	"github.com/C0piIot/stratus-backend/internal/storage/s3"
@@ -102,7 +104,7 @@ func (a *App) open(ctx context.Context) (deps Deps, err error) {
 	// same reason: without ffprobe a track has no duration and a video no
 	// dimensions, and without ffmpeg a photograph from a phone has no picture of
 	// itself. Half a media library is worse than an honest refusal to start --
-	// and the thumbnail half of that is also what keeps media.CanThumbnail a
+	// and the thumbnail half of that is also what keeps thumb.CanThumbnail a
 	// function of the name, rather than something a page has to ask about.
 	ffmpeg, ferr := media.LookupFFmpeg()
 	if ferr != nil {
@@ -114,18 +116,18 @@ func (a *App) open(ctx context.Context) (deps Deps, err error) {
 	if terr != nil {
 		return deps, terr
 	}
-	deps.Thumbs = media.NewThumbs(deps.Storage, deps.Files, deps.Database, ffmpeg, tmp)
+	deps.Thumbs = thumb.New(deps.Storage, deps.Files, deps.Database, ffmpeg, tmp)
 
 	// The same ffmpeg transcodes, reading each file from a listener on the
 	// loopback interface rather than a copy on disk.
-	loopback, lerr := media.NewLoopback(ctx, deps.Files)
+	loopback, lerr := stream.NewLoopback(ctx, deps.Files)
 	if lerr != nil {
 		return deps, lerr
 	}
 	deps.Loopback = loopback
-	deps.Transcoder = media.NewTranscoder(ffmpeg, loopback)
+	deps.Transcoder = stream.NewTranscoder(ffmpeg, loopback)
 	if on, why := videoEncoding(a.cfg.VideoTranscode, runtime.GOMAXPROCS(0)); on {
-		deps.Encoder = media.NewEncoder(deps.Transcoder, deps.Storage)
+		deps.Encoder = stream.NewEncoder(deps.Transcoder, deps.Storage)
 		slog.Info("films are also offered re-encoded to H.264", "because", why)
 	} else {
 		slog.Info("films are offered as they are and remuxed, never re-encoded", "because", why)

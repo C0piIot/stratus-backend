@@ -1,10 +1,9 @@
-package media
+package stream
 
 import (
 	"bufio"
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -15,6 +14,7 @@ import (
 	"time"
 
 	"github.com/C0piIot/stratus-backend/internal/db"
+	"github.com/C0piIot/stratus-backend/internal/media"
 )
 
 // Running a transcode: one ffmpeg per playback, writing into the response.
@@ -22,18 +22,7 @@ import (
 // It lives as long as the track does -- ffmpeg encodes faster than anybody
 // listens, fills the pipe and then waits on it -- so what bounds it is not the
 // CPU it takes, which is little, but how many can be alive at once. When they
-// all are, ErrBusy says so and the caller decides what a client hears instead.
-
-// ErrBusy means this machine is already doing as much of some bounded job as
-// it allows: transcodes here, re-encoded segments in encode.go, thumbnails in
-// thumb.go. One sentinel for the three because each is returned by a call that
-// does one of them, so there is nothing for a caller to tell apart -- and
-// because what every caller does with it is the same shape, which is to answer
-// "not now" rather than "no".
-//
-// It is a state and never a verdict on the file: the same request a moment
-// later is answered.
-var ErrBusy = errors.New("media: at capacity")
+// all are, media.ErrBusy says so and the caller decides what a client hears instead.
 
 // Transcoder starts ffmpeg over a file the loopback serves.
 type Transcoder struct {
@@ -69,7 +58,7 @@ func (t *Transcoder) run(ctx context.Context, f db.File, args func(url string) [
 	select {
 	case t.slots <- struct{}{}:
 	default:
-		return nil, ErrBusy
+		return nil, media.ErrBusy
 	}
 
 	url, revoke := t.source.Grant(f)

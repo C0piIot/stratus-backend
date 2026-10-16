@@ -3,8 +3,6 @@ package media
 import (
 	"bytes"
 	"encoding/binary"
-	"image"
-	"image/jpeg"
 	"testing"
 	"time"
 )
@@ -43,25 +41,6 @@ func exifJPEG(t *testing.T) []byte {
 	jpeg.Write(exifAPP1(t, 6))     // the tag that says a quarter turn clockwise
 	jpeg.Write([]byte{0xFF, 0xD9}) // EOI
 	return jpeg.Bytes()
-}
-
-// exifJPEGWithPixels is the same metadata in front of a picture that decodes,
-// which is what a thumbnail needs: the one above is enough to read a tag out of
-// and has no image in it at all.
-func exifJPEGWithPixels(t *testing.T, orientation, width, height int) []byte {
-	t.Helper()
-
-	var encoded bytes.Buffer
-	if err := jpeg.Encode(&encoded, image.NewRGBA(image.Rect(0, 0, width, height)), nil); err != nil {
-		t.Fatal(err)
-	}
-
-	// After the start-of-image marker and before everything the encoder wrote,
-	// which is where a segment goes.
-	body := encoded.Bytes()
-	out := append([]byte{}, body[:2]...)
-	out = append(out, exifAPP1(t, orientation)...)
-	return append(out, body[2:]...)
 }
 
 // exifAPP1 is the segment itself: the marker, its length, and a TIFF header

@@ -1,4 +1,4 @@
-package media
+package thumb
 
 import (
 	"bytes"
@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/C0piIot/stratus-backend/internal/media"
 )
 
 // Turning into pixels what Go cannot decode: HEIC, which needs libheif and
@@ -40,7 +42,7 @@ const maxFrameBytes = 64 << 20
 const videoFrameAt = time.Second
 
 // framesConsidered is how many frames the thumbnail filter weighs before it
-// picks one, which at ordinary frame rates is about four seconds of film. More
+// picks one, which at ordinary frame rates is about four media.Seconds of film. More
 // would survive a longer fade-in and cost more decoding for every video in the
 // library.
 const framesConsidered = 100
@@ -99,12 +101,12 @@ func runFFmpeg(ctx context.Context, ffmpeg, path string, px int, at time.Duratio
 		// thumbnail is what keeps a thumbnail from being a black rectangle: it
 		// scores a batch of frames against their own average and hands back
 		// the least ordinary one. Measured on a film that opens with two
-		// seconds of black, the first frame and the frame a second in both
+		// media.Seconds of black, the first frame and the frame a second in both
 		// average zero brightness, and this picks one at 125 out of 255.
 		//
 		// **scale before thumbnail, never after**: the filter holds every frame
 		// it weighs, so ahead of the scale it held a hundred of them at full
-		// size -- 432 MB for fifteen seconds of 1080p HEVC Main 10, which is
+		// size -- 432 MB for fifteen media.Seconds of 1080p HEVC Main 10, which is
 		// what took the demo instance down, and a 4K phone recording would do
 		// the same to a Raspberry Pi. Behind it, the hundred are thumbnails.
 		// The choice barely moves, since the filter compares colour histograms
@@ -134,7 +136,7 @@ func runFFmpeg(ctx context.Context, ffmpeg, path string, px int, at time.Duratio
 		// before the branch below because a killed ffmpeg has usually written
 		// to stderr as well.
 		if errors.As(err, &exit) && exit.ExitCode() < 0 {
-			return nil, fmt.Errorf("%w: ffmpeg stopped with %s", errUnreachable, exit.ProcessState)
+			return nil, fmt.Errorf("%w: ffmpeg stopped with %s", media.ErrUnreachable, exit.ProcessState)
 		}
 		if errors.As(err, &exit) && stderr.Len() > 0 {
 			return nil, fmt.Errorf("ffmpeg: %s", strings.TrimSpace(stderr.String()))

@@ -1,4 +1,4 @@
-package media
+package thumb
 
 import (
 	"bytes"
@@ -15,7 +15,7 @@ import (
 // What this file is about: a thumbnail that cannot be made is not made again
 // (#338). It is retry_test.go's distinction on the other half of the package,
 // where the work is paid per request rather than per pass -- a file nothing can
-// decode used to cost a spool and an ffmpeg run on every page view, in a queue
+// decode used to cost a media.Spool and an ffmpeg run on every page view, in a queue
 // whose places the pictures beside it were waiting for.
 
 // TestARefusedThumbnailIsNotAttemptedAgain, proved the way the stored
@@ -96,7 +96,7 @@ func TestAKilledFFmpegIsNotARefusal(t *testing.T) {
 	if err := os.WriteFile(killed, []byte("#!/bin/sh\nkill -9 $$\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	th := NewThumbs(blobs, service, meta, killed, t.TempDir())
+	th := New(blobs, service, meta, killed, t.TempDir())
 
 	f := write(t, service, "photos/one.heic", []byte("whatever"), "image/heic")
 	if _, _, err := th.open(t.Context(), f, 96); !errors.Is(err, ErrNoThumbnail) {

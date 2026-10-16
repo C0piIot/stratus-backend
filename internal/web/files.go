@@ -10,6 +10,7 @@ import (
 
 	"github.com/C0piIot/stratus-backend/internal/db"
 	"github.com/C0piIot/stratus-backend/internal/media"
+	"github.com/C0piIot/stratus-backend/internal/media/thumb"
 )
 
 // filesPrefix is where the tree lives. Every directory has one URL and every
@@ -225,7 +226,7 @@ func entries(children []db.File, states map[int64]rowState, token string) []entr
 			// A row that has been tried and refused keeps its mark and is
 			// offered no picture: the request would be a 404, and the mark is
 			// what the square draws either way (#341).
-			if media.CanThumbnail(c.Path, c.Size) && !states[c.ID].NoPicture {
+			if thumb.CanThumbnail(c.Path, c.Size) && !states[c.ID].NoPicture {
 				// The thumbnail carries the signature too. Without it a shared
 				// listing is a grid of broken images, which is the half of this
 				// that fails quietly.

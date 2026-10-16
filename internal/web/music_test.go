@@ -1,17 +1,18 @@
 package web_test
 
 import (
-	htmlstd "html"
 	"net/http"
 	"strings"
 	"testing"
 	"time"
 
+	htmlstd "html"
+
 	"github.com/C0piIot/stratus-backend/internal/auth"
 	"github.com/C0piIot/stratus-backend/internal/db"
 	"github.com/C0piIot/stratus-backend/internal/db/dbtest"
 	"github.com/C0piIot/stratus-backend/internal/files"
-	"github.com/C0piIot/stratus-backend/internal/media"
+	"github.com/C0piIot/stratus-backend/internal/media/thumb"
 	"github.com/C0piIot/stratus-backend/internal/web"
 )
 
@@ -200,7 +201,7 @@ func TestABrokenIndexIsNotAnEmptyLibrary(t *testing.T) {
 				Sessions:  auth.NewSessions(creds, auth.DefaultSessionTTL),
 				Shares:    auth.NewShares(creds),
 				Files:     s,
-				Thumbs:    media.NewThumbs(blobs, files.New(blobs, broken), meta, "ffmpeg", t.TempDir()),
+				Thumbs:    thumb.New(blobs, files.New(blobs, broken), meta, "ffmpeg", t.TempDir()),
 				Index:     broken,
 				Playlists: playlistsOf(broken),
 				Indexing:  indexing(meta),

@@ -1,4 +1,4 @@
-package media
+package stream
 
 import (
 	"bytes"
@@ -15,6 +15,7 @@ import (
 
 	"github.com/C0piIot/stratus-backend/internal/db"
 	"github.com/C0piIot/stratus-backend/internal/files"
+	"github.com/C0piIot/stratus-backend/internal/media"
 	"github.com/C0piIot/stratus-backend/internal/storage"
 )
 
@@ -29,7 +30,7 @@ import (
 // for nothing and an old one takes the H.264. That is HLS's own negotiation,
 // which is why nothing here has to know what device is asking.
 //
-// **Segments are a fixed six seconds**, not the keyframes a remux has to follow:
+// **Segments are a fixed six media.Seconds**, not the keyframes a remux has to follow:
 // a re-encoded segment makes its own keyframe where it starts, and ffmpeg's
 // seek decodes forward from the one before to land exactly. Each is its own
 // ffmpeg, like a remux, and **each is kept** as a derived blob, since encoding
@@ -135,7 +136,7 @@ func fit(w, h int) (int, int) {
 // encodedTarget is how long a re-encoded segment is.
 const encodedTarget = 6 * time.Second
 
-// EncodedSegments is the fixed grid of a re-encode: six seconds each, the last
+// EncodedSegments is the fixed grid of a re-encode: six media.Seconds each, the last
 // whatever is left.
 func EncodedSegments(duration time.Duration) []Segment {
 	var out []Segment
@@ -271,7 +272,7 @@ func encodeArgs(e Encode, s Segment, threads int) func(url string) []string {
 		if s.Start > 0 {
 			// Before -i, and exact: re-encoding decodes forward from the
 			// keyframe before and starts on the frame asked for.
-			args = append(args, "-ss", seconds(s.Start))
+			args = append(args, "-ss", media.Seconds(s.Start))
 		}
 		chain := fmt.Sprintf("scale=%d:%d", e.Width, e.Height)
 		if e.Tonemap {
@@ -284,7 +285,7 @@ func encodeArgs(e Encode, s Segment, threads int) func(url string) []string {
 		args = append(args,
 			"-protocol_whitelist", "http,tcp",
 			"-i", url,
-			"-to", seconds(s.Start+s.Length),
+			"-to", media.Seconds(s.Start+s.Length),
 			"-map", "0:v:0", "-map", "0:a:0?", "-sn", "-dn",
 			"-vf", chain+",format=yuv420p",
 			"-c:v", "libx264", "-preset", "veryfast", "-crf", "21",
@@ -301,7 +302,7 @@ func encodeArgs(e Encode, s Segment, threads int) func(url string) []string {
 			args = append(args, "-c:a", "aac", "-ac", "2", "-b:a", strconv.Itoa(encodeAudio))
 		}
 		return append(args,
-			"-copyts", "-output_ts_offset", seconds(timelineOffset),
+			"-copyts", "-output_ts_offset", media.Seconds(timelineOffset),
 			"-muxdelay", "0", "-muxpreload", "0",
 			"-f", "mpegts", "-",
 		)
@@ -322,7 +323,7 @@ type Encoder struct {
 // threads it may use are the CPUs divided among the slots.
 func NewEncoder(tr *Transcoder, blobs storage.Storage) *Encoder {
 	cpus := runtime.GOMAXPROCS(0)
-	slots := encodeSlots(cpus, memoryLimit(os.DirFS("/")))
+	slots := encodeSlots(cpus, media.MemoryLimit(os.DirFS("/")))
 	return &Encoder{tr: tr, blobs: blobs, slots: make(chan struct{}, slots), threads: max(1, cpus/slots)}
 }
 
@@ -330,7 +331,7 @@ func NewEncoder(tr *Transcoder, blobs storage.Storage) *Encoder {
 func encodeSlots(cpus int, limit int64) int {
 	slots := max(1, cpus/2)
 	if limit > 0 {
-		slots = min(slots, int((limit-reservedMemory)/encodeBudget))
+		slots = min(slots, int((limit-media.ReservedMemory)/encodeBudget))
 	}
 	return max(1, slots)
 }
@@ -350,7 +351,7 @@ func (e *Encoder) Segment(ctx context.Context, f db.File, enc Encode, s Segment)
 	select {
 	case e.slots <- struct{}{}:
 	default:
-		return nil, ErrBusy
+		return nil, media.ErrBusy
 	}
 	defer func() { <-e.slots }()
 

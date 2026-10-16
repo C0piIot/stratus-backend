@@ -13,6 +13,7 @@ import (
 
 	"github.com/C0piIot/stratus-backend/internal/db"
 	"github.com/C0piIot/stratus-backend/internal/media"
+	"github.com/C0piIot/stratus-backend/internal/media/stream"
 )
 
 // fakeTranscoder stands in for ffmpeg: it records what it was asked to do and
@@ -20,13 +21,13 @@ import (
 // from the stored bytes.
 type fakeTranscoder struct {
 	mu      sync.Mutex
-	plans   []media.Plan
+	plans   []stream.Plan
 	offsets []time.Duration
 	err     error
 	body    string
 }
 
-func (f *fakeTranscoder) Transcode(_ context.Context, _ db.File, p media.Plan, offset time.Duration) (io.ReadCloser, error) {
+func (f *fakeTranscoder) Transcode(_ context.Context, _ db.File, p stream.Plan, offset time.Duration) (io.ReadCloser, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.plans = append(f.plans, p)
@@ -41,10 +42,10 @@ func (f *fakeTranscoder) Transcode(_ context.Context, _ db.File, p media.Plan, o
 	return io.NopCloser(strings.NewReader(body)), nil
 }
 
-func (f *fakeTranscoder) calls() ([]media.Plan, []time.Duration) {
+func (f *fakeTranscoder) calls() ([]stream.Plan, []time.Duration) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return append([]media.Plan(nil), f.plans...), append([]time.Duration(nil), f.offsets...)
+	return append([]stream.Plan(nil), f.plans...), append([]time.Duration(nil), f.offsets...)
 }
 
 // hiFi is a track a phone on mobile data would rather not be sent whole.

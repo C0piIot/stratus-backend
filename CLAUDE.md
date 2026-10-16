@@ -693,7 +693,7 @@ Hard constraints, in the same spirit as the rest of the project:
   segments, escaped one each, so AC/DC is one step down. The album page's
   policy adds `media-src 'self'` there alone. The cover is
   `/music/<artist>/<album>/cover`, the same folder-then-first-track rule as
-  `getCoverArt` through `media.Thumbs.Cover`; a 404 is the normal answer for
+  `getCoverArt` through `thumb.Service.Cover`; a 404 is the normal answer for
   half a library, and the page draws the empty square around it.
 - **Renaming and deleting are pages, not buttons in the row.** Each is a GET
   that asks and a POST that does: a rename needs a name typed into something,
@@ -1356,7 +1356,9 @@ internal/incoming/        the import folder on local disk, swept into the librar
 internal/music/           playlist edits in one transaction each, and the library as folders by tag
 internal/nextcloud/       reads somebody else's instance, so its bucket can be adopted
 internal/calendar/        collections, objects, recurrence            -- not yet
-internal/media/           EXIF/tag extraction, thumbnails, ffprobe
+internal/media/           EXIF/tag extraction, ffprobe, the readers over ranges, and what the two below share
+internal/media/thumb/     the pictures: thumbnails, covers, the pass that makes them ahead
+internal/media/stream/    what plays: the transcode decision, the loopback ffmpeg reads from, HLS
 internal/timeline/        the library as folders by date, one kind at a time, for the two adapters that serve it
 internal/trash/           the deletions as folders, named once for the two adapters that serve them
 internal/auth/            credential verification, per-protocol adapters
@@ -1365,6 +1367,19 @@ internal/dav/             inbound adapter: WebDAV (CalDAV not yet)
 internal/subsonic/        inbound adapter: OpenSubsonic
 internal/web/             inbound adapter: server-rendered UI
 ```
+
+**`internal/media` is three packages under one directory** (#361). It was
+one of 6.8k lines in three clusters with narrow bridges between them, and its
+consumers were already split by cluster: `subsonic` streams, `dav` asks about
+pictures, `web` does both. So the extraction stays at `media` -- the probe, the
+readers over ranges, the indexer, the limits read off the machine -- and the
+two things built over it are packages of their own: `thumb` for the pictures
+and `stream` for what plays. They import `media` and not each other, and
+`media` knows neither, which is the one direction the split is held to. Not
+further than three: the MP4 and Matroska readers serve the probe and the
+keyframe index alike, and a package for them would be a package for two
+callers. The depguard rule names `**/internal/media/**`, so it covers all
+three without a line changing.
 
 ### The four layers
 
@@ -1607,14 +1622,14 @@ Restraint here is principle 3, not laziness:
   failure.**
 
   **`has-preview` answers from the row now, not from the name** (#341). It
-  was `media.CanThumbnail` alone, which is a function of the build and of the
+  was `thumb.CanThumbnail` alone, which is a function of the build and of the
   extension -- so an AV1 recording and a truncated photograph, which are an
   `.mp4` and a `.jpg`, said yes until the client asked and got a `404`. The
   two halves are now both asked: what this build can read, which is still
   computed and stored nowhere, and what it has already tried and could not,
   which is on the row because the store answers one key at a time. A file
   nothing has tried still says yes, which is the honest answer -- and a
-  verdict is believed for the week `media.Refused` gives it, the same week
+  verdict is believed for the week `thumb.Refused` gives it, the same week
   everything else here gives one.
 
   **It costs one query per listing and not one per row**, which is the rule
@@ -1794,7 +1809,7 @@ Restraint here is principle 3, not laziness:
   ffprobe a track has no duration and a video no dimensions; without ffmpeg a
   photograph from a phone has no picture of itself. Half a media library is
   worse than an honest refusal to start, and both binaries are looked up at
-  startup for that reason -- which is also what keeps `media.CanThumbnail` a
+  startup for that reason -- which is also what keeps `thumb.CanThumbnail` a
   function of the name, rather than something a page has to ask a generator
   about. The image carries two statically
   linked tools copied into the same distroless base rather than switching to one
@@ -1804,7 +1819,7 @@ Restraint here is principle 3, not laziness:
   is near its head is read there, over ranges; anything else is copied only
   while it is under 64 MB, and above that it keeps its kind and nothing else,
   with the reason on the row so `/status` can say it. The same bound is what
-  `media.CanThumbnail` checks before a listing offers a picture, because a grid
+  `thumb.CanThumbnail` checks before a listing offers a picture, because a grid
   of broken images is what #135 promised would not happen.
 
   **A thumbnail is the exception, and it is one because it can be** (#149).
@@ -2042,7 +2057,7 @@ Restraint here is principle 3, not laziness:
   at least says what somebody meant.
 
   What this does **not** change is the listing's offer of a thumbnail, which is
-  still `media.CanThumbnail` over the name alone -- a page cannot read five
+  still `thumb.CanThumbnail` over the name alone -- a page cannot read five
   hundred files to decide what to draw. So `.mts` and `.m2ts` are in that list
   by name and `.ts` is not.
 - **Thumbnails are lazy, and they are blobs.** Generated on first request rather
@@ -2139,7 +2154,8 @@ Restraint here is principle 3, not laziness:
   answered from both ends -- the browser loads them lazily, and a semaphore
   bounds how many are decoded at a time, because a twelve-megapixel JPEG costs
   about fifty megabytes while it is being read. The bound is worked out from
-  the machine (`internal/media/slots.go`): one decode per CPU, because
+  the machine (`internal/media/thumb/slots.go`, from the limits `internal/media/slots.go`
+  reads off it): one decode per CPU, because
   decoding is CPU-bound and a second on the same core only adds its memory,
   and no more than 128 MiB each out of what is left past a 128 MiB reserve.
   The CPUs are `GOMAXPROCS`, which follows a cgroup's CPU limit but never goes
@@ -2147,14 +2163,14 @@ Restraint here is principle 3, not laziness:
   there is no cgroup limit, which is Fly's microVM. Measured: 256 MB and one
   CPU gives one, 384 MB and two gives two, and the number is logged at
   startup. Whether a file can have one is
-  `media.CanThumbnail`, computed rather than stored: it is a property of the
+  `thumb.CanThumbnail`, computed rather than stored: it is a property of the
   build, and the day the ffmpeg path lands every HEIC changes its answer without
   a byte moving.
 
   **The queue in front of those slots has a bottom and a deadline, and past
-  either the answer is `ErrBusy`** -- which is the package's one "at capacity"
-  sentinel, shared with the transcoder and the encoder because what every
-  caller does with it is the same shape. Bounding the work was only half of it:
+  either the answer is `media.ErrBusy`** -- which is the one "at capacity"
+  sentinel, shared with the transcoder and the encoder in `internal/media/stream`
+  because what every caller does with it is the same shape. Bounding the work was only half of it:
   the waiting was unbounded, so on the one-CPU instance -- where the memory
   brings the slots to one -- a grid of forty tiles put thirty-nine requests in
   a line, each holding a connection, while the only CPU was pegged for a
@@ -2358,7 +2374,7 @@ Restraint here is principle 3, not laziness:
 - **A track is transcoded when a client asks, by one ffmpeg per playback**
   (#50). Three pieces, and each is where it is for a reason.
 
-  **The decision is `media.Decide`, and nothing else decides.** The facts of
+  **The decision is `stream.Decide`, and nothing else decides.** The facts of
   the file on one side (#197), the request on the other, a `Plan` out: the
   original whenever it already satisfies what was asked, `format=raw` always,
   and a transcode that never claims more than the file has -- no bitrate above
@@ -2370,7 +2386,7 @@ Restraint here is principle 3, not laziness:
   **ffmpeg reads the blob over HTTP from `127.0.0.1`**, and that is what the
   network protocols in the ffmpeg build are for. A pipe cannot seek, and an
   m4a with its `moov` at the end cannot be read from one at all; a copy on disk
-  is what #48 spent its time removing. `media.Loopback` serves one file per
+  is what #48 spent its time removing. `stream.Loopback` serves one file per
   token through the same `http.ServeContent` the protocol surfaces use, the
   token lives as long as the transcode (ffmpeg makes several requests to seek),
   and it listens nowhere but the loopback interface -- so it is not a surface,
@@ -2384,7 +2400,7 @@ Restraint here is principle 3, not laziness:
   length announced.
 
   **The `transcoding` extension asks the same question another way**, and
-  `media.DecideFor` answers it: a client sends what it plays as it is, the
+  `stream.DecideFor` answers it: a client sends what it plays as it is, the
   formats it takes a transcode in and limits per codec, and the server
   chooses. The model is the payload's, field for field, because a DLNA
   renderer's protocolInfo will come down to the same thing; Subsonic only
@@ -2401,7 +2417,7 @@ Restraint here is principle 3, not laziness:
   cannot do at any useful speed, so the picture is copied into MPEG-TS and only
   the sound is changed, to stereo AAC, when it is AC-3, DTS or another a
   television will not decode -- the commonest reason a film does not play,
-  after the Matroska box itself. `media.RemuxFor` takes H.264 and HEVC and
+  after the Matroska box itself. `stream.RemuxFor` takes H.264 and HEVC and
   refuses the rest, and the caller offers those as they are.
 
   **Every segment is its own ffmpeg, and there is no session.** A copied
@@ -2422,7 +2438,7 @@ Restraint here is principle 3, not laziness:
   seconds**. TS rather than fMP4 because a TS segment stands alone.
 
   **A picture a player cannot decode is also offered re-encoded** --
-  `media.Encoder`, 1080p eight-bit H.264 with libx264 -- and `index.m3u8`
+  `stream.Encoder`, 1080p eight-bit H.264 with libx264 -- and `index.m3u8`
   becomes a master playlist over `copy.m3u8` and `h264.m3u8`, each declaring
   its CODECS, so the player picks what it decodes: HLS's own negotiation, and
   nothing here has to know the device. Re-encoded segments are a fixed six

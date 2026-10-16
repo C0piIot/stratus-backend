@@ -1,4 +1,4 @@
-package media
+package thumb
 
 import (
 	"bytes"
@@ -39,7 +39,7 @@ func pngBytes(t *testing.T, w, h int) []byte {
 
 // fetchedFor files a cover for the album the track is in and writes the row
 // that says so, which is what the pass does after the archive answered.
-func fetchedFor(t *testing.T, th *Thumbs, meta db.Store, track db.File, m db.Media) {
+func fetchedFor(t *testing.T, th *Service, meta db.Store, track db.File, m db.Media) {
 	t.Helper()
 	m.FileID, m.Kind, m.IndexedAt, m.Version = track.ID, db.KindAudio, time.Now(), 1
 	if err := meta.PutMedia(t.Context(), m); err != nil {
@@ -259,7 +259,7 @@ func TestFetchedPictureOverBackendsThatWillNotAnswer(t *testing.T) {
 			fetchedFor(t, th, meta, track, db.Media{AlbumArtist: "Autechre", Artist: "Autechre", Album: "Amber", Title: "Foil"})
 
 			broken := dbtest.FailOn(t, meta, method)
-			over := NewThumbs(th.blobs, files.New(th.blobs, broken), broken, stubFFmpeg(t), t.TempDir()).WithLookups(broken)
+			over := New(th.blobs, files.New(th.blobs, broken), broken, stubFFmpeg(t), t.TempDir()).WithLookups(broken)
 			_, _, err := over.Cover(t.Context(), owner, "music/amber", 96)
 			if !errors.Is(err, dbtest.ErrInjected) {
 				t.Errorf("Cover with %s refusing = %v, want the injected failure", method, err)
@@ -271,7 +271,7 @@ func TestFetchedPictureOverBackendsThatWillNotAnswer(t *testing.T) {
 		t.Parallel()
 		th, service, blobs := thumbs(t)
 		track := write(t, service, "music/amber/01.flac", []byte("fLaC"), "audio/flac")
-		refusing := NewThumbs(storagetest.FailOn(t, blobs, "Put"), service, nil, stubFFmpeg(t), t.TempDir())
+		refusing := New(storagetest.FailOn(t, blobs, "Put"), service, nil, stubFFmpeg(t), t.TempDir())
 		if err := refusing.StoreArt(t.Context(), track, pngBytes(t, 500, 500)); err == nil || errors.Is(err, ErrNotAPicture) {
 			t.Errorf("StoreArt over a store that refuses = %v, want the store's failure", err)
 		}

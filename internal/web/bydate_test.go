@@ -13,7 +13,7 @@ import (
 	"github.com/C0piIot/stratus-backend/internal/db"
 	"github.com/C0piIot/stratus-backend/internal/db/dbtest"
 	"github.com/C0piIot/stratus-backend/internal/files"
-	"github.com/C0piIot/stratus-backend/internal/media"
+	"github.com/C0piIot/stratus-backend/internal/media/thumb"
 	"github.com/C0piIot/stratus-backend/internal/web"
 )
 
@@ -397,7 +397,7 @@ func TestABrokenIndexIsNotAnEmptyGallery(t *testing.T) {
 				Sessions:  auth.NewSessions(creds, auth.DefaultSessionTTL),
 				Shares:    auth.NewShares(creds),
 				Files:     files.New(blobs, broken),
-				Thumbs:    media.NewThumbs(blobs, s, meta, "ffmpeg", t.TempDir()),
+				Thumbs:    thumb.New(blobs, s, meta, "ffmpeg", t.TempDir()),
 				Index:     broken,
 				Playlists: playlistsOf(broken),
 				Indexing:  indexing(meta),
@@ -433,7 +433,7 @@ func TestAnIndexThatBreaksWhileNamingIsNotAHalfPage(t *testing.T) {
 				Sessions:  auth.NewSessions(creds, auth.DefaultSessionTTL),
 				Shares:    auth.NewShares(creds),
 				Files:     files.New(blobs, broken),
-				Thumbs:    media.NewThumbs(blobs, s, meta, "ffmpeg", t.TempDir()),
+				Thumbs:    thumb.New(blobs, s, meta, "ffmpeg", t.TempDir()),
 				Index:     broken,
 				Playlists: playlistsOf(broken),
 				Indexing:  indexing(meta),
@@ -469,7 +469,7 @@ func TestAViewerThatCannotNameItsNeighbourIsAnError(t *testing.T) {
 		Sessions:  auth.NewSessions(creds, auth.DefaultSessionTTL),
 		Shares:    auth.NewShares(creds),
 		Files:     files.New(blobs, broken),
-		Thumbs:    media.NewThumbs(blobs, s, meta, "ffmpeg", t.TempDir()),
+		Thumbs:    thumb.New(blobs, s, meta, "ffmpeg", t.TempDir()),
 		Index:     broken,
 		Playlists: playlistsOf(broken),
 		Indexing:  indexing(meta),

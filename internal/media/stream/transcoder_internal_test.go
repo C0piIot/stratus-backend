@@ -1,4 +1,4 @@
-package media
+package stream
 
 import (
 	"bytes"
@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/C0piIot/stratus-backend/internal/db"
+	"github.com/C0piIot/stratus-backend/internal/media"
 )
 
 // fixtureOpener serves testdata as if it were the blob store: the key is a
@@ -21,7 +22,7 @@ import (
 type fixtureOpener struct{}
 
 func (fixtureOpener) OpenFile(_ context.Context, f db.File) (io.ReadSeekCloser, error) {
-	b, err := os.ReadFile(filepath.Join("testdata", f.BlobKey))
+	b, err := os.ReadFile(filepath.Join("..", "testdata", f.BlobKey))
 	if err != nil {
 		return nil, err
 	}
@@ -121,7 +122,7 @@ func TestTranscodeArgs(t *testing.T) {
 	}
 }
 
-// TestTranscodeIsBoundedAndReleased: a full house is ErrBusy, and closing a
+// TestTranscodeIsBoundedAndReleased: a full house is media.ErrBusy, and closing a
 // transcode -- even one that failed -- gives its slot back.
 func TestTranscodeIsBoundedAndReleased(t *testing.T) {
 	t.Parallel()
@@ -129,8 +130,8 @@ func TestTranscodeIsBoundedAndReleased(t *testing.T) {
 	f := db.File{Path: "tone.flac", BlobKey: "tone.flac"}
 
 	tr.slots <- struct{}{}
-	if _, err := tr.Transcode(t.Context(), f, targetPlan("mp3"), 0); !errors.Is(err, ErrBusy) {
-		t.Fatalf("with every slot taken, err = %v, want ErrBusy", err)
+	if _, err := tr.Transcode(t.Context(), f, targetPlan("mp3"), 0); !errors.Is(err, media.ErrBusy) {
+		t.Fatalf("with every slot taken, err = %v, want media.ErrBusy", err)
 	}
 	<-tr.slots
 

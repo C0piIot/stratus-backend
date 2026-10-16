@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/C0piIot/stratus-backend/internal/db"
-	"github.com/C0piIot/stratus-backend/internal/media"
+	"github.com/C0piIot/stratus-backend/internal/media/thumb"
 )
 
 // searchPrefix is where the box in the navbar submits. A GET form, so a search
@@ -259,7 +259,7 @@ func shots(photos []db.File, states map[int64]rowState) []tile {
 	out := make([]tile, 0, len(photos))
 	for _, p := range photos {
 		cell := tile{Href: photoByFileHref(p.Path), Name: path.Base(p.Path)}
-		if media.CanThumbnail(p.Path, p.Size) && !states[p.ID].NoPicture {
+		if thumb.CanThumbnail(p.Path, p.Size) && !states[p.ID].NoPicture {
 			cell.Thumb = thumbURL(p, tileThumb)
 		}
 		out = append(out, cell)

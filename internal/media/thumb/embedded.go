@@ -1,4 +1,4 @@
-package media
+package thumb
 
 import (
 	"encoding/binary"
@@ -7,6 +7,8 @@ import (
 	"io"
 	"path"
 	"strings"
+
+	"github.com/C0piIot/stratus-backend/internal/media"
 )
 
 // Reading the picture out of a track, in Go and off the blob.
@@ -15,7 +17,7 @@ import (
 // image muxer and copy the stream out. This is better for a reason that has
 // nothing to do with taste: the storage port reads ranges, so a parser that
 // seeks takes the first few kilobytes of a FLAC and stops, while ffmpeg needs a
-// local file and would spool a 50 MB track out of a bucket to lift a 200 KB
+// local file and would media.Spool a 50 MB track out of a bucket to lift a 200 KB
 // picture out of its head. internal/media/image.go reads EXIF the same way and
 // for the same reason.
 //
@@ -272,7 +274,7 @@ func mp4Cover(r io.ReadSeeker) ([]byte, error) {
 	// The path is fixed, which is what makes this a walk and not a search: every
 	// one of these boxes is a container whose children are boxes.
 	for _, step := range []string{"moov", "udta", "meta", "ilst", "covr", "data"} {
-		size, err := findAtom(r, end, step)
+		size, err := media.FindAtom(r, end, step)
 		if err != nil {
 			return nil, fmt.Errorf("%w: %w", ErrNoEmbeddedCover, err)
 		}
@@ -297,51 +299,6 @@ func mp4Cover(r io.ReadSeeker) ([]byte, error) {
 		return nil, fmt.Errorf("%w: a truncated covr atom", ErrNoEmbeddedCover)
 	}
 	return picture, nil
-}
-
-// errNoAtom is what findAtom returns, wrapped by each caller in its own
-// sentinel: the walk is shared by the cover reader and the video prober, and
-// neither one's failure means what the other's does.
-var errNoAtom = errors.New("media: no such atom")
-
-// findAtom reads boxes from the current position until it finds want, leaving
-// the reader at its first byte and returning how many bytes it holds.
-func findAtom(r io.ReadSeeker, within int64, want string) (int64, error) {
-	for read := int64(0); read+8 <= within; {
-		var header [8]byte
-		if _, err := io.ReadFull(r, header[:]); err != nil {
-			return 0, fmt.Errorf("%w: %s", errNoAtom, want)
-		}
-		size := int64(binary.BigEndian.Uint32(header[0:4]))
-		name := string(header[4:8])
-
-		switch size {
-		case 1:
-			// A 64-bit size follows the header, which real files use for the
-			// mdat of a long recording.
-			var extended [8]byte
-			if _, err := io.ReadFull(r, extended[:]); err != nil {
-				return 0, fmt.Errorf("%w: %s", errNoAtom, want)
-			}
-			size = int64(binary.BigEndian.Uint64(extended[:])) //nolint:gosec // bounded below
-			size -= 8
-		case 0:
-			// Runs to the end of the file.
-			size = within - read
-		}
-		if size < 8 || read+size > within {
-			return 0, fmt.Errorf("%w: a malformed %s atom", errNoAtom, name)
-		}
-		read += size
-
-		if name == want {
-			return size - 8, nil
-		}
-		if _, err := r.Seek(size-8, io.SeekCurrent); err != nil {
-			return 0, fmt.Errorf("%w: %s", errNoAtom, want)
-		}
-	}
-	return 0, fmt.Errorf("%w: no %s", errNoAtom, want)
 }
 
 // synchsafe decodes the seven-bits-per-byte integer ID3v2 uses so that a size

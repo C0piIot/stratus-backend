@@ -14,7 +14,7 @@ import (
 	"github.com/C0piIot/stratus-backend/internal/db"
 	"github.com/C0piIot/stratus-backend/internal/files"
 	"github.com/C0piIot/stratus-backend/internal/files/filestest"
-	"github.com/C0piIot/stratus-backend/internal/media"
+	"github.com/C0piIot/stratus-backend/internal/media/thumb"
 	"github.com/C0piIot/stratus-backend/internal/music"
 	"github.com/C0piIot/stratus-backend/internal/storage"
 	"github.com/C0piIot/stratus-backend/internal/web"
@@ -109,7 +109,7 @@ func browserOverStore(t *testing.T) (http.Handler, *files.Service, storage.Stora
 	blobs, meta := backends(t)
 	s := files.New(blobs, meta)
 	creds := credentials()
-	thumbs := media.NewThumbs(blobs, s, meta, "ffmpeg", t.TempDir())
+	thumbs := thumb.New(blobs, s, meta, "ffmpeg", t.TempDir())
 	return web.Handler(web.Deps{
 		Version:   version,
 		BuildDate: buildDate,
@@ -138,7 +138,7 @@ func handlerIndexing(t *testing.T, s *files.Service, blobs storage.Storage, ix w
 		Sessions:  auth.NewSessions(creds, auth.DefaultSessionTTL),
 		Shares:    auth.NewShares(creds),
 		Files:     s,
-		Thumbs:    media.NewThumbs(blobs, s, ix.Index.(db.MediaIndex), "ffmpeg", t.TempDir()),
+		Thumbs:    thumb.New(blobs, s, ix.Index.(db.MediaIndex), "ffmpeg", t.TempDir()),
 		Index:     nil,
 		Playlists: nil,
 		Indexing:  ix,
@@ -153,11 +153,11 @@ func handlerIndexing(t *testing.T, s *files.Service, blobs storage.Storage, ix w
 // pieces is a service and the thumbnail generator over the same blob store,
 // which is the part that matters: a generator built over a second store would
 // never find the file it was asked to make a picture of.
-func pieces(t *testing.T) (*files.Service, *media.Thumbs, db.Store) {
+func pieces(t *testing.T) (*files.Service, *thumb.Service, db.Store) {
 	t.Helper()
 	blobs, meta := backends(t)
 	s := files.New(blobs, meta)
-	return s, media.NewThumbs(blobs, s, meta, "ffmpeg", t.TempDir()), meta
+	return s, thumb.New(blobs, s, meta, "ffmpeg", t.TempDir()), meta
 }
 
 // indexing is what the status page and the listing's marks read, with the
@@ -190,7 +190,7 @@ func handlerOver(t *testing.T, s *files.Service, blobs storage.Storage, index db
 		Sessions:  auth.NewSessions(creds, auth.DefaultSessionTTL),
 		Shares:    auth.NewShares(creds),
 		Files:     s,
-		Thumbs:    media.NewThumbs(blobs, s, index, "ffmpeg", t.TempDir()),
+		Thumbs:    thumb.New(blobs, s, index, "ffmpeg", t.TempDir()),
 		Index:     nil,
 		Playlists: nil,
 		Indexing:  indexing(index),
@@ -211,7 +211,7 @@ func handlerImports(t *testing.T, s *files.Service, blobs storage.Storage, meta 
 		Sessions:  auth.NewSessions(creds, auth.DefaultSessionTTL),
 		Shares:    auth.NewShares(creds),
 		Files:     s,
-		Thumbs:    media.NewThumbs(blobs, s, meta, "ffmpeg", t.TempDir()),
+		Thumbs:    thumb.New(blobs, s, meta, "ffmpeg", t.TempDir()),
 		Index:     nil,
 		Playlists: nil,
 		Indexing:  indexing(meta),
@@ -236,7 +236,7 @@ func handlerOverIndex(t *testing.T, s *files.Service, blobs storage.Storage, ind
 		Sessions:  auth.NewSessions(creds, auth.DefaultSessionTTL),
 		Shares:    auth.NewShares(creds),
 		Files:     s,
-		Thumbs:    media.NewThumbs(blobs, s, meta, "ffmpeg", t.TempDir()),
+		Thumbs:    thumb.New(blobs, s, meta, "ffmpeg", t.TempDir()),
 		Index:     index,
 		Playlists: playlistsOf(index),
 		Indexing:  indexing(nil),

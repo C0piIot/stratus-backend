@@ -25,6 +25,7 @@ import (
 	"github.com/C0piIot/stratus-backend/internal/db"
 	"github.com/C0piIot/stratus-backend/internal/db/sqlite"
 	"github.com/C0piIot/stratus-backend/internal/media"
+	"github.com/C0piIot/stratus-backend/internal/media/thumb"
 )
 
 // TestCollectorRuns is the wiring, not the collecting: the goroutine starts on
@@ -360,7 +361,7 @@ func TestThumbnailsAreMadeForWhatNobodyAnnounced(t *testing.T) {
 
 	// A whole batch of them, so the pass fills one and comes straight back for
 	// the next rather than waiting for the tick it was started by.
-	names := make([]string, media.ThumbBatch)
+	names := make([]string, thumb.Batch)
 	for i := range names {
 		names[i] = fmt.Sprintf("holiday-%d.jpg", i)
 		upload(t, base, password, names[i], photograph(t))

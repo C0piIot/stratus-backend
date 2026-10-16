@@ -15,6 +15,7 @@ import (
 	"github.com/C0piIot/stratus-backend/internal/files"
 	"github.com/C0piIot/stratus-backend/internal/files/filestest"
 	"github.com/C0piIot/stratus-backend/internal/media"
+	"github.com/C0piIot/stratus-backend/internal/media/thumb"
 )
 
 var scrobbleCall = regexp.MustCompile(`hx-get="([^"]+)"`)
@@ -42,7 +43,7 @@ func TestAPlayFromTheWebUICounts(t *testing.T) {
 	cfg := runConfig(t, map[string]string{"STRATUS_USERNAME": "edu", "STRATUS_PASSWORD": password})
 	h := app.New(cfg, "test", "2026-01-01T09:30:00Z").Handler(app.Deps{
 		Storage: blobs, Database: meta, Files: service,
-		Thumbs: media.NewThumbs(blobs, service, meta, "ffmpeg", t.TempDir()),
+		Thumbs: thumb.New(blobs, service, meta, "ffmpeg", t.TempDir()),
 	})
 
 	form := url.Values{"username": {"edu"}, "password": {password}}

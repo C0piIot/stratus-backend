@@ -18,7 +18,7 @@ import (
 	"github.com/C0piIot/stratus-backend/internal/db"
 	"github.com/C0piIot/stratus-backend/internal/files"
 	"github.com/C0piIot/stratus-backend/internal/files/filestest"
-	"github.com/C0piIot/stratus-backend/internal/media"
+	"github.com/C0piIot/stratus-backend/internal/media/thumb"
 	"github.com/C0piIot/stratus-backend/internal/music"
 	"github.com/C0piIot/stratus-backend/internal/storage"
 	"github.com/C0piIot/stratus-backend/internal/subsonic"
@@ -49,7 +49,7 @@ type library struct {
 	files *files.Service
 	meta  db.Store
 	blobs storage.Storage
-	art   *media.Thumbs
+	art   *thumb.Service
 	// transcoder stands in for ffmpeg: it records what it was asked for and
 	// answers with bytes of its own (stream_test.go).
 	transcoder *fakeTranscoder
@@ -75,7 +75,7 @@ func newLibrary(t *testing.T) *library {
 	// would fail saying so rather than quietly not looking.
 	// With the rows, as the composition root wires it: an album's cover can
 	// be one the pass fetched (#217).
-	thumbs := media.NewThumbs(blobs, service, meta, "ffmpeg", t.TempDir()).WithLookups(meta)
+	thumbs := thumb.New(blobs, service, meta, "ffmpeg", t.TempDir()).WithLookups(meta)
 	verifier := auth.NewThrottle(auth.Credentials{Username: username, Password: password}, auth.DefaultThrottle)
 	transcoder := &fakeTranscoder{}
 	return &library{
