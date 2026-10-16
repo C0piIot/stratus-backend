@@ -13,7 +13,7 @@ import (
 
 // trashColumns is the file row as it was, plus which deletion it arrived in
 // and when. The order is the one scanTrashed reads back.
-const trashColumns = `batch, owner_id, path, blob_key, size, mtime, etag, mime_type, is_dir, deleted_at`
+const trashColumns = sqlutil.TrashColumns
 
 // Trash implements db.Trash.
 func (r *repo) Trash(ctx context.Context, batch string, rows []db.File, at time.Time) error {
@@ -113,24 +113,6 @@ func (r *repo) TrashTotals(ctx context.Context, owner string) (db.TrashTotals, e
 	return t, nil
 }
 
-func scanBatch(rows *sql.Rows) (db.TrashBatch, error) {
-	var b db.TrashBatch
-	var at time.Time
-	if err := rows.Scan(&b.ID, &b.Root, &b.Files, &b.Bytes, &at); err != nil {
-		return db.TrashBatch{}, err
-	}
-	b.DeletedAt = at.UTC()
-	return b, nil
-}
+func scanBatch(rows *sql.Rows) (db.TrashBatch, error) { return sqlutil.ScanBatch(rows, times) }
 
-func scanTrashed(rows *sql.Rows) (db.Trashed, error) {
-	var t db.Trashed
-	var mtime, deleted time.Time
-	if err := rows.Scan(&t.Batch, &t.OwnerID, &t.Path, &t.BlobKey, &t.Size,
-		&mtime, &t.ETag, &t.MIMEType, &t.IsDir, &deleted); err != nil {
-		return db.Trashed{}, err
-	}
-	t.MTime = mtime.UTC()
-	t.DeletedAt = deleted.UTC()
-	return t, nil
-}
+func scanTrashed(rows *sql.Rows) (db.Trashed, error) { return sqlutil.ScanTrashed(rows, times) }

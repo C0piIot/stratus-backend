@@ -29,7 +29,7 @@ func (r *repo) CreatePlaylist(ctx context.Context, p db.Playlist) (db.Playlist, 
 		VALUES (?, ?, ?, ?, ?, ?) RETURNING id`
 
 	err := r.q.QueryRowContext(ctx, query, p.OwnerID, p.Name, p.Comment, p.Public,
-		p.Created.UnixMilli(), p.Changed.UnixMilli()).Scan(&p.ID)
+		times.Arg(p.Created), times.Arg(p.Changed)).Scan(&p.ID)
 	if err != nil {
 		return db.Playlist{}, fmt.Errorf("create playlist %q: %w", p.Name, mapErr(err))
 	}
@@ -98,7 +98,7 @@ func (r *repo) UpdatePlaylist(ctx context.Context, p db.Playlist) error {
 	const query = `UPDATE playlists SET name = ?, comment = ?, public = ?, changed_at = ?
 		WHERE owner_id = ? AND id = ?`
 
-	result, err := r.q.ExecContext(ctx, query, p.Name, p.Comment, p.Public, p.Changed.UnixMilli(), p.OwnerID, p.ID)
+	result, err := r.q.ExecContext(ctx, query, p.Name, p.Comment, p.Public, times.Arg(p.Changed), p.OwnerID, p.ID)
 	if err != nil {
 		return fmt.Errorf("update playlist %d: %w", p.ID, mapErr(err))
 	}
@@ -112,7 +112,7 @@ const entryBatch = 1000
 // SetPlaylistTracks implements db.Playlists.
 func (r *repo) SetPlaylistTracks(ctx context.Context, owner string, id int64, fileIDs []int64, changed time.Time) error {
 	const touch = `UPDATE playlists SET changed_at = ? WHERE owner_id = ? AND id = ?`
-	result, err := r.q.ExecContext(ctx, touch, changed.UnixMilli(), owner, id)
+	result, err := r.q.ExecContext(ctx, touch, times.Arg(changed), owner, id)
 	if err != nil {
 		return fmt.Errorf("touch playlist %d: %w", id, mapErr(err))
 	}
@@ -160,14 +160,4 @@ func affected(result sql.Result, what string, id int64) error {
 	return nil
 }
 
-func scanPlaylist(rows *sql.Rows) (db.Playlist, error) {
-	var p db.Playlist
-	var created, changed int64
-	if err := rows.Scan(&p.ID, &p.OwnerID, &p.Name, &p.Comment, &p.Public, &created, &changed,
-		&p.SongCount, &p.DurationMS); err != nil {
-		return db.Playlist{}, err
-	}
-	p.Created = time.UnixMilli(created).UTC()
-	p.Changed = time.UnixMilli(changed).UTC()
-	return p, nil
-}
+func scanPlaylist(rows *sql.Rows) (db.Playlist, error) { return sqlutil.ScanPlaylist(rows, times) }

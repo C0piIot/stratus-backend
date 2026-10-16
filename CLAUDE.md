@@ -1348,7 +1348,7 @@ internal/storage/storagetest/   conformance suite every adapter must pass
 internal/db/              PORT: Store iface, sentinels, entities
 internal/db/sqlite/       adapter + migrations/
 internal/db/postgres/     adapter + migrations/
-internal/db/sqlutil/      plumbing both SQL adapters share, and not one line of SQL
+internal/db/sqlutil/      what the three SQL adapters share -- the row loop, the time codec, the entity scanners -- and not one line of SQL
 internal/db/dbtest/       conformance suite every adapter must pass
 
 internal/files/           cross-protocol file invariants

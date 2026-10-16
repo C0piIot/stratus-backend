@@ -106,7 +106,7 @@ func (r *repo) Months(ctx context.Context, owner string, kind db.Kind) ([]db.Mon
 	query, args := newest, []any{string(kind), owner}
 	for {
 		var at time.Time
-		err := r.q.QueryRowContext(ctx, query, args...).Scan(&at)
+		err := r.q.QueryRowContext(ctx, query, args...).Scan(times.Dest(&at))
 		if errors.Is(err, sql.ErrNoRows) {
 			return out, nil
 		}
@@ -119,11 +119,4 @@ func (r *repo) Months(ctx context.Context, owner string, kind db.Kind) ([]db.Mon
 	}
 }
 
-func scanCapture(rows *sql.Rows) (db.Capture, error) {
-	var at time.Time
-	t, err := scanTrackWith(rows, &at)
-	if err != nil {
-		return db.Capture{}, err
-	}
-	return db.Capture{Track: t, SortAt: at.UTC()}, nil
-}
+func scanCapture(rows *sql.Rows) (db.Capture, error) { return sqlutil.ScanCapture(rows, times) }

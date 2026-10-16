@@ -64,7 +64,7 @@ func (r *repo) Star(ctx context.Context, owner string, s db.Subject, at time.Tim
 	if err := s.Validate(); err != nil {
 		return err
 	}
-	args := append(subjectArgs(owner, s), at.UnixMilli())
+	args := append(subjectArgs(owner, s), times.Arg(at))
 	if _, err := r.q.ExecContext(ctx, pick(s, trackStar, tagStar), args...); err != nil {
 		return fmt.Errorf("star %+v: %w", s, mapErr(err))
 	}
@@ -102,7 +102,7 @@ func (r *repo) RecordPlay(ctx context.Context, owner string, fileID int64, at ti
 	if err := db.TrackSubject(fileID).Validate(); err != nil {
 		return err
 	}
-	if _, err := r.q.ExecContext(ctx, trackPlay, fileID, owner, at.UnixMilli()); err != nil {
+	if _, err := r.q.ExecContext(ctx, trackPlay, fileID, owner, times.Arg(at)); err != nil {
 		return fmt.Errorf("record a play of %d: %w", fileID, mapErr(err))
 	}
 	return nil
@@ -194,46 +194,18 @@ type annotationRow struct {
 }
 
 func scanTrackAnnotation(rows *sql.Rows) (annotationRow, error) {
-	var id int64
-	var starred, played sql.NullInt64
-	var row annotationRow
-	if err := rows.Scan(&id, &starred, &row.annotation.Rating, &row.annotation.PlayCount, &played); err != nil {
-		return annotationRow{}, err
-	}
-	row.subject = db.TrackSubject(id)
-	if starred.Valid {
-		row.annotation.Starred = time.UnixMilli(starred.Int64).UTC()
-	}
-	if played.Valid {
-		row.annotation.Played = time.UnixMilli(played.Int64).UTC()
-	}
-	return row, nil
+	subject, annotation, err := sqlutil.ScanTrackAnnotation(rows, times)
+	return annotationRow{subject: subject, annotation: annotation}, err
 }
 
 func scanAlbumPlays(rows *sql.Rows) (annotationRow, error) {
-	var artist, album string
-	var played int64
-	var row annotationRow
-	if err := rows.Scan(&artist, &album, &row.annotation.PlayCount, &played); err != nil {
-		return annotationRow{}, err
-	}
-	row.subject = db.AlbumSubject(artist, album)
-	row.annotation.Played = time.UnixMilli(played).UTC()
-	return row, nil
+	subject, annotation, err := sqlutil.ScanAlbumPlays(rows, times)
+	return annotationRow{subject: subject, annotation: annotation}, err
 }
 
 func scanTagAnnotation(rows *sql.Rows) (annotationRow, error) {
-	var kind, artist, album string
-	var starred sql.NullInt64
-	var row annotationRow
-	if err := rows.Scan(&kind, &artist, &album, &starred, &row.annotation.Rating); err != nil {
-		return annotationRow{}, err
-	}
-	row.subject = db.Subject{Kind: db.SubjectKind(kind), Artist: artist, Album: album}
-	if starred.Valid {
-		row.annotation.Starred = time.UnixMilli(starred.Int64).UTC()
-	}
-	return row, nil
+	subject, annotation, err := sqlutil.ScanTagAnnotation(rows, times)
+	return annotationRow{subject: subject, annotation: annotation}, err
 }
 
 // albumAnnotated joins an album aggregate to its annotation. One row per

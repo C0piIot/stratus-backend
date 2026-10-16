@@ -163,12 +163,4 @@ func affected(result sql.Result, what string, id int64) error {
 	return nil
 }
 
-func scanPlaylist(rows *sql.Rows) (db.Playlist, error) {
-	var p db.Playlist
-	if err := rows.Scan(&p.ID, &p.OwnerID, &p.Name, &p.Comment, &p.Public, &p.Created, &p.Changed,
-		&p.SongCount, &p.DurationMS); err != nil {
-		return db.Playlist{}, err
-	}
-	p.Created, p.Changed = p.Created.UTC(), p.Changed.UTC()
-	return p, nil
-}
+func scanPlaylist(rows *sql.Rows) (db.Playlist, error) { return sqlutil.ScanPlaylist(rows, times) }
