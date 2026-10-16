@@ -333,16 +333,28 @@ const MaxCopies = 100
 // what /photos/ and /playlists/ already disambiguate with, and the extension
 // survives because it is what the indexer reads.
 func (s *Service) FreeName(ctx context.Context, owner, target string) (string, error) {
+	return freeName(ctx, func(p string) (db.File, error) { return s.Stat(ctx, owner, p) }, target)
+}
+
+// freeName is the loop behind FreeName and behind a restore, which asks the
+// same question inside a transaction: the name, or the name with a number
+// beside it, up to MaxCopies -- and past that a conflict, since a folder that
+// already holds a hundred copies of one name is a situation to be told about
+// rather than added to.
+func freeName(ctx context.Context, stat func(string) (db.File, error), target string) (string, error) {
 	for n := 1; n <= MaxCopies; n++ {
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
 		candidate := db.CopyName(target, n)
-		switch _, err := s.Stat(ctx, owner, candidate); {
+		switch _, err := stat(candidate); {
 		case errors.Is(err, db.ErrNotFound):
 			return candidate, nil
 		case err != nil:
 			return "", err
 		}
 	}
-	return "", fmt.Errorf("%q is taken, and so are the first %d names beside it", target, MaxCopies)
+	return "", fmt.Errorf("%w: %q is taken, and so are the first %d names beside it", db.ErrConflict, target, MaxCopies)
 }
 
 // MkdirAll makes a directory and whatever is missing above it, one level at a
