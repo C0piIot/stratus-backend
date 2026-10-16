@@ -1201,8 +1201,11 @@ surprise:
   issued it.
 - **Signing out clears the browser's cookie, and that is all it can do.** There
   is no server-side record to delete, so a cookie copied elsewhere stays usable
-  until it expires. Sessions therefore last **seven days and are not renewed on
-  use**: that ceiling is the only bound this design has.
+  until it expires. A session lasts **fourteen days from its last use**, re-signed
+  once a day while it is being used, with no ceiling on how long that can go on:
+  a browser you open every week is never signed out, and a copied cookie that
+  somebody keeps using stays usable until you change the password. That is the
+  bound this design has, and it is the one to reach for.
 
 The cookie is `HttpOnly` and `SameSite=Lax`, and `Secure` whenever the request
 arrived over HTTPS — directly, or through a proxy that says so with

@@ -83,6 +83,41 @@ func TestLoginSucceeds(t *testing.T) {
 	}
 }
 
+// TestSessionIsRenewedInUse: a page opened with a cookie from the day before
+// sends back a fresh one, and a page opened with this morning's does not --
+// the value is re-signed once a day, not once a request.
+func TestSessionIsRenewedInUse(t *testing.T) {
+	t.Parallel()
+	h := newHandler(t, nil)
+	// The same credentials as the handler's, so the same key: what differs
+	// is only when the value was signed.
+	issued, _ := auth.NewSessions(credentials(), auth.DefaultSessionTTL).Issue(username, time.Now().Add(-2*24*time.Hour))
+	stale := &http.Cookie{Name: auth.SessionCookie, Value: issued}
+
+	rec := get(t, h, "/files/", stale)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /files/ with a two-day-old session = %d, want 200", rec.Code)
+	}
+	c := sessionCookie(rec)
+	if c == nil {
+		t.Fatal("a two-day-old session was not renewed")
+	}
+	if c.Value == issued || !c.HttpOnly {
+		t.Errorf("the renewed cookie is %+v, want a new HttpOnly value", c)
+	}
+	if want := int(auth.DefaultSessionTTL.Seconds()); c.MaxAge > want || c.MaxAge < want-60 {
+		t.Errorf("Max-Age = %d, want about %d", c.MaxAge, want)
+	}
+
+	rec = get(t, h, "/files/", signIn(t, h))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /files/ with a fresh session = %d, want 200", rec.Code)
+	}
+	if c := sessionCookie(rec); c != nil {
+		t.Errorf("a session signed just now was re-signed: %+v", c)
+	}
+}
+
 // TestCookieIsSecureOverTLS: the attribute cannot be unconditional -- a
 // self-hoster on plain HTTP would get a cookie the browser stores and never
 // sends -- so it follows how the request actually arrived.

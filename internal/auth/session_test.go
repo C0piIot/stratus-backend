@@ -44,6 +44,76 @@ func TestSessionRoundTrip(t *testing.T) {
 	}
 }
 
+// TestSessionRenews: a session lasts a fortnight from its last use rather
+// than from when it was issued, and the use is counted once a day -- a value
+// signed this morning is not re-signed by every thumbnail on the page.
+func TestSessionRenews(t *testing.T) {
+	t.Parallel()
+	s := sessions(t)
+	value, expires := s.Issue(username, now)
+
+	if _, _, ok := s.Renew(value, now.Add(23*time.Hour)); ok {
+		t.Error("Renew after 23 hours re-signed a value that was good for thirteen more days")
+	}
+	later := now.Add(25 * time.Hour)
+	renewed, until, ok := s.Renew(value, later)
+	if !ok {
+		t.Fatal("Renew after 25 hours = not due")
+	}
+	if want := later.Add(auth.DefaultSessionTTL); !until.Equal(want) {
+		t.Errorf("the renewed value expires at %v, want %v", until, want)
+	}
+	// Past the original expiry, where the old value is refused and the new
+	// one is what keeps the browser signed in.
+	after := expires.Add(time.Hour)
+	if _, err := s.Verify(value, after); !errors.Is(err, auth.ErrSessionInvalid) {
+		t.Errorf("the original value after its expiry = %v, want ErrSessionInvalid", err)
+	}
+	got, err := s.Verify(renewed, after)
+	if err != nil || got != username {
+		t.Errorf("the renewed value after the original expiry = %q, %v; want %q", got, err, username)
+	}
+
+	// Nothing to renew: a value that is not good is not made good.
+	if _, _, ok := s.Renew(value, after); ok {
+		t.Error("Renew revived an expired value")
+	}
+	if _, _, ok := s.Renew("hello", now); ok {
+		t.Error("Renew signed something that was never a session")
+	}
+}
+
+// TestSessionSlidesWithoutACap, by decision (#334): a session in daily use
+// is never signed out. What ends it is the password changing, which
+// TestSessionDiesWithTheCredentials covers for a fresh value and this one
+// covers for a value that has been renewed for a year.
+func TestSessionSlidesWithoutACap(t *testing.T) {
+	t.Parallel()
+	s := sessions(t)
+	value, _ := s.Issue(username, now)
+
+	at := now
+	for day := 1; day <= 365; day++ {
+		at = now.Add(time.Duration(day) * 24 * time.Hour)
+		renewed, _, ok := s.Renew(value, at)
+		if !ok {
+			t.Fatalf("day %d: not renewed", day)
+		}
+		value = renewed
+	}
+	if _, err := s.Verify(value, at.Add(13*24*time.Hour)); err != nil {
+		t.Errorf("after a year of daily use, Verify = %v", err)
+	}
+
+	changed := auth.NewSessions(auth.Credentials{Username: username, Password: "example a different one"}, auth.DefaultSessionTTL)
+	if _, err := changed.Verify(value, at); !errors.Is(err, auth.ErrSessionInvalid) {
+		t.Errorf("after the password changed, Verify = %v, want ErrSessionInvalid", err)
+	}
+	if _, _, ok := changed.Renew(value, at); ok {
+		t.Error("Renew under the new password re-signed a value the old one issued")
+	}
+}
+
 // TestSessionIsNotACredential: the password is what the key is made of, so
 // changing it -- or the username -- is what revokes a session that is already
 // out there. It is the whole reason the derivation is not a random key.
