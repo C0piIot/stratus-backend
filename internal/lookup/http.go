@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"time"
 )
 
@@ -41,6 +42,16 @@ var (
 	errUnreachable = errors.New("could not be reached")
 )
 
+// statusError is a status a service answered with, kept beside the class it
+// was given so that a caller who knows the service better can reclassify it:
+// LRCLIB's 503 is not what MusicBrainz's is.
+type statusError struct {
+	service string
+	code    int
+}
+
+func (e statusError) Error() string { return e.service + " answered " + strconv.Itoa(e.code) }
+
 // get fetches one URL from one service, paced, and answers the body of a 2xx.
 //
 // Every failure is classified here, once, because the three callers would
@@ -73,21 +84,22 @@ func (s *Service) get(ctx context.Context, service, rawURL string, limit int64, 
 	}
 	defer func() { _ = resp.Body.Close() }()
 
+	status := statusError{service: service, code: resp.StatusCode}
 	switch {
 	case resp.StatusCode == http.StatusNotFound:
-		return nil, fmt.Errorf("%w: %s answered 404", errNothing, service)
+		return nil, fmt.Errorf("%w: %w", errNothing, status)
 	case resp.StatusCode == http.StatusServiceUnavailable, resp.StatusCode == http.StatusTooManyRequests:
-		return nil, fmt.Errorf("%w: %s answered %d", errRefused, service, resp.StatusCode)
+		return nil, fmt.Errorf("%w: %w", errRefused, status)
 	case resp.StatusCode >= 500:
-		return nil, fmt.Errorf("%w: %s answered %d", errUnreachable, service, resp.StatusCode)
+		return nil, fmt.Errorf("%w: %w", errUnreachable, status)
 	case resp.StatusCode >= 400:
 		// A 400 is this server's own request being wrong -- a query the
 		// service could not parse -- and asking again in an hour would be
 		// the same question. Treated as nothing there, with the status in
 		// the row for whoever reads it.
-		return nil, fmt.Errorf("%w: %s answered %d", errNothing, service, resp.StatusCode)
+		return nil, fmt.Errorf("%w: %w", errNothing, status)
 	case resp.StatusCode < 200 || resp.StatusCode >= 300:
-		return nil, fmt.Errorf("%w: %s answered %d", errUnreachable, service, resp.StatusCode)
+		return nil, fmt.Errorf("%w: %w", errUnreachable, status)
 	}
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))

@@ -353,10 +353,13 @@ func TestNothingThereIsAskedAgainInAMonth(t *testing.T) {
 	}
 }
 
-// TestARefusalStopsThePass: a 503 is a service saying stop, and asking seven
-// more times is how an agent gets blocked. What was refused is asked again in
-// an hour, and what was not reached stays pending for the next pass.
-func TestARefusalStopsThePass(t *testing.T) {
+// TestARefusalStopsItsHalfOfThePass: a 503 from MusicBrainz is a service
+// saying stop, and asking seven more times is how an agent gets blocked. What
+// was refused is asked again in an hour, what was not reached stays pending
+// for the next pass -- and the other half still runs, since LRCLIB is not
+// MusicBrainz. The fake refuses everything, and LRCLIB's 503 is a deferral
+// per track rather than a refusal, so both tracks are asked and deferred.
+func TestARefusalStopsItsHalfOfThePass(t *testing.T) {
 	t.Parallel()
 	l, s := newLibrary(t), newSources(t)
 	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
@@ -369,11 +372,14 @@ func TestARefusalStopsThePass(t *testing.T) {
 	if err != nil {
 		t.Fatalf("a refusal is not an error of the pass: %v", err)
 	}
-	if done.Deferred != 1 || done.Albums != 0 || done.More {
-		t.Errorf("Pass = %+v, want one deferred and nothing else touched", done)
+	if done.Deferred != 3 || done.Albums != 0 || done.Lyrics != 0 || done.More {
+		t.Errorf("Pass = %+v, want the album and both tracks deferred", done)
 	}
 	if n := s.mbCalls.Load(); n != 1 {
 		t.Errorf("MusicBrainz was asked %d times after refusing", n)
+	}
+	if n := s.lrcCalls.Load(); n != 2 {
+		t.Errorf("LRCLIB was asked %d times, want both tracks despite MusicBrainz refusing", n)
 	}
 	first, err := l.meta.AlbumLookup(t.Context(), owner, "Aaa", "Amber")
 	if err != nil {
@@ -626,9 +632,10 @@ func TestWhatASourceCannotAnswerIsDeferred(t *testing.T) {
 	})
 }
 
-// TestARefusedLyricsLookupStopsThePass is the refusal on the other service:
-// the words are the second half of the pass, and a 429 there ends it too.
-func TestARefusedLyricsLookupStopsThePass(t *testing.T) {
+// TestARefusedLyricsLookupStopsItsHalf is the refusal on the other service:
+// a 429 from LRCLIB ends the words' half of the pass and leaves the albums'
+// alone.
+func TestARefusedLyricsLookupStopsItsHalf(t *testing.T) {
 	t.Parallel()
 	l, s := newLibrary(t), newSources(t)
 	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
@@ -647,6 +654,47 @@ func TestARefusedLyricsLookupStopsThePass(t *testing.T) {
 	}
 	if done.Albums != 1 || done.Lyrics != 0 || done.Deferred != 1 {
 		t.Errorf("Pass = %+v, want the album done and one track deferred", done)
+	}
+}
+
+// TestLRCLIBBusyIsThisTrackInAnHour: LRCLIB answers 503 for a track it does
+// not hold and would have to fetch while it is busy, which is about the track
+// and not about this client. The pass goes on to the next one, and a full
+// batch still says there is more.
+func TestLRCLIBBusyIsThisTrackInAnHour(t *testing.T) {
+	t.Parallel()
+	l, s := newLibrary(t), newSources(t)
+	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
+	busy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("track_name") == "Unheard" {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte(`{"message":"The server is busy, please retry in a moment","name":"ServerOverloaded","statusCode":503}`))
+			return
+		}
+		s.lrc.Config.Handler.ServeHTTP(w, r)
+	}))
+	t.Cleanup(busy.Close)
+	unheard := l.track(t, "music/amber/01.flac", song("Autechre", "Amber", "Unheard", 1))
+	foil := l.track(t, "music/amber/02.flac", song("Autechre", "Amber", "Foil", 2))
+
+	svc := lookup.New(l.meta, l.thumbs, "t", lookup.WithEndpoints(s.mb.URL, s.caa.URL, busy.URL),
+		lookup.WithPace(0), lookup.WithClock(func() time.Time { return now }))
+	done, err := svc.Pass(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if done.Lyrics != 1 || done.Deferred != 1 {
+		t.Errorf("Pass = %+v, want one track answered and one deferred", done)
+	}
+	words, err := l.meta.LyricsOf(t.Context(), []int64{unheard.ID, foil.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w := words[unheard.ID]; w.Found() || !w.RetryAt.Equal(now.Add(time.Hour)) || !strings.Contains(w.Error, "503") {
+		t.Errorf("the busy track is %+v, want a retry in an hour", w)
+	}
+	if !words[foil.ID].Found() {
+		t.Errorf("the track behind the busy one was not asked about: %+v", words[foil.ID])
 	}
 }
 

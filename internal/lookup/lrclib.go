@@ -3,7 +3,9 @@ package lookup
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"strconv"
 
@@ -37,6 +39,17 @@ func (s *Service) lyrics(ctx context.Context, m db.Media) (lyricsAnswer, error) 
 	}
 	body, err := s.get(ctx, "lrclib", s.lrclib+"/api/get?"+q.Encode(), maxLyrics, "application/json")
 	if err != nil {
+		// LRCLIB's 503 is about this lookup and not about this client: a
+		// track it does not hold is one it goes and fetches from outside
+		// while answering, and "the server is busy" is what it says instead
+		// when it will not. Measured against the live service: the same
+		// title answers 200 when it is in their cache and 503 when it is
+		// not. So it is this track in an hour, and the pass goes on -- a
+		// 429 is still a refusal, since that one is about the client.
+		var status statusError
+		if errors.As(err, &status) && status.code == http.StatusServiceUnavailable {
+			return lyricsAnswer{}, fmt.Errorf("%w: busy, not held: %w", errUnreachable, status)
+		}
 		return lyricsAnswer{}, err
 	}
 

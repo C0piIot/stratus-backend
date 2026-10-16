@@ -2310,11 +2310,17 @@ Restraint here is principle 3, not laziness:
   courtesy, held by a pacer per service rather than a token bucket (a pass is
   a loop and would spend any burst in its first second). Every request names
   this project and its repository in the `User-Agent`, which MusicBrainz
-  requires of anybody it does not throttle. A 503 or a 429 **ends the pass
-  where it is** -- asking seven more times after one is how an agent gets
-  blocked -- and what was refused is asked again in an hour, what a source
-  had nothing for in a month, and what was found never, until something loses
-  it.
+  requires of anybody it does not throttle. A 503 or a 429 **ends that
+  service's half of the pass where it is** -- asking seven more times after
+  one is how an agent gets blocked, and MusicBrainz turning the client away
+  says nothing about LRCLIB -- and what was refused is asked again in an hour,
+  what a source had nothing for in a month, and what was found never, until
+  something loses it. **LRCLIB's 503 is the exception, and it was measured on
+  the live service**: a track it does not hold is one it fetches from outside
+  while answering, and "the server is busy" is what it says instead when it
+  will not -- the same title answers 200 from its cache and 503 past it. That
+  is about the track and not the client, so it is that track in an hour and
+  the pass goes on; its 429 is still a refusal.
 
   **An id in the tags is the album's own answer.** `media` carries the two
   MusicBrainz ids Picard writes, and an album that has one is not searched: a

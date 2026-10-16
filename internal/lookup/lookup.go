@@ -129,9 +129,11 @@ type Done struct {
 
 // Pass asks about one batch of albums and one of tracks, and reports.
 //
-// A source that is refusing requests stops the pass where it is: the rest of
-// the batch is still pending and will be found by the next one, and asking
-// seven more times after a 503 is how a server gets its agent blocked.
+// A source that is refusing requests stops its half of the pass where it is:
+// the rest of that batch is still pending and will be found by the next one,
+// and asking seven more times after a 503 is how a server gets its agent
+// blocked. Its half and not the whole, because the two halves ask different
+// services -- MusicBrainz turning the client away says nothing about LRCLIB.
 func (s *Service) Pass(ctx context.Context) (Done, error) {
 	var done Done
 	now := s.now()
@@ -149,6 +151,7 @@ func (s *Service) Pass(ctx context.Context) (Done, error) {
 	if err != nil {
 		return done, fmt.Errorf("find albums to look up: %w", err)
 	}
+	albumsRefused := false
 	for _, c := range albums {
 		if cerr := ctx.Err(); cerr != nil {
 			return done, cerr
@@ -159,7 +162,8 @@ func (s *Service) Pass(ctx context.Context) (Done, error) {
 		}
 		done.add(outcome)
 		if outcome.refused {
-			return done, nil
+			albumsRefused = true
+			break
 		}
 	}
 
@@ -167,6 +171,7 @@ func (s *Service) Pass(ctx context.Context) (Done, error) {
 	if err != nil {
 		return done, fmt.Errorf("find tracks to look up: %w", err)
 	}
+	lyricsRefused := false
 	for _, t := range tracks {
 		if cerr := ctx.Err(); cerr != nil {
 			return done, cerr
@@ -177,11 +182,15 @@ func (s *Service) Pass(ctx context.Context) (Done, error) {
 		}
 		done.add(outcome)
 		if outcome.refused {
-			return done, nil
+			lyricsRefused = true
+			break
 		}
 	}
 
-	done.More = len(albums) == albumBatch || len(tracks) == lyricsBatch
+	// More is about the half that was not refused: a batch cut short by a
+	// refusal is not a full one, and coming straight back for it would be
+	// asking again what was just turned away.
+	done.More = (!albumsRefused && len(albums) == albumBatch) || (!lyricsRefused && len(tracks) == lyricsBatch)
 	return done, nil
 }
 
