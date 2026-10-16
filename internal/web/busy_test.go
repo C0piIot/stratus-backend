@@ -41,8 +41,20 @@ func TestAPictureThatIsNotReadyIsNotAPictureThatIsMissing(t *testing.T) {
 	homework(t, s, meta)
 
 	creds := credentials()
-	h := web.Handler(version, buildDate, creds, auth.NewSessions(creds, auth.DefaultSessionTTL),
-		auth.NewShares(creds), s, atCapacity{}, meta, indexing(meta), nil, web.Video{})
+	h := web.Handler(web.Deps{
+		Version:   version,
+		BuildDate: buildDate,
+		Verifier:  creds,
+		Sessions:  auth.NewSessions(creds, auth.DefaultSessionTTL),
+		Shares:    auth.NewShares(creds),
+		Files:     s,
+		Thumbs:    atCapacity{},
+		Index:     meta,
+		Playlists: playlistsOf(meta),
+		Indexing:  indexing(meta),
+		Imports:   nil,
+		Video:     web.Video{},
+	})
 	cookie := signIn(t, h)
 
 	for _, target := range []string{

@@ -9,7 +9,6 @@ import (
 	"image/png"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -18,11 +17,10 @@ import (
 
 	"github.com/C0piIot/stratus-backend/internal/db"
 	"github.com/C0piIot/stratus-backend/internal/db/dbtest"
-	"github.com/C0piIot/stratus-backend/internal/db/sqlite"
 	"github.com/C0piIot/stratus-backend/internal/files"
+	"github.com/C0piIot/stratus-backend/internal/files/filestest"
 	"github.com/C0piIot/stratus-backend/internal/lookup"
 	"github.com/C0piIot/stratus-backend/internal/media"
-	"github.com/C0piIot/stratus-backend/internal/storage/disk"
 )
 
 const owner = "edu"
@@ -168,27 +166,14 @@ func pngBytes(t *testing.T, w, h int) []byte {
 // blobs on disk, the file layer over them and the thumbnail generator that
 // files a fetched cover.
 type library struct {
-	meta   *sqlite.Store
+	meta   db.Store
 	files  *files.Service
 	thumbs *media.Thumbs
 }
 
 func newLibrary(t *testing.T) *library {
 	t.Helper()
-	dir := t.TempDir()
-	blobs, err := disk.New(filepath.Join(dir, "blobs"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = blobs.Close() })
-	meta, err := sqlite.New(t.Context(), filepath.Join(dir, "stratus.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = meta.Close() })
-	if err := meta.Migrate(t.Context()); err != nil {
-		t.Fatal(err)
-	}
+	blobs, meta := filestest.Backends(t)
 	service := files.New(blobs, meta)
 	thumbs := media.NewThumbs(blobs, service, meta, "ffmpeg", t.TempDir()).WithLookups(meta)
 	return &library{meta: meta, files: service, thumbs: thumbs}

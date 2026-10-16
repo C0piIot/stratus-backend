@@ -5,16 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/C0piIot/stratus-backend/internal/dav"
 	"github.com/C0piIot/stratus-backend/internal/db"
-	"github.com/C0piIot/stratus-backend/internal/db/sqlite"
 	"github.com/C0piIot/stratus-backend/internal/files"
-	"github.com/C0piIot/stratus-backend/internal/storage/disk"
+	"github.com/C0piIot/stratus-backend/internal/files/filestest"
 )
 
 const photosPrefix = "/photos/"
@@ -22,25 +20,12 @@ const photosPrefix = "/photos/"
 type byDateRig struct {
 	h     http.Handler
 	files *files.Service
-	meta  *sqlite.Store
+	meta  db.Store
 }
 
 func byDateServer(t *testing.T) *byDateRig {
 	t.Helper()
-	dir := t.TempDir()
-	blobs, err := disk.New(filepath.Join(dir, "blobs"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = blobs.Close() })
-	meta, err := sqlite.New(t.Context(), filepath.Join(dir, "stratus.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = meta.Close() })
-	if err := meta.Migrate(t.Context()); err != nil {
-		t.Fatal(err)
-	}
+	blobs, meta := filestest.Backends(t)
 	service := files.New(blobs, meta)
 	return &byDateRig{h: withUser(dav.ByDate(photosPrefix, meta, db.KindImage), "edu"), files: service, meta: meta}
 }

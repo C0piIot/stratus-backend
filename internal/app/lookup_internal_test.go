@@ -12,11 +12,10 @@ import (
 	"github.com/C0piIot/stratus-backend/internal/config"
 	"github.com/C0piIot/stratus-backend/internal/db"
 	"github.com/C0piIot/stratus-backend/internal/db/dbtest"
-	"github.com/C0piIot/stratus-backend/internal/db/sqlite"
 	"github.com/C0piIot/stratus-backend/internal/files"
+	"github.com/C0piIot/stratus-backend/internal/files/filestest"
 	"github.com/C0piIot/stratus-backend/internal/lookup"
 	"github.com/C0piIot/stratus-backend/internal/media"
-	"github.com/C0piIot/stratus-backend/internal/storage/disk"
 )
 
 // TestLookupLoopRunsAPassAndStopsWithTheContext: the loop is the scheduling
@@ -25,27 +24,14 @@ import (
 // the process does rather than on its own schedule.
 func TestLookupLoopRunsAPassAndStopsWithTheContext(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
-	blobs, err := disk.New(filepath.Join(dir, "blobs"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = blobs.Close() })
-	meta, err := sqlite.New(t.Context(), filepath.Join(dir, "stratus.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = meta.Close() })
-	if err = meta.Migrate(t.Context()); err != nil {
-		t.Fatal(err)
-	}
+	blobs, meta := filestest.Backends(t)
 	service := files.New(blobs, meta)
 	thumbs := media.NewThumbs(blobs, service, meta, "ffmpeg", t.TempDir()).WithLookups(meta)
 
 	// One album, so the pass has something to ask about -- and nowhere to
 	// ask: the addresses point at a port nothing listens on, which is the
 	// shape of a server with no route out.
-	if _, err = service.Mkdir(t.Context(), "edu", "music"); err != nil {
+	if _, err := service.Mkdir(t.Context(), "edu", "music"); err != nil {
 		t.Fatal(err)
 	}
 	f, err := service.Write(t.Context(), "edu", "music/01.flac", strings.NewReader("fLaC"), 4, "audio/flac")
@@ -149,23 +135,10 @@ func TestOpenWiresTheLookupOnlyWhenAsked(t *testing.T) {
 // the loop.
 func TestLookupLoopComesStraightBackWhileABatchFills(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
-	blobs, err := disk.New(filepath.Join(dir, "blobs"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = blobs.Close() })
-	meta, err := sqlite.New(t.Context(), filepath.Join(dir, "stratus.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = meta.Close() })
-	if err = meta.Migrate(t.Context()); err != nil {
-		t.Fatal(err)
-	}
+	blobs, meta := filestest.Backends(t)
 	service := files.New(blobs, meta)
 	thumbs := media.NewThumbs(blobs, service, meta, "ffmpeg", t.TempDir()).WithLookups(meta)
-	if _, err = service.Mkdir(t.Context(), "edu", "music"); err != nil {
+	if _, err := service.Mkdir(t.Context(), "edu", "music"); err != nil {
 		t.Fatal(err)
 	}
 	// One more album than a batch holds, so the first pass says there is more.

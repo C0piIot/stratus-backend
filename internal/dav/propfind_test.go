@@ -15,9 +15,8 @@ import (
 	"github.com/C0piIot/stratus-backend/internal/dav"
 	"github.com/C0piIot/stratus-backend/internal/db"
 	"github.com/C0piIot/stratus-backend/internal/db/dbtest"
-	"github.com/C0piIot/stratus-backend/internal/db/sqlite"
 	"github.com/C0piIot/stratus-backend/internal/files"
-	"github.com/C0piIot/stratus-backend/internal/storage/disk"
+	"github.com/C0piIot/stratus-backend/internal/files/filestest"
 )
 
 // PROPFIND is answered by a second library now, which is a thing you do not do
@@ -191,20 +190,7 @@ func baselineTree(t *testing.T) http.Handler {
 func TestPropfindDoesNotAskOncePerChild(t *testing.T) {
 	t.Parallel()
 
-	dir := t.TempDir()
-	blobs, err := disk.New(filepath.Join(dir, "blobs"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = blobs.Close() })
-	meta, err := sqlite.New(t.Context(), filepath.Join(dir, "stratus.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = meta.Close() })
-	if merr := meta.Migrate(t.Context()); merr != nil {
-		t.Fatal(merr)
-	}
+	blobs, meta := filestest.Backends(t)
 
 	counted := &countingStore{Store: meta}
 	h := withUser(dav.Handler(prefix, files.New(blobs, counted), counted), "edu")

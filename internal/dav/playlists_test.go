@@ -4,14 +4,13 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"path/filepath"
 	"strconv"
 	"testing"
 	"time"
 
 	"github.com/C0piIot/stratus-backend/internal/dav"
 	"github.com/C0piIot/stratus-backend/internal/db"
-	"github.com/C0piIot/stratus-backend/internal/db/sqlite"
+	"github.com/C0piIot/stratus-backend/internal/files/filestest"
 	"github.com/C0piIot/stratus-backend/internal/music"
 )
 
@@ -19,16 +18,9 @@ const playlistsPrefix = "/playlists/"
 
 // playlistServer is the mount over a real database and the real playlist
 // service, with the named tracks in it.
-func playlistServer(t *testing.T) (http.Handler, *music.Service, *sqlite.Store, map[string]int64) {
+func playlistServer(t *testing.T) (http.Handler, *music.Service, db.Store, map[string]int64) {
 	t.Helper()
-	meta, err := sqlite.New(t.Context(), filepath.Join(t.TempDir(), "stratus.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = meta.Close() })
-	if err := meta.Migrate(t.Context()); err != nil {
-		t.Fatal(err)
-	}
+	_, meta := filestest.Backends(t)
 
 	ids := map[string]int64{}
 	for _, tr := range []struct{ path, artist, title string }{
