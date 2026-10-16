@@ -125,6 +125,12 @@ type Done struct {
 	Deferred int
 	// More says a batch was full, so there is probably more to do.
 	More bool
+	// Refused says a source turned the client away and a half of the pass
+	// stopped there. The rows it reached wait an hour; the rest of that
+	// batch is still pending, and the caller decides how soon to come back
+	// for it -- sooner than the hour, since the refusal was about a moment
+	// and not about those albums.
+	Refused bool
 }
 
 // Pass asks about one batch of albums and one of tracks, and reports.
@@ -191,6 +197,7 @@ func (s *Service) Pass(ctx context.Context) (Done, error) {
 	// refusal is not a full one, and coming straight back for it would be
 	// asking again what was just turned away.
 	done.More = (!albumsRefused && len(albums) == albumBatch) || (!lyricsRefused && len(tracks) == lyricsBatch)
+	done.Refused = albumsRefused || lyricsRefused
 	return done, nil
 }
 

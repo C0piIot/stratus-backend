@@ -2325,7 +2325,9 @@ Restraint here is principle 3, not laziness:
   thing the first deploy showed is that **MusicBrainz's limit is per address
   and Fly's egress address is shared between tenants**, so a 503 from it can
   arrive with this server well inside its own second; the album waits an hour
-  and the rest of the batch the next pass, which is the right price.
+  and the loop comes back for the rest of the batch a minute later rather
+  than on the hour, which is the right price for a refusal that was about a
+  moment.
 
   **An id in the tags is the album's own answer.** `media` carries the two
   MusicBrainz ids Picard writes, and an album that has one is not searched: a

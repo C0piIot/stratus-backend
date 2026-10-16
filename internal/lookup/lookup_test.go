@@ -372,8 +372,8 @@ func TestARefusalStopsItsHalfOfThePass(t *testing.T) {
 	if err != nil {
 		t.Fatalf("a refusal is not an error of the pass: %v", err)
 	}
-	if done.Deferred != 1 || done.Albums != 0 || done.Lyrics != 2 || done.More {
-		t.Errorf("Pass = %+v, want the album deferred and both tracks answered as not held", done)
+	if done.Deferred != 1 || done.Albums != 0 || done.Lyrics != 2 || done.More || !done.Refused {
+		t.Errorf("Pass = %+v, want the album deferred, both tracks answered as not held, and Refused said", done)
 	}
 	if n := s.mbCalls.Load(); n != 1 {
 		t.Errorf("MusicBrainz was asked %d times after refusing", n)
@@ -652,8 +652,8 @@ func TestARefusedLyricsLookupStopsItsHalf(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if done.Albums != 1 || done.Lyrics != 0 || done.Deferred != 1 {
-		t.Errorf("Pass = %+v, want the album done and one track deferred", done)
+	if done.Albums != 1 || done.Lyrics != 0 || done.Deferred != 1 || !done.Refused {
+		t.Errorf("Pass = %+v, want the album done, one track deferred and Refused said", done)
 	}
 }
 
