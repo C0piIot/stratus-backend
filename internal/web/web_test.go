@@ -85,7 +85,7 @@ func handlerIndexing(t *testing.T, s *files.Service, blobs storage.Storage, ix w
 	t.Helper()
 	creds := credentials()
 	return web.Handler(version, buildDate, creds, auth.NewSessions(creds, auth.DefaultSessionTTL), auth.NewShares(creds),
-		s, media.NewThumbs(blobs, s, ix.Index, "ffmpeg", t.TempDir()), nil, ix, nil, web.Video{})
+		s, media.NewThumbs(blobs, s, ix.Index.(db.MediaIndex), "ffmpeg", t.TempDir()), nil, ix, nil, web.Video{})
 }
 
 // service is the real file layer over real backends in a temporary directory,

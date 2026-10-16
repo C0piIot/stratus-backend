@@ -137,7 +137,7 @@ func fileFacts(f db.File) []fact {
 		return out
 	}
 	out.add("Type", f.MIMEType)
-	out.add("Size", humanSize(f.Size)+" ("+strconv.FormatInt(f.Size, 10)+" bytes)")
+	out.add("Size", humanBytes(f.Size)+" ("+strconv.FormatInt(f.Size, 10)+" bytes)")
 	out.add("Modified", when(f.MTime))
 	out.add("ETag", f.ETag)
 	return out

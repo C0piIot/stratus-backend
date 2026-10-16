@@ -22,7 +22,7 @@ const countsFragment = "counts"
 // operator turned indexing off, which is a decision rather than a fault and is
 // therefore said out loud rather than shown as a library that never finishes.
 type Indexing struct {
-	Index    db.MediaIndex
+	Index    MediaReads
 	Interval time.Duration
 	// Ahead is whether pictures are also made before anything asks (#341).
 	// Off is a decision too, and one this page has to say out loud: the
@@ -35,6 +35,17 @@ type Indexing struct {
 	// the page says which of the two it is looking at.
 	Lookups db.Lookups
 	Lookup  bool
+}
+
+// MediaReads is the half of the media index a page reads (#365): what is
+// known about a file, how much of the library is done, and the state of a
+// page of rows. Not db.MediaIndex whole, for the reason internal/dav gives
+// for the same narrowing -- an inbound adapter that could write a media row
+// is one that one day will.
+type MediaReads interface {
+	MediaByFile(ctx context.Context, fileID int64) (db.Media, error)
+	MediaCounts(ctx context.Context, version, generation int) (db.MediaCounts, error)
+	MediaStates(ctx context.Context, fileIDs []int64) (map[int64]db.MediaState, error)
 }
 
 // lookupView is the music half of the status page: how much of the library
@@ -207,71 +218,4 @@ func percent(c db.MediaCounts) int {
 		return 100
 	}
 	return int(done * 100 / c.Files)
-}
-
-// rowState is what one query about a page of files tells the page: whether the
-// indexer has been there, and whether to offer a picture at all.
-type rowState struct {
-	// Indexing is the badge a listing draws, and empty for a file that has
-	// been read.
-	Indexing string
-	// NoPicture says this build has already tried and could not, so the page
-	// draws the mark alone rather than asking for a thumbnail that will
-	// answer 404 (#341).
-	NoPicture bool
-}
-
-// statesOf marks the rows of a page: the ones the indexer has not dealt with
-// yet, and the ones nothing here can draw.
-//
-// The states are one query for the page being rendered, and a failure here is
-// not a failure of the page: both marks are decoration, and a folder that will
-// not open because the decoration could not be fetched would be a worse page
-// than one without it. So it is logged and the page goes out plain -- which
-// for the picture means offering one that may not arrive, exactly as it did
-// before this was read at all.
-//
-// where is what the log line names, since this is called from pages that are
-// not listings.
-func (h *handler) statesOf(ctx context.Context, where string, children []db.File) map[int64]rowState {
-	ids := make([]int64, 0, len(children))
-	for _, c := range children {
-		if !c.IsDir {
-			ids = append(ids, c.ID)
-		}
-	}
-	if len(ids) == 0 {
-		return nil
-	}
-
-	states, err := h.indexing.Index.MediaStates(ctx, ids)
-	if err != nil {
-		slog.Error("reading what is indexed", "path", where, "err", err)
-		return nil
-	}
-
-	marks := make(map[int64]rowState, len(ids))
-	for _, c := range children {
-		if c.IsDir {
-			continue
-		}
-		state, known := states[c.ID]
-		var row rowState
-		switch {
-		case !known, state.Version < media.Version, state.ETag != c.ETag:
-			// The same three conditions the queue asks about, which is what
-			// keeps the page from saying "waiting" about a file nothing will
-			// come back to, or "done" about one that is about to be read again.
-			row.Indexing = "waiting"
-		case state.Failed:
-			row.Indexing = "unreadable"
-		}
-		// Whether this build has already tried and could not, which is the
-		// rule media.Refused owns because three surfaces read it now.
-		row.NoPicture = media.Refused(state, time.Now())
-		if row != (rowState{}) {
-			marks[c.ID] = row
-		}
-	}
-	return marks
 }

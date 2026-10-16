@@ -86,7 +86,7 @@ func TestBaseName(t *testing.T) {
 	}
 }
 
-// humanSize is arithmetic with a ladder of units, and a listing test only ever
+// humanBytes is arithmetic with a ladder of units, and a listing test only ever
 // exercises the rung the fixture happens to sit on. Tested where it lives, with
 // the boundaries that matter: the first byte of each unit, and the last one
 // before it.
@@ -100,16 +100,16 @@ func TestHumanSize(t *testing.T) {
 		{n: 0, want: "0 B"},
 		{n: 1, want: "1 B"},
 		{n: 1023, want: "1023 B"},
-		{n: 1024, want: "1.0 KB"},
-		{n: 1536, want: "1.5 KB"},
-		{n: 1024*1024 - 1, want: "1024.0 KB"},
-		{n: 1024 * 1024, want: "1.0 MB"},
-		{n: 3*1024*1024*1024 + 512*1024*1024, want: "3.5 GB"},
-		{n: 1024 * 1024 * 1024 * 1024, want: "1.0 TB"},
+		{n: 1024, want: "1.0 KiB"},
+		{n: 1536, want: "1.5 KiB"},
+		{n: 1024*1024 - 1, want: "1024.0 KiB"},
+		{n: 1024 * 1024, want: "1.0 MiB"},
+		{n: 3*1024*1024*1024 + 512*1024*1024, want: "3.5 GiB"},
+		{n: 1024 * 1024 * 1024 * 1024, want: "1.0 TiB"},
 	}
 	for _, tt := range tests {
-		if got := humanSize(tt.n); got != tt.want {
-			t.Errorf("humanSize(%d) = %q, want %q", tt.n, got, tt.want)
+		if got := humanBytes(tt.n); got != tt.want {
+			t.Errorf("humanBytes(%d) = %q, want %q", tt.n, got, tt.want)
 		}
 	}
 }
