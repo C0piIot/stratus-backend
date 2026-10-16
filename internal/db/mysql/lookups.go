@@ -23,14 +23,15 @@ const pendingAlbumLookups = `SELECT f.owner_id, m.album_artist, m.album, MAX(m.m
 	FROM media m JOIN files f ON f.id = m.file_id
 	LEFT JOIN album_lookups l ON l.owner_id = f.owner_id AND l.artist = m.album_artist AND l.album = m.album
 	WHERE m.kind = ? AND m.album <> '' AND m.album_artist <> ''
-	  AND (l.owner_id IS NULL OR (l.retry_at IS NOT NULL AND l.retry_at <= ?))
+	  AND (l.owner_id IS NULL OR (l.retry_at IS NOT NULL AND l.retry_at <= ?)
+	       OR (l.release_group = '' AND l.search_version < ?))
 	GROUP BY f.owner_id, m.album_artist, m.album
 	ORDER BY f.owner_id, m.album_artist, m.album
 	LIMIT ?`
 
 // PendingAlbumLookups implements db.Lookups.
-func (r *repo) PendingAlbumLookups(ctx context.Context, now time.Time, limit int) ([]db.AlbumCandidate, error) {
-	out, err := sqlutil.Collect(ctx, r.q, scanAlbumCandidate, pendingAlbumLookups, string(db.KindAudio), now.UnixMilli(), limit)
+func (r *repo) PendingAlbumLookups(ctx context.Context, version int, now time.Time, limit int) ([]db.AlbumCandidate, error) {
+	out, err := sqlutil.Collect(ctx, r.q, scanAlbumCandidate, pendingAlbumLookups, string(db.KindAudio), now.UnixMilli(), version, limit)
 	if err != nil {
 		return nil, fmt.Errorf("list pending album lookups: %w", mapErr(err))
 	}
@@ -50,25 +51,26 @@ func albumHash(artist, album string) []byte { return hash(artist + "\x00" + albu
 
 // PutAlbumLookup implements db.Lookups.
 func (r *repo) PutAlbumLookup(ctx context.Context, l db.AlbumLookup) error {
-	const query = `INSERT INTO album_lookups (owner_id, key_hash, artist, album, looked_up_at, retry_at, release_group, cover_blob, error)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) AS new
+	const query = `INSERT INTO album_lookups (owner_id, key_hash, artist, album, looked_up_at, retry_at, release_group, cover_blob, error, search_version)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) AS new
 		ON DUPLICATE KEY UPDATE
 			looked_up_at = new.looked_up_at, retry_at = new.retry_at,
-			release_group = new.release_group, cover_blob = new.cover_blob, error = new.error`
+			release_group = new.release_group, cover_blob = new.cover_blob, error = new.error,
+			search_version = new.search_version`
 
 	var retryAt any
 	if !l.RetryAt.IsZero() {
 		retryAt = l.RetryAt.UnixMilli()
 	}
 	_, err := r.q.ExecContext(ctx, query, l.Owner, albumHash(l.Artist, l.Album), l.Artist, l.Album,
-		l.LookedUpAt.UnixMilli(), retryAt, l.ReleaseGroup, l.CoverBlob, l.Error)
+		l.LookedUpAt.UnixMilli(), retryAt, l.ReleaseGroup, l.CoverBlob, l.Error, l.SearchVersion)
 	if err != nil {
 		return fmt.Errorf("put album lookup for %q / %q: %w", l.Artist, l.Album, mapErr(err))
 	}
 	return nil
 }
 
-const albumLookupColumns = `owner_id, artist, album, looked_up_at, retry_at, release_group, cover_blob, error`
+const albumLookupColumns = `owner_id, artist, album, looked_up_at, retry_at, release_group, cover_blob, error, search_version`
 
 // AlbumLookup implements db.Lookups.
 func (r *repo) AlbumLookup(ctx context.Context, owner, artist, album string) (db.AlbumLookup, error) {
@@ -78,7 +80,7 @@ func (r *repo) AlbumLookup(ctx context.Context, owner, artist, album string) (db
 	var lookedUpAt int64
 	var retryAt sql.NullInt64
 	err := r.q.QueryRowContext(ctx, query, owner, albumHash(artist, album)).
-		Scan(&l.Owner, &l.Artist, &l.Album, &lookedUpAt, &retryAt, &l.ReleaseGroup, &l.CoverBlob, &l.Error)
+		Scan(&l.Owner, &l.Artist, &l.Album, &lookedUpAt, &retryAt, &l.ReleaseGroup, &l.CoverBlob, &l.Error, &l.SearchVersion)
 	if err != nil {
 		return db.AlbumLookup{}, fmt.Errorf("read album lookup for %q / %q: %w", artist, album, mapErr(err))
 	}

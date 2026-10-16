@@ -39,6 +39,11 @@ type AlbumLookup struct {
 	// Error is why the last attempt did not settle the row, in words, for
 	// whoever reads the table.
 	Error string
+	// SearchVersion is which search wrote the row. A row that found nothing
+	// is asked again when the search has moved on, the way media.Version
+	// puts a library back in front of a better extractor; a row that found
+	// an id keeps it whatever the version says.
+	SearchVersion int
 }
 
 // AlbumCandidate is an album the pass should look at next, with what the
@@ -88,10 +93,11 @@ type LookupCounts struct {
 // this: it was fetched, and it can be fetched again.
 type Lookups interface {
 	// PendingAlbumLookups returns the albums the pass should ask about next:
-	// those with no row, and those whose row says to ask again by now. An
-	// album is the pairing Music groups by, so the ids come from whichever
-	// of its tracks carry one.
-	PendingAlbumLookups(ctx context.Context, now time.Time, limit int) ([]AlbumCandidate, error)
+	// those with no row, those whose row says to ask again by now, and those
+	// whose row found nothing under a search older than version. An album
+	// is the pairing Music groups by, so the ids come from whichever of its
+	// tracks carry one.
+	PendingAlbumLookups(ctx context.Context, version int, now time.Time, limit int) ([]AlbumCandidate, error)
 
 	// PutAlbumLookup writes what was found, replacing any earlier row.
 	PutAlbumLookup(ctx context.Context, l AlbumLookup) error
