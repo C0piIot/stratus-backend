@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"path"
@@ -160,7 +161,7 @@ func (f *fileSystem) Open(ctx context.Context, name string) (io.ReadCloser, erro
 	}
 
 	body, _, err := f.files.Open(ctx, owner, p)
-	return body, mapErr(err)
+	return body, mapErr(ctx, err)
 }
 
 // Stat implements webdav.FileSystem.
@@ -182,7 +183,7 @@ func (f *fileSystem) Stat(ctx context.Context, name string) (*webdav.FileInfo, e
 
 	file, err := f.files.Stat(ctx, owner, p)
 	if err != nil {
-		return nil, mapErr(err)
+		return nil, mapErr(ctx, err)
 	}
 	return f.toFileInfo(file), nil
 }
@@ -222,7 +223,7 @@ func (f *fileSystem) Create(ctx context.Context, name string, body io.ReadCloser
 	existing, statErr := f.files.Stat(ctx, owner, p)
 	switch {
 	case statErr != nil && !errors.Is(statErr, db.ErrNotFound):
-		return nil, false, mapErr(statErr)
+		return nil, false, mapErr(ctx, statErr)
 	case opts != nil:
 		if cerr := checkConditions(opts.IfMatch, opts.IfNoneMatch, existing, statErr == nil); cerr != nil {
 			return nil, false, cerr
@@ -238,7 +239,7 @@ func (f *fileSystem) Create(ctx context.Context, name string, body io.ReadCloser
 		if errors.Is(err, db.ErrNotFound) {
 			return nil, false, webdav.NewHTTPError(http.StatusConflict, err)
 		}
-		return nil, false, mapErr(err)
+		return nil, false, mapErr(ctx, err)
 	}
 	return f.toFileInfo(file), statErr != nil, nil
 }
@@ -262,13 +263,13 @@ func (f *fileSystem) RemoveAll(ctx context.Context, name string, opts *webdav.Re
 	if opts != nil && (opts.IfMatch.IsSet() || opts.IfNoneMatch.IsSet()) {
 		existing, statErr := f.files.Stat(ctx, owner, p)
 		if statErr != nil && !errors.Is(statErr, db.ErrNotFound) {
-			return mapErr(statErr)
+			return mapErr(ctx, statErr)
 		}
 		if err := checkConditions(opts.IfMatch, opts.IfNoneMatch, existing, statErr == nil); err != nil {
 			return err
 		}
 	}
-	return mapErr(f.files.Remove(ctx, owner, p))
+	return mapErr(ctx, f.files.Remove(ctx, owner, p))
 }
 
 // Mkdir implements webdav.FileSystem, which is MKCOL.
@@ -291,7 +292,7 @@ func (f *fileSystem) Mkdir(ctx context.Context, name string) error {
 		// And a missing parent is 409, for the same reason as PUT.
 		return webdav.NewHTTPError(http.StatusConflict, err)
 	default:
-		return mapErr(err)
+		return mapErr(ctx, err)
 	}
 }
 
@@ -320,14 +321,14 @@ func (f *fileSystem) Move(ctx context.Context, name, dest string, opts *webdav.M
 		// cleared first. Not atomic with the move: a failure between the two
 		// loses the destination, which is what Overwrite: T asked for anyway.
 		if err := f.files.Remove(ctx, owner, to); err != nil {
-			return false, mapErr(err)
+			return false, mapErr(ctx, err)
 		}
 	case !errors.Is(statErr, db.ErrNotFound):
-		return false, mapErr(statErr)
+		return false, mapErr(ctx, statErr)
 	}
 
 	if err := f.files.Move(ctx, owner, from, to); err != nil {
-		return false, mapErr(err)
+		return false, mapErr(ctx, err)
 	}
 	return statErr != nil, nil
 }
@@ -357,14 +358,14 @@ func (f *fileSystem) Copy(ctx context.Context, name, dest string, opts *webdav.C
 			return false, webdav.NewHTTPError(http.StatusPreconditionFailed, errors.New("the destination exists"))
 		}
 	} else if !errors.Is(statErr, db.ErrNotFound) {
-		return false, mapErr(statErr)
+		return false, mapErr(ctx, statErr)
 	}
 
 	// NoRecursive is the library's reading of Depth: 0, which on a collection
 	// means the collection and not its members (RFC 4918 9.8.3).
 	created, err := f.files.Copy(ctx, owner, from, to, opts == nil || !opts.NoRecursive)
 	if err != nil {
-		return false, mapErr(err)
+		return false, mapErr(ctx, err)
 	}
 	return created, nil
 }
@@ -464,7 +465,11 @@ func mimeType(p string) string {
 
 // mapErr turns this project's sentinels into the status codes WebDAV clients
 // expect. It is the one piece of translation a library cannot do for us.
-func mapErr(err error) error {
+//
+// What it cannot translate is a 500, and go-webdav writes that error into the
+// response body and nowhere else: the request line said 500 and nothing said
+// why. So it is logged here, unless the client has already gone.
+func mapErr(ctx context.Context, err error) error {
 	switch {
 	case err == nil:
 		return nil
@@ -483,6 +488,9 @@ func mapErr(err error) error {
 		// is the answer a client can act on rather than retry.
 		return webdav.NewHTTPError(http.StatusInsufficientStorage, err)
 	default:
+		if ctx.Err() == nil {
+			slog.ErrorContext(ctx, "dav: request failed", "err", err)
+		}
 		return fmt.Errorf("dav: %w", err)
 	}
 }
