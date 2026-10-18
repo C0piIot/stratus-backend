@@ -1,6 +1,7 @@
 package dav
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -138,7 +139,7 @@ func TestMapErr(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got := mapErr(tt.err)
+			got := mapErr(context.Background(), tt.err)
 
 			if tt.err == nil {
 				if got != nil {
@@ -164,7 +165,7 @@ func TestMapErrKeepsWhatItDoesNotKnow(t *testing.T) {
 	t.Parallel()
 
 	cause := errors.New("the database is on fire")
-	got := mapErr(cause)
+	got := mapErr(context.Background(), cause)
 
 	// Not turned into any status: the library's handler makes an unclassified
 	// error a 500, which is the right answer for a bug in this server.
