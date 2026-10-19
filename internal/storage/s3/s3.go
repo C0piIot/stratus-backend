@@ -161,7 +161,21 @@ func (s *Store) Put(ctx context.Context, key string, r io.Reader, size int64) (s
 	// storage.ExactReader is load-bearing: with a known size the client sends
 	// exactly that many bytes and ignores the rest, so an over-long body would
 	// otherwise be stored truncated and reported as a success.
-	if _, err := s.client.PutObject(ctx, s.bucket, key, storage.ExactReader(r, size), size, opts); err != nil {
+	body := storage.ExactReader(r, size)
+	// The client retries a 5xx only over a body it can rewind, and a request's
+	// body is a socket: B2 answering "internal incident" once was a PUT that
+	// failed (STRATUS-BACKEND-5). Under a part the body is held, which is the
+	// memory an unknown length already costs; above one each part is buffered
+	// and retried by the client already.
+	if size >= 0 && size < int64(s.partSize) {
+		var buf bytes.Buffer
+		buf.Grow(int(size) + bytes.MinRead)
+		if _, err := buf.ReadFrom(body); err != nil {
+			return storage.ObjectInfo{}, err
+		}
+		body = bytes.NewReader(buf.Bytes())
+	}
+	if _, err := s.client.PutObject(ctx, s.bucket, key, body, size, opts); err != nil {
 		return storage.ObjectInfo{}, mapErr(key, err)
 	}
 	// A PUT response carries no Last-Modified, so the timestamp comes from a

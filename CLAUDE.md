@@ -883,9 +883,17 @@ conformance suite measures the allocation rather than trusting the constant:
 both backends store 24 MiB of unknown length inside 128 MiB. A known size
 needs none of it, which is why `internal/dav` now reads the `Content-Length`
 off a `PUT` before the library drops it: every client in the README sends one,
-and a body under a part is then a single request with no buffer at all. The
+and a body under a part is then a single request sized exactly. The
 web UI's upload still passes -1, because a multipart part declares no length,
 and it is the bounded case rather than the fixed one.
+
+**That single request is held in memory, though, and that is what retries
+it** (#390). minio-go retries a 5xx only over a body it can rewind, and a
+request's body is a socket -- so B2 answering `InternalError` once, which it
+does now and then, was a `PUT` failing with the client told 500. Under a part
+the body is read into a buffer of exactly its size first; above one each part
+is already buffered and retried by the client. The cost is the same bound as
+an unknown length, a part per `PUT` in flight.
 
 The tail is written even when the connection has gone -- under a context of its
 own, since the request's is cancelled -- because **what is read is kept** unless
