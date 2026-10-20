@@ -63,4 +63,29 @@ func TestCalendarsAreWiredFromTheOrigin(t *testing.T) {
 	if !strings.Contains(listing.Body.String(), "/calendars/") {
 		t.Errorf("the origin does not list the calendars:\n%s", listing.Body.String())
 	}
+
+	// One address, two protocols (#111): a browser asking for a calendar gets
+	// the month, and a client asking for an object by GET still gets the .ics.
+	ics := "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//test//EN\r\nBEGIN:VEVENT\r\nUID:a\r\n" +
+		"DTSTAMP:20240101T000000Z\r\nDTSTART:20240305T090000Z\r\nSUMMARY:Standup\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
+	put := httptest.NewRequestWithContext(t.Context(), http.MethodPut, "/calendars/edu/default/a.ics", strings.NewReader(ics))
+	put.Header.Set("Content-Type", "text/calendar")
+	put.SetBasicAuth("edu", password)
+	created := httptest.NewRecorder()
+	h.ServeHTTP(created, put)
+	if created.Code != http.StatusCreated {
+		t.Fatalf("PUT = %d", created.Code)
+	}
+	for target, want := range map[string]string{
+		"/calendars/edu/default/?month=2024-03": "text/html",
+		"/calendars/edu/default/a.ics":          "text/calendar",
+	} {
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, target, nil)
+		req.SetBasicAuth("edu", password)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK || !strings.HasPrefix(rec.Header().Get("Content-Type"), want) {
+			t.Errorf("GET %s = %d %q, want 200 %s", target, rec.Code, rec.Header().Get("Content-Type"), want)
+		}
+	}
 }

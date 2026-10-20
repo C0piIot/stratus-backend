@@ -30,7 +30,7 @@ of this file.
 | HLS | films a player cannot take as they are, remuxed | Chromecast, Safari, VLC, the web UI's player | **works** § |
 | CalDAV | calendar events, tasks, journal entries | DAVx5, Thunderbird, iOS/macOS | **works** ¶ |
 | OpenSubsonic | music | Symfonium, Substreamer, DSub, Feishin | **works** † |
-| Web UI | sign in, browse, search, upload, download, rename, delete, the trash, what is known about a file, a photo gallery, a music library, library status | any browser | **partly** |
+| Web UI | sign in, browse, search, upload, download, rename, delete, the trash, what is known about a file, a photo gallery, a music library, a month of a calendar, library status | any browser | **partly** |
 | CardDAV | contacts | DAVx5, Thunderbird | planned |
 | DLNA / UPnP-AV | TVs, set-top players | | planned |
 
@@ -933,7 +933,11 @@ than a form for a user who does not exist.
 
 What it does today is sign you in, walk the tree, hand you a file, take one
 back, make a folder to put it in, and rename or delete what is there. The
-calendars answer over CalDAV, and a page for them is next (#111). It is a convenience for when reaching for
+calendars answer over CalDAV, and **Calendar** in the bar is a month of one of
+them: read-only, a grid on a wide screen and a list of the days with something
+on them on a phone, moved by links so a month is an address. Times are drawn in
+the server's zone, `TZ`, because a page with no script cannot ask the browser
+for its own. Events only; tasks are for a tasks app. It is a convenience for when reaching for
 rclone or DAVx5 is overkill, and it consumes the same internals the protocol
 handlers do — it will never grow a private JSON API of its own.
 
@@ -1393,6 +1397,7 @@ make up STRATUS_PORT=9000 STRATUS_DATA_PATH=/srv/stratus
 | `STRATUS_USERNAME` | unset | the single user |
 | `STRATUS_PASSWORD` | unset | the single user's password |
 | `STRATUS_TRASH_RETENTION` | `720h` | how long a deletion stays in the trash; `never` keeps everything, see [the sweep](#orphaned-blobs) |
+| `TZ` | UTC | the zone the calendar page draws times in, e.g. `Europe/Madrid`; CalDAV clients are not affected |
 
 ### Blob storage
 
@@ -1698,7 +1703,7 @@ Working now:
   conditional writes, recurring events matched by date and sync by token;
   tasks and journal entries beside them, in lists of their own or not.
 - A request log, migrations applied at startup, and a container asserted from
-  the outside by 148 smoke checks.
+  the outside by 149 smoke checks.
 
 Not there yet: sharing, and the calendar in the web UI. Work
 and the decisions behind it are tracked on the

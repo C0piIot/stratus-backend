@@ -1,0 +1,71 @@
+{{/* A month of one calendar (#111), read-only. A grid on a screen wide
+     enough for seven columns and a list of the days with something on them
+     on one that is not: both are rendered, and the breakpoint picks. No
+     script and no stylesheet of our own. The grid is rows of seven .col and
+     not a table, because seven .col are equal by construction while a table
+     sizes its columns by what is in them -- and Bootstrap has no utility for
+     table-layout: fixed. A long title wraps rather than widening its day. */}}
+{{define "content" -}}
+{{with .Calendar}}
+<div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+  <div>
+    <h1 class="h4 mb-0">{{.Month}}</h1>
+    <div class="small text-body-secondary">{{.Name}} · times in {{.Zone}}</div>
+  </div>
+  <div class="btn-group btn-group-sm" role="group" aria-label="Month">
+    <a class="btn btn-outline-secondary" href="{{.Prev}}" aria-label="Previous month">‹</a>
+    <a class="btn btn-outline-secondary" href="{{.ThisMonth}}">Today</a>
+    <a class="btn btn-outline-secondary" href="{{.Next}}" aria-label="Next month">›</a>
+  </div>
+</div>
+
+{{if .Others}}
+<ul class="nav nav-pills small mb-3">
+  {{range .Others}}
+  <li class="nav-item"><a class="nav-link py-1{{if .Current}} active{{end}}" href="{{.Href}}"{{if .Current}} aria-current="page"{{end}}>{{.Name}}</a></li>
+  {{end}}
+</ul>
+{{end}}
+
+<div class="d-none d-md-block border-top border-start bg-body">
+  <div class="row g-0">
+    {{range .Weekdays}}<div class="col border-end border-bottom small text-body-secondary text-center py-1">{{.}}</div>{{end}}
+  </div>
+  {{range .Weeks}}
+  <div class="row g-0">
+    {{range .}}
+    <div class="col border-end border-bottom p-1 text-break{{if not .InMonth}} bg-body-tertiary{{end}}">
+      <div class="small text-end{{if .Today}} fw-bold text-primary{{else if not .InMonth}} text-body-tertiary{{end}}">{{.Number}}</div>
+      {{range .Events}}
+      <div class="small mb-1{{if .AllDay}} badge text-bg-primary d-block text-start text-wrap fw-normal{{end}}"
+           title="{{if .Time}}{{.Time}} {{end}}{{.Summary}}{{if .Location}} · {{.Location}}{{end}}">
+        {{if .Time}}<span class="text-body-secondary">{{.Time}}</span> {{end}}{{.Summary}}
+      </div>
+      {{end}}
+    </div>
+    {{end}}
+  </div>
+  {{end}}
+</div>
+
+<div class="d-md-none">
+  {{if .Days}}
+  <div class="list-group">
+    {{range .Days}}
+    <div class="list-group-item">
+      <div class="small fw-semibold{{if .Today}} text-primary{{end}}">{{.Label}}</div>
+      {{range .Events}}
+      <div class="d-flex gap-2">
+        <span class="text-body-secondary small flex-shrink-0">{{if .AllDay}}all day{{else if .Time}}{{.Time}}{{else}}…{{end}}</span>
+        <span>{{.Summary}}{{if .Location}} <span class="text-body-secondary small">· {{.Location}}</span>{{end}}</span>
+      </div>
+      {{end}}
+    </div>
+    {{end}}
+  </div>
+  {{else}}
+  <div class="card"><div class="card-body text-body-secondary">Nothing this month.</div></div>
+  {{end}}
+</div>
+{{end}}
+{{- end}}

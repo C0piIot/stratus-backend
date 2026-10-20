@@ -660,6 +660,13 @@ if wait_serving "$davname"; then
     4) ok "a repetition is expanded into its instances" ;;
     *) bad "a repetition is expanded into its instances" "$(head -c 200 <<<"$expanded")" ;;
   esac
+  # And a browser at the same address gets a month of it (#111).
+  calpage="$(curl -s -u "$davuser:$davpass" -H 'Sec-Fetch-Mode: navigate' \
+    "http://$davhost/calendars/$davuser/smoke/?month=2024-03" 2>/dev/null || true)"
+  case "$calpage" in
+    *'March 2024'*'smoke'*) ok "a calendar is a month to a browser" ;;
+    *) bad "a calendar is a month to a browser" "$(head -c 200 <<<"$calpage")" ;;
+  esac
 
   # Finder mounts read-only unless the server says class 2, so the header is
   # asserted rather than assumed.

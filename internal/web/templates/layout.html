@@ -84,6 +84,9 @@
     </form>
     <div class="d-flex align-items-center gap-3 flex-shrink-0">
       <a class="navbar-text link-secondary text-decoration-none" href="/files/">Files</a>
+      {{/* A link and not a menu entry, beside Files: the two places somebody
+           goes to, and both reachable with JavaScript off. */}}
+      <a class="navbar-text link-secondary text-decoration-none" href="/calendars/">Calendar</a>
       {{/* Two menus and nothing else, because a bar of six links was a list of
            places rather than a way to get to one. The gallery's button wears
            the gallery you are in, so the bar says where you are without a

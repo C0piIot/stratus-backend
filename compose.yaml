@@ -30,6 +30,7 @@ services:
       STRATUS_USERNAME: "${STRATUS_USERNAME:-}"
       STRATUS_PASSWORD: "${STRATUS_PASSWORD:-}"
       STRATUS_SENTRY_DSN: "${STRATUS_SENTRY_DSN:-}"
+      TZ: "${TZ:-}"
 
     # Photos, music and the SQLite database live here. Point this at real storage
     # (e.g. /srv/stratus) once there is something worth keeping.

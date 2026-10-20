@@ -65,6 +65,7 @@ const (
 	pageCrumbs    = "crumbs.html"
 	pagePlaylists = "playlists.html"
 	pagePlaylist  = "playlist.html"
+	pageCalendar  = "calendar.html"
 )
 
 // Each page is parsed with the layout into a set of its own. One set for all of
@@ -93,6 +94,7 @@ var pages = map[string]*template.Template{
 	pageAlbum:     parse(pageAlbum, pageGlyphs),
 	pagePlaylists: parse(pagePlaylists),
 	pagePlaylist:  parse(pagePlaylist),
+	pageCalendar:  parse(pageCalendar),
 }
 
 // parse builds one page's template set: the layout, the page, and whatever
@@ -240,6 +242,8 @@ type view struct {
 	// TrashHeld is the status page's half of Kept: the retention is never,
 	// which is a state to see and not only a number of bytes (#296).
 	TrashHeld bool
+	// Calendar is a month of one calendar (#111).
+	Calendar *calendarView
 }
 
 // Shows reports whether a result page is showing one of its buckets: all of

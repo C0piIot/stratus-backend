@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/C0piIot/stratus-backend/internal/auth"
+	"github.com/C0piIot/stratus-backend/internal/calendar"
 	"github.com/C0piIot/stratus-backend/internal/db"
 	"github.com/C0piIot/stratus-backend/internal/files"
 	"github.com/C0piIot/stratus-backend/internal/files/filestest"
@@ -57,6 +58,7 @@ func newHandler(t *testing.T, v auth.Verifier) http.Handler {
 		Video:     web.Video{},
 		// The default rather than zero, which is the trash held (#296).
 		TrashRetention: aMonth,
+		Calendars:      calendar.New(meta),
 	})
 }
 
@@ -80,6 +82,7 @@ func browser(t *testing.T) (http.Handler, *files.Service) {
 		Imports:        nil,
 		Video:          web.Video{},
 		TrashRetention: aMonth,
+		Calendars:      calendar.New(meta),
 	}), s
 }
 
@@ -125,6 +128,7 @@ func browserOver(t *testing.T) (http.Handler, *files.Service, db.Store) {
 		Imports:        nil,
 		Video:          web.Video{},
 		TrashRetention: aMonth,
+		Calendars:      calendar.New(meta),
 	}), s, meta
 }
 
@@ -150,6 +154,7 @@ func browserOverStore(t *testing.T) (http.Handler, *files.Service, storage.Stora
 		Imports:        nil,
 		Video:          web.Video{},
 		TrashRetention: aMonth,
+		Calendars:      calendar.New(meta),
 	}), s, blobs
 }
 
@@ -247,6 +252,7 @@ func handlerImports(t *testing.T, s *files.Service, blobs storage.Storage, meta 
 		Imports:        imports,
 		Video:          web.Video{},
 		TrashRetention: aMonth,
+		Calendars:      calendar.New(meta),
 	})
 }
 
@@ -273,6 +279,7 @@ func handlerOverIndex(t *testing.T, s *files.Service, blobs storage.Storage, ind
 		Imports:        nil,
 		Video:          web.Video{},
 		TrashRetention: aMonth,
+		Calendars:      calendar.New(meta),
 	})
 }
 
@@ -420,6 +427,7 @@ func TestASessionFromAnotherPasswordIsNotOne(t *testing.T) {
 		Imports:        nil,
 		Video:          web.Video{},
 		TrashRetention: aMonth,
+		Calendars:      calendar.New(meta),
 	})
 
 	rec := get(t, after, "/files/", before)

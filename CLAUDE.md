@@ -10,7 +10,22 @@ code it describes.
 ## Web UI
 
 A small server-rendered UI, built up feature by feature: log in, browse and
-download files, view the calendar. It is a convenience for the cases where
+download files, view the calendar.
+
+- **The calendar is a month, read-only, at the calendar's own address**
+  (#111): `/calendars/<owner>/<calendar>/?month=YYYY-MM` is the page, and the
+  same address is the CalDAV collection, split by method in the composition
+  root like the others -- with the one difference that a `GET` of an object
+  stays CalDAV's, because a client fetches an `.ics` that way and there is no
+  page for one event. No script: the month moves by links. **The grid is rows
+  of seven `.col`, not a table**, because a table sizes its columns by what is
+  in them and Bootstrap has no utility for a fixed layout, while seven `.col`
+  are equal by construction; a phone gets the same month as a list of the
+  days with something on them, both rendered and the breakpoint choosing.
+  **Times are in the server's zone, `TZ`**: a page with no script cannot ask
+  the browser for its own, and a month drawn in two zones would disagree with
+  itself. The instances are `calendar.Occurrences`, which is `Expand` read
+  back, so the page and a client asking for `expand` see the same ones. It is a convenience for the cases where
 reaching for rclone or DAVx5 is overkill, not the primary way to use Stratus.
 
 Hard constraints, in the same spirit as the rest of the project:

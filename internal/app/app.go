@@ -78,9 +78,9 @@ const playlistsPrefix = "/playlists/"
 // collection per deletion to a client that mounts the server.
 const trashPrefix = "/trash/"
 
-// calendarsPrefix is where calendars are served over CalDAV (#75). A mount of
-// its own like the generated ones, with no browser half yet: a GET there is an
-// .ics, which is the protocol's own answer, until the calendar view (#111).
+// calendarsPrefix is where calendars are served over CalDAV (#75), and where a
+// browser gets a month of one (#111): one address and two protocols, split by
+// calendarsOrBrowser.
 const calendarsPrefix = "/calendars/"
 
 // wellKnownCalDAV is where a client starts when it was given only the origin
@@ -191,6 +191,7 @@ func (a *App) Handler(deps Deps) http.Handler {
 		// why the cookie counts only on a request the browser calls its own.
 		sessions := auth.NewSessions(creds, auth.DefaultSessionTTL)
 		playlists := music.New(deps.Database)
+		calendarService := calendar.New(deps.Database)
 		browser := web.Handler(web.Deps{
 			Version: a.version, BuildDate: a.buildDate, Verifier: verifier, Sessions: sessions, Shares: shares,
 			Files: service, Thumbs: deps.Thumbs, Index: deps.Database, Playlists: playlists,
@@ -199,6 +200,7 @@ func (a *App) Handler(deps Deps) http.Handler {
 				Lookups: deps.Database, Lookup: a.cfg.MusicLookup,
 			},
 			Imports: imports(deps), Video: films(deps), TrashRetention: a.cfg.TrashRetention,
+			Calendars: calendarService,
 		})
 
 		// Every protocol surface is behind the same realm and the same
@@ -249,7 +251,10 @@ func (a *App) Handler(deps Deps) http.Handler {
 		// PROPFIND when a client is discovering.
 		// Both spellings, or the mux answers the bare one with a redirect that a
 		// client follows as a GET rather than the PROPFIND it was.
-		calendars := guard(dav.CalDAV(calendarsPrefix, calendar.New(deps.Database)))
+		// One address and two protocols like the collections above, with one
+		// difference: GET of an object stays CalDAV's, since a client fetches
+		// an .ics that way and the browser half has no page for one event.
+		calendars := calendarsOrBrowser(guard(dav.CalDAV(calendarsPrefix, calendarService)), browser)
 		mux.Handle(calendarsPrefix, calendars)
 		mux.Handle(strings.TrimSuffix(calendarsPrefix, "/"), calendars)
 		mux.Handle(wellKnownCalDAV, http.RedirectHandler(calendarsPrefix, http.StatusPermanentRedirect))
@@ -400,6 +405,21 @@ func films(deps Deps) web.Video {
 // It lives here because inbound adapters do not import each other, which is
 // the same reason hlsOr does, and because deciding which protocol a request
 // is in is wiring rather than either adapter's business.
+// calendarsOrBrowser is davOrBrowser for /calendars/ (#111): a GET of a
+// collection is the month page, and a GET of an object -- the third segment
+// below the prefix -- is the .ics a CalDAV client asked for.
+func calendarsOrBrowser(dav, browser http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rest := strings.Trim(strings.TrimPrefix(r.URL.Path, strings.TrimSuffix(calendarsPrefix, "/")), "/")
+		object := strings.Count(rest, "/") >= 2
+		if (r.Method == http.MethodGet || r.Method == http.MethodHead) && !object {
+			browser.ServeHTTP(w, r)
+			return
+		}
+		dav.ServeHTTP(w, r)
+	})
+}
+
 func davOrBrowser(dav, browser http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
