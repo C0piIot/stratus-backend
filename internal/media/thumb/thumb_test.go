@@ -596,6 +596,12 @@ func TestWindowedThumbnailOfAFilm(t *testing.T) {
 // TestWindowIsEnoughForAFrame is internal/media's Window read by this package's
 // decoder, which is the only reader it has: a film that the rule refuses to
 // copy still gives up a frame.
+//
+// The head stops short of the moov atom for the film that keeps it at the
+// end. A fixture is a few megabytes, so a head of the real sixteen would hold
+// all of it and never use the atom's own piece -- which is how that piece went
+// out without the atom's header, and no phone recording over MaxSpool had a
+// picture.
 func TestWindowIsEnoughForAFrame(t *testing.T) {
 	t.Parallel()
 	ffmpeg := realFFmpeg(t)
@@ -604,8 +610,18 @@ func TestWindowIsEnoughForAFrame(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			body := readFixture(t, name)
+			head := int64(media.WindowHead)
+			if name == phone {
+				moov, err := media.FindAtom(bytes.NewReader(body), int64(len(body)), "moov")
+				if err != nil {
+					t.Fatal(err)
+				}
+				// The fixture's atom is its last, so it starts this far from
+				// the end, header included.
+				head = int64(len(body)) - moov - 8
+			}
 
-			local, cleanup, err := media.Window(bytes.NewReader(body), int64(len(body)), name, t.TempDir(), media.WindowHead)
+			local, cleanup, err := media.Window(bytes.NewReader(body), int64(len(body)), name, t.TempDir(), head)
 			if err != nil {
 				t.Fatalf("Window: %v", err)
 			}

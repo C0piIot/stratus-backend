@@ -91,6 +91,10 @@ func TestWindowPieces(t *testing.T) {
 		if pieces[1].at <= head || pieces[1].length == 0 {
 			t.Errorf("the second piece is %+v, want the atom's own range", pieces[1])
 		}
+		// The atom's header with it, which is how a decoder finds the atom.
+		if got := body[pieces[1].at : pieces[1].at+pieces[1].length]; !bytes.Contains(got[:min(len(got), 16)], []byte("moov")) {
+			t.Errorf("the second piece starts %q, want the atom's header in it", got[:min(len(got), 16)])
+		}
 	})
 
 	t.Run("a faststart mp4 is its beginning", func(t *testing.T) {

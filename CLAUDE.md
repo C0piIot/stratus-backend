@@ -1851,6 +1851,15 @@ Restraint here is principle 3, not laziness:
   There is no third option: a film with no window is a film with no picture,
   never a download.
 
+  **The `moov` piece carries the atom's header, and that cost a release to
+  learn.** It was cut from where the atom's body starts, so the window held
+  zeros where a decoder looks for the word `moov`, and every phone recording
+  over `MaxSpool` was refused -- 22 of 56 on the first real library, exactly
+  the ones above 64 MB. Nothing caught it because every fixture is smaller
+  than the sixteen-megabyte head, which then holds the atom anyway;
+  `TestWindowIsEnoughForAFrame` now gives the moov-last fixture a head that
+  stops short of it.
+
   **And the frame is chosen, not taken.** A recording that opens on black -- a
   fade, a phone starting before the sensor settles -- gives a black first frame
   and a black frame a second in, both measured at zero average brightness. The
