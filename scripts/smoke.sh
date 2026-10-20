@@ -622,6 +622,15 @@ if wait_serving "$davname"; then
     *'calendar-home-set'*">/calendars/$davuser/<"*) ok "the CalDAV principal names the calendars" ;;
     *) bad "the CalDAV principal names the calendars" "$(head -c 200 <<<"$principal")" ;;
   esac
+  # And a calendar offers a sync token, which is what a client reads to sync
+  # by changes rather than by listing.
+  caltoken="$(curl -s -u "$davuser:$davpass" -H 'Depth: 0' -H 'Content-Type: application/xml' -X PROPFIND \
+    --data '<propfind xmlns="DAV:"><prop><sync-token/></prop></propfind>' \
+    "http://$davhost/calendars/$davuser/default/" 2>/dev/null || true)"
+  case "$caltoken" in
+    *'urn:stratus:sync:'*) ok "a calendar offers a sync token" ;;
+    *) bad "a calendar offers a sync token" "$(head -c 200 <<<"$caltoken")" ;;
+  esac
 
   # Finder mounts read-only unless the server says class 2, so the header is
   # asserted rather than assumed.

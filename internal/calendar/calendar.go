@@ -31,7 +31,16 @@ var (
 	// for now: a time-range query cannot filter tasks yet (#79), and a task
 	// list that silently returned nothing would be worse than one refused.
 	ErrUnsupported = errors.New("calendar: only events are stored")
+	// ErrStaleToken is a sync token this server cannot answer from: older than
+	// the deletions it still remembers, or newer than anything it wrote. The
+	// client's answer to it is to list the calendar again.
+	ErrStaleToken = errors.New("calendar: sync token no longer answerable")
 )
+
+// TombstoneRetention is how long a deletion is remembered for a client that
+// syncs by token. A client away for longer is told its token is stale and
+// lists the calendar again, which is correct and only costs a listing.
+const TombstoneRetention = 30 * 24 * time.Hour
 
 // Component is the one kind of calendar object stored.
 const Component = ical.CompEvent
@@ -176,6 +185,48 @@ func (s *Service) Delete(ctx context.Context, owner, calendar, name string) erro
 		}
 		return r.DeleteCalendarObject(ctx, c.ID, name, s.now())
 	})
+}
+
+// Changes returns what changed in one of an owner's calendars after the token
+// since -- written, or deleted -- and the token to come back with. A since of
+// zero is a first sync, which wants what is there and not what used to be.
+//
+// The token handed back is the highest of the calendar's and of the changes',
+// because the two are separate reads: a write landing between them is in the
+// changes and would otherwise be sent again next time.
+func (s *Service) Changes(ctx context.Context, owner, calendar string, since int64) ([]db.CalendarChange, db.Calendar, error) {
+	c, err := s.Calendar(ctx, owner, calendar)
+	if err != nil {
+		return nil, db.Calendar{}, err
+	}
+	if since < 0 || since > c.SyncToken || (since > 0 && since < c.PrunedToken) {
+		return nil, c, ErrStaleToken
+	}
+	changes, err := s.meta.CalendarChanges(ctx, c.ID, since)
+	if err != nil {
+		return nil, c, err
+	}
+	out := changes[:0]
+	for _, ch := range changes {
+		c.SyncToken = max(c.SyncToken, ch.SyncToken)
+		if since == 0 && ch.Deleted {
+			continue
+		}
+		out = append(out, ch)
+	}
+	return out, c, nil
+}
+
+// Prune forgets the deletions older than TombstoneRetention, and says how
+// many.
+func (s *Service) Prune(ctx context.Context) (int64, error) {
+	var n int64
+	err := s.meta.Tx(ctx, func(r db.Repo) error {
+		var err error
+		n, err = r.PruneCalendarTombstones(ctx, s.now().Add(-TombstoneRetention))
+		return err
+	})
+	return n, err
 }
 
 // Decode parses what Put stored.
