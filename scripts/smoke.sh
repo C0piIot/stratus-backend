@@ -649,6 +649,17 @@ if wait_serving "$davname"; then
     201) ok "a calendar takes a task" ;;
     *) bad "a calendar takes a task" "got $taskput" ;;
   esac
+  # And hands a repeating one back as its instances when asked to (#78).
+  printf 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//smoke//EN\r\nBEGIN:VEVENT\r\nUID:smoke-weekly\r\nDTSTAMP:20240101T000000Z\r\nDTSTART:20240104T090000Z\r\nDURATION:PT1H\r\nRRULE:FREQ=WEEKLY\r\nSUMMARY:smoke\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n' |
+    curl -s -o /dev/null -u "$davuser:$davpass" -X PUT -H 'Content-Type: text/calendar' \
+      --data-binary @- "http://$davhost/calendars/$davuser/smoke/weekly.ics"
+  expanded="$(curl -s -u "$davuser:$davpass" -X REPORT -H 'Depth: 1' -H 'Content-Type: application/xml' \
+    --data '<C:calendar-query xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav"><D:prop><C:calendar-data><C:expand start="20240301T000000Z" end="20240401T000000Z"/></C:calendar-data></D:prop><C:filter><C:comp-filter name="VCALENDAR"><C:comp-filter name="VEVENT"><C:time-range start="20240301T000000Z" end="20240401T000000Z"/></C:comp-filter></C:comp-filter></C:filter></C:calendar-query>' \
+    "http://$davhost/calendars/$davuser/smoke/" 2>/dev/null || true)"
+  case "$(grep -o 'RECURRENCE-ID:' <<<"$expanded" | wc -l | tr -d ' ')" in
+    4) ok "a repetition is expanded into its instances" ;;
+    *) bad "a repetition is expanded into its instances" "$(head -c 200 <<<"$expanded")" ;;
+  esac
 
   # Finder mounts read-only unless the server says class 2, so the header is
   # asserted rather than assumed.

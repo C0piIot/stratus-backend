@@ -102,7 +102,12 @@ func (b *calendarBackend) report(w http.ResponseWriter, r *http.Request, next ht
 	r.Body = io.NopCloser(bytes.NewReader(body))
 	var req syncCollection
 	if xml.Unmarshal(body, &req) != nil {
-		next.ServeHTTP(w, r)
+		ctx, err := withExpand(r.Context(), body)
+		if err != nil {
+			serveCalendarError(w, err)
+			return
+		}
+		next.ServeHTTP(w, r.WithContext(ctx))
 		return
 	}
 	if err := b.serveSync(w, r, req); err != nil {
@@ -189,7 +194,11 @@ func (b *calendarBackend) GetCalendarObject(ctx context.Context, p string, _ *ca
 	if err != nil {
 		return nil, err
 	}
-	return &out, nil
+	one := []caldav.CalendarObject{out}
+	if err = expandAll(ctx, one); err != nil {
+		return nil, err
+	}
+	return &one[0], nil
 }
 
 // ListCalendarObjects implements caldav.Backend.
@@ -234,7 +243,7 @@ func (b *calendarBackend) QueryCalendarObjects(ctx context.Context, p string, qu
 		return nil, webdav.NewHTTPError(http.StatusBadRequest, err)
 	}
 	if len(windows) == 0 {
-		return out, nil
+		return out, expandAll(ctx, out)
 	}
 	kept := out[:0]
 	for _, o := range out {
@@ -246,7 +255,7 @@ func (b *calendarBackend) QueryCalendarObjects(ctx context.Context, p string, qu
 			kept = append(kept, o)
 		}
 	}
-	return kept, nil
+	return kept, expandAll(ctx, kept)
 }
 
 // componentWindow is a time range a query asks of one kind of component.

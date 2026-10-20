@@ -768,7 +768,8 @@ What to expect from it:
   tasks and journal entries by the rules RFC 4791 gives each, and a repeating
   one by every instance it has — whether it repeats by rule (`RRULE`), on dates
   of its own (`RDATE`) or with some taken away (`EXDATE`), and with a moved
-  instance judged where it went. An object whose dates or repetition cannot
+  instance judged where it went. A client that asks for the instances rather
+  than the rule (`expand`) gets each one as an event of its own, in UTC. An object whose dates or repetition cannot
   be read is refused when it is written, since stored it would break every
   query by date over its calendar.
 - **What is stored is the event as the server writes it**, not the bytes the
@@ -1697,7 +1698,7 @@ Working now:
   conditional writes, recurring events matched by date and sync by token;
   tasks and journal entries beside them, in lists of their own or not.
 - A request log, migrations applied at startup, and a container asserted from
-  the outside by 147 smoke checks.
+  the outside by 148 smoke checks.
 
 Not there yet: sharing, and the calendar in the web UI. Work
 and the decisions behind it are tracked on the
