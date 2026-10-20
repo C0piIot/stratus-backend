@@ -98,7 +98,13 @@ func windowPieces(r io.ReadSeeker, size int64, name string, headLen int64) ([]pi
 			// Already inside the head, which is what faststart means.
 			return []piece{head}, nil
 		}
-		return []piece{head, {at: at, length: length}}, nil
+		// findMoov answers where the atom's body starts, and a decoder looking
+		// for the atom reads its header: without it the window holds zeros
+		// where "moov" should be, and every phone recording over MaxSpool had
+		// no picture. Sixteen bytes back covers the 64-bit header too, and the
+		// eight before a short one are the original's, so harmless.
+		from := max(at-16, 0)
+		return []piece{head, {at: from, length: length + (at - from)}}, nil
 
 	default:
 		// A container this cannot take a Window of. The caller refuses rather

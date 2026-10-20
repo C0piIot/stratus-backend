@@ -94,8 +94,15 @@ func (t *Service) Prepare(ctx context.Context, f db.File) (db.ThumbState, error)
 		t.record(ctx, v, db.ThumbMade)
 		return db.ThumbMade, nil
 	}
-	if t.refusedBefore(ctx, v.note) {
-		t.record(ctx, v, db.ThumbRefused)
+	if at, ok := t.refusedBefore(ctx, v.note); ok {
+		// Dated by the note and not by now. The row comes due a week after
+		// this, and the sweep takes the note a week after it was written: a
+		// row restamped now would find the note a day short of collection,
+		// copy it again and wait a second week before anything decoded.
+		if at.IsZero() {
+			at = time.Now()
+		}
+		t.recordAt(ctx, v, db.ThumbRefused, at)
 		return db.ThumbRefused, nil
 	}
 

@@ -2,6 +2,7 @@ package thumb
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"image"
 	"io"
@@ -220,6 +221,45 @@ func TestAPassWorksThroughTheLibrary(t *testing.T) {
 	if made, err := th.PrepareBatch(t.Context(), time.Now()); err != nil || made != 0 {
 		t.Errorf("a second pass = %d, %v; want nothing left to do", made, err)
 	}
+}
+
+// TestARefusalCopiedFromTheNoteKeepsItsDate: the row comes due a week after
+// its verdict and the sweep takes the note a week after it was written, so a
+// pass that finds the note and dates the row by now pushes the next attempt a
+// second week out.
+func TestARefusalCopiedFromTheNoteKeepsItsDate(t *testing.T) {
+	t.Parallel()
+	_, service, blobs, meta := thumbsOver(t)
+	written := time.Now().Add(-6 * 24 * time.Hour).Truncate(time.Second)
+	th := New(agedStore{Storage: blobs, at: written}, service, meta, stubFFmpeg(t), t.TempDir())
+	f := writeImage(t, service, "photos/one.jpg", 400, 400)
+	indexAs(t, meta, f, db.KindImage)
+	if _, err := blobs.Put(t.Context(), verdictKey(f.BlobKey), strings.NewReader("no"), 2); err != nil {
+		t.Fatal(err)
+	}
+
+	if state, err := th.Prepare(t.Context(), f); err != nil || state != db.ThumbRefused {
+		t.Fatalf("Prepare = %v, %v, want the note believed", state, err)
+	}
+	states, err := meta.MediaStates(t.Context(), []int64{f.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := states[f.ID].ThumbAt; !got.Equal(written) {
+		t.Errorf("the row is dated %v, want the note's %v", got, written)
+	}
+}
+
+// agedStore answers every Stat as if the object had been written at.
+type agedStore struct {
+	storage.Storage
+	at time.Time
+}
+
+func (s agedStore) Stat(ctx context.Context, key string) (storage.ObjectInfo, error) {
+	info, err := s.Storage.Stat(ctx, key)
+	info.ModTime = s.at
+	return info, err
 }
 
 // TestARefusalIsBelievedForAWeek is the rule every reader of the column
