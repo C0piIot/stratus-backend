@@ -306,6 +306,38 @@ func TestACreditOfSeveralNamesIsAskedByItsFirst(t *testing.T) {
 	}
 }
 
+// TestAnEditionIsAskedWithoutIt: the search is a phrase, so a title that
+// names its pressing finds nothing, and the title without it is asked next.
+func TestAnEditionIsAskedWithoutIt(t *testing.T) {
+	t.Parallel()
+	l, s := newLibrary(t), newSources(t)
+	l.track(t, "music/amber/01.flac", song("Autechre", "Amber (Deluxe Edition)", "Foil", 1))
+
+	done, err := service(t, l, s, time.Now()).Pass(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if done.Albums != 1 || done.Covers != 1 {
+		t.Errorf("Pass = %+v, want the album identified and its cover fetched", done)
+	}
+	var queries []string
+	s.mu.Lock()
+	for _, q := range s.queries {
+		if strings.HasPrefix(q, "releasegroup:") {
+			queries = append(queries, q)
+		}
+	}
+	s.mu.Unlock()
+	want := []string{`releasegroup:"Amber (Deluxe Edition)" AND artist:"Autechre"`, `releasegroup:"Amber" AND artist:"Autechre"`}
+	if strings.Join(queries, "\n") != strings.Join(want, "\n") {
+		t.Errorf("MusicBrainz was asked %q, want %q", queries, want)
+	}
+	row, err := l.meta.AlbumLookup(t.Context(), owner, "Autechre", "Amber (Deluxe Edition)")
+	if err != nil || row.ReleaseGroup != amberGroup {
+		t.Errorf("the album's row is %+v, %v", row, err)
+	}
+}
+
 // TestATaggedAlbumIsNotSearched: an id in the tags is the album's own answer,
 // and a search can be wrong.
 func TestATaggedAlbumIsNotSearched(t *testing.T) {

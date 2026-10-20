@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -33,14 +34,49 @@ const minScore = 90
 // from a video site carries, and MusicBrainz files the record under the band:
 // the full credit matched nothing and the first name matched with a score of
 // a hundred, on the first real library this ran against.
+//
+// Then the same again with the album's edition taken off, when it has one:
+// the search is a phrase, so "The Suburbs (Deluxe)" finds nothing at all
+// while "The Suburbs" scores a hundred. On that same library it was 20 of the
+// 73 albums nothing was found for, and 18 of them came back that way.
 func (s *Service) releaseGroup(ctx context.Context, artist, album string) (string, error) {
-	for _, name := range creditNames(artist) {
-		id, err := s.searchReleaseGroup(ctx, name, album)
-		if err != nil || id != "" {
-			return id, err
+	titles := []string{album}
+	if plain := withoutEdition(album); plain != album {
+		titles = append(titles, plain)
+	}
+	for _, title := range titles {
+		for _, name := range creditNames(artist) {
+			id, err := s.searchReleaseGroup(ctx, name, title)
+			if err != nil || id != "" {
+				return id, err
+			}
 		}
 	}
 	return "", nil
+}
+
+// editionWords are what a bracket at the end of an album's title says when
+// it names a pressing of the record rather than a different one. Not "live",
+// "remix" or "acoustic", which are records of their own with covers of their
+// own, and a wrong cover is worse than none.
+var editionWords = regexp.MustCompile(`(?i)deluxe|remaster|edition|reissue|bonus|expanded|anniversary`)
+
+// editionSuffix is a bracket at the end of a title, or a ": Deluxe" or
+// " - Deluxe ..." tail, which is the other way a store writes the same thing.
+var editionSuffix = regexp.MustCompile(`(?i)\s*(?:\(([^()]*)\)|\[([^\[\]]*)\]|[-:]\s+(deluxe.*))\s*$`)
+
+// withoutEdition is the album's title with its edition taken off, or the
+// title as it was when it names none.
+func withoutEdition(album string) string {
+	m := editionSuffix.FindStringSubmatchIndex(album)
+	if m == nil || m[0] == 0 {
+		return album
+	}
+	said := editionSuffix.FindStringSubmatch(album)
+	if !editionWords.MatchString(said[1] + said[2] + said[3]) {
+		return album
+	}
+	return album[:m[0]]
 }
 
 // creditSeparators are what joins several names into one artist tag, each

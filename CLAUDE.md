@@ -2371,11 +2371,17 @@ Restraint here is principle 3, not laziness:
   **An id in the tags is the album's own answer.** `media` carries the two
   MusicBrainz ids Picard writes, and an album that has one is not searched: a
   search can be wrong, and a wrong cover is worse than none -- which is also
-  why a result under a score of ninety is not believed. A search is two
+  why a result under a score of ninety is not believed. A search is four
   questions at most: the artist as tagged, and when that finds nothing and
   the tag reads as several names ("A, B", "A feat. B"), the first of them --
   what a track ripped from a video site carries, and MusicBrainz files the
-  record under the band.
+  record under the band. Then both again with the album's **edition** taken
+  off the end of its title -- "(Deluxe)", "[Remastered]", ": Deluxe" --
+  because the search is a phrase and a pressing's name finds nothing: on the
+  first real library that was 20 of the 73 albums never identified, and 18 of
+  them scored a hundred without it. Only words that name a pressing are
+  taken off; "(Live)" or "(Remix)" is a record of its own with a cover of its
+  own. `SearchVersion` 2 is what asked those albums again.
 
   **The cover is the third place `Thumbs.Cover` looks, and a derived object
   under one of the album's tracks.** Third because the folder and the tag are
