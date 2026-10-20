@@ -557,7 +557,8 @@ Nothing is sent about photographs, videos or files, and nothing is ever written
 into a file: what comes back is rows beside the library and a cover kept under
 `derived/` with the thumbnails, which is what makes the sweep able to collect
 it with the track. A source that has nothing for an album is asked again a
-month later, and one that did not answer an hour later. `/status` says how far
+month later, and one that did not answer — or, for LRCLIB, was still fetching
+the words — an hour or so later. `/status` says how far
 it has got, and what was fetched stays when the setting is turned off again.
 What is **not** done: no audio fingerprinting, no artist biographies, no
 service that needs an account or a key, and no correction of tags.

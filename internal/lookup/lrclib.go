@@ -41,16 +41,17 @@ func (s *Service) lyrics(ctx context.Context, m db.Media) (lyricsAnswer, error) 
 	if err != nil {
 		// LRCLIB's 503 is about this track and not about this client: one
 		// it does not hold is one it goes and fetches from outside while
-		// answering, and "the server is busy" is what it says instead when
-		// it will not. Measured against the live service: the same title
-		// answers 200 from their database and 503 past it, and on the first
-		// real library it was the answer for most of what was asked. So it
-		// is "they do not hold it": a month, like a 404, since their
-		// database grows as other clients ask -- and the pass goes on. A 429
-		// is still a refusal, since that one is about the client.
+		// answering, and "the server is busy" is what it says while that
+		// fetch is under way. Measured against the live service: a title
+		// answered 503 and then 200 with its words minutes later, another
+		// 503 twice and then 404. So it is no answer yet -- not a refusal,
+		// since the pass goes on to the next track, and not "they do not
+		// hold it", which parked most of the first real library for a
+		// month behind an answer an hour away. A 429 is still a refusal,
+		// since that one is about the client.
 		var status statusError
 		if errors.As(err, &status) && status.code == http.StatusServiceUnavailable {
-			return lyricsAnswer{}, fmt.Errorf("%w: not held by LRCLIB, which was too busy to fetch it: %w", errNothing, status)
+			return lyricsAnswer{}, fmt.Errorf("%w: LRCLIB was still fetching it: %w", errUnreachable, status)
 		}
 		return lyricsAnswer{}, err
 	}
