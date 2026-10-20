@@ -6,8 +6,9 @@
 // and, mostly, the mapping from this project's sentinel errors onto status
 // codes -- which is the part a library cannot guess.
 //
-// **This file and propfind.go are the only two that know which libraries those
-// are** -- there are two now, split by method, and propfind.go says why.
+// **This file, propfind.go and caldav.go are the only three that know which
+// libraries those are** -- there are two now, split by method, and propfind.go
+// says why; caldav.go is emersion's CalDAV half, which has no rival.
 // Everything else in the package -- locking, paths, MIME types -- is written
 // against net/http and this project's own types, so replacing either means
 // rewriting one file rather than the package. That is deliberate: the choice
@@ -225,7 +226,7 @@ func (f *fileSystem) Create(ctx context.Context, name string, body io.ReadCloser
 	case statErr != nil && !errors.Is(statErr, db.ErrNotFound):
 		return nil, false, mapErr(ctx, statErr)
 	case opts != nil:
-		if cerr := checkConditions(opts.IfMatch, opts.IfNoneMatch, existing, statErr == nil); cerr != nil {
+		if cerr := checkConditions(opts.IfMatch, opts.IfNoneMatch, existing.ETag, statErr == nil); cerr != nil {
 			return nil, false, cerr
 		}
 	}
@@ -265,7 +266,7 @@ func (f *fileSystem) RemoveAll(ctx context.Context, name string, opts *webdav.Re
 		if statErr != nil && !errors.Is(statErr, db.ErrNotFound) {
 			return mapErr(ctx, statErr)
 		}
-		if err := checkConditions(opts.IfMatch, opts.IfNoneMatch, existing, statErr == nil); err != nil {
+		if err := checkConditions(opts.IfMatch, opts.IfNoneMatch, existing.ETag, statErr == nil); err != nil {
 			return err
 		}
 	}
@@ -372,13 +373,13 @@ func (f *fileSystem) Copy(ctx context.Context, name, dest string, opts *webdav.C
 
 // checkConditions applies If-Match and If-None-Match, which is how a client
 // says "only if I am not overwriting somebody else's change".
-func checkConditions(ifMatch, ifNoneMatch webdav.ConditionalMatch, existing db.File, exists bool) error {
+func checkConditions(ifMatch, ifNoneMatch webdav.ConditionalMatch, etag string, exists bool) error {
 	if ifNoneMatch.IsSet() {
 		if ifNoneMatch.IsWildcard() && exists {
 			return webdav.NewHTTPError(http.StatusPreconditionFailed, errors.New("it already exists"))
 		}
 		if !ifNoneMatch.IsWildcard() && exists {
-			match, err := ifNoneMatch.MatchETag(existing.ETag)
+			match, err := ifNoneMatch.MatchETag(etag)
 			if err != nil {
 				return webdav.NewHTTPError(http.StatusBadRequest, err)
 			}
@@ -393,7 +394,7 @@ func checkConditions(ifMatch, ifNoneMatch webdav.ConditionalMatch, existing db.F
 			return webdav.NewHTTPError(http.StatusPreconditionFailed, errors.New("it does not exist"))
 		}
 		if !ifMatch.IsWildcard() {
-			match, err := ifMatch.MatchETag(existing.ETag)
+			match, err := ifMatch.MatchETag(etag)
 			if err != nil {
 				return webdav.NewHTTPError(http.StatusBadRequest, err)
 			}

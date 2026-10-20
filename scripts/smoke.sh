@@ -600,12 +600,27 @@ if wait_serving "$davname"; then
   esac
 
   # And it lists the mounts, which is the whole point of one namespace: a
-  # client that mounts the origin finds the library, the photo folders, the
-  # videos, the playlists and the trash without being told their URLs.
+  # client that mounts the origin finds the calendars, the library, the photo
+  # folders, the videos, the playlists and the trash without being told their
+  # URLs.
   root_list="$(curl -s -u "$davuser:$davpass" -H 'Depth: 1' -X PROPFIND "http://$davhost/" 2>/dev/null || true)"
   case "$root_list" in
-    *'>/files/<'*'>/music/<'*'>/photos/<'*'>/playlists/<'*'>/trash/<'*'>/videos/<'*) ok "PROPFIND / lists the six collections" ;;
-    *) bad "PROPFIND / lists the six collections" "$(head -c 200 <<<"$root_list")" ;;
+    *'>/calendars/<'*'>/files/<'*'>/music/<'*'>/photos/<'*'>/playlists/<'*'>/trash/<'*'>/videos/<'*) ok "PROPFIND / lists the seven collections" ;;
+    *) bad "PROPFIND / lists the seven collections" "$(head -c 200 <<<"$root_list")" ;;
+  esac
+
+  # A calendar client is given the address and nothing else (#75): the
+  # well-known path has to send it on with the method intact, and the
+  # principal it lands on has to name where the calendars are.
+  wellknown="$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' -X PROPFIND "http://$davhost/.well-known/caldav")"
+  case "$wellknown" in
+    "308 http://$davhost/calendars/") ok "/.well-known/caldav points at the calendars" ;;
+    *) bad "/.well-known/caldav points at the calendars" "got '$wellknown'" ;;
+  esac
+  principal="$(curl -s -u "$davuser:$davpass" -H 'Depth: 0' -X PROPFIND "http://$davhost/calendars/" 2>/dev/null || true)"
+  case "$principal" in
+    *'calendar-home-set'*">/calendars/$davuser/<"*) ok "the CalDAV principal names the calendars" ;;
+    *) bad "the CalDAV principal names the calendars" "$(head -c 200 <<<"$principal")" ;;
   esac
 
   # Finder mounts read-only unless the server says class 2, so the header is

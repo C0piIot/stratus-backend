@@ -96,7 +96,7 @@ func TestCheckConditions(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			err := checkConditions(tt.ifMatch, tt.ifNoneMatch, existing, tt.exists)
+			err := checkConditions(tt.ifMatch, tt.ifNoneMatch, existing.ETag, tt.exists)
 
 			if tt.want == 0 {
 				if err != nil {

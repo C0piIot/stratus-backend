@@ -121,6 +121,7 @@ internal/media:88
 internal/media/thumb:91
 internal/media/stream:89
 internal/music:100
+internal/calendar:92
 internal/timeline:92
 internal/nextcloud:87
 internal/db:63
@@ -282,6 +283,10 @@ internal/web:96
 # translated from a URL rather than handed to the driver, are both branches the
 # other two do not have. What is left uncovered is their error paths, which need
 # a server that fails between two statements.
+#
+# internal/calendar starts at 92 (#75). What is left is the database failing
+# between the reads and the write of a PUT, which is the transaction's to roll
+# back and the driver suites' to prove.
 #
 # internal/db has a low floor for the same reason: db.Migrate is exercised by
 # both driver packages, and the import cycle that keeps drivers out of the port

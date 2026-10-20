@@ -6,9 +6,10 @@ Stratus is a self-hosted personal cloud for photos, calendar, music and video.
 Instead of shipping its own API and a client app per platform, it speaks
 protocols your existing apps already understand.
 
-> **Work in progress.** Files over WebDAV and music over OpenSubsonic work
-> today, the web UI browses, uploads, downloads and tidies them, and the
-> container is real. CalDAV and sharing are not written yet.
+> **Work in progress.** Files over WebDAV, music over OpenSubsonic and
+> calendar events over CalDAV work today, the web UI browses, uploads,
+> downloads and tidies the files, and the container is real. Sharing is not
+> written yet, nor the calendar in the web UI.
 > The tables below say what answers and what does not, rather than what is
 > intended — if a row says **works**, it works.
 
@@ -27,7 +28,7 @@ of this file.
 | tus | resumable upload of large files | tus-js-client, TUSKit, tus-android-client | **works** ‡ |
 | HTTP range | audio/video streaming | browsers, VLC, mpv | **works** |
 | HLS | films a player cannot take as they are, remuxed | Chromecast, Safari, VLC, the web UI's player | **works** § |
-| CalDAV | calendar | DAVx5, Thunderbird, iOS/macOS | next |
+| CalDAV | calendar events | DAVx5, Thunderbird, iOS/macOS | **works** ¶ |
 | OpenSubsonic | music | Symfonium, Substreamer, DSub, Feishin | **works** † |
 | Web UI | sign in, browse, search, upload, download, rename, delete, the trash, what is known about a file, a photo gallery, a music library, library status | any browser | **partly** |
 | CardDAV | contacts | DAVx5, Thunderbird | planned |
@@ -62,6 +63,12 @@ exist first, exactly as for a `PUT`.
 a track out of the shipped container. **No real client has been pointed at it
 yet**, so read that row as the server holding up its end rather than as a
 promise about any particular app.
+
+¶ Events, not tasks: a task list is refused rather than accepted and then
+missing from every query (#79). Asserted with go-webdav's own CalDAV client —
+discovery, writes, conditional writes and a recurring event found by date —
+but **no real client has been pointed at it yet**, so read the row the way
+the one above it reads.
 
 Nothing here is a private API: every feature is reachable from a client that
 already exists, and no Stratus app is required to use any of it. There is one —
@@ -727,6 +734,40 @@ in that file and not in the database, so it is the one thing you have to look up
 What it never does, in either mode: write to the bucket, and write to
 Nextcloud's database.
 
+## CalDAV
+
+Mounted at `/calendars/`, with the same credentials as WebDAV and only when
+they are set. Give a client the server's address and nothing else:
+`/.well-known/caldav` points it at the calendars, which is where DAVx5 and
+the Apple clients look first, and the answer asks for no password since it
+says only where to look.
+
+| address | what is there |
+|---|---|
+| `/calendars/` | whoever is signed in, as CalDAV's principal |
+| `/calendars/<user>/` | their calendars |
+| `/calendars/<user>/<calendar>/` | one calendar |
+| `/calendars/<user>/<calendar>/<name>.ics` | one event, with its repetitions |
+
+What to expect from it:
+
+- **Everybody has a calendar called `default`**, made the first time a client
+  looks. Another is made with the extended `MKCOL` of RFC 5689; `MKCALENDAR`,
+  which is what DAVx5 sends to create one, is not answered yet (#399).
+- **Events only.** A `VTODO` is refused with CalDAV's
+  `supported-calendar-component`, and each calendar says it holds `VEVENT`
+  alone, so a client does not offer tasks there in the first place.
+- **What is stored is the event as the server writes it**, not the bytes the
+  client sent: the same properties, in one canonical form, and the `ETag` is a
+  digest of that form. A client that compares bytes rather than the `ETag`
+  sees its own event come back reformatted.
+- **A query by date reads the whole calendar**, because a repeating event's
+  first date says nothing about whether it falls in the month asked about. A
+  personal calendar is hundreds of events, and that is what it is sized for.
+- **No `sync-collection` yet** (#75): a client lists every event's `ETag` on
+  each sync and fetches what changed. Correct, and it costs a listing per
+  calendar per sync until it lands.
+
 ## OpenSubsonic
 
 Mounted at `/rest/`, with the same credentials as WebDAV and, like it, only when
@@ -874,7 +915,7 @@ than a form for a user who does not exist.
 
 What it does today is sign you in, walk the tree, hand you a file, take one
 back, make a folder to put it in, and rename or delete what is there. The
-calendar waits for CalDAV to exist. It is a convenience for when reaching for
+calendars answer over CalDAV, and a page for them is next (#111). It is a convenience for when reaching for
 rclone or DAVx5 is overkill, and it consumes the same internals the protocol
 handlers do — it will never grow a private JSON API of its own.
 
@@ -1635,10 +1676,12 @@ Working now:
   rename and delete, see what the indexer found about a file, a gallery of every photo by date -- also served as
   folders by date over WebDAV -- and a music library to browse and play. A signed-cookie session and a CSP that allows nothing but
   the binary's own assets.
+- Calendar events over CalDAV, discovered from the bare address, with
+  conditional writes and recurring events matched by date.
 - A request log, migrations applied at startup, and a container asserted from
-  the outside by 142 smoke checks.
+  the outside by 144 smoke checks.
 
-Not there yet: CalDAV and sharing. Work
+Not there yet: sharing, tasks over CalDAV, and the calendar in the web UI. Work
 and the decisions behind it are tracked on the
 [Stratus project board](https://github.com/users/C0piIot/projects/2), where
 `Priority` says when and the `decision` label says what still needs a call.
