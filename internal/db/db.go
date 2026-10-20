@@ -334,6 +334,7 @@ type Repo interface {
 	Uploads
 	Trash
 	Lookups
+	Calendars
 }
 
 // Store is a database connection.

@@ -282,3 +282,38 @@ func ScanAlbumPlays(s Scanner, t Times) (db.Subject, db.Annotation, error) {
 	}
 	return db.AlbumSubject(artist, album), a, nil
 }
+
+// CalendarColumns is a calendar's row.
+const CalendarColumns = `id, owner_id, name, display_name, description, sync_token, pruned_token, created_at`
+
+// ScanCalendar reads one row of CalendarColumns.
+func ScanCalendar(s Scanner, t Times) (db.Calendar, error) {
+	var c db.Calendar
+	if err := s.Scan(&c.ID, &c.OwnerID, &c.Name, &c.DisplayName, &c.Description,
+		&c.SyncToken, &c.PrunedToken, t.Dest(&c.Created)); err != nil {
+		return db.Calendar{}, err
+	}
+	return c, nil
+}
+
+// CalendarObjectColumns is a calendar object's row.
+const CalendarObjectColumns = `calendar_id, name, uid, component, data, etag, sync_token, changed_at`
+
+// ScanCalendarObject reads one row of CalendarObjectColumns.
+func ScanCalendarObject(s Scanner, t Times) (db.CalendarObject, error) {
+	var o db.CalendarObject
+	if err := s.Scan(&o.CalendarID, &o.Name, &o.UID, &o.Component, &o.Data, &o.ETag,
+		&o.SyncToken, t.Dest(&o.Changed)); err != nil {
+		return db.CalendarObject{}, err
+	}
+	return o, nil
+}
+
+// ScanCalendarChange reads a name, its token and whether it was deleted.
+func ScanCalendarChange(s Scanner) (db.CalendarChange, error) {
+	var c db.CalendarChange
+	if err := s.Scan(&c.Name, &c.SyncToken, &c.Deleted); err != nil {
+		return db.CalendarChange{}, err
+	}
+	return c, nil
+}
