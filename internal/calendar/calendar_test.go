@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/emersion/go-ical"
 
@@ -245,5 +246,56 @@ func TestACalendarNobodyMadeIsNotFound(t *testing.T) {
 	}
 	if _, err := calendar.Decode(db.CalendarObject{Name: "a.ics", Data: "not iCalendar"}); err == nil {
 		t.Error("Decode took text that is not iCalendar")
+	}
+}
+
+// TestChangesSinceAToken is what sync-collection answers from: a first sync is
+// what is there, a later one is what changed including deletions, and a token
+// the server never wrote or has forgotten the deletions behind is stale.
+func TestChangesSinceAToken(t *testing.T) {
+	t.Parallel()
+	s, store := service(t)
+	ctx := t.Context()
+	put := func(name, uid string) {
+		t.Helper()
+		if _, err := s.Put(ctx, owner, calendar.DefaultName, name, parse(t, strings.ReplaceAll(event, "standup@example.com", uid)), nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	put("a.ics", "a")
+	put("b.ics", "b")
+	if err := s.Delete(ctx, owner, calendar.DefaultName, "a.ics"); err != nil {
+		t.Fatal(err)
+	}
+
+	first, c, err := s.Changes(ctx, owner, calendar.DefaultName, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first) != 1 || first[0].Name != "b.ics" || c.SyncToken != 3 {
+		t.Errorf("a first sync = %+v at %d, want b.ics alone at 3", first, c.SyncToken)
+	}
+	later, _, err := s.Changes(ctx, owner, calendar.DefaultName, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(later) != 2 || !later[1].Deleted {
+		t.Errorf("changes since 1 = %+v, want b.ics and the deletion of a.ics", later)
+	}
+
+	if _, _, err := s.Changes(ctx, owner, calendar.DefaultName, 4); !errors.Is(err, calendar.ErrStaleToken) {
+		t.Errorf("a token from the future = %v, want ErrStaleToken", err)
+	}
+	if _, _, err := s.Changes(ctx, owner, "work", 0); !errors.Is(err, db.ErrNotFound) {
+		t.Errorf("changes to a calendar nobody made = %v, want ErrNotFound", err)
+	}
+	if _, err := store.PruneCalendarTombstones(ctx, time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.Changes(ctx, owner, calendar.DefaultName, 1); !errors.Is(err, calendar.ErrStaleToken) {
+		t.Errorf("a token from before a forgotten deletion = %v, want ErrStaleToken", err)
+	}
+	if n, err := s.Prune(ctx); err != nil || n != 0 {
+		t.Errorf("Prune with nothing old = %d, %v", n, err)
 	}
 }

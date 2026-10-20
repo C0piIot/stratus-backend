@@ -1805,8 +1805,18 @@ Restraint here is principle 3, not laziness:
   the extended `MKCOL` and not `MKCALENDAR`. A time-range query loads the whole
   calendar and lets `caldav.Filter` decide, which is where recurrence is
   matched; narrowing by a date column first would drop an event that repeats
-  into the window. The schema already carries `sync-collection`'s counter and
-  tombstones; the `REPORT` that reads them is the third step of #75.
+  into the window. **`sync-collection` is answered in front of the library**, which rejects any
+  `REPORT` it does not know and has no hook for a property: the `REPORT` is
+  ours, from the counter and the tombstones the schema keeps, and
+  `sync-token`, `getctag` and `supported-report-set` are spliced into the
+  library's own `PROPFIND` answer by parsing it and moving the three out of
+  its 404 -- so everything else about a calendar stays the library's. The XML
+  types are redeclared because the library's are `internal/`, and a property
+  keeps no attributes on the way through, since the only ones it has are the
+  namespace declarations the encoder writes again. A deletion is remembered
+  for `calendar.TombstoneRetention`, thirty days, pruned on the collector's
+  tick; a token from before the oldest one left is `valid-sync-token`, which
+  is a client's cue to list again.
 
 - **Playlists are `.m3u8` files on a mount of their own**, `/playlists/`
   (#203), read-only WebDAV from `internal/dav/playlists.go`. **Not a folder in

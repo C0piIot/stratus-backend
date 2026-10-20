@@ -14,6 +14,7 @@ import (
 	"runtime/debug"
 	"time"
 
+	"github.com/C0piIot/stratus-backend/internal/calendar"
 	"github.com/C0piIot/stratus-backend/internal/db"
 	"github.com/C0piIot/stratus-backend/internal/files"
 	"github.com/C0piIot/stratus-backend/internal/media"
@@ -222,6 +223,10 @@ func (a *App) collectPeriodically(ctx context.Context, deps Deps) {
 			slog.Info("collected abandoned uploads", "count", done)
 		}
 
+		if !pruneCalendars(ctx, deps.Database) {
+			return
+		}
+
 		switch done, err := service.Collect(ctx, a.cfg.GCGrace); {
 		case errors.Is(err, context.Canceled):
 			return
@@ -389,6 +394,24 @@ func (a *App) emptyTrash(ctx context.Context, service *files.Service) bool {
 	case done.Batches > 0:
 		slog.Info("emptied the trash",
 			"deletions", done.Batches, "files", done.Files, "bytes", done.Bytes)
+	}
+	return true
+}
+
+// pruneCalendars forgets old calendar deletions, and is false when the context
+// has gone. What it costs a client that synced before them is one listing of
+// its calendar: see calendar.TombstoneRetention.
+func pruneCalendars(ctx context.Context, meta db.Store) bool {
+	if meta == nil {
+		return true
+	}
+	switch done, err := calendar.New(meta).Prune(ctx); {
+	case errors.Is(err, context.Canceled):
+		return false
+	case err != nil:
+		slog.Error("forgetting old calendar deletions", "err", err)
+	case done > 0:
+		slog.Info("forgot old calendar deletions", "count", done)
 	}
 	return true
 }

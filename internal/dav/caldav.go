@@ -1,8 +1,11 @@
 package dav
 
 import (
+	"bytes"
 	"context"
+	"encoding/xml"
 	"errors"
+	"io"
 	"net/http"
 	"strings"
 
@@ -45,7 +48,8 @@ import (
 // every href from the request's own path and the paths the backend returns,
 // so it has to see the whole of it.
 func CalDAV(prefix string, service *calendar.Service) http.Handler {
-	h := &caldav.Handler{Backend: &calendarBackend{prefix: prefix, cal: service}}
+	b := &calendarBackend{prefix: prefix, cal: service}
+	h := &caldav.Handler{Backend: b}
 	bare := strings.TrimSuffix(prefix, "/")
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Deeper than an object is nothing at all, which the library would
@@ -60,8 +64,34 @@ func CalDAV(prefix string, service *calendar.Service) http.Handler {
 			r.URL.Path = p + "/"
 			r.URL.RawPath = ""
 		}
-		h.ServeHTTP(w, r)
+		switch r.Method {
+		case "REPORT":
+			b.report(w, r, h)
+		case "PROPFIND":
+			b.propfindWithSync(w, r, h)
+		default:
+			h.ServeHTTP(w, r)
+		}
 	})
+}
+
+// report answers sync-collection here and hands every other REPORT to the
+// library, which refuses the ones it does not know.
+func (b *calendarBackend) report(w http.ResponseWriter, r *http.Request, next http.Handler) {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "cannot read the request", http.StatusBadRequest)
+		return
+	}
+	r.Body = io.NopCloser(bytes.NewReader(body))
+	var req syncCollection
+	if xml.Unmarshal(body, &req) != nil {
+		next.ServeHTTP(w, r)
+		return
+	}
+	if err := b.serveSync(w, r, req); err != nil {
+		serveCalendarError(w, err)
+	}
 }
 
 type calendarBackend struct {

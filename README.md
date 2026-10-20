@@ -764,9 +764,12 @@ What to expect from it:
 - **A query by date reads the whole calendar**, because a repeating event's
   first date says nothing about whether it falls in the month asked about. A
   personal calendar is hundreds of events, and that is what it is sized for.
-- **No `sync-collection` yet** (#75): a client lists every event's `ETag` on
-  each sync and fetches what changed. Correct, and it costs a listing per
-  calendar per sync until it lands.
+- **A client syncs by token** (RFC 6578 `sync-collection`), and each calendar
+  says so in `supported-report-set`, with the same token as `getctag` for the
+  clients that ask that first. A sync is what changed since the last one,
+  deletions included. A deletion is remembered for **thirty days**: a client
+  away for longer is told its token is stale and lists the calendar again,
+  which costs it one listing and nothing else.
 
 ## OpenSubsonic
 
@@ -1677,9 +1680,9 @@ Working now:
   folders by date over WebDAV -- and a music library to browse and play. A signed-cookie session and a CSP that allows nothing but
   the binary's own assets.
 - Calendar events over CalDAV, discovered from the bare address, with
-  conditional writes and recurring events matched by date.
+  conditional writes, recurring events matched by date and sync by token.
 - A request log, migrations applied at startup, and a container asserted from
-  the outside by 144 smoke checks.
+  the outside by 145 smoke checks.
 
 Not there yet: sharing, tasks over CalDAV, and the calendar in the web UI. Work
 and the decisions behind it are tracked on the

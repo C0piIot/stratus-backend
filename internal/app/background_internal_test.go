@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/C0piIot/stratus-backend/internal/calendar"
 	"github.com/C0piIot/stratus-backend/internal/config"
 	"github.com/C0piIot/stratus-backend/internal/db"
 	"github.com/C0piIot/stratus-backend/internal/db/dbtest"
@@ -98,6 +99,47 @@ func TestTheTrashCanBeHeld(t *testing.T) {
 	}
 	if retention(0) != "never" || retention(time.Hour) != time.Hour {
 		t.Error("the log value of the retention is wrong")
+	}
+}
+
+// TestCalendarDeletionsAreForgotten is the collector's half of #75's third
+// step: a deletion older than calendar.TombstoneRetention goes, a failure is
+// logged and survived, and a pass whose context has gone says so.
+func TestCalendarDeletionsAreForgotten(t *testing.T) {
+	t.Parallel()
+	_, meta := filestest.Backends(t)
+	ctx := t.Context()
+	c, err := meta.CreateCalendar(ctx, db.Calendar{OwnerID: "u", Name: "default", Created: time.Now()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = meta.PutCalendarObject(ctx, db.CalendarObject{
+		CalendarID: c.ID, Name: "a.ics", UID: "a", Component: "VEVENT", Data: "x", Changed: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err = meta.DeleteCalendarObject(ctx, c.ID, "a.ics", time.Now().Add(-calendar.TombstoneRetention-time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+
+	if !pruneCalendars(ctx, meta) {
+		t.Fatal("a pass with a live context said it had gone")
+	}
+	changes, err := meta.CalendarChanges(ctx, c.ID, 0)
+	if err != nil || len(changes) != 0 {
+		t.Errorf("CalendarChanges after the pass = %+v, %v; want the deletion forgotten", changes, err)
+	}
+
+	if !pruneCalendars(ctx, dbtest.FailOn(t, meta, "PruneCalendarTombstones")) {
+		t.Error("a failed pass stopped the loop")
+	}
+	if !pruneCalendars(ctx, nil) {
+		t.Error("no database stopped the loop")
+	}
+	gone, cancel := context.WithCancel(ctx)
+	cancel()
+	if pruneCalendars(gone, meta) {
+		t.Error("a pass whose context had gone did not say so")
 	}
 }
 
