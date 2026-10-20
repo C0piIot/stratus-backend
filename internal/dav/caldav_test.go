@@ -345,9 +345,9 @@ func TestACalendarSyncsByToken(t *testing.T) {
 		{next + "0", "1"},
 		{next, "infinite"},
 	} {
-		rec, _ := report(tc.token, tc.level)
-		if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "<valid-sync-token/>") && tc.level == "1" {
-			t.Errorf("sync with %q at level %s = %d:\n%s", tc.token, tc.level, rec.Code, rec.Body.String())
+		refused, _ := report(tc.token, tc.level)
+		if refused.Code != http.StatusForbidden || !strings.Contains(refused.Body.String(), "<valid-sync-token/>") && tc.level == "1" {
+			t.Errorf("sync with %q at level %s = %d:\n%s", tc.token, tc.level, refused.Code, refused.Body.String())
 		}
 	}
 
@@ -355,11 +355,11 @@ func TestACalendarSyncsByToken(t *testing.T) {
 	if _, err := meta.PruneCalendarTombstones(ctx, time.Now().Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
-	if rec, _ := report(token, "1"); rec.Code != http.StatusForbidden {
-		t.Errorf("sync from before a forgotten deletion = %d, want 403", rec.Code)
+	if stale, _ := report(token, "1"); stale.Code != http.StatusForbidden {
+		t.Errorf("sync from before a forgotten deletion = %d, want 403", stale.Code)
 	}
-	if rec, _ := report(next, "1"); rec.Code != http.StatusMultiStatus {
-		t.Errorf("sync from after it = %d, want 207", rec.Code)
+	if fresh, _ := report(next, "1"); fresh.Code != http.StatusMultiStatus {
+		t.Errorf("sync from after it = %d, want 207", fresh.Code)
 	}
 
 	// The rest of what a synced object can be asked about, and a property it
