@@ -7,7 +7,9 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
+	"time"
 
 	"github.com/emersion/go-ical"
 	"github.com/emersion/go-webdav"
@@ -216,16 +218,83 @@ func (b *calendarBackend) ListCalendarObjects(ctx context.Context, p string, _ *
 // matched against a window by its occurrences rather than its first date,
 // which is why nothing is narrowed in SQL first: an event every Tuesday since
 // January starts in January and still falls in March.
+//
+// A window over tasks or journal entries is the exception (#79): the library
+// answers no to every one of them, so it is taken out of the query before the
+// library sees it and asked of calendar.InRange afterwards.
 func (b *calendarBackend) QueryCalendarObjects(ctx context.Context, p string, query *caldav.CalendarQuery) ([]caldav.CalendarObject, error) {
 	all, err := b.ListCalendarObjects(ctx, p, nil)
 	if err != nil {
 		return nil, err
 	}
-	out, err := caldav.Filter(query, all)
+	rest, windows := ownWindows(query)
+	out, err := caldav.Filter(rest, all)
 	if err != nil {
 		return nil, webdav.NewHTTPError(http.StatusBadRequest, err)
 	}
-	return out, nil
+	if len(windows) == 0 {
+		return out, nil
+	}
+	kept := out[:0]
+	for _, o := range out {
+		in, err := inWindows(o.Data, windows)
+		if err != nil {
+			return nil, webdav.NewHTTPError(http.StatusBadRequest, err)
+		}
+		if in {
+			kept = append(kept, o)
+		}
+	}
+	return kept, nil
+}
+
+// componentWindow is a time range a query asks of one kind of component.
+type componentWindow struct {
+	name       string
+	start, end time.Time
+}
+
+// ownWindows is the query with the windows over tasks and journal entries
+// taken out of it, and those windows. Only where clients put them: on a
+// component filter directly under VCALENDAR.
+func ownWindows(query *caldav.CalendarQuery) (*caldav.CalendarQuery, []componentWindow) {
+	if query == nil {
+		return nil, nil
+	}
+	rest := *query
+	rest.CompFilter.Comps = slices.Clone(query.CompFilter.Comps)
+	var windows []componentWindow
+	for i, f := range rest.CompFilter.Comps {
+		if (f.Name == ical.CompToDo || f.Name == ical.CompJournal) && !f.Start.IsZero() {
+			windows = append(windows, componentWindow{name: f.Name, start: f.Start, end: f.End})
+			rest.CompFilter.Comps[i].Start, rest.CompFilter.Comps[i].End = time.Time{}, time.Time{}
+		}
+	}
+	return &rest, windows
+}
+
+// inWindows is whether some component of each window's kind falls in it.
+func inWindows(cal *ical.Calendar, windows []componentWindow) (bool, error) {
+	for _, w := range windows {
+		found := false
+		for _, comp := range cal.Children {
+			if comp.Name != w.name {
+				continue
+			}
+			in, err := calendar.InRange(comp, w.start, w.end)
+			if err != nil {
+				return false, err
+			}
+			if in {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 // PutCalendarObject implements caldav.Backend. The library only forwards the
@@ -274,7 +343,7 @@ func (b *calendarBackend) calendar(c db.Calendar) caldav.Calendar {
 		Path:                  b.home(c.OwnerID) + c.Name + "/",
 		Name:                  c.DisplayName,
 		Description:           c.Description,
-		SupportedComponentSet: []string{calendar.Component},
+		SupportedComponentSet: strings.Split(c.Components, ","),
 	}
 }
 

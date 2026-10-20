@@ -20,10 +20,10 @@ const (
 func (r *repo) CreateCalendar(ctx context.Context, c db.Calendar) (db.Calendar, error) {
 	c = c.Normalize()
 	// No RETURNING here: the id is the one the insert reports.
-	const query = `INSERT INTO calendars (owner_id, name, display_name, description, color, created_at)
-		VALUES (?, ?, ?, ?, ?, ?)`
+	const query = `INSERT INTO calendars (owner_id, name, display_name, description, color, components, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`
 
-	result, err := r.q.ExecContext(ctx, query, c.OwnerID, c.Name, c.DisplayName, c.Description, c.Color,
+	result, err := r.q.ExecContext(ctx, query, c.OwnerID, c.Name, c.DisplayName, c.Description, c.Color, c.Components,
 		times.Arg(c.Created))
 	if err != nil {
 		return db.Calendar{}, fmt.Errorf("create calendar %q: %w", c.Name, mapErr(err))

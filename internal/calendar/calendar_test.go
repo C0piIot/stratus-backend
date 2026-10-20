@@ -123,7 +123,11 @@ func TestOnlyACalendarObjectIsStored(t *testing.T) {
 		name, text string
 		want       error
 	}{
-		{"a task", strings.ReplaceAll(event, "VEVENT", "VTODO"), calendar.ErrUnsupported},
+		{"a date nobody can read", strings.Replace(event, "DTSTART:20240102T090000Z", "DTSTART:tomorrow", 1), calendar.ErrInvalid},
+		{"an end nobody can read", strings.Replace(event, "DTSTART:20240102T090000Z", "DTSTART:20240102T090000Z\nDTEND:later", 1), calendar.ErrInvalid},
+		{"a length nobody can read", strings.Replace(event, "RRULE:FREQ=WEEKLY", "DURATION:a while", 1), calendar.ErrInvalid},
+		{"a repetition nobody can read", strings.Replace(event, "FREQ=WEEKLY", "FREQ=SOMETIMES", 1), calendar.ErrInvalid},
+		{"free and busy", strings.ReplaceAll(event, "VEVENT", "VFREEBUSY"), calendar.ErrUnsupported},
 		{"no PRODID", strings.Replace(event, "PRODID:-//test//EN\n", "", 1), calendar.ErrInvalid},
 		{"nothing in it", "BEGIN:VCALENDAR\nVERSION:2.0\nPRODID:-//test//EN\nEND:VCALENDAR\n", calendar.ErrInvalid},
 		{"no UID", strings.Replace(event, "UID:standup@example.com\n", "", 1), calendar.ErrInvalid},
@@ -354,5 +358,47 @@ func TestChangesSinceAToken(t *testing.T) {
 	}
 	if n, err := s.Prune(ctx); err != nil || n != 0 {
 		t.Errorf("Prune with nothing old = %d, %v", n, err)
+	}
+}
+
+// TestACalendarHoldsWhatItWasMadeFor is #79: a task list takes tasks and
+// refuses events, a calendar made without saying takes all three kinds, and
+// one asked to hold only what is not stored is not made.
+func TestACalendarHoldsWhatItWasMadeFor(t *testing.T) {
+	t.Parallel()
+	s, _ := service(t)
+	ctx := t.Context()
+	task := strings.ReplaceAll(event, "VEVENT", "VTODO")
+	journal := strings.ReplaceAll(event, "VEVENT", "VJOURNAL")
+
+	list, err := s.Create(ctx, owner, db.Calendar{Name: "tasks", Components: "VTODO,VTODO,VFREEBUSY"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if list.Components != "VTODO" {
+		t.Errorf("a task list holds %q, want VTODO", list.Components)
+	}
+	if _, err = s.Put(ctx, owner, "tasks", "t.ics", parse(t, task), nil); err != nil {
+		t.Errorf("a task in a task list = %v", err)
+	}
+	if _, err = s.Put(ctx, owner, "tasks", "e.ics", parse(t, strings.Replace(event, "standup@", "other@", 1)), nil); !errors.Is(err, calendar.ErrUnsupported) {
+		t.Errorf("an event in a task list = %v, want ErrUnsupported", err)
+	}
+
+	all, err := s.Create(ctx, owner, db.Calendar{Name: "all"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if all.Components != "VEVENT,VTODO,VJOURNAL" {
+		t.Errorf("a calendar made without saying holds %q", all.Components)
+	}
+	if _, err = s.Put(ctx, owner, "all", "j.ics", parse(t, journal), nil); err != nil {
+		t.Errorf("a journal entry in a calendar of everything = %v", err)
+	}
+	if _, err = s.Create(ctx, owner, db.Calendar{Name: "busy", Components: "VFREEBUSY"}); !errors.Is(err, calendar.ErrUnsupported) {
+		t.Errorf("a calendar of only what is not stored = %v, want ErrUnsupported", err)
+	}
+	if c, _ := s.Calendar(ctx, owner, calendar.DefaultName); c.Components != "VEVENT,VTODO,VJOURNAL" {
+		t.Errorf("the default calendar holds %q, want everything", c.Components)
 	}
 }
