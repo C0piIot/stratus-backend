@@ -7,7 +7,7 @@ Instead of shipping its own API and a client app per platform, it speaks
 protocols your existing apps already understand.
 
 > **Work in progress.** Files over WebDAV, music over OpenSubsonic and
-> calendar events over CalDAV work today, the web UI browses, uploads,
+> calendars and tasks over CalDAV work today, the web UI browses, uploads,
 > downloads and tidies the files, and the container is real. Sharing is not
 > written yet, nor the calendar in the web UI.
 > The tables below say what answers and what does not, rather than what is
@@ -28,7 +28,7 @@ of this file.
 | tus | resumable upload of large files | tus-js-client, TUSKit, tus-android-client | **works** ‡ |
 | HTTP range | audio/video streaming | browsers, VLC, mpv | **works** |
 | HLS | films a player cannot take as they are, remuxed | Chromecast, Safari, VLC, the web UI's player | **works** § |
-| CalDAV | calendar events | DAVx5, Thunderbird, iOS/macOS | **works** ¶ |
+| CalDAV | calendar events, tasks, journal entries | DAVx5, Thunderbird, iOS/macOS | **works** ¶ |
 | OpenSubsonic | music | Symfonium, Substreamer, DSub, Feishin | **works** † |
 | Web UI | sign in, browse, search, upload, download, rename, delete, the trash, what is known about a file, a photo gallery, a music library, library status | any browser | **partly** |
 | CardDAV | contacts | DAVx5, Thunderbird | planned |
@@ -64,10 +64,9 @@ a track out of the shipped container. **No real client has been pointed at it
 yet**, so read that row as the server holding up its end rather than as a
 promise about any particular app.
 
-¶ Events, not tasks: a task list is refused rather than accepted and then
-missing from every query (#79). Asserted with go-webdav's own CalDAV client —
-discovery, writes, conditional writes and a recurring event found by date —
-but **no real client has been pointed at it yet**, so read the row the way
+¶ Asserted with go-webdav's own CalDAV client and with the requests DAVx5
+sends — discovery, writes, conditional writes, a recurring event and a task
+found by date, sync by token — but **no real client has been pointed at it yet**, so read the row the way
 the one above it reads.
 
 Nothing here is a private API: every feature is reachable from a client that
@@ -761,9 +760,15 @@ What to expect from it:
   nothing, as the RFC has it. Properties a calendar does not keep — a time
   zone, an order — are taken and dropped when one is made, because DAVx5
   sends a time zone with every calendar and refusing it would refuse DAVx5.
-- **Events only.** A `VTODO` is refused with CalDAV's
-  `supported-calendar-component`, and each calendar says it holds `VEVENT`
-  alone, so a client does not offer tasks there in the first place.
+- **Events, tasks and journal entries** — what DAVx5 hands to the phone's
+  calendar, to OpenTasks or Tasks.org, and to jtx Board. Each calendar holds
+  what it was made for: a task list made by DAVx5 holds tasks and refuses an
+  event with CalDAV's `supported-calendar-component`, a calendar made without
+  saying holds all three, and so does `default`. A query by date finds tasks
+  and journal entries by the rules RFC 4791 gives each, which go-webdav does
+  not do for anything but events. An object whose dates or repetition cannot
+  be read is refused when it is written, since stored it would break every
+  query by date over its calendar.
 - **What is stored is the event as the server writes it**, not the bytes the
   client sent: the same properties, in one canonical form, and the `ETag` is a
   digest of that form. A client that compares bytes rather than the `ETag`
@@ -1687,11 +1692,12 @@ Working now:
   folders by date over WebDAV -- and a music library to browse and play. A signed-cookie session and a CSP that allows nothing but
   the binary's own assets.
 - Calendar events over CalDAV, discovered from the bare address, with
-  conditional writes, recurring events matched by date and sync by token.
+  conditional writes, recurring events matched by date and sync by token;
+  tasks and journal entries beside them, in lists of their own or not.
 - A request log, migrations applied at startup, and a container asserted from
-  the outside by 146 smoke checks.
+  the outside by 147 smoke checks.
 
-Not there yet: sharing, tasks over CalDAV, and the calendar in the web UI. Work
+Not there yet: sharing, and the calendar in the web UI. Work
 and the decisions behind it are tracked on the
 [Stratus project board](https://github.com/users/C0piIot/projects/2), where
 `Priority` says when and the `decision` label says what still needs a call.

@@ -1799,9 +1799,16 @@ Restraint here is principle 3, not laziness:
   round trip still. `internal/calendar` is the feature for the reason
   `internal/music` is: a conditional `PUT` is a read and a write, and the
   adapter compares `If-Match` inside the service's transaction rather than in
-  front of it, since the library only forwards the headers. Events only --
-  `VTODO` is refused rather than stored and lost to every query (#79) -- and a
-  calendar called `default` is made on first look, so a client that never
+  front of it, since the library only forwards the headers. Events, tasks
+  and journal entries, each calendar holding what it was made for -- a
+  `components` column, because DAVx5 makes a task list as a calendar of its
+  own (#79). go-webdav's matcher answers a time range over anything but an
+  event with no, so a window over `VTODO` or `VJOURNAL` is taken out of the
+  query before the library sees it and asked of `calendar.InRange`, which is
+  RFC 4791 9.9's table row by row. A date or a repetition that cannot be read
+  is refused at `PUT`, because stored it would turn every query by date over
+  that calendar into an error. Fixing the matcher upstream was weighed and is
+  not ours to do now. A calendar called `default` is made on first look, so a client that never
   makes one still has somewhere to write; it cannot be deleted, since the next
   look would make it again under the client's feet.
 

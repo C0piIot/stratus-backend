@@ -50,7 +50,7 @@ func newCalendar(t *testing.T, s db.Repo, ownerID, name string) db.Calendar {
 	t.Helper()
 	c, err := s.CreateCalendar(t.Context(), db.Calendar{
 		OwnerID: ownerID, Name: name, DisplayName: "Shown " + name, Description: "About " + name, Color: "#3366ffcc",
-		Created: calendarAt,
+		Components: "VEVENT,VTODO", Created: calendarAt,
 	})
 	if err != nil {
 		t.Fatalf("CreateCalendar(%q): %v", name, err)
@@ -91,7 +91,7 @@ func calendarRoundTrip(t *testing.T, s db.Repo) {
 	}
 	want := db.Calendar{
 		ID: c.ID, OwnerID: "alice", Name: "work", DisplayName: "Shown work", Description: "About work", Color: "#3366ffcc",
-		Created: calendarAt.Truncate(time.Millisecond),
+		Components: "VEVENT,VTODO", Created: calendarAt.Truncate(time.Millisecond),
 	}
 	if got := calendarByName(t, s, c); got != want {
 		t.Errorf("CalendarByName = %+v, want %+v", got, want)

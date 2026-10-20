@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"strings"
 	"time"
 )
 
@@ -27,6 +28,10 @@ type Calendar struct {
 	// Color is what a client paints the calendar with, #RRGGBB or #RRGGBBAA,
 	// and empty for none chosen.
 	Color string
+	// Components is what the calendar holds, comma-separated -- "VTODO" for
+	// a task list, "VEVENT,VTODO,VJOURNAL" for one that takes everything. A
+	// string rather than a slice so that a Calendar stays comparable.
+	Components string
 	// SyncToken is the counter every write to the calendar moves.
 	SyncToken int64
 	// PrunedToken is the highest token whose tombstones have been forgotten.
@@ -34,6 +39,16 @@ type Calendar struct {
 	// was deleted in between, and has to list the calendar again.
 	PrunedToken int64
 	Created     time.Time
+}
+
+// Holds reports whether the calendar takes a component of that name.
+func (c Calendar) Holds(component string) bool {
+	for _, held := range strings.Split(c.Components, ",") {
+		if held == component {
+			return true
+		}
+	}
+	return false
 }
 
 // Normalize is Calendar the way every driver stores it: its time in UTC and to

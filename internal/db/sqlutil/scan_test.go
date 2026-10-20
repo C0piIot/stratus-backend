@@ -237,8 +237,8 @@ func TestTheSmallerScanners(t *testing.T) {
 	if err != nil || ly.Plain != "words" || !ly.RetryAt.Equal(later) {
 		t.Errorf("ScanLyrics = %+v, %v", ly, err)
 	}
-	cal, err := sqlutil.ScanCalendar(row{int64(3), "edu", "work", "Work", "", "#ff0000", int64(9), int64(2), when}, codec)
-	if err != nil || cal.Name != "work" || cal.Color != "#ff0000" || cal.SyncToken != 9 || cal.PrunedToken != 2 || !cal.Created.Equal(when) {
+	cal, err := sqlutil.ScanCalendar(row{int64(3), "edu", "work", "Work", "", "#ff0000", "VTODO", int64(9), int64(2), when}, codec)
+	if err != nil || cal.Name != "work" || cal.Color != "#ff0000" || cal.Components != "VTODO" || cal.SyncToken != 9 || cal.PrunedToken != 2 || !cal.Created.Equal(when) {
 		t.Errorf("ScanCalendar = %+v, %v", cal, err)
 	}
 	co, err := sqlutil.ScanCalendarObject(row{int64(3), "a.ics", "uid", "VEVENT", "BEGIN:VCALENDAR", "e", int64(9), when}, codec)

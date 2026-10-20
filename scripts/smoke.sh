@@ -639,6 +639,16 @@ if wait_serving "$davname"; then
     201) ok "MKCALENDAR makes a calendar" ;;
     *) bad "MKCALENDAR makes a calendar" "got $mkcal" ;;
   esac
+  # And holds tasks (#79), which is what a tasks app hands it through DAVx5.
+  # Piped rather than captured: $(...) would drop the final line break, and
+  # iCalendar wants it.
+  taskput="$(printf 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//smoke//EN\r\nBEGIN:VTODO\r\nUID:smoke-task\r\nDTSTAMP:20240101T000000Z\r\nDUE:20240320T090000Z\r\nSUMMARY:smoke\r\nEND:VTODO\r\nEND:VCALENDAR\r\n' |
+    curl -s -o /dev/null -w '%{http_code}' -u "$davuser:$davpass" -X PUT -H 'Content-Type: text/calendar' \
+      --data-binary @- "http://$davhost/calendars/$davuser/smoke/task.ics")"
+  case "$taskput" in
+    201) ok "a calendar takes a task" ;;
+    *) bad "a calendar takes a task" "got $taskput" ;;
+  esac
 
   # Finder mounts read-only unless the server says class 2, so the header is
   # asserted rather than assumed.

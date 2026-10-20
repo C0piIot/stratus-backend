@@ -69,8 +69,8 @@ func TestACalendarClientFindsItsCalendars(t *testing.T) {
 	if len(cals) != 1 || cals[0].Path != "/calendars/edu/default/" {
 		t.Fatalf("FindCalendars = %+v, want the default calendar", cals)
 	}
-	if got := cals[0].SupportedComponentSet; len(got) != 1 || got[0] != "VEVENT" {
-		t.Errorf("supported components = %v, want VEVENT alone", got)
+	if got := strings.Join(cals[0].SupportedComponentSet, ","); got != "VEVENT,VTODO,VJOURNAL" {
+		t.Errorf("supported components = %v, want all three", got)
 	}
 	calPath := cals[0].Path
 
@@ -144,10 +144,10 @@ func TestACalendarClientFindsItsCalendars(t *testing.T) {
 	if code := put("again.ics", "", icsEvent(t, "standup", "20240102T090000Z", "")); code != http.StatusConflict {
 		t.Errorf("PUT of a UID another object holds = %d, want 409", code)
 	}
-	task := icsEvent(t, "task", "20240102T090000Z", "")
-	task.Children[0].Name = "VTODO"
-	if code := put("task.ics", "", task); code != http.StatusConflict {
-		t.Errorf("PUT of a task = %d, want 409 with supported-calendar-component", code)
+	busy := icsEvent(t, "busy", "20240102T090000Z", "")
+	busy.Children[0].Name = "VFREEBUSY"
+	if code := put("busy.ics", "", busy); code != http.StatusConflict {
+		t.Errorf("PUT of free and busy time = %d, want 409 with supported-calendar-component", code)
 	}
 
 	if err = client.RemoveAll(ctx, calPath+"once.ics"); err != nil {
@@ -439,7 +439,7 @@ END:VCALENDAR</CAL:calendar-timezone>
 		why          string
 	}{
 		{"/calendars/edu/work/", mk, http.StatusMethodNotAllowed, "resource-must-be-null"},
-		{"/calendars/edu/tasks/", strings.Replace(mk, `name="VEVENT"`, `name="VTODO"`, 1), http.StatusForbidden, "supported-calendar-component"},
+		{"/calendars/edu/busy/", strings.Replace(mk, `name="VEVENT"`, `name="VFREEBUSY"`, 1), http.StatusForbidden, "supported-calendar-component"},
 		{"/calendars/edu/red/", strings.Replace(mk, "#FF5733FF", "red", 1), http.StatusForbidden, "calendar-color"},
 		{"/calendars/edu/", mk, http.StatusForbidden, "calendar-collection-location-ok"},
 		{"/calendars/edu/broken/", "<not xml", http.StatusBadRequest, "mkcalendar"},
@@ -506,5 +506,73 @@ END:VCALENDAR</CAL:calendar-timezone>
 	}
 	if rec := do(t, h, http.MethodDelete, "/calendars/edu/default/", ""); rec.Code != http.StatusForbidden {
 		t.Errorf("DELETE of the default calendar = %d, want 403", rec.Code)
+	}
+}
+
+// TestTasksHaveAListOfTheirOwn is #79 the way DAVx5 and a tasks app use it: a
+// list made for tasks, a task put in it, an event refused there, and a query
+// for this month's tasks that finds them rather than nothing.
+func TestTasksHaveAListOfTheirOwn(t *testing.T) {
+	t.Parallel()
+	_, meta := filestest.Backends(t)
+	h := withUser(dav.CalDAV("/calendars/", calendar.New(meta)), "edu")
+	xmlBody := []string{"Content-Type", "application/xml"}
+
+	mk := `<?xml version="1.0"?><C:mkcalendar xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav"><D:set><D:prop>
+<D:displayname>Tasks</D:displayname>
+<C:supported-calendar-component-set><C:comp name="VTODO"/></C:supported-calendar-component-set>
+</D:prop></D:set></C:mkcalendar>`
+	if rec := do(t, h, "MKCALENDAR", "/calendars/edu/tasks/", mk, xmlBody...); rec.Code != http.StatusCreated {
+		t.Fatalf("MKCALENDAR of a task list = %d:\n%s", rec.Code, rec.Body.String())
+	}
+	props := `<?xml version="1.0"?><D:propfind xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav"><D:prop><C:supported-calendar-component-set/></D:prop></D:propfind>`
+	if rec := do(t, h, "PROPFIND", "/calendars/edu/tasks/", props, append([]string{"Depth", "0"}, xmlBody...)...); !strings.Contains(rec.Body.String(), `name="VTODO"`) ||
+		strings.Contains(rec.Body.String(), `name="VEVENT"`) {
+		t.Errorf("the task list says it holds:\n%s", rec.Body.String())
+	}
+
+	ics := func(comp, uid, extra string) string {
+		return "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//test//EN\r\nBEGIN:" + comp + "\r\nUID:" + uid +
+			"\r\nDTSTAMP:20240101T000000Z\r\n" + extra + "SUMMARY:" + uid + "\r\nEND:" + comp + "\r\nEND:VCALENDAR\r\n"
+	}
+	put := func(name, body string) int {
+		t.Helper()
+		return do(t, h, http.MethodPut, "/calendars/edu/tasks/"+name, body, "Content-Type", "text/calendar").Code
+	}
+	if code := put("march.ics", ics("VTODO", "march", "DUE:20240320T090000Z\r\n")); code != http.StatusCreated {
+		t.Fatalf("PUT of a task = %d", code)
+	}
+	if code := put("may.ics", ics("VTODO", "may", "DUE:20240520T090000Z\r\n")); code != http.StatusCreated {
+		t.Fatalf("PUT of a task = %d", code)
+	}
+	if code := put("meeting.ics", ics("VEVENT", "meeting", "DTSTART:20240320T090000Z\r\n")); code != http.StatusConflict {
+		t.Errorf("PUT of an event into a task list = %d, want 409", code)
+	}
+
+	query := func(comp string) string {
+		return `<?xml version="1.0"?><C:calendar-query xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav">
+<D:prop><D:getetag/></D:prop>
+<C:filter><C:comp-filter name="VCALENDAR"><C:comp-filter name="` + comp + `">
+<C:time-range start="20240301T000000Z" end="20240401T000000Z"/>
+</C:comp-filter></C:comp-filter></C:filter></C:calendar-query>`
+	}
+	rec := do(t, h, "REPORT", "/calendars/edu/tasks/", query("VTODO"), append([]string{"Depth", "1"}, xmlBody...)...)
+	if !strings.Contains(rec.Body.String(), "march.ics") || strings.Contains(rec.Body.String(), "may.ics") {
+		t.Errorf("March's tasks:\n%s", rec.Body.String())
+	}
+
+	// And journal entries, in the default calendar that takes everything.
+	if code := do(t, h, http.MethodPut, "/calendars/edu/default/note.ics",
+		ics("VJOURNAL", "note", "DTSTART:20240312T090000Z\r\n"), "Content-Type", "text/calendar").Code; code != http.StatusCreated {
+		t.Fatalf("PUT of a journal entry = %d", code)
+	}
+	rec = do(t, h, "REPORT", "/calendars/edu/default/", query("VJOURNAL"), append([]string{"Depth", "1"}, xmlBody...)...)
+	if !strings.Contains(rec.Body.String(), "note.ics") {
+		t.Errorf("March's journal:\n%s", rec.Body.String())
+	}
+	// Stored, a date nobody can read would break every query over the list.
+	if code := do(t, h, http.MethodPut, "/calendars/edu/default/bad.ics",
+		ics("VTODO", "bad", "DUE:soon\r\n"), "Content-Type", "text/calendar").Code; code != http.StatusConflict {
+		t.Errorf("PUT of a task with a date nobody can read = %d, want 409", code)
 	}
 }

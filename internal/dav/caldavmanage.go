@@ -88,8 +88,12 @@ func (b *calendarBackend) mkcalendar(w http.ResponseWriter, r *http.Request) err
 		if p.Color != nil {
 			c.Color = strings.TrimSpace(*p.Color)
 		}
-		if p.Components != nil && !offersEvents(p.Components) {
-			return precondition(http.StatusForbidden, nsCalDAV, "supported-calendar-component")
+		if p.Components != nil {
+			names := make([]string, 0, len(p.Components.Comps))
+			for _, comp := range p.Components.Comps {
+				names = append(names, comp.Name)
+			}
+			c.Components = strings.Join(names, ",")
 		}
 	}
 
@@ -99,24 +103,13 @@ func (b *calendarBackend) mkcalendar(w http.ResponseWriter, r *http.Request) err
 		return precondition(http.StatusMethodNotAllowed, nsDAV, "resource-must-be-null")
 	case errors.Is(err, calendar.ErrColor):
 		return precondition(http.StatusForbidden, nsApple, "calendar-color")
+	case errors.Is(err, calendar.ErrUnsupported):
+		return precondition(http.StatusForbidden, nsCalDAV, "supported-calendar-component")
 	case err != nil:
 		return mapCalendarErr(ctx, err)
 	}
 	w.WriteHeader(http.StatusCreated)
 	return nil
-}
-
-// offersEvents is whether a calendar asked for can hold what this server
-// stores. One that also wants tasks is made, and refuses them one at a time
-// as they arrive; one that wants only tasks would be a calendar nothing can
-// ever be put in.
-func offersEvents(c *components) bool {
-	for _, comp := range c.Comps {
-		if comp.Name == calendar.Component {
-			return true
-		}
-	}
-	return false
 }
 
 // propertyUpdate is a PROPPATCH's body: sets and removes, in order.

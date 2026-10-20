@@ -18,10 +18,10 @@ const (
 // CreateCalendar implements db.Calendars.
 func (r *repo) CreateCalendar(ctx context.Context, c db.Calendar) (db.Calendar, error) {
 	c = c.Normalize()
-	const query = `INSERT INTO calendars (owner_id, name, display_name, description, color, created_at)
-		VALUES (?, ?, ?, ?, ?, ?) RETURNING id`
+	const query = `INSERT INTO calendars (owner_id, name, display_name, description, color, components, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id`
 
-	err := r.q.QueryRowContext(ctx, query, c.OwnerID, c.Name, c.DisplayName, c.Description, c.Color,
+	err := r.q.QueryRowContext(ctx, query, c.OwnerID, c.Name, c.DisplayName, c.Description, c.Color, c.Components,
 		times.Arg(c.Created)).Scan(&c.ID)
 	if err != nil {
 		return db.Calendar{}, fmt.Errorf("create calendar %q: %w", c.Name, mapErr(err))

@@ -15,6 +15,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -27,10 +28,10 @@ var (
 	// ErrInvalid is iCalendar a calendar collection cannot hold: no UID, two
 	// of them, a METHOD, or text that does not encode.
 	ErrInvalid = errors.New("calendar: not a calendar object")
-	// ErrUnsupported is a component this server does not store. Events only,
-	// for now: a time-range query cannot filter tasks yet (#79), and a task
-	// list that silently returned nothing would be worse than one refused.
-	ErrUnsupported = errors.New("calendar: only events are stored")
+	// ErrUnsupported is a component the calendar does not hold: a task in
+	// a calendar of events, or anything at all that is not an event, a task
+	// or a journal entry.
+	ErrUnsupported = errors.New("calendar: the calendar does not hold that component")
 	// ErrStaleToken is a sync token this server cannot answer from: older than
 	// the deletions it still remembers, or newer than anything it wrote. The
 	// client's answer to it is to list the calendar again.
@@ -47,12 +48,18 @@ var (
 // lists the calendar again, which is correct and only costs a listing.
 const TombstoneRetention = 30 * 24 * time.Hour
 
-// Component is the one kind of calendar object stored.
-const Component = ical.CompEvent
+// Components is every kind of calendar object stored: events, tasks (#79) and
+// journal entries, which is what DAVx5 hands to a calendar, to OpenTasks or
+// Tasks.org, and to jtx Board.
+var Components = []string{ical.CompEvent, ical.CompToDo, ical.CompJournal}
 
-// DefaultName is the calendar every owner has: CalDAV has no standard way for a
-// client to create one that the library here answers (MKCALENDAR), so the
-// first look at somebody's calendars makes it.
+// everything is Components the way a calendar row holds them, which is what
+// a calendar made without saying what it holds holds.
+var everything = strings.Join(Components, ",")
+
+// DefaultName is the calendar every owner has, made on the first look at
+// somebody's calendars so that a client that never makes one still has
+// somewhere to write.
 const DefaultName = "default"
 
 // maxName bounds an object's name to what every driver can hold as a key.
@@ -101,7 +108,8 @@ func (s *Service) Calendar(ctx context.Context, owner, name string) (db.Calendar
 }
 
 // Create makes a calendar, or answers db.ErrConflict when the name is taken.
-// Only Name, DisplayName, Description and Color are read from c.
+// Only Name, DisplayName, Description, Color and Components are read from c,
+// and no Components is every kind there is.
 func (s *Service) Create(ctx context.Context, owner string, c db.Calendar) (db.Calendar, error) {
 	if err := validName(c.Name); err != nil {
 		return db.Calendar{}, err
@@ -109,9 +117,13 @@ func (s *Service) Create(ctx context.Context, owner string, c db.Calendar) (db.C
 	if !ValidColor(c.Color) {
 		return db.Calendar{}, ErrColor
 	}
+	held, err := holds(c.Components)
+	if err != nil {
+		return db.Calendar{}, err
+	}
 	return s.meta.CreateCalendar(ctx, db.Calendar{
 		OwnerID: owner, Name: c.Name, DisplayName: c.DisplayName, Description: c.Description,
-		Color: c.Color, Created: s.now(),
+		Color: c.Color, Components: held, Created: s.now(),
 	})
 }
 
@@ -157,6 +169,26 @@ func (s *Service) DeleteCalendar(ctx context.Context, owner, name string) error 
 		return ErrDefault
 	}
 	return s.meta.DeleteCalendar(ctx, owner, name)
+}
+
+// holds is what a calendar asked to hold the components named will hold:
+// those of them this server stores. Asking for none is asking for every one,
+// and asking only for what is not stored is ErrUnsupported -- a calendar
+// nothing could ever be put in.
+func holds(asked string) (string, error) {
+	if asked == "" {
+		return everything, nil
+	}
+	var kept []string
+	for _, c := range strings.Split(asked, ",") {
+		if slices.Contains(Components, c) && !slices.Contains(kept, c) {
+			kept = append(kept, c)
+		}
+	}
+	if len(kept) == 0 {
+		return "", fmt.Errorf("%w: %s", ErrUnsupported, asked)
+	}
+	return strings.Join(kept, ","), nil
 }
 
 // ValidColor is #RRGGBB or #RRGGBBAA, or nothing at all.
@@ -216,6 +248,9 @@ func (s *Service) Put(ctx context.Context, owner, calendar, name string, cal *ic
 		c, txErr := r.CalendarByName(ctx, owner, calendar)
 		if txErr != nil {
 			return txErr
+		}
+		if !c.Holds(component) {
+			return fmt.Errorf("%w: %s in %q", ErrUnsupported, component, calendar)
 		}
 		existing, txErr := r.CalendarObject(ctx, c.ID, name)
 		exists := txErr == nil
@@ -329,7 +364,7 @@ func (s *Service) ensure(ctx context.Context, owner, name string) error {
 // moment earlier as made.
 func (s *Service) ensureDefault(ctx context.Context, owner string) (db.Calendar, error) {
 	c, err := s.meta.CreateCalendar(ctx, db.Calendar{
-		OwnerID: owner, Name: DefaultName, DisplayName: "Calendar", Created: s.now(),
+		OwnerID: owner, Name: DefaultName, DisplayName: "Calendar", Components: everything, Created: s.now(),
 	})
 	if errors.Is(err, db.ErrConflict) {
 		return s.meta.CalendarByName(ctx, owner, DefaultName)
@@ -363,14 +398,37 @@ func validate(cal *ical.Calendar) (component, uid string, err error) {
 			return "", "", fmt.Errorf("%w: every component needs the one UID", ErrInvalid)
 		}
 		uid = id
+		if err := readableDates(child); err != nil {
+			return "", "", err
+		}
 	}
 	if component == "" {
 		return "", "", fmt.Errorf("%w: it holds no component", ErrInvalid)
 	}
-	if component != Component {
+	if !slices.Contains(Components, component) {
 		return "", "", fmt.Errorf("%w: %s", ErrUnsupported, component)
 	}
 	return component, uid, nil
+}
+
+// readableDates refuses a component whose dates or recurrence cannot be read.
+// Stored, one would turn every query by date over its calendar into an error
+// for as long as it is there.
+func readableDates(comp *ical.Component) error {
+	for _, name := range []string{ical.PropDateTimeStart, ical.PropDateTimeEnd, ical.PropDue, ical.PropCompleted, ical.PropCreated} {
+		if _, err := comp.Props.DateTime(name, time.UTC); err != nil {
+			return fmt.Errorf("%w: %s: %w", ErrInvalid, name, err)
+		}
+	}
+	if p := comp.Props.Get(ical.PropDuration); p != nil {
+		if _, err := p.Duration(); err != nil {
+			return fmt.Errorf("%w: DURATION: %w", ErrInvalid, err)
+		}
+	}
+	if _, err := comp.RecurrenceSet(time.UTC); err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalid, err)
+	}
+	return nil
 }
 
 func validName(name string) error {
