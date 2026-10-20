@@ -8,7 +8,7 @@ require (
 	github.com/getsentry/sentry-go v0.50.0
 	github.com/go-sql-driver/mysql v1.10.1
 	github.com/jackc/pgx/v5 v5.11.0
-	github.com/minio/minio-go/v7 v7.3.0
+	github.com/minio/minio-go/v7 v7.4.1
 	golang.org/x/image v0.47.0
 	golang.org/x/net v0.61.0
 	modernc.org/sqlite v1.60.1
