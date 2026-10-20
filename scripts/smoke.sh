@@ -1788,9 +1788,18 @@ TRACK
   # Waited for rather than checked once: docker collects a container's stdout
   # asynchronously, so a line written a moment ago is not necessarily one that
   # `docker logs` will show yet.
+  #
+  # The log is read into a variable before it is searched, here and below, and
+  # never piped into `grep -q` (#405): that grep stops at the first match, the
+  # one for notes.txt is near the top, and `docker logs` still writing the rest
+  # is killed by SIGPIPE -- which pipefail turns into the pipeline failing. So
+  # a line that was there read as one that was not, more often the longer the
+  # log grew, and the check below that wants no match would have passed with
+  # one.
   logged=""
   for _ in $(seq 1 25); do
-    if docker logs "$davname" 2>&1 | grep -q '"msg":"request".*"path":"/files/notes.txt"'; then
+    davlog="$(docker logs "$davname" 2>&1)"
+    if grep -q '"msg":"request".*"path":"/files/notes.txt"' <<<"$davlog"; then
       logged=yes
       break
     fi
@@ -1801,7 +1810,8 @@ TRACK
   else
     bad "every request leaves a log line" "$(docker logs "$davname" 2>&1 | tail -3)"
   fi
-  if docker logs "$davname" 2>&1 | grep -q '"path":"/healthz"'; then
+  davlog="$(docker logs "$davname" 2>&1)"
+  if grep -q '"path":"/healthz"' <<<"$davlog"; then
     bad "the healthcheck stays out of the log" "it logs every thirty seconds"
   else
     ok "the healthcheck stays out of the log"
@@ -1816,9 +1826,9 @@ TRACK
   # The interval of this container is ten minutes and the run is far shorter, so
   # a line here would mean the query ran anyway -- either on a timer that should
   # not have fired, or because a notice was dropped with a handful of uploads.
-  if docker logs "$davname" 2>&1 | grep -q '"msg":"indexed media"'; then
+  if grep -q '"msg":"indexed media"' <<<"$davlog"; then
     bad "every file was indexed by its own write, with no query" \
-      "$(docker logs "$davname" 2>&1 | grep '"msg":"indexed media"' | head -2)"
+      "$(grep '"msg":"indexed media"' <<<"$davlog" | head -2)"
   else
     ok "every file was indexed by its own write, with no query"
   fi
