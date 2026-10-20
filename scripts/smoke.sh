@@ -631,6 +631,14 @@ if wait_serving "$davname"; then
     *'urn:stratus:sync:'*) ok "a calendar offers a sync token" ;;
     *) bad "a calendar offers a sync token" "$(head -c 200 <<<"$caltoken")" ;;
   esac
+  # A client makes its own calendars (#399): DAVx5 sends MKCALENDAR, which the
+  # library would answer 405.
+  mkcal="$(curl -s -o /dev/null -w '%{http_code}' -u "$davuser:$davpass" -X MKCALENDAR \
+    "http://$davhost/calendars/$davuser/smoke/")"
+  case "$mkcal" in
+    201) ok "MKCALENDAR makes a calendar" ;;
+    *) bad "MKCALENDAR makes a calendar" "got $mkcal" ;;
+  esac
 
   # Finder mounts read-only unless the server says class 2, so the header is
   # asserted rather than assumed.

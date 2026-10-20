@@ -752,8 +752,15 @@ says only where to look.
 What to expect from it:
 
 - **Everybody has a calendar called `default`**, made the first time a client
-  looks. Another is made with the extended `MKCOL` of RFC 5689; `MKCALENDAR`,
-  which is what DAVx5 sends to create one, is not answered yet (#399).
+  looks, and it cannot be deleted — the next look would only make it again.
+  Others are made with `MKCALENDAR`, which is what DAVx5 sends, or the
+  extended `MKCOL` of RFC 5689, and deleted with everything in them.
+- **A calendar's name, description and color can be changed** with
+  `PROPPATCH`, which is what Apple Calendar and Thunderbird send; the color is
+  Apple's `calendar-color`, `#RRGGBB` or `#RRGGBBAA`. A change is all or
+  nothing, as the RFC has it. Properties a calendar does not keep — a time
+  zone, an order — are taken and dropped when one is made, because DAVx5
+  sends a time zone with every calendar and refusing it would refuse DAVx5.
 - **Events only.** A `VTODO` is refused with CalDAV's
   `supported-calendar-component`, and each calendar says it holds `VEVENT`
   alone, so a client does not offer tasks there in the first place.
@@ -1682,7 +1689,7 @@ Working now:
 - Calendar events over CalDAV, discovered from the bare address, with
   conditional writes, recurring events matched by date and sync by token.
 - A request log, migrations applied at startup, and a container asserted from
-  the outside by 145 smoke checks.
+  the outside by 146 smoke checks.
 
 Not there yet: sharing, tasks over CalDAV, and the calendar in the web UI. Work
 and the decisions behind it are tracked on the

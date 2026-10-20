@@ -39,12 +39,16 @@ const (
 	// nsCS is Apple's calendarserver namespace, where getctag lives. Older
 	// than sync-collection and still what several clients ask first.
 	nsCS = "http://calendarserver.org/ns/"
+	// nsApple is where calendar-color lives, which no RFC has and every
+	// client reads.
+	nsApple = "http://apple.com/ns/ical/"
 )
 
 var (
 	propSyncToken       = xml.Name{Space: nsDAV, Local: "sync-token"}
 	propCTag            = xml.Name{Space: nsCS, Local: "getctag"}
 	propSupportedReport = xml.Name{Space: nsDAV, Local: "supported-report-set"}
+	propColor           = xml.Name{Space: nsApple, Local: "calendar-color"}
 )
 
 // syncTokenPrefix makes a token a URI, which RFC 6578 asks for. The calendar's
@@ -172,7 +176,7 @@ func (b *calendarBackend) serveSync(w http.ResponseWriter, r *http.Request, req 
 	// Infinite depth is a request for members of members, and a calendar has
 	// none to give.
 	if req.SyncLevel != "1" {
-		return validSyncTokenError(http.StatusForbidden, "sync-level")
+		return precondition(http.StatusForbidden, nsDAV, "sync-level")
 	}
 	c, err := b.cal.Calendar(ctx, owner, name)
 	if err != nil {
@@ -180,11 +184,11 @@ func (b *calendarBackend) serveSync(w http.ResponseWriter, r *http.Request, req 
 	}
 	since, ok := parseSyncToken(req.SyncToken, c.ID)
 	if !ok {
-		return validSyncTokenError(http.StatusForbidden, "valid-sync-token")
+		return precondition(http.StatusForbidden, nsDAV, "valid-sync-token")
 	}
 	changes, c, err := b.cal.Changes(ctx, owner, name, since)
 	if errors.Is(err, calendar.ErrStaleToken) {
-		return validSyncTokenError(http.StatusForbidden, "valid-sync-token")
+		return precondition(http.StatusForbidden, nsDAV, "valid-sync-token")
 	}
 	if err != nil {
 		return mapCalendarErr(ctx, err)
@@ -251,10 +255,10 @@ const supportedReports = `<supported-report xmlns="DAV:"><report><calendar-query
 	`<supported-report xmlns="DAV:"><report><calendar-multiget xmlns="urn:ietf:params:xml:ns:caldav"/></report></supported-report>` +
 	`<supported-report xmlns="DAV:"><report><sync-collection/></report></supported-report>`
 
-// propfindWithSync passes a PROPFIND to the library and, when it asked for any
-// of the three properties the library does not know, adds them to each
-// calendar in its answer.
-func (b *calendarBackend) propfindWithSync(w http.ResponseWriter, r *http.Request, next http.Handler) {
+// propfindExtras passes a PROPFIND to the library and, when it asked for any
+// of the properties the library does not know -- the three sync-collection
+// needs, and the color -- adds them to each calendar in its answer.
+func (b *calendarBackend) propfindExtras(w http.ResponseWriter, r *http.Request, next http.Handler) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		http.Error(w, "cannot read the request", http.StatusBadRequest)
@@ -267,7 +271,8 @@ func (b *calendarBackend) propfindWithSync(w http.ResponseWriter, r *http.Reques
 		next.ServeHTTP(w, r)
 		return
 	}
-	if !asked.Prop.has(propSyncToken) && !asked.Prop.has(propCTag) && !asked.Prop.has(propSupportedReport) {
+	if !asked.Prop.has(propSyncToken) && !asked.Prop.has(propCTag) && !asked.Prop.has(propSupportedReport) &&
+		!asked.Prop.has(propColor) {
 		next.ServeHTTP(w, r)
 		return
 	}
@@ -280,7 +285,7 @@ func (b *calendarBackend) propfindWithSync(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	for i := range ms.Responses {
-		if err := b.addSyncProps(r, &ms.Responses[i]); err != nil {
+		if err := b.addExtraProps(r, &ms.Responses[i]); err != nil {
 			serveCalendarError(w, err)
 			return
 		}
@@ -290,9 +295,9 @@ func (b *calendarBackend) propfindWithSync(w http.ResponseWriter, r *http.Reques
 	}
 }
 
-// addSyncProps moves the three properties out of the 404 the library answered
+// addExtraProps moves those properties out of the 404 the library answered
 // them with and into the 200, for a response that is a calendar.
-func (b *calendarBackend) addSyncProps(r *http.Request, resp *syncResponse) error {
+func (b *calendarBackend) addExtraProps(r *http.Request, resp *syncResponse) error {
 	if len(resp.Hrefs) != 1 {
 		return nil
 	}
@@ -312,6 +317,10 @@ func (b *calendarBackend) addSyncProps(r *http.Request, resp *syncResponse) erro
 		propSyncToken:       string(escapeText(syncToken(c))),
 		propCTag:            string(escapeText(syncToken(c))),
 		propSupportedReport: supportedReports,
+	}
+	// A color nobody chose stays the 404 it was: a client then picks one.
+	if c.Color != "" {
+		values[propColor] = c.Color
 	}
 
 	var ours []rawXML
@@ -360,25 +369,27 @@ func copyRecorded(w http.ResponseWriter, rec *httptest.ResponseRecorder) {
 	_, _ = w.Write(rec.Body.Bytes())
 }
 
-// syncError is a refusal carrying the precondition element that says why,
-// written by this file rather than by the library.
-type syncError struct {
-	code int
-	name string
+// preconditionError is a refusal carrying the element that says why, written
+// by this package rather than by the library.
+type preconditionError struct {
+	code        int
+	space, name string
 }
 
-func (e *syncError) Error() string { return "dav: " + e.name }
+func (e *preconditionError) Error() string { return "dav: " + e.name }
 
-func validSyncTokenError(code int, name string) error { return &syncError{code: code, name: name} }
+func precondition(code int, space, name string) error {
+	return &preconditionError{code: code, space: space, name: name}
+}
 
-// serveCalendarError writes what this file refuses with. The library's own
-// errors cannot reach here: everything above returns this package's.
+// serveCalendarError writes what the requests this package answers in front
+// of the library are refused with.
 func serveCalendarError(w http.ResponseWriter, err error) {
-	var se *syncError
-	if errors.As(err, &se) {
+	var pe *preconditionError
+	if errors.As(err, &pe) {
 		w.Header().Set("Content-Type", "application/xml; charset=utf-8")
-		w.WriteHeader(se.code)
-		_, _ = fmt.Fprintf(w, `%s<error xmlns="DAV:"><%s/></error>`, xml.Header, se.name)
+		w.WriteHeader(pe.code)
+		_, _ = fmt.Fprintf(w, `%s<error xmlns="DAV:"><%s xmlns="%s"/></error>`, xml.Header, pe.name, pe.space)
 		return
 	}
 	http.Error(w, err.Error(), statusOf(err))

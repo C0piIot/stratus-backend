@@ -35,6 +35,11 @@ var (
 	// the deletions it still remembers, or newer than anything it wrote. The
 	// client's answer to it is to list the calendar again.
 	ErrStaleToken = errors.New("calendar: sync token no longer answerable")
+	// ErrColor is a color that is not #RRGGBB or #RRGGBBAA.
+	ErrColor = errors.New("calendar: a color is #RRGGBB or #RRGGBBAA")
+	// ErrDefault is a refusal to delete the default calendar, which the next
+	// look at the calendars would make again under the client's feet.
+	ErrDefault = errors.New("calendar: the default calendar stays")
 )
 
 // TombstoneRetention is how long a deletion is remembered for a client that
@@ -96,13 +101,74 @@ func (s *Service) Calendar(ctx context.Context, owner, name string) (db.Calendar
 }
 
 // Create makes a calendar, or answers db.ErrConflict when the name is taken.
-func (s *Service) Create(ctx context.Context, owner, name, displayName, description string) (db.Calendar, error) {
-	if err := validName(name); err != nil {
+// Only Name, DisplayName, Description and Color are read from c.
+func (s *Service) Create(ctx context.Context, owner string, c db.Calendar) (db.Calendar, error) {
+	if err := validName(c.Name); err != nil {
 		return db.Calendar{}, err
 	}
+	if !ValidColor(c.Color) {
+		return db.Calendar{}, ErrColor
+	}
 	return s.meta.CreateCalendar(ctx, db.Calendar{
-		OwnerID: owner, Name: name, DisplayName: displayName, Description: description, Created: s.now(),
+		OwnerID: owner, Name: c.Name, DisplayName: c.DisplayName, Description: c.Description,
+		Color: c.Color, Created: s.now(),
 	})
+}
+
+// Patch is what a client may change about a calendar, each field nil for
+// leave it as it is.
+type Patch struct {
+	DisplayName, Description, Color *string
+}
+
+// Update applies p to one of an owner's calendars, all of it or none.
+func (s *Service) Update(ctx context.Context, owner, name string, p Patch) (db.Calendar, error) {
+	if p.Color != nil && !ValidColor(*p.Color) {
+		return db.Calendar{}, ErrColor
+	}
+	if err := s.ensure(ctx, owner, name); err != nil {
+		return db.Calendar{}, err
+	}
+	var out db.Calendar
+	err := s.meta.Tx(ctx, func(r db.Repo) error {
+		c, err := r.CalendarByName(ctx, owner, name)
+		if err != nil {
+			return err
+		}
+		if p.DisplayName != nil {
+			c.DisplayName = *p.DisplayName
+		}
+		if p.Description != nil {
+			c.Description = *p.Description
+		}
+		if p.Color != nil {
+			c.Color = *p.Color
+		}
+		out = c
+		return r.UpdateCalendar(ctx, c)
+	})
+	return out, err
+}
+
+// DeleteCalendar removes one of an owner's calendars and everything in it.
+// The default one is refused: see ErrDefault.
+func (s *Service) DeleteCalendar(ctx context.Context, owner, name string) error {
+	if name == DefaultName {
+		return ErrDefault
+	}
+	return s.meta.DeleteCalendar(ctx, owner, name)
+}
+
+// ValidColor is #RRGGBB or #RRGGBBAA, or nothing at all.
+func ValidColor(color string) bool {
+	if color == "" {
+		return true
+	}
+	if len(color) != 7 && len(color) != 9 || color[0] != '#' {
+		return false
+	}
+	_, err := hex.DecodeString(color[1:])
+	return err == nil
 }
 
 // Objects lists what is in one of an owner's calendars.

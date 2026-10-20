@@ -68,7 +68,21 @@ func CalDAV(prefix string, service *calendar.Service) http.Handler {
 		case "REPORT":
 			b.report(w, r, h)
 		case "PROPFIND":
-			b.propfindWithSync(w, r, h)
+			b.propfindExtras(w, r, h)
+		case "MKCALENDAR":
+			serve(w, b.mkcalendar(w, r))
+		case "PROPPATCH":
+			if b.isCalendar(r.URL.Path) {
+				serve(w, b.proppatch(w, r))
+			} else {
+				h.ServeHTTP(w, r)
+			}
+		case http.MethodDelete:
+			if b.isCalendar(r.URL.Path) {
+				serve(w, b.deleteCalendar(w, r))
+			} else {
+				h.ServeHTTP(w, r)
+			}
 		default:
 			h.ServeHTTP(w, r)
 		}
@@ -122,7 +136,7 @@ func (b *calendarBackend) CreateCalendar(ctx context.Context, c *caldav.Calendar
 	if err != nil {
 		return err
 	}
-	_, err = b.cal.Create(ctx, owner, name, c.Name, c.Description)
+	_, err = b.cal.Create(ctx, owner, db.Calendar{Name: name, DisplayName: c.Name, Description: c.Description})
 	return mapCalendarErr(ctx, err)
 }
 

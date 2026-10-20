@@ -216,18 +216,75 @@ func TestACalendarIsMadeOnce(t *testing.T) {
 	t.Parallel()
 	s, _ := service(t)
 
-	c, err := s.Create(t.Context(), owner, "work", "Work", "")
+	c, err := s.Create(t.Context(), owner, db.Calendar{Name: "work", DisplayName: "Work"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if c.DisplayName != "Work" {
 		t.Errorf("Create = %+v", c)
 	}
-	if _, err := s.Create(t.Context(), owner, "work", "Work", ""); !errors.Is(err, db.ErrConflict) {
+	if _, err := s.Create(t.Context(), owner, db.Calendar{Name: "work", DisplayName: "Work"}); !errors.Is(err, db.ErrConflict) {
 		t.Errorf("a second Create = %v, want ErrConflict", err)
 	}
-	if _, err := s.Create(t.Context(), owner, "a/b", "", ""); !errors.Is(err, db.ErrInvalidPath) {
+	if _, err := s.Create(t.Context(), owner, db.Calendar{Name: "a/b"}); !errors.Is(err, db.ErrInvalidPath) {
 		t.Errorf("Create with a slash = %v, want ErrInvalidPath", err)
+	}
+	if _, err := s.Create(t.Context(), owner, db.Calendar{Name: "red", Color: "red"}); !errors.Is(err, calendar.ErrColor) {
+		t.Errorf("Create with a named color = %v, want ErrColor", err)
+	}
+}
+
+func TestACalendarIsChangedAllOrNothing(t *testing.T) {
+	t.Parallel()
+	s, _ := service(t)
+	ctx := t.Context()
+	text := func(v string) *string { return &v }
+
+	c, err := s.Update(ctx, owner, calendar.DefaultName, calendar.Patch{DisplayName: text("Mine"), Color: text("#112233")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.DisplayName != "Mine" || c.Color != "#112233" || c.Description != "" {
+		t.Errorf("Update = %+v", c)
+	}
+	c, err = s.Update(ctx, owner, calendar.DefaultName, calendar.Patch{Description: text("Everything")})
+	if err != nil || c.DisplayName != "Mine" || c.Description != "Everything" {
+		t.Errorf("a second Update = %+v, %v; want the first one's names kept", c, err)
+	}
+	if _, err = s.Update(ctx, owner, calendar.DefaultName, calendar.Patch{DisplayName: text("Lost"), Color: text("#12")}); !errors.Is(err, calendar.ErrColor) {
+		t.Errorf("Update with a bad color = %v, want ErrColor", err)
+	}
+	if got, _ := s.Calendar(ctx, owner, calendar.DefaultName); got.DisplayName != "Mine" {
+		t.Errorf("a refused Update changed the name to %q", got.DisplayName)
+	}
+	if _, err = s.Update(ctx, owner, "work", calendar.Patch{}); !errors.Is(err, db.ErrNotFound) {
+		t.Errorf("Update of a calendar nobody made = %v, want ErrNotFound", err)
+	}
+}
+
+func TestTheDefaultCalendarStays(t *testing.T) {
+	t.Parallel()
+	s, _ := service(t)
+	ctx := t.Context()
+
+	if err := s.DeleteCalendar(ctx, owner, calendar.DefaultName); !errors.Is(err, calendar.ErrDefault) {
+		t.Errorf("deleting the default calendar = %v, want ErrDefault", err)
+	}
+	if _, err := s.Create(ctx, owner, db.Calendar{Name: "work"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteCalendar(ctx, owner, "work"); err != nil {
+		t.Errorf("deleting another = %v", err)
+	}
+	for _, color := range []string{"", "#a1B2c3", "#a1b2c3d4"} {
+		if !calendar.ValidColor(color) {
+			t.Errorf("ValidColor(%q) = false", color)
+		}
+	}
+	for _, color := range []string{"red", "#abc", "a1b2c3d", "#gggggg"} {
+		if calendar.ValidColor(color) {
+			t.Errorf("ValidColor(%q) = true", color)
+		}
 	}
 }
 

@@ -18,10 +18,10 @@ const (
 // CreateCalendar implements db.Calendars.
 func (r *repo) CreateCalendar(ctx context.Context, c db.Calendar) (db.Calendar, error) {
 	c = c.Normalize()
-	const query = `INSERT INTO calendars (owner_id, name, display_name, description, created_at)
-		VALUES ($1, $2, $3, $4, $5) RETURNING id`
+	const query = `INSERT INTO calendars (owner_id, name, display_name, description, color, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`
 
-	err := r.q.QueryRowContext(ctx, query, c.OwnerID, c.Name, c.DisplayName, c.Description,
+	err := r.q.QueryRowContext(ctx, query, c.OwnerID, c.Name, c.DisplayName, c.Description, c.Color,
 		times.Arg(c.Created)).Scan(&c.ID)
 	if err != nil {
 		return db.Calendar{}, fmt.Errorf("create calendar %q: %w", c.Name, mapErr(err))
@@ -50,6 +50,27 @@ func (r *repo) CalendarByName(ctx context.Context, owner, name string) (db.Calen
 		return db.Calendar{}, fmt.Errorf("get calendar %q: %w", name, mapErr(err))
 	}
 	return c, nil
+}
+
+// UpdateCalendar implements db.Calendars.
+func (r *repo) UpdateCalendar(ctx context.Context, c db.Calendar) error {
+	const query = `UPDATE calendars SET display_name = $1, description = $2, color = $3 WHERE owner_id = $4 AND name = $5`
+
+	result, err := r.q.ExecContext(ctx, query, c.DisplayName, c.Description, c.Color, c.OwnerID, c.Name)
+	if err != nil {
+		return fmt.Errorf("update calendar %q: %w", c.Name, mapErr(err))
+	}
+	return calendarAffected(result, "update calendar", c.Name)
+}
+
+// DeleteCalendar implements db.Calendars. The objects and the tombstones go
+// with it by cascade.
+func (r *repo) DeleteCalendar(ctx context.Context, owner, name string) error {
+	result, err := r.q.ExecContext(ctx, `DELETE FROM calendars WHERE owner_id = $1 AND name = $2`, owner, name)
+	if err != nil {
+		return fmt.Errorf("delete calendar %q: %w", name, mapErr(err))
+	}
+	return calendarAffected(result, "delete calendar", name)
 }
 
 // CalendarObjects implements db.Calendars.
@@ -106,7 +127,7 @@ func (r *repo) DeleteCalendarObject(ctx context.Context, calendarID int64, name 
 	if err != nil {
 		return fmt.Errorf("delete calendar object %q: %w", name, mapErr(err))
 	}
-	if err = calendarAffected(result, name); err != nil {
+	if err = calendarAffected(result, "delete calendar object", name); err != nil {
 		return err
 	}
 
@@ -165,14 +186,14 @@ func (r *repo) nextCalendarToken(ctx context.Context, calendarID int64) (int64, 
 	return token, nil
 }
 
-// calendarAffected is ErrNotFound for a statement that matched no object.
-func calendarAffected(result sql.Result, name string) error {
+// calendarAffected is ErrNotFound for a statement that matched nothing.
+func calendarAffected(result sql.Result, what, name string) error {
 	n, err := result.RowsAffected()
 	if err != nil {
-		return fmt.Errorf("delete calendar object %q: %w", name, err)
+		return fmt.Errorf("%s %q: %w", what, name, err)
 	}
 	if n == 0 {
-		return fmt.Errorf("delete calendar object %q: %w", name, db.ErrNotFound)
+		return fmt.Errorf("%s %q: %w", what, name, db.ErrNotFound)
 	}
 	return nil
 }

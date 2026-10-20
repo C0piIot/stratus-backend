@@ -24,6 +24,9 @@ type Calendar struct {
 	Name        string
 	DisplayName string
 	Description string
+	// Color is what a client paints the calendar with, #RRGGBB or #RRGGBBAA,
+	// and empty for none chosen.
+	Color string
 	// SyncToken is the counter every write to the calendar moves.
 	SyncToken int64
 	// PrunedToken is the highest token whose tombstones have been forgotten.
@@ -88,6 +91,15 @@ type Calendars interface {
 
 	// CalendarByName returns one of an owner's calendars, or ErrNotFound.
 	CalendarByName(ctx context.Context, owner, name string) (Calendar, error)
+
+	// UpdateCalendar writes c's display name, description and color, found
+	// by its owner and name, or answers ErrNotFound. The name is the URL and
+	// is not changed by this.
+	UpdateCalendar(ctx context.Context, c Calendar) error
+
+	// DeleteCalendar removes one of an owner's calendars with everything in
+	// it and every deletion it remembers, or answers ErrNotFound.
+	DeleteCalendar(ctx context.Context, owner, name string) error
 
 	// CalendarObjects lists everything in a calendar by name.
 	CalendarObjects(ctx context.Context, calendarID int64) ([]CalendarObject, error)

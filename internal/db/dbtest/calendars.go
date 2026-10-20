@@ -32,6 +32,8 @@ func RunCalendars(t *testing.T, newRepo func(t *testing.T) db.Repo) {
 		{"changes since a token are writes and deletions in order", calendarChanges},
 		{"a name written again after a delete is one change", calendarChangesRevive},
 		{"pruning forgets old deletions and says how far", calendarPrune},
+		{"a calendar is renamed, described and painted", calendarUpdate},
+		{"deleting a calendar deletes what it held and remembered", calendarDelete},
 	}
 
 	for _, tc := range cases {
@@ -47,7 +49,8 @@ var calendarAt = time.Date(2024, 9, 1, 20, 0, 0, 125_000_000, time.UTC)
 func newCalendar(t *testing.T, s db.Repo, ownerID, name string) db.Calendar {
 	t.Helper()
 	c, err := s.CreateCalendar(t.Context(), db.Calendar{
-		OwnerID: ownerID, Name: name, DisplayName: "Shown " + name, Description: "About " + name, Created: calendarAt,
+		OwnerID: ownerID, Name: name, DisplayName: "Shown " + name, Description: "About " + name, Color: "#3366ffcc",
+		Created: calendarAt,
 	})
 	if err != nil {
 		t.Fatalf("CreateCalendar(%q): %v", name, err)
@@ -87,7 +90,7 @@ func calendarRoundTrip(t *testing.T, s db.Repo) {
 		t.Fatal("CreateCalendar returned no id")
 	}
 	want := db.Calendar{
-		ID: c.ID, OwnerID: "alice", Name: "work", DisplayName: "Shown work", Description: "About work",
+		ID: c.ID, OwnerID: "alice", Name: "work", DisplayName: "Shown work", Description: "About work", Color: "#3366ffcc",
 		Created: calendarAt.Truncate(time.Millisecond),
 	}
 	if got := calendarByName(t, s, c); got != want {
@@ -377,5 +380,54 @@ func calendarPrune(t *testing.T, s db.Repo) {
 	}
 	if got := calendarByName(t, s, c); got.PrunedToken != 5 {
 		t.Errorf("PrunedToken after pruning nothing = %d, want it left at 5", got.PrunedToken)
+	}
+}
+
+func calendarUpdate(t *testing.T, s db.Repo) {
+	c := newCalendar(t, s, "alice", "work")
+	putObject(t, s, c, "a.ics", "a")
+
+	c.DisplayName, c.Description, c.Color = "Office", "", "#00ff00"
+	if err := s.UpdateCalendar(t.Context(), c); err != nil {
+		t.Fatalf("UpdateCalendar: %v", err)
+	}
+	got := calendarByName(t, s, c)
+	if got.DisplayName != "Office" || got.Description != "" || got.Color != "#00ff00" || got.SyncToken != 1 {
+		t.Errorf("after UpdateCalendar = %+v, want the new names and the same token", got)
+	}
+
+	missing := db.Calendar{OwnerID: "bob", Name: "work"}
+	if err := s.UpdateCalendar(t.Context(), missing); !errors.Is(err, db.ErrNotFound) {
+		t.Errorf("UpdateCalendar of another owner's = %v, want ErrNotFound", err)
+	}
+}
+
+func calendarDelete(t *testing.T, s db.Repo) {
+	c := newCalendar(t, s, "alice", "work")
+	kept := newCalendar(t, s, "alice", "home")
+	putObject(t, s, c, "a.ics", "a")
+	putObject(t, s, c, "b.ics", "b")
+	putObject(t, s, kept, "a.ics", "a")
+	if err := s.DeleteCalendarObject(t.Context(), c.ID, "b.ics", calendarAt); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.DeleteCalendar(t.Context(), "bob", "work"); !errors.Is(err, db.ErrNotFound) {
+		t.Errorf("DeleteCalendar of another owner's = %v, want ErrNotFound", err)
+	}
+	if err := s.DeleteCalendar(t.Context(), "alice", "work"); err != nil {
+		t.Fatalf("DeleteCalendar: %v", err)
+	}
+	if _, err := s.CalendarByName(t.Context(), "alice", "work"); !errors.Is(err, db.ErrNotFound) {
+		t.Errorf("the deleted calendar = %v, want ErrNotFound", err)
+	}
+	if got, err := s.CalendarChanges(t.Context(), c.ID, 0); err != nil || len(got) != 0 {
+		t.Errorf("what the deleted calendar held = %+v, %v; want nothing", got, err)
+	}
+	if got, err := s.CalendarObjects(t.Context(), kept.ID); err != nil || len(got) != 1 {
+		t.Errorf("the other calendar = %+v, %v; want its one object", got, err)
+	}
+	if err := s.DeleteCalendar(t.Context(), "alice", "work"); !errors.Is(err, db.ErrNotFound) {
+		t.Errorf("a second DeleteCalendar = %v, want ErrNotFound", err)
 	}
 }
