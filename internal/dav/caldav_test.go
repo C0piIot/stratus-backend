@@ -611,3 +611,60 @@ func TestAnEventOnDatesOfItsOwnIsFound(t *testing.T) {
 		}
 	}
 }
+
+// TestARepetitionIsExpandedForAClientThatAsks is #78's other half: a
+// calendar-query and a calendar-multiget asking for the instances rather than
+// the rule, and the ETag left the object's own.
+func TestARepetitionIsExpandedForAClientThatAsks(t *testing.T) {
+	t.Parallel()
+	_, meta := filestest.Backends(t)
+	svc := calendar.New(meta)
+	h := withUser(dav.CalDAV("/calendars/", svc), "edu")
+	xmlBody := []string{"Depth", "1", "Content-Type", "application/xml"}
+
+	stored, err := svc.Put(t.Context(), "edu", calendar.DefaultName, "standup.ics",
+		icsEvent(t, "standup", "20240104T090000Z", "RRULE:FREQ=WEEKLY\r\n"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := func(expand string) string {
+		return `<D:prop><D:getetag/><C:calendar-data><C:comp name="VCALENDAR"><C:comp name="VEVENT"/></C:comp>` + expand + `</C:calendar-data></D:prop>`
+	}
+	march := `<C:expand start="20240301T000000Z" end="20240401T000000Z"/>`
+	query := `<?xml version="1.0"?><C:calendar-query xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav">` + data(march) +
+		`<C:filter><C:comp-filter name="VCALENDAR"><C:comp-filter name="VEVENT">
+<C:time-range start="20240301T000000Z" end="20240401T000000Z"/></C:comp-filter></C:comp-filter></C:filter></C:calendar-query>`
+
+	rec := do(t, h, "REPORT", "/calendars/edu/default/", query, xmlBody...)
+	body := rec.Body.String()
+	wellFormed(t, body)
+	if n := strings.Count(body, "RECURRENCE-ID:"); n != 4 || strings.Contains(body, "RRULE") {
+		t.Errorf("an expanded March holds %d instances, want the four Thursdays and no rule:\n%s", n, body)
+	}
+	if !strings.Contains(body, stored.ETag) {
+		t.Errorf("the expanded answer does not carry the object's own ETag:\n%s", body)
+	}
+
+	multiget := `<?xml version="1.0"?><C:calendar-multiget xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav">` +
+		data(`<C:expand start="20240301T000000Z" end="20240308T000000Z"/>`) +
+		`<D:href>/calendars/edu/default/standup.ics</D:href></C:calendar-multiget>`
+	rec = do(t, h, "REPORT", "/calendars/edu/default/", multiget, xmlBody...)
+	if n := strings.Count(rec.Body.String(), "RECURRENCE-ID:"); n != 1 {
+		t.Errorf("a multiget expanded over a week holds %d instances, want 1:\n%s", n, rec.Body.String())
+	}
+
+	// Without expand, the rule as it was stored.
+	plain := strings.Replace(query, march, "", 1)
+	if rec := do(t, h, "REPORT", "/calendars/edu/default/", plain, xmlBody...); !strings.Contains(rec.Body.String(), "RRULE:FREQ=WEEKLY") {
+		t.Errorf("a query not asking to expand:\n%s", rec.Body.String())
+	}
+	for _, bad := range []string{
+		`<C:expand start="20240301T000000Z"/>`,
+		`<C:expand start="March" end="20240401T000000Z"/>`,
+		`<C:expand start="20240401T000000Z" end="20240301T000000Z"/>`,
+	} {
+		if rec := do(t, h, "REPORT", "/calendars/edu/default/", strings.Replace(query, march, bad, 1), xmlBody...); rec.Code != http.StatusBadRequest {
+			t.Errorf("expand with %s = %d, want 400", bad, rec.Code)
+		}
+	}
+}

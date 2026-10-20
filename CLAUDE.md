@@ -1815,7 +1815,14 @@ Restraint here is principle 3, not laziness:
   for the occurrence it replaced. The rules for a single instance are RFC 4791
   9.9's table row by row, and since every instance of a component lasts as
   long as every other, the first one that could overlap is the only one asked
-  about. A date or a repetition that cannot be read
+  about. **`expand` is the same instances written out** (RFC 4791 9.6.5): the
+  library reads no `calendar-data` from a `calendar-query` at all, so the
+  window is read in front of it, carried on the request's context and applied
+  to what the backend hands back -- after the filter, since the two windows
+  need not be the same. Each instance is its own component in UTC with a
+  `RECURRENCE-ID` and no rule, the `VTIMEZONE`s are dropped because nothing
+  names them any more, and the `ETag` stays the stored object's: an expanded
+  answer is a representation for a report, not the resource. A date or a repetition that cannot be read
   is refused at `PUT`, because stored it would turn every query by date over
   that calendar into an error. Fixing the matcher upstream was weighed and is
   not ours to do now. A calendar called `default` is made on first look, so a client that never
