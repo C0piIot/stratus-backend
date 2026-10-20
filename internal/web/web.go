@@ -110,6 +110,9 @@ type Deps struct {
 	// TrashRetention is how long a deletion is kept, for the pages that say
 	// so, and zero when the trash is held and never emptied (#296).
 	TrashRetention time.Duration
+	// Calendars is read for the month pages at /calendars/, which write
+	// nothing; nil means there are none.
+	Calendars CalendarReader
 }
 
 // Thumbnails is the picture half: a file's own and a folder's cover art. An
@@ -167,6 +170,8 @@ type handler struct {
 	video Video
 	// kept is Deps.TrashRetention.
 	kept time.Duration
+	// calendars is read for the month pages, and nil when there are none.
+	calendars CalendarReader
 }
 
 // Handler builds the UI. It is mounted at the root, so it is also what answers
@@ -181,6 +186,7 @@ func Handler(d Deps) http.Handler {
 		version: d.Version, buildDate: d.BuildDate, verifier: d.Verifier, sessions: d.Sessions, shares: d.Shares,
 		files: d.Files, thumbs: d.Thumbs, captures: d.Index, library: d.Index, finder: d.Index, playlists: d.Playlists,
 		indexing: d.Indexing, imports: d.Imports, video: d.Video, kept: d.TrashRetention,
+		calendars: d.Calendars,
 	}
 
 	mux := http.NewServeMux()
@@ -207,6 +213,9 @@ func Handler(d Deps) http.Handler {
 	mux.HandleFunc("GET "+videosPrefix+"{path...}", h.signedIn(h.byDate(videoLibrary)))
 	mux.HandleFunc("GET "+musicPrefix+"{path...}", h.signedIn(h.music))
 	mux.HandleFunc("GET "+playlistsPrefix+"{path...}", h.signedIn(h.playlistPages))
+	if h.calendars != nil {
+		mux.HandleFunc("GET "+calendarsPrefix+"{path...}", h.signedIn(h.calendarPages))
+	}
 	mux.HandleFunc("POST /files/{path...}", h.signedIn(h.upload))
 	// The share sheet's door, which is the upload's twin with the destination
 	// decided here rather than given. See share_target.go.
