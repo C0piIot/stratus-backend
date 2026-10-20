@@ -24,6 +24,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math/rand/v2"
 	"net/http"
 	"time"
 
@@ -55,6 +56,12 @@ const (
 	retryNothing     = 30 * 24 * time.Hour
 	retryUnreachable = time.Hour
 )
+
+// lyricsJitter spreads a deferred track's retry over the half hour after
+// retryUnreachable. LRCLIB answers a whole batch of tracks it is still
+// fetching with the same 503 in the same minute, and without it they would all
+// come due again together, before the slow ones were ready.
+const lyricsJitter = 30 * time.Minute
 
 // Index is what the pass reads and writes: the rows, and the tracks of an
 // album, which is where the cover is filed.
@@ -310,9 +317,10 @@ func (s *Service) lookupLyrics(ctx context.Context, t db.Track, now time.Time) (
 		row.RetryAt = now.Add(retryNothing)
 		row.Error = err.Error()
 	case err != nil:
-		row.RetryAt = now.Add(retryUnreachable)
+		wait := retryUnreachable + rand.N(lyricsJitter) //nolint:gosec // spreading retries, not a secret
+		row.RetryAt = now.Add(wait)
 		row.Error = err.Error()
-		slog.Warn("deferred a lyrics lookup", "path", t.File.Path, "retrying_in", retryUnreachable, "err", err)
+		slog.Warn("deferred a lyrics lookup", "path", t.File.Path, "retrying_in", wait.Round(time.Minute), "err", err)
 	default:
 		row.Plain, row.Synced, row.Instrumental = found.Plain, found.Synced, found.Instrumental
 	}
