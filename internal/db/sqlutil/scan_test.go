@@ -237,6 +237,18 @@ func TestTheSmallerScanners(t *testing.T) {
 	if err != nil || ly.Plain != "words" || !ly.RetryAt.Equal(later) {
 		t.Errorf("ScanLyrics = %+v, %v", ly, err)
 	}
+	cal, err := sqlutil.ScanCalendar(row{int64(3), "edu", "work", "Work", "", int64(9), int64(2), when}, codec)
+	if err != nil || cal.Name != "work" || cal.SyncToken != 9 || cal.PrunedToken != 2 || !cal.Created.Equal(when) {
+		t.Errorf("ScanCalendar = %+v, %v", cal, err)
+	}
+	co, err := sqlutil.ScanCalendarObject(row{int64(3), "a.ics", "uid", "VEVENT", "BEGIN:VCALENDAR", "e", int64(9), when}, codec)
+	if err != nil || co.UID != "uid" || co.SyncToken != 9 || !co.Changed.Equal(when) {
+		t.Errorf("ScanCalendarObject = %+v, %v", co, err)
+	}
+	ch, err := sqlutil.ScanCalendarChange(row{"a.ics", int64(9), true})
+	if err != nil || ch != (db.CalendarChange{Name: "a.ics", SyncToken: 9, Deleted: true}) {
+		t.Errorf("ScanCalendarChange = %+v, %v", ch, err)
+	}
 	c, err := sqlutil.ScanAlbumCandidate(row{"edu", "Artist", "Album", "rg", "r"})
 	if err != nil || c.Release != "r" {
 		t.Errorf("ScanAlbumCandidate = %+v, %v", c, err)
@@ -269,6 +281,9 @@ func TestTheSmallerScanners(t *testing.T) {
 		"tag":       func() error { _, _, err := sqlutil.ScanTagAnnotation(refusing{}, codec); return err },
 		"plays":     func() error { _, _, err := sqlutil.ScanAlbumPlays(refusing{}, codec); return err },
 		"media":     func() error { _, err := sqlutil.ScanMedia(refusing{}, codec); return err },
+		"calendar":  func() error { _, err := sqlutil.ScanCalendar(refusing{}, codec); return err },
+		"object":    func() error { _, err := sqlutil.ScanCalendarObject(refusing{}, codec); return err },
+		"change":    func() error { _, err := sqlutil.ScanCalendarChange(refusing{}); return err },
 	} {
 		if err := scan(); err == nil || !strings.Contains(err.Error(), "on fire") {
 			t.Errorf("%s: a scan that failed was not reported: %v", name, err)
