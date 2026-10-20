@@ -576,3 +576,38 @@ func TestTasksHaveAListOfTheirOwn(t *testing.T) {
 		t.Errorf("PUT of a task with a date nobody can read = %d, want 409", code)
 	}
 }
+
+// TestAnEventOnDatesOfItsOwnIsFound is #78's half that was a bug: an event
+// repeated by RDATE rather than RRULE was matched by its first date alone, so
+// a query for a month it repeats into came back without it.
+func TestAnEventOnDatesOfItsOwnIsFound(t *testing.T) {
+	t.Parallel()
+	_, meta := filestest.Backends(t)
+	h := withUser(dav.CalDAV("/calendars/", calendar.New(meta)), "edu")
+
+	ics := "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//test//EN\r\nBEGIN:VEVENT\r\nUID:dentist\r\n" +
+		"DTSTAMP:20240101T000000Z\r\nDTSTART:20240104T090000Z\r\nDURATION:PT1H\r\n" +
+		"RDATE:20240201T090000Z,20240315T090000Z\r\nSUMMARY:Dentist\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
+	if rec := do(t, h, http.MethodPut, "/calendars/edu/default/dentist.ics", ics, "Content-Type", "text/calendar"); rec.Code != http.StatusCreated {
+		t.Fatalf("PUT = %d", rec.Code)
+	}
+	query := func(from, to string) string {
+		return `<?xml version="1.0"?><C:calendar-query xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav">
+<D:prop><D:getetag/></D:prop>
+<C:filter><C:comp-filter name="VCALENDAR"><C:comp-filter name="VEVENT">
+<C:time-range start="` + from + `" end="` + to + `"/>
+</C:comp-filter></C:comp-filter></C:filter></C:calendar-query>`
+	}
+	for _, tc := range []struct {
+		from, to string
+		want     bool
+	}{
+		{"20240301T000000Z", "20240401T000000Z", true},
+		{"20240401T000000Z", "20240501T000000Z", false},
+	} {
+		rec := do(t, h, "REPORT", "/calendars/edu/default/", query(tc.from, tc.to), "Depth", "1", "Content-Type", "application/xml")
+		if got := strings.Contains(rec.Body.String(), "dentist.ics"); got != tc.want {
+			t.Errorf("from %s: found = %v, want %v:\n%s", tc.from, got, tc.want, rec.Body.String())
+		}
+	}
+}

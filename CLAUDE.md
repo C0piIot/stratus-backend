@@ -1802,10 +1802,20 @@ Restraint here is principle 3, not laziness:
   front of it, since the library only forwards the headers. Events, tasks
   and journal entries, each calendar holding what it was made for -- a
   `components` column, because DAVx5 makes a task list as a calendar of its
-  own (#79). go-webdav's matcher answers a time range over anything but an
-  event with no, so a window over `VTODO` or `VJOURNAL` is taken out of the
-  query before the library sees it and asked of `calendar.InRange`, which is
-  RFC 4791 9.9's table row by row. A date or a repetition that cannot be read
+  own (#79). A time range is answered by
+  `calendar.Overlaps` and not by the library's matcher, which says no to
+  anything but an event and reads a repetition through go-ical's
+  `RecurrenceSet` -- and that ignores `RDATE` altogether (its loop for them
+  iterates the `EXDATE`s) and reads one value of a property that may carry
+  several, so an event repeated on dates of its own was found by its first
+  date alone (#78). So the windows directly under `VCALENDAR` are taken out of
+  the query before the library sees it, the rest of the filter stays the
+  library's, and the instances are built here: `DTSTART` always, `RRULE`,
+  every `RDATE` and `EXDATE` value in its own zone, and an override standing in
+  for the occurrence it replaced. The rules for a single instance are RFC 4791
+  9.9's table row by row, and since every instance of a component lasts as
+  long as every other, the first one that could overlap is the only one asked
+  about. A date or a repetition that cannot be read
   is refused at `PUT`, because stored it would turn every query by date over
   that calendar into an error. Fixing the matcher upstream was weighed and is
   not ours to do now. A calendar called `default` is made on first look, so a client that never
@@ -1820,9 +1830,8 @@ Restraint here is principle 3, not laziness:
   `calendar-timezone` with every calendar it makes. `PROPPATCH` is all or
   nothing, a refused property 403 and the rest 424, and the color is a column
   of its own spliced into `PROPFIND` the way the sync token is. A time-range query loads the whole
-  calendar and lets `caldav.Filter` decide, which is where recurrence is
-  matched; narrowing by a date column first would drop an event that repeats
-  into the window. **`sync-collection` is answered in front of the library**, which rejects any
+  calendar and decides in Go, which is where recurrence is matched; narrowing
+  by a date column first would drop an event that repeats into the window. **`sync-collection` is answered in front of the library**, which rejects any
   `REPORT` it does not know and has no hook for a property: the `REPORT` is
   ours, from the counter and the tombstones the schema keeps, and
   `sync-token`, `getctag` and `supported-report-set` are spliced into the

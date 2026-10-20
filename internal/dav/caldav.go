@@ -219,9 +219,10 @@ func (b *calendarBackend) ListCalendarObjects(ctx context.Context, p string, _ *
 // which is why nothing is narrowed in SQL first: an event every Tuesday since
 // January starts in January and still falls in March.
 //
-// A window over tasks or journal entries is the exception (#79): the library
-// answers no to every one of them, so it is taken out of the query before the
-// library sees it and asked of calendar.InRange afterwards.
+// A window over a component is taken out of the query before the library sees
+// it and asked of calendar.Overlaps afterwards: the library answers no for a
+// task or a journal entry (#79), and reads a repetition without its RDATEs
+// (#78).
 func (b *calendarBackend) QueryCalendarObjects(ctx context.Context, p string, query *caldav.CalendarQuery) ([]caldav.CalendarObject, error) {
 	all, err := b.ListCalendarObjects(ctx, p, nil)
 	if err != nil {
@@ -254,9 +255,9 @@ type componentWindow struct {
 	start, end time.Time
 }
 
-// ownWindows is the query with the windows over tasks and journal entries
-// taken out of it, and those windows. Only where clients put them: on a
-// component filter directly under VCALENDAR.
+// ownWindows is the query with its windows taken out of it, and those
+// windows. Only where clients put them: on a component filter directly under
+// VCALENDAR.
 func ownWindows(query *caldav.CalendarQuery) (*caldav.CalendarQuery, []componentWindow) {
 	if query == nil {
 		return nil, nil
@@ -265,7 +266,7 @@ func ownWindows(query *caldav.CalendarQuery) (*caldav.CalendarQuery, []component
 	rest.CompFilter.Comps = slices.Clone(query.CompFilter.Comps)
 	var windows []componentWindow
 	for i, f := range rest.CompFilter.Comps {
-		if (f.Name == ical.CompToDo || f.Name == ical.CompJournal) && !f.Start.IsZero() {
+		if !f.Start.IsZero() {
 			windows = append(windows, componentWindow{name: f.Name, start: f.Start, end: f.End})
 			rest.CompFilter.Comps[i].Start, rest.CompFilter.Comps[i].End = time.Time{}, time.Time{}
 		}
@@ -273,25 +274,12 @@ func ownWindows(query *caldav.CalendarQuery) (*caldav.CalendarQuery, []component
 	return &rest, windows
 }
 
-// inWindows is whether some component of each window's kind falls in it.
+// inWindows is whether some instance of each window's kind falls in it.
 func inWindows(cal *ical.Calendar, windows []componentWindow) (bool, error) {
 	for _, w := range windows {
-		found := false
-		for _, comp := range cal.Children {
-			if comp.Name != w.name {
-				continue
-			}
-			in, err := calendar.InRange(comp, w.start, w.end)
-			if err != nil {
-				return false, err
-			}
-			if in {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return false, nil
+		in, err := calendar.Overlaps(cal, w.name, w.start, w.end)
+		if err != nil || !in {
+			return false, err
 		}
 	}
 	return true, nil

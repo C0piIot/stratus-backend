@@ -425,8 +425,13 @@ func readableDates(comp *ical.Component) error {
 			return fmt.Errorf("%w: DURATION: %w", ErrInvalid, err)
 		}
 	}
-	if _, err := comp.RecurrenceSet(time.UTC); err != nil {
-		return fmt.Errorf("%w: %w", ErrInvalid, err)
+	if _, err := recurrence(comp, time.UTC, nil); err != nil {
+		return err
+	}
+	if p := comp.Props.Get(ical.PropRecurrenceID); p != nil {
+		if _, err := p.DateTime(time.UTC); err != nil {
+			return fmt.Errorf("%w: RECURRENCE-ID: %w", ErrInvalid, err)
+		}
 	}
 	return nil
 }
