@@ -764,9 +764,11 @@ What to expect from it:
   calendar, to OpenTasks or Tasks.org, and to jtx Board. Each calendar holds
   what it was made for: a task list made by DAVx5 holds tasks and refuses an
   event with CalDAV's `supported-calendar-component`, a calendar made without
-  saying holds all three, and so does `default`. A query by date finds tasks
-  and journal entries by the rules RFC 4791 gives each, which go-webdav does
-  not do for anything but events. An object whose dates or repetition cannot
+  saying holds all three, and so does `default`. A query by date finds events,
+  tasks and journal entries by the rules RFC 4791 gives each, and a repeating
+  one by every instance it has — whether it repeats by rule (`RRULE`), on dates
+  of its own (`RDATE`) or with some taken away (`EXDATE`), and with a moved
+  instance judged where it went. An object whose dates or repetition cannot
   be read is refused when it is written, since stored it would break every
   query by date over its calendar.
 - **What is stored is the event as the server writes it**, not the bytes the
