@@ -66,7 +66,7 @@ func TestAMonthOfACalendar(t *testing.T) {
 	for _, want := range []string{
 		"March 2024", "Holiday & rest", "Room 2",
 		`href="/calendars/edu/default/?month=2024-02"`, `href="/calendars/edu/default/?month=2024-04"`,
-		`href="/calendars/">Calendar</a>`,
+		`class="dropdown-item" href="/calendars/">Calendar</a>`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("the month has no %q", want)

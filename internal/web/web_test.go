@@ -606,7 +606,7 @@ func TestNavbar(t *testing.T) {
 	}
 
 	nav := bar("/files/")
-	for _, href := range []string{"/files/", "/photos/", "/videos/", "/music/", "/playlists/", "/status"} {
+	for _, href := range []string{"/files/", "/photos/", "/videos/", "/music/", "/playlists/", "/calendars/", "/status"} {
 		if got := strings.Count(nav, `href="`+href+`"`); got != 1 {
 			t.Errorf("%s appears %d times in the bar, want once", href, got)
 		}
