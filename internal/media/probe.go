@@ -88,6 +88,13 @@ type probeStream struct {
 	BitsPerRawSample string            `json:"bits_per_raw_sample"`
 	Tags             map[string]string `json:"tags"`
 	SideData         []probeSideData   `json:"side_data_list"`
+	Disposition      probeDisposition  `json:"disposition"`
+}
+
+// probeDisposition says what a stream is for. AttachedPic is a track's cover
+// art, which ffprobe lists as a video stream of one frame.
+type probeDisposition struct {
+	AttachedPic int `json:"attached_pic"`
 }
 
 // probeSideData is where a display matrix arrives. ffprobe used to put the
@@ -115,10 +122,16 @@ type probeFormat struct {
 // all the interpretation is here, where it can be tested against captured
 // output without a binary to invoke.
 func (p probeReport) mediaFrom(kind db.Kind) db.Media {
-	m := db.Media{Kind: kind, DurationMS: durationMS(p.Format.Duration)}
-
 	video := p.stream("video")
 	audio := p.stream("audio")
+	// The sniff decides from the brand, and isom or mp42 is the brand of a
+	// film and of an .m4a alike -- yt-dlp writes them -- so it says video for
+	// a track whose only picture is its cover (#395). The streams are the
+	// answer it could not read from the head.
+	if kind == db.KindVideo && video == nil && audio != nil {
+		kind = db.KindAudio
+	}
+	m := db.Media{Kind: kind, DurationMS: durationMS(p.Format.Duration)}
 
 	switch {
 	case kind == db.KindVideo && video != nil:
@@ -360,9 +373,11 @@ func atoi(s string) int {
 	return n
 }
 
+// A cover is not a picture stream for this purpose: it is one frame of the
+// album's art, and a file whose only video is that is a track.
 func (p probeReport) stream(codecType string) *probeStream {
 	for i := range p.Streams {
-		if p.Streams[i].CodecType == codecType {
+		if p.Streams[i].CodecType == codecType && p.Streams[i].Disposition.AttachedPic == 0 {
 			return &p.Streams[i]
 		}
 	}
