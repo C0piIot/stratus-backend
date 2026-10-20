@@ -444,7 +444,7 @@ func (t *Service) cached(
 	// recording in a folder of photographs used to cost a media.Spool and an ffmpeg
 	// run on every page view, and on the one-CPU instance that is the slot the
 	// photograph beside it was waiting for.
-	if t.refusedBefore(ctx, refused.note) {
+	if _, ok := t.refusedBefore(ctx, refused.note); ok {
 		return nil, 0, fmt.Errorf("%w: refused before, see %q", refused.says, refused.note)
 	}
 
@@ -486,15 +486,15 @@ func (t *Service) cached(
 	return io.NopCloser(bytes.NewReader(made)), int64(len(made)), nil
 }
 
-// refusedBefore reports whether this blob has already been judged.
+// refusedBefore reports whether this blob has already been judged, and when.
 //
 // A Stat and not a Get: what the note says is for whoever reads the store, and
 // the answer here is that there is one. A store that fails some other way says
 // no, which costs a decode -- the Get above has already passed on anything
 // worse than a missing object.
-func (t *Service) refusedBefore(ctx context.Context, key string) bool {
-	_, err := t.blobs.Stat(ctx, key)
-	return err == nil
+func (t *Service) refusedBefore(ctx context.Context, key string) (time.Time, bool) {
+	info, err := t.blobs.Stat(ctx, key)
+	return info.ModTime, err == nil
 }
 
 // remember writes the refusal down, and writes nothing when the failure was not
@@ -546,12 +546,17 @@ func isVerdict(ctx context.Context, why error) bool {
 // deleted while its picture was being made, in which case there is nothing to
 // record it against.
 func (t *Service) record(ctx context.Context, v verdict, state db.ThumbState) {
+	t.recordAt(ctx, v, state, time.Now())
+}
+
+// recordAt is record for a verdict reached earlier than now.
+func (t *Service) recordAt(ctx context.Context, v verdict, state db.ThumbState, at time.Time) {
 	if v.file == 0 {
 		return
 	}
 	err := t.meta.PutThumbVerdict(ctx, db.ThumbVerdict{
 		FileID: v.file, State: state, BlobKey: v.blobKey,
-		Generation: files.DerivedGeneration, At: time.Now(),
+		Generation: files.DerivedGeneration, At: at,
 	})
 	if err != nil && !errors.Is(err, db.ErrNotFound) {
 		slog.WarnContext(ctx, "recording what became of a thumbnail", "file", v.file, "err", err)
