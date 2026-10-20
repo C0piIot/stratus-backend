@@ -140,3 +140,28 @@ func TestCreditNames(t *testing.T) {
 		}
 	}
 }
+
+func TestWithoutEdition(t *testing.T) {
+	t.Parallel()
+	tests := map[string]string{
+		"The Suburbs (Deluxe)":                         "The Suburbs",
+		"IRM (Version Deluxe)":                         "IRM",
+		"Good City for Dreamers (Deluxe Edition)":      "Good City for Dreamers",
+		"Coming Up (Remastered)":                       "Coming Up",
+		"Rumours [Remastered 2004]":                    "Rumours",
+		"No Hope, No Future (Bonus Tracks Version)":    "No Hope, No Future",
+		"Deadringer: Deluxe":                           "Deadringer",
+		"Amber - Deluxe Edition":                       "Amber",
+		"Remixes 2: 81-11 (Deluxe)":                    "Remixes 2: 81-11",
+		"101 (Live)":                                   "101 (Live)",
+		"Pleasantville -Music From The Motion Picture": "Pleasantville -Music From The Motion Picture",
+		"Crystal Castles (II)":                         "Crystal Castles (II)",
+		"(Deluxe)":                                     "(Deluxe)",
+		"Amber":                                        "Amber",
+	}
+	for in, want := range tests {
+		if got := withoutEdition(in); got != want {
+			t.Errorf("withoutEdition(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

@@ -41,8 +41,9 @@ const (
 // row. Raising it asks again, once, about every album an older search found
 // nothing for -- media.Version's mechanism for the extractor, applied to the
 // question rather than the file. It went to 1 when the search learned to ask
-// by the first credited name after the whole credit found nothing.
-const SearchVersion = 1
+// by the first credited name after the whole credit found nothing, and to 2
+// when it learned to ask without the edition in the album's title.
+const SearchVersion = 2
 
 // How long a row waits before it is asked about again.
 //
