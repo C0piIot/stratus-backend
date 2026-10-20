@@ -64,7 +64,7 @@ func TestTheVideosAreTheirOwnCollection(t *testing.T) {
 		return rec
 	}
 
-	// The root leads to six collections now, the videos among them.
+	// The root leads to the collections, the videos among them.
 	root := client("PROPFIND", "/", "Depth", "1")
 	if !strings.Contains(root.Body.String(), "/videos/") {
 		t.Errorf("the root does not list the videos:\n%s", root.Body.String())

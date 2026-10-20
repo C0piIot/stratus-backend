@@ -1374,7 +1374,7 @@ internal/files/           cross-protocol file invariants
 internal/incoming/        the import folder on local disk, swept into the library
 internal/music/           playlist edits in one transaction each, and the library as folders by tag
 internal/nextcloud/       reads somebody else's instance, so its bucket can be adopted
-internal/calendar/        collections, objects, recurrence            -- not yet
+internal/calendar/        collections, objects, the one form they are stored in
 internal/media/           EXIF/tag extraction, ffprobe, the readers over ranges, and what the two below share
 internal/media/thumb/     the pictures: thumbnails, covers, the pass that makes them ahead
 internal/media/stream/    what plays: the transcode decision, the loopback ffmpeg reads from, HLS
@@ -1382,7 +1382,7 @@ internal/timeline/        the library as folders by date, one kind at a time, fo
 internal/trash/           the deletions as folders, named once for the two adapters that serve them
 internal/auth/            credential verification, per-protocol adapters
 
-internal/dav/             inbound adapter: WebDAV (CalDAV not yet)
+internal/dav/             inbound adapter: WebDAV and CalDAV
 internal/subsonic/        inbound adapter: OpenSubsonic
 internal/web/             inbound adapter: server-rendered UI
 ```
@@ -1780,6 +1780,33 @@ Restraint here is principle 3, not laziness:
 
   litmus has no SEARCH suite, so the numbers below do not move; what asserts it
   from outside is `scripts/smoke.sh`, against the shipped container.
+
+- **Calendars are CalDAV at `/calendars/`, and the library dictates the
+  shape** (#75). emersion's `caldav.Handler` tells a principal from a home set
+  from a calendar from an object by how many segments deep the path is, so the
+  four are `/calendars/`, `/calendars/<owner>/`, `.../<calendar>/` and
+  `.../<calendar>/<name>` -- the principal one address for everybody, which is
+  what makes the depths come out and is honest, since it is "whoever is
+  asking". It compares a principal and a home set with `==`, so a collection
+  gets its trailing slash before the library sees the request: go-webdav's own
+  client drops it through `path.Join`, and the answer to `/calendars` was an
+  empty multistatus with no error. `/.well-known/caldav` is a `308` with no
+  password asked, because it keeps the method a client discovers with.
+
+  **What is stored is the iCalendar encoded again, not the client's bytes.**
+  The library serves an object by encoding what it parsed, so stored octets
+  would make the `ETag` summarise something no `GET` returns; a test holds the
+  round trip still. `internal/calendar` is the feature for the reason
+  `internal/music` is: a conditional `PUT` is a read and a write, and the
+  adapter compares `If-Match` inside the service's transaction rather than in
+  front of it, since the library only forwards the headers. Events only --
+  `VTODO` is refused rather than stored and lost to every query (#79) -- and a
+  calendar called `default` is made on first look, because the library answers
+  the extended `MKCOL` and not `MKCALENDAR`. A time-range query loads the whole
+  calendar and lets `caldav.Filter` decide, which is where recurrence is
+  matched; narrowing by a date column first would drop an event that repeats
+  into the window. The schema already carries `sync-collection`'s counter and
+  tombstones; the `REPORT` that reads them is the third step of #75.
 
 - **Playlists are `.m3u8` files on a mount of their own**, `/playlists/`
   (#203), read-only WebDAV from `internal/dav/playlists.go`. **Not a folder in

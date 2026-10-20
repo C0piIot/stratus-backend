@@ -9,10 +9,12 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/C0piIot/stratus-backend/internal/auth"
+	"github.com/C0piIot/stratus-backend/internal/calendar"
 	"github.com/C0piIot/stratus-backend/internal/config"
 	"github.com/C0piIot/stratus-backend/internal/dav"
 	"github.com/C0piIot/stratus-backend/internal/db"
@@ -75,6 +77,15 @@ const playlistsPrefix = "/playlists/"
 // for both protocols like the rest: the list of deletions to a browser, a
 // collection per deletion to a client that mounts the server.
 const trashPrefix = "/trash/"
+
+// calendarsPrefix is where calendars are served over CalDAV (#75). A mount of
+// its own like the generated ones, with no browser half yet: a GET there is an
+// .ics, which is the protocol's own answer, until the calendar view (#111).
+const calendarsPrefix = "/calendars/"
+
+// wellKnownCalDAV is where a client starts when it was given only the origin
+// (RFC 6764), which is what DAVx5 is given.
+const wellKnownCalDAV = "/.well-known/caldav"
 
 // App holds the wired application. Construction is pure: no I/O happens until
 // Run, so Handler can be exercised from tests without touching the filesystem.
@@ -232,6 +243,16 @@ func (a *App) Handler(deps Deps) http.Handler {
 		mux.Handle(trashPrefix, collection(dav.Trash(trashPrefix, service)))
 		mux.Handle(photosPrefix, collection(dav.ByDate(photosPrefix, deps.Database, db.KindImage)))
 		mux.Handle(videosPrefix, collection(dav.ByDate(videosPrefix, deps.Database, db.KindVideo)))
+		// Calendars have no browser half, so nothing splits them by method.
+		// The redirect asks for no credentials: it says where to look and
+		// nothing about what is there, and it keeps the method, which is a
+		// PROPFIND when a client is discovering.
+		// Both spellings, or the mux answers the bare one with a redirect that a
+		// client follows as a GET rather than the PROPFIND it was.
+		calendars := guard(dav.CalDAV(calendarsPrefix, calendar.New(deps.Database)))
+		mux.Handle(calendarsPrefix, calendars)
+		mux.Handle(strings.TrimSuffix(calendarsPrefix, "/"), calendars)
+		mux.Handle(wellKnownCalDAV, http.RedirectHandler(calendarsPrefix, http.StatusPermanentRedirect))
 
 		// The browser surface, at the root, so everything the prefixes above did
 		// not claim is a page rather than a bare 404 -- and in front of it, the
@@ -240,7 +261,7 @@ func (a *App) Handler(deps Deps) http.Handler {
 		// also what the Windows redirector probes before it will mount anything
 		// at all (#281).
 		mux.Handle("/", collection(dav.Root("/", dav.Searchable("/", filesPrefix, deps.Database),
-			"files", "music", "photos", "playlists", "trash", "videos")))
+			"calendars", "files", "music", "photos", "playlists", "trash", "videos")))
 	}
 	// The log is outside the compression so that the bytes it counts are the
 	// bytes that went out rather than the ones the handler wrote, and the
