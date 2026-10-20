@@ -346,7 +346,7 @@ func TestACalendarSyncsByToken(t *testing.T) {
 		{next, "infinite"},
 	} {
 		refused, _ := report(tc.token, tc.level)
-		if refused.Code != http.StatusForbidden || !strings.Contains(refused.Body.String(), "<valid-sync-token/>") && tc.level == "1" {
+		if refused.Code != http.StatusForbidden || !strings.Contains(refused.Body.String(), "<valid-sync-token") && tc.level == "1" {
 			t.Errorf("sync with %q at level %s = %d:\n%s", tc.token, tc.level, refused.Code, refused.Body.String())
 		}
 	}
@@ -391,5 +391,120 @@ func TestACalendarSyncsByToken(t *testing.T) {
 	}
 	if rec := do(t, h, "REPORT", "/calendars/edu/nope/", syncReport("", "1"), "Content-Type", "application/xml"); rec.Code != http.StatusNotFound {
 		t.Errorf("sync of a calendar nobody made = %d, want 404", rec.Code)
+	}
+}
+
+// TestACalendarIsMadeChangedAndRemoved is #399: what DAVx5 sends to make a
+// calendar, what Apple's clients send to rename and paint one, and deleting
+// one with everything in it.
+func TestACalendarIsMadeChangedAndRemoved(t *testing.T) {
+	t.Parallel()
+	_, meta := filestest.Backends(t)
+	svc := calendar.New(meta)
+	h := withUser(dav.CalDAV("/calendars/", svc), "edu")
+	ctx := t.Context()
+	xmlBody := []string{"Content-Type", "application/xml"}
+	colorOf := func(target string) string {
+		t.Helper()
+		ask := `<?xml version="1.0"?><D:propfind xmlns:D="DAV:" xmlns:A="http://apple.com/ns/ical/"><D:prop><D:displayname/><A:calendar-color/></D:prop></D:propfind>`
+		rec := do(t, h, "PROPFIND", target, ask, append([]string{"Depth", "0"}, xmlBody...)...)
+		wellFormed(t, rec.Body.String())
+		return rec.Body.String()
+	}
+
+	// DAVx5's own request, time zone and all.
+	mk := `<?xml version="1.0" encoding="UTF-8"?>
+<CAL:mkcalendar xmlns="DAV:" xmlns:CAL="urn:ietf:params:xml:ns:caldav" xmlns:ICAL="http://apple.com/ns/ical/">
+  <set><prop>
+    <displayname>Work</displayname>
+    <ICAL:calendar-color>#FF5733FF</ICAL:calendar-color>
+    <CAL:calendar-timezone>BEGIN:VCALENDAR&#13;
+END:VCALENDAR</CAL:calendar-timezone>
+    <CAL:supported-calendar-component-set><CAL:comp name="VEVENT"/></CAL:supported-calendar-component-set>
+  </prop></set>
+</CAL:mkcalendar>`
+	if rec := do(t, h, "MKCALENDAR", "/calendars/edu/work/", mk, xmlBody...); rec.Code != http.StatusCreated {
+		t.Fatalf("MKCALENDAR = %d:\n%s", rec.Code, rec.Body.String())
+	}
+	if got := colorOf("/calendars/edu/work/"); !strings.Contains(got, ">Work<") || !strings.Contains(got, "#FF5733FF</calendar-color>") {
+		t.Errorf("the new calendar's name and color:\n%s", got)
+	}
+	if got := colorOf("/calendars/edu/default/"); !regexp.MustCompile(`calendar-color[^>]*></calendar-color>|calendar-color[^>]*/>`).MatchString(got) || !strings.Contains(got, "404") {
+		t.Errorf("a calendar with no color chosen should leave it a 404:\n%s", got)
+	}
+
+	for _, tc := range []struct {
+		target, body string
+		code         int
+		why          string
+	}{
+		{"/calendars/edu/work/", mk, http.StatusMethodNotAllowed, "resource-must-be-null"},
+		{"/calendars/edu/tasks/", strings.Replace(mk, `name="VEVENT"`, `name="VTODO"`, 1), http.StatusForbidden, "supported-calendar-component"},
+		{"/calendars/edu/red/", strings.Replace(mk, "#FF5733FF", "red", 1), http.StatusForbidden, "calendar-color"},
+		{"/calendars/edu/", mk, http.StatusForbidden, "calendar-collection-location-ok"},
+		{"/calendars/edu/broken/", "<not xml", http.StatusBadRequest, "mkcalendar"},
+	} {
+		rec := do(t, h, "MKCALENDAR", tc.target, tc.body, xmlBody...)
+		if rec.Code != tc.code || !strings.Contains(rec.Body.String(), tc.why) {
+			t.Errorf("MKCALENDAR %s = %d, want %d with %s:\n%s", tc.target, rec.Code, tc.code, tc.why, rec.Body.String())
+		}
+	}
+	if rec := do(t, h, "MKCALENDAR", "/calendars/edu/bare/", ""); rec.Code != http.StatusCreated {
+		t.Errorf("MKCALENDAR with no body = %d, want 201", rec.Code)
+	}
+
+	// What Apple Calendar sends to rename and repaint.
+	patch := `<?xml version="1.0"?>
+<D:propertyupdate xmlns:D="DAV:" xmlns:A="http://apple.com/ns/ical/" xmlns:C="urn:ietf:params:xml:ns:caldav">
+  <D:set><D:prop><D:displayname>Office</D:displayname><A:calendar-color>#00ff00</A:calendar-color></D:prop></D:set>
+  <D:remove><D:prop><C:calendar-description/></D:prop></D:remove>
+</D:propertyupdate>`
+	rec := do(t, h, "PROPPATCH", "/calendars/edu/work/", patch, xmlBody...)
+	wellFormed(t, rec.Body.String())
+	if rec.Code != http.StatusMultiStatus || strings.Count(rec.Body.String(), "200 OK") != 1 || strings.Contains(rec.Body.String(), "403") {
+		t.Errorf("PROPPATCH = %d:\n%s", rec.Code, rec.Body.String())
+	}
+	if got := colorOf("/calendars/edu/work"); !strings.Contains(got, ">Office<") || !strings.Contains(got, "#00ff00") {
+		t.Errorf("after PROPPATCH:\n%s", got)
+	}
+
+	// All or nothing: one property it cannot change, and nothing changes.
+	refused := strings.Replace(patch, "<D:displayname>Office</D:displayname>", "<D:displayname>Lost</D:displayname><D:owner>me</D:owner>", 1)
+	rec = do(t, h, "PROPPATCH", "/calendars/edu/work/", refused, xmlBody...)
+	if !regexp.MustCompile(`owner[^<]*(/>|></owner>)</prop><status[^>]*>HTTP/1.1 403`).MatchString(rec.Body.String()) ||
+		!strings.Contains(rec.Body.String(), "424 Failed Dependency") {
+		t.Errorf("a PROPPATCH with a property it cannot change:\n%s", rec.Body.String())
+	}
+	if got := colorOf("/calendars/edu/work/"); strings.Contains(got, ">Lost<") {
+		t.Errorf("a refused PROPPATCH was written:\n%s", got)
+	}
+	badColor := strings.Replace(patch, "#00ff00", "green", 1)
+	if rec := do(t, h, "PROPPATCH", "/calendars/edu/work/", badColor, xmlBody...); !strings.Contains(rec.Body.String(), "403 Forbidden") {
+		t.Errorf("a PROPPATCH with a bad color:\n%s", rec.Body.String())
+	}
+	for _, tc := range []struct{ target, body string }{
+		{"/calendars/edu/nope/", patch},
+		{"/calendars/edu/work/", "<not xml"},
+	} {
+		if rec := do(t, h, "PROPPATCH", tc.target, tc.body, xmlBody...); rec.Code < 400 {
+			t.Errorf("PROPPATCH %s with %.10q = %d, want a refusal", tc.target, tc.body, rec.Code)
+		}
+	}
+
+	// Deleting a calendar takes what is in it; the default one stays.
+	if _, err := svc.Put(ctx, "edu", "work", "a.ics", icsEvent(t, "a", "20240102T090000Z", ""), nil); err != nil {
+		t.Fatal(err)
+	}
+	if rec := do(t, h, http.MethodDelete, "/calendars/edu/work/", ""); rec.Code != http.StatusNoContent {
+		t.Errorf("DELETE of a calendar = %d, want 204", rec.Code)
+	}
+	if rec := do(t, h, "PROPFIND", "/calendars/edu/work/", "", "Depth", "1"); rec.Code != http.StatusNotFound {
+		t.Errorf("the deleted calendar = %d, want 404", rec.Code)
+	}
+	if rec := do(t, h, http.MethodDelete, "/calendars/edu/work/", ""); rec.Code != http.StatusNotFound {
+		t.Errorf("a second DELETE = %d, want 404", rec.Code)
+	}
+	if rec := do(t, h, http.MethodDelete, "/calendars/edu/default/", ""); rec.Code != http.StatusForbidden {
+		t.Errorf("DELETE of the default calendar = %d, want 403", rec.Code)
 	}
 }

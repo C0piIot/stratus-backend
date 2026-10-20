@@ -1801,8 +1801,18 @@ Restraint here is principle 3, not laziness:
   adapter compares `If-Match` inside the service's transaction rather than in
   front of it, since the library only forwards the headers. Events only --
   `VTODO` is refused rather than stored and lost to every query (#79) -- and a
-  calendar called `default` is made on first look, because the library answers
-  the extended `MKCOL` and not `MKCALENDAR`. A time-range query loads the whole
+  calendar called `default` is made on first look, so a client that never
+  makes one still has somewhere to write; it cannot be deleted, since the next
+  look would make it again under the client's feet.
+
+  **`MKCALENDAR`, `PROPPATCH` and `DELETE` of a calendar are answered in front
+  of the library too** (#399): it does not route the first, answers the second
+  with 501, and hands the third to `DeleteCalendarObject` with one segment too
+  few. A property `MKCALENDAR` cannot keep is dropped rather than refused, which
+  is the one place this departs from RFC 4791 on purpose -- DAVx5 sends
+  `calendar-timezone` with every calendar it makes. `PROPPATCH` is all or
+  nothing, a refused property 403 and the rest 424, and the color is a column
+  of its own spliced into `PROPFIND` the way the sync token is. A time-range query loads the whole
   calendar and lets `caldav.Filter` decide, which is where recurrence is
   matched; narrowing by a date column first would drop an event that repeats
   into the window. **`sync-collection` is answered in front of the library**, which rejects any

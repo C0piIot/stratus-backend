@@ -284,12 +284,12 @@ func ScanAlbumPlays(s Scanner, t Times) (db.Subject, db.Annotation, error) {
 }
 
 // CalendarColumns is a calendar's row.
-const CalendarColumns = `id, owner_id, name, display_name, description, sync_token, pruned_token, created_at`
+const CalendarColumns = `id, owner_id, name, display_name, description, color, sync_token, pruned_token, created_at`
 
 // ScanCalendar reads one row of CalendarColumns.
 func ScanCalendar(s Scanner, t Times) (db.Calendar, error) {
 	var c db.Calendar
-	if err := s.Scan(&c.ID, &c.OwnerID, &c.Name, &c.DisplayName, &c.Description,
+	if err := s.Scan(&c.ID, &c.OwnerID, &c.Name, &c.DisplayName, &c.Description, &c.Color,
 		&c.SyncToken, &c.PrunedToken, t.Dest(&c.Created)); err != nil {
 		return db.Calendar{}, err
 	}

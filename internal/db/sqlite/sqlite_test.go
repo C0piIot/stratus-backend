@@ -280,3 +280,43 @@ func TestPlaylistsOnAClosedStore(t *testing.T) {
 		}
 	}
 }
+
+// TestCalendarsOnAClosedStore covers the error paths of the calendar
+// repository the way TestPlaylistsOnAClosedStore covers the playlists'.
+func TestCalendarsOnAClosedStore(t *testing.T) {
+	t.Parallel()
+	store := newStore(t)
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now()
+	object := db.CalendarObject{CalendarID: 1, Name: "a.ics", UID: "a", Component: "VEVENT", Data: "x", Changed: now}
+	calls := map[string]func() error{
+		"CreateCalendar": func() error {
+			_, err := store.CreateCalendar(t.Context(), db.Calendar{OwnerID: "edu", Name: "x", Created: now})
+			return err
+		},
+		"Calendars":       func() error { _, err := store.Calendars(t.Context(), "edu"); return err },
+		"CalendarByName":  func() error { _, err := store.CalendarByName(t.Context(), "edu", "x"); return err },
+		"UpdateCalendar":  func() error { return store.UpdateCalendar(t.Context(), db.Calendar{OwnerID: "edu", Name: "x"}) },
+		"DeleteCalendar":  func() error { return store.DeleteCalendar(t.Context(), "edu", "x") },
+		"CalendarObjects": func() error { _, err := store.CalendarObjects(t.Context(), 1); return err },
+		"CalendarObject":  func() error { _, err := store.CalendarObject(t.Context(), 1, "a.ics"); return err },
+		"PutCalendarObject": func() error {
+			_, err := store.PutCalendarObject(t.Context(), object)
+			return err
+		},
+		"DeleteCalendarObject": func() error { return store.DeleteCalendarObject(t.Context(), 1, "a.ics", now) },
+		"CalendarChanges":      func() error { _, err := store.CalendarChanges(t.Context(), 1, 0); return err },
+		"PruneCalendarTombstones": func() error {
+			_, err := store.PruneCalendarTombstones(t.Context(), now)
+			return err
+		},
+	}
+	for name, call := range calls {
+		if err := call(); err == nil {
+			t.Errorf("%s against a closed store reported no error", name)
+		}
+	}
+}
