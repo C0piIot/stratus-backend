@@ -49,6 +49,39 @@ const oggReport = `{
   "format": {"format_name": "ogg", "duration": "2.006500", "bit_rate": "31832"}
 }`
 
+// coverReport is what ffprobe prints for an .m4a with an isom brand and its
+// cover art inside, the shape yt-dlp writes: the sniff calls it a video, and
+// the one video stream is the cover (#395).
+const coverReport = `{
+  "streams": [
+    {"codec_type": "audio", "codec_name": "aac", "duration": "3.000000",
+     "disposition": {"attached_pic": 0}},
+    {"codec_type": "video", "codec_name": "png", "width": 64, "height": 64, "duration": "3.000000",
+     "disposition": {"attached_pic": 1}}
+  ],
+  "format": {
+    "format_name": "mov,mp4,m4a,3gp,3g2,mj2", "duration": "3.000000",
+    "tags": {"major_brand": "isom", "title": "A Forest", "artist": "The Cure", "album": "Seventeen Seconds"}
+  }
+}`
+
+// TestProbeReportCoverIsNotAPicture: a track sniffed as a video by its brand
+// is a track when its only video stream is the cover.
+func TestProbeReportCoverIsNotAPicture(t *testing.T) {
+	t.Parallel()
+	m := parse(t, coverReport).mediaFrom(db.KindVideo)
+
+	if m.Kind != db.KindAudio || m.Codec != "aac" {
+		t.Errorf("kind %q codec %q, want an aac track", m.Kind, m.Codec)
+	}
+	if m.Width != 0 || m.Height != 0 {
+		t.Errorf("dimensions = %dx%d, which are the cover's", m.Width, m.Height)
+	}
+	if m.Title != "A Forest" || m.Artist != "The Cure" || m.Album != "Seventeen Seconds" {
+		t.Errorf("got %+v, want the track's tags", m)
+	}
+}
+
 func TestProbeReportVideo(t *testing.T) {
 	t.Parallel()
 	m := parse(t, videoReport).mediaFrom(db.KindVideo)

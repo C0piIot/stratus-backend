@@ -61,7 +61,11 @@ import (
 // And to 10 for the MusicBrainz ids a tagger writes into a file (#217), two
 // columns the pass that asks outside sources about an album reads first: an
 // id already in the tags is a search that need not be made.
-const Version = 10
+//
+// And to 11 for an .m4a whose brand is a film's (#395): it was indexed as a
+// video, with its cover art as the picture, and so was in the video library
+// and missing from the music.
+const Version = 11
 
 // errTooLargeToRead is what a file gets instead of a local copy when it is
 // larger than MaxSpool. It is a refusal rather than a failure, and it is

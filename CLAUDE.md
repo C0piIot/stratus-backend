@@ -1949,6 +1949,14 @@ Restraint here is principle 3, not laziness:
     `probe_test.go` is this build's, and `scripts/smoke.sh` uploads a tagged
     Opus so the shipped ffprobe and the reader are held to agreeing about
     where the tags are.
+
+    **A cover is not a picture** (#395). The sniff reads the brand, and
+    `isom` is a film's and an `.m4a`'s alike -- yt-dlp writes them -- so such
+    a track arrived as a video, and ffprobe lists its cover art as a video
+    stream of one frame. A stream with `disposition.attached_pic` is skipped
+    when the picture is looked for, and a "video" with sound and no other
+    picture is indexed as a track: the streams are what the head could not
+    say. `media.Version` went to 11 for it.
   - **`ffmpeg`, 13.2 MB on amd64 and 11.1 on arm64.** For pictures, only what
     Go cannot decode: HEIC,
     which needs libheif and therefore cgo, and a frame out of a video. It
