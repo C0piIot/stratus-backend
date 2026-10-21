@@ -6,10 +6,6 @@
 <div class="row justify-content-center">
   <div class="col-12 col-lg-8">
     <h1 class="h4">Settings</h1>
-    <p class="text-body-secondary small">
-      In force as soon as they are saved. A setting the environment sets is shown here and
-      changed there: the environment wins. An empty field is the default.
-    </p>
     {{if .Notice}}<div class="alert alert-success py-2" role="status">{{.Notice}}</div>{{end}}
     {{if .Error}}<div class="alert alert-danger py-2" role="alert">{{.Error}}</div>{{end}}
     <form method="post" action="/settings">

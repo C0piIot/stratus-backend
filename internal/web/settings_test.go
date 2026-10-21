@@ -92,7 +92,7 @@ func TestTheSettingsPage(t *testing.T) {
 		t.Errorf("after saving the values are %+v", v)
 	}
 	saved := htmlstd.UnescapeString(get(t, h, "/settings?saved", cookie).Body.String())
-	for _, want := range []string{"Saved.", `<option value="Europe/Madrid" selected>Europe/Madrid</option>`, `<option value="on" selected>on</option>`} {
+	for _, want := range []string{"Settings saved.", `<option value="Europe/Madrid" selected>Europe/Madrid</option>`, `<option value="on" selected>on</option>`} {
 		if !strings.Contains(saved, want) {
 			t.Errorf("the saved page has no %q", want)
 		}
