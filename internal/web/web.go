@@ -123,6 +123,48 @@ type Deps struct {
 	// Zones are the time zones this machine knows, which the settings page
 	// offers TZ from; empty, it takes one as typed.
 	Zones []string
+	// Started is when the process started, and Database and Storage the
+	// engines it runs on, for the status page: what somebody checks after a
+	// deploy is that it was this one.
+	Started           time.Time
+	Database, Storage string
+	// Sweep is what the collector's last pass did, and nil when nothing
+	// reports one.
+	Sweep func() Sweep
+	// System is what the machine has left, and nil when nothing reports it.
+	System func() System
+}
+
+// System is the machine, for the status page. A zero or negative number is
+// one that could not be read, and is not shown.
+type System struct {
+	// DiskFree is the data directory's filesystem, which holds the scratch
+	// files whatever the blob store is; SharedDisk says the blob store is on
+	// it too, so the page says one number and not the same one twice.
+	DiskFree   int64
+	SharedDisk bool
+	// MemFree and MemTotal are the memory this process may use.
+	MemFree, MemTotal int64
+	CPUs              int
+	// Load is the one, five and fifteen minute load average.
+	Load string
+	// Platform is the OS and architecture this binary was built for, Kernel
+	// the release it is running on and Go the toolchain that built it.
+	Platform, Kernel, Go string
+}
+
+// Sweep is one pass of the collector, as the status page tells it. A zero At
+// is a pass that has not run since the process started.
+type Sweep struct {
+	At time.Time
+	// Emptied is what left the trash, Deleted the blobs nobody owned that
+	// were destroyed and Unaccounted the ones put in the trash instead;
+	// Uploads the abandoned uploads, and Freed the bytes all of it gave back.
+	Emptied, Deleted, Unaccounted, Uploads int
+	Freed                                  int64
+	// Err is the first thing that went wrong, and the rest of the pass still
+	// ran: each of its parts is independent of the others.
+	Err string
 }
 
 // Thumbnails is the picture half: a file's own and a folder's cover art. An
@@ -187,6 +229,11 @@ type handler struct {
 	// editor is the settings page's, and nil when there is no page.
 	editor SettingsEditor
 	zones  []string
+	// started, database, storage and sweep are Deps' own, for the status page.
+	started           time.Time
+	database, storage string
+	sweep             func() Sweep
+	system            func() System
 }
 
 // Handler builds the UI. It is mounted at the root, so it is also what answers
@@ -202,6 +249,7 @@ func Handler(d Deps) http.Handler {
 		files: d.Files, thumbs: d.Thumbs, captures: d.Index, library: d.Index, finder: d.Index, playlists: d.Playlists,
 		indexing: d.Indexing, imports: d.Imports, video: d.Video, kept: d.TrashRetention,
 		calendars: d.Calendars, settings: d.Settings, editor: d.Editor, zones: d.Zones,
+		started: d.Started, database: d.Database, storage: d.Storage, sweep: d.Sweep, system: d.System,
 	}
 
 	mux := http.NewServeMux()

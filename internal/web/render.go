@@ -189,6 +189,11 @@ type view struct {
 	FreeSpace string
 	// Incoming is the import folder, and nil when none is configured.
 	Incoming *importsView
+	// Running and Sweep are the status page's last two lines: since when and
+	// on what, and what the collector did last.
+	Running *runningView
+	Sweep   *sweepView
+	System  *systemView
 	// Lookup is music metadata from outside (#217), and nil when the pass is
 	// off and nothing was ever fetched.
 	Lookup *lookupView

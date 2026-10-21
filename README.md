@@ -1184,6 +1184,14 @@ aside for files — and on S3 it says `unlimited`, because a bucket has no size
 the API will admit to. That is also the number a `COPY` of a folder checks
 before it starts.
 
+**And what it runs on.** A System section says since when the process has
+been up, which database and blob store it is on, the free room on the data
+directory's disk — where the scratch files go, even with the blobs in a bucket
+— the memory left of what the process may use, the CPUs and the load, and the
+platform, kernel and Go it was built with. Below the counts, the collector's
+last pass: when it ran, what it freed and the first thing that went wrong, if
+anything did.
+
 What it does not do is enforce a quota. Reporting is not limiting, and a limit
 per user needs the thing this does not have yet: more than one user.
 

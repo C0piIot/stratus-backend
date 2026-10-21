@@ -542,6 +542,15 @@ Hard constraints, in the same spirit as the rest of the project:
   button here that starts, stops or hurries the indexer, because a surface that
   could would be a surface that has to be protected from being pressed twice.
 
+  **And the process and the machine**, in a section of their own in the same
+  fragment: since when, on which engines, the data directory's free room --
+  where the scratch files are, whatever the blob store is, and said once
+  when the blobs share its disk -- the memory left of the cgroup's limit or
+  the machine's, the CPUs, the load, the platform and the kernel, all read
+  from `/proc` when the page asks. The collector's last pass is kept in
+  memory and shown the same way: it is gone on a restart, which is the one
+  moment it has nothing to report anyway.
+
   **And how much of it has a picture** (#341), which is a second pair of
   numbers rather than a second percentage: a file that was read and a file
   that can be drawn fail for different reasons, so a library of films nothing

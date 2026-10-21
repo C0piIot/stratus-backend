@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/C0piIot/stratus-backend/internal/auth"
@@ -102,6 +103,10 @@ type App struct {
 	// level is what the log handler reads its level from, and nil when the
 	// caller gave it none: then the setting in force cannot move it.
 	level *slog.LevelVar
+	// started is when New was called, which is when the process started.
+	started time.Time
+	// swept is what the collector's last pass did, for the status page.
+	swept atomic.Pointer[web.Sweep]
 }
 
 // Deps are the backends the protocol surfaces are built on.
@@ -165,7 +170,7 @@ func (d Deps) Close() error {
 
 // New wires an App. It performs no I/O.
 func New(cfg config.Config, version, buildDate string) *App {
-	return &App{cfg: cfg, version: version, buildDate: buildDate, lookupPause: lookupPause}
+	return &App{cfg: cfg, version: version, buildDate: buildDate, lookupPause: lookupPause, started: time.Now()}
 }
 
 // WithLogLevel hands the App the level the log handler reads, so that the
@@ -219,6 +224,11 @@ func (a *App) Handler(deps Deps) http.Handler {
 			Editor:    editor(deps),
 			Zones:     config.Zones(),
 			Calendars: calendarService,
+			Started:   a.started,
+			Database:  a.cfg.Database.Scheme,
+			Storage:   a.cfg.Storage.Scheme,
+			Sweep:     a.lastSweep,
+			System:    a.system,
 		})
 
 		// Every protocol surface is behind the same realm and the same

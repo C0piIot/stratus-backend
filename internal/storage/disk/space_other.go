@@ -1,4 +1,4 @@
-//go:build !unix
+//go:build !(linux || darwin || freebsd)
 
 package disk
 
@@ -10,6 +10,7 @@ import (
 
 // FreeSpace implements storage.Storage where there is no Statfs to ask.
 //
+// OpenBSD and NetBSD name the fields differently or have no Statfs at all.
 // This project ships a Linux container and its tests run on one, so the honest
 // answer here is that nothing was measured rather than a number invented. It
 // exists so the package compiles everywhere, not because anybody runs it.

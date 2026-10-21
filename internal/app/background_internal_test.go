@@ -24,6 +24,7 @@ import (
 	"github.com/C0piIot/stratus-backend/internal/media"
 	"github.com/C0piIot/stratus-backend/internal/media/thumb"
 	"github.com/C0piIot/stratus-backend/internal/storage"
+	"github.com/C0piIot/stratus-backend/internal/web"
 )
 
 // TestCollectorSurvivesAFailedPass is the property the whole loop exists to
@@ -82,19 +83,19 @@ func TestTheTrashCanBeHeld(t *testing.T) {
 	}
 
 	never := New(config.Config{}, "test", "2026-01-01T09:30:00Z")
-	if !never.emptyTrash(t.Context(), service, never.cfg.TrashRetention) || held() != 1 {
+	if !never.emptyTrash(t.Context(), service, never.cfg.TrashRetention, &web.Sweep{}) || held() != 1 {
 		t.Errorf("with the trash held the pass left %d files in it, want 1", held())
 	}
 	// A retention so short that the deletion is already past it, which only
 	// a test can set: config refuses anything under a day.
 	brief := New(config.Config{Values: config.Values{TrashRetention: time.Nanosecond}}, "test", "2026-01-01T09:30:00Z")
-	if !brief.emptyTrash(t.Context(), service, brief.cfg.TrashRetention) || held() != 0 {
+	if !brief.emptyTrash(t.Context(), service, brief.cfg.TrashRetention, &web.Sweep{}) || held() != 0 {
 		t.Errorf("with a retention the pass left %d files in the trash, want 0", held())
 	}
 
 	gone, cancel := context.WithCancel(t.Context())
 	cancel()
-	if brief.emptyTrash(gone, service, brief.cfg.TrashRetention) {
+	if brief.emptyTrash(gone, service, brief.cfg.TrashRetention, &web.Sweep{}) {
 		t.Error("a pass whose context had gone did not say so")
 	}
 	if retention(0) != "never" || retention(time.Hour) != time.Hour {

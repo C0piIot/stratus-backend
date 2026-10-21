@@ -91,6 +91,12 @@ func (h *handler) status(w http.ResponseWriter, r *http.Request, user string) {
 		IndexingOff:  h.indexingNow().Interval == 0,
 		PicturesOff:  !h.indexingNow().Ahead,
 		Lookup:       h.lookupOf(r),
+		Running:      h.runningOf(),
+		Sweep:        h.sweepOf(),
+		System:       h.systemOf(),
+	}
+	if v.System != nil && v.System.SharedDisk {
+		v.FreeSpace = ""
 	}
 
 	if r.Header.Get("HX-Request") == "true" {
@@ -117,6 +123,98 @@ func (h *handler) lookupOf(r *http.Request) *lookupView {
 		return nil
 	}
 	return &lookupView{On: h.indexingNow().Lookup, LookupCounts: counts}
+}
+
+// runningView is since when this process has been up and what it runs on.
+type runningView struct {
+	Since, For        string
+	Database, Storage string
+}
+
+// runningOf is nil for a handler a test built without a start time.
+func (h *handler) runningOf() *runningView {
+	if h.started.IsZero() {
+		return nil
+	}
+	return &runningView{
+		Since:    h.started.In(h.zone()).Format("2006-01-02 15:04"),
+		For:      uptime(time.Since(h.started)),
+		Database: h.database,
+		Storage:  h.storage,
+	}
+}
+
+// uptime is a duration the way somebody reads one: the largest unit and the
+// next, since nobody cares about the seconds of a server up for a week.
+func uptime(d time.Duration) string {
+	days := int(d / (24 * time.Hour))
+	hours := int(d/time.Hour) % 24
+	minutes := int(d/time.Minute) % 60
+	switch {
+	case days > 0:
+		return fmt.Sprintf("%d d %d h", days, hours)
+	case hours > 0:
+		return fmt.Sprintf("%d h %d min", hours, minutes)
+	}
+	return fmt.Sprintf("%d min", minutes)
+}
+
+// systemView is the machine, already rendered; an empty field could not be
+// read.
+type systemView struct {
+	Disk, Memory, Load   string
+	Platform, Kernel, Go string
+	CPUs                 int
+	SharedDisk           bool
+}
+
+// systemOf is nil when nothing reports the machine.
+func (h *handler) systemOf() *systemView {
+	if h.system == nil {
+		return nil
+	}
+	s := h.system()
+	v := systemView{
+		CPUs: s.CPUs, Load: s.Load, SharedDisk: s.SharedDisk,
+		Platform: s.Platform, Kernel: s.Kernel, Go: s.Go,
+	}
+	if s.DiskFree >= 0 {
+		v.Disk = humanBytes(s.DiskFree)
+	}
+	if s.MemTotal > 0 {
+		v.Memory = humanBytes(s.MemFree) + " of " + humanBytes(s.MemTotal)
+	}
+	return &v
+}
+
+// sweepView is the collector's last pass, already rendered.
+type sweepView struct {
+	At, Freed                              string
+	Emptied, Deleted, Unaccounted, Uploads int
+	Err                                    string
+	// Pending is a process that has not swept yet, which is the first day of
+	// every deploy: said, rather than a row that is simply missing.
+	Pending bool
+}
+
+// sweepOf is nil when nothing reports the collector.
+func (h *handler) sweepOf() *sweepView {
+	if h.sweep == nil {
+		return nil
+	}
+	s := h.sweep()
+	if s.At.IsZero() {
+		return &sweepView{Pending: true}
+	}
+	return &sweepView{
+		At:          s.At.In(h.zone()).Format("2006-01-02 15:04"),
+		Freed:       humanBytes(s.Freed),
+		Emptied:     s.Emptied,
+		Deleted:     s.Deleted,
+		Unaccounted: s.Unaccounted,
+		Uploads:     s.Uploads,
+		Err:         s.Err,
+	}
 }
 
 // incomingOf is what the page says about the import folder, and nil when there
