@@ -73,7 +73,11 @@ func main() {
 			os.Exit(1)
 		}
 	default:
-		var handler slog.Handler = slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.LogLevel})
+		// A variable rather than the level itself, so that the setting in
+		// force can move it while the server runs (#397).
+		level := new(slog.LevelVar)
+		level.Set(cfg.LogLevel)
+		var handler slog.Handler = slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level})
 		flush := func() {}
 		if cfg.SentryDSN != "" {
 			client, err := report.NewClient(cfg.SentryDSN.Reveal(), version)
@@ -93,7 +97,7 @@ func main() {
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
 
-		if err := app.New(cfg, version, buildDate).Run(ctx); err != nil {
+		if err := app.New(cfg, version, buildDate).WithLogLevel(level).Run(ctx); err != nil {
 			slog.Error("server stopped", "err", err)
 			flush()
 			os.Exit(1)

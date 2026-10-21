@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -25,6 +26,7 @@ import (
 	"github.com/C0piIot/stratus-backend/internal/media/stream"
 	"github.com/C0piIot/stratus-backend/internal/media/thumb"
 	"github.com/C0piIot/stratus-backend/internal/music"
+	"github.com/C0piIot/stratus-backend/internal/settings"
 	"github.com/C0piIot/stratus-backend/internal/storage"
 	"github.com/C0piIot/stratus-backend/internal/subsonic"
 	"github.com/C0piIot/stratus-backend/internal/tus"
@@ -97,6 +99,9 @@ type App struct {
 	// a batch: a field set from the constant, so a test can watch the loop
 	// come back without standing there for it.
 	lookupPause time.Duration
+	// level is what the log handler reads its level from, and nil when the
+	// caller gave it none: then the setting in force cannot move it.
+	level *slog.LevelVar
 }
 
 // Deps are the backends the protocol surfaces are built on.
@@ -122,20 +127,23 @@ type Deps struct {
 	// ffmpeg without copying it first.
 	Transcoder *stream.Transcoder
 	Loopback   *stream.Loopback
-	// Encoder re-encodes films to H.264, and is nil where this machine is not
-	// to: see videoEncoding.
+	// Encoder re-encodes films to H.264. Whether it is offered is the setting
+	// in force, asked per request: see videoEncoding.
 	Encoder *stream.Encoder
 	// Indexer is nil when there is nothing to index into, which today means no
-	// credentials and therefore no files.
+	// credentials and therefore no files. Whether it runs is the setting.
 	Indexer *media.Indexer
 	// Incoming sweeps the import folder, and is nil when none is configured --
 	// which is the default, and also what no credentials means, since an
 	// import needs somebody to file things under.
 	Incoming *incoming.Watcher
 	// Lookup asks outside sources about the music library (#217), and is nil
-	// unless STRATUS_MUSIC_LOOKUP is on: nothing leaves the machine by
-	// default.
+	// with no credentials. Whether it asks is STRATUS_MUSIC_LOOKUP, read on
+	// every pass: nothing leaves the machine by default.
 	Lookup *lookup.Service
+	// Settings are the settings in force (#397), and nil for Deps a test
+	// built by hand, which then run on the configuration.
+	Settings *settings.Service
 }
 
 // Close releases whatever is open, and tolerates a partly built Deps because
@@ -158,6 +166,13 @@ func (d Deps) Close() error {
 // New wires an App. It performs no I/O.
 func New(cfg config.Config, version, buildDate string) *App {
 	return &App{cfg: cfg, version: version, buildDate: buildDate, lookupPause: lookupPause}
+}
+
+// WithLogLevel hands the App the level the log handler reads, so that the
+// setting in force can move it while the server runs (#397).
+func (a *App) WithLogLevel(level *slog.LevelVar) *App {
+	a.level = level
+	return a
 }
 
 // Handler builds the HTTP routes. Separate from Run so every protocol surface
@@ -199,7 +214,8 @@ func (a *App) Handler(deps Deps) http.Handler {
 				Index: deps.Database, Interval: a.cfg.IndexInterval, Ahead: a.cfg.ThumbsAhead,
 				Lookups: deps.Database, Lookup: a.cfg.MusicLookup,
 			},
-			Imports: imports(deps), Video: films(deps), TrashRetention: a.cfg.TrashRetention,
+			Imports: imports(deps), Video: a.films(deps), TrashRetention: a.cfg.TrashRetention,
+			Settings:  func() config.Values { return a.values(deps) },
 			Calendars: calendarService,
 		})
 
@@ -313,15 +329,14 @@ func (a *App) Run(ctx context.Context) error {
 			keepRunning(ctx, task, restartPause, func() { loop(ctx, deps) })
 		}()
 	}
-	if a.cfg.GCInterval > 0 {
-		start("collecting orphan blobs", a.collectPeriodically)
-	} else {
-		slog.Warn("orphan blob collection disabled", "reason", "STRATUS_GC_INTERVAL is zero")
-	}
-	if a.cfg.IndexInterval > 0 && deps.Indexer != nil {
+	// Every loop starts whatever its setting says, and one that is off
+	// waits for the setting to change rather than not being there (#397).
+	start("collecting orphan blobs", a.collectPeriodically)
+	if deps.Indexer != nil {
 		start("indexing media", a.indexPeriodically)
-	} else {
-		slog.Warn("media indexing disabled", "reason", "STRATUS_INDEX_INTERVAL is zero")
+	}
+	if a.level != nil && deps.Settings != nil {
+		start("following the log level", a.followLogLevel)
 	}
 	if deps.Incoming != nil {
 		start("importing what arrived on disk", a.importPeriodically)
@@ -380,7 +395,7 @@ func imports(deps Deps) web.Imports {
 
 // films is what the web UI plays and streams as HLS with: the media rows and
 // the transcoder, or nothing at all when there is no transcoder to remux with.
-func films(deps Deps) web.Video {
+func (a *App) films(deps Deps) web.Video {
 	if deps.Transcoder == nil || deps.Database == nil {
 		return web.Video{}
 	}
@@ -389,6 +404,10 @@ func films(deps Deps) web.Video {
 	// transcoder gives.
 	if deps.Encoder != nil {
 		v.Encoded = deps.Encoder
+		v.Encodes = func() bool {
+			on, _ := videoEncoding(a.values(deps).VideoTranscode, runtime.GOMAXPROCS(0))
+			return on
+		}
 	}
 	return v
 }

@@ -49,3 +49,16 @@ func TestAZoneThatIsNotOneIsRefused(t *testing.T) {
 		t.Error("Load took a zone that is not one")
 	}
 }
+
+func TestWhatTheEnvironmentFixedIsKept(t *testing.T) {
+	t.Parallel()
+	cfg, err := config.Load(func(key string) string {
+		return map[string]string{"STRATUS_GC_INTERVAL": "2h", "STRATUS_DB_DSN": "sqlite:///x.db"}[key]
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Fixed) != 1 || cfg.Fixed["STRATUS_GC_INTERVAL"] != "2h" {
+		t.Errorf("Fixed = %v, want the one editable setting the environment set", cfg.Fixed)
+	}
+}

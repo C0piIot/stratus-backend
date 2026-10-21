@@ -70,6 +70,14 @@ type Video struct {
 	Encoded interface {
 		Segment(ctx context.Context, f db.File, e stream.Encode, s stream.Segment) (io.ReadCloser, error)
 	}
+	// Encodes says whether Encoded is offered now, which is a setting that
+	// can change while the server runs (#397); nil is always.
+	Encodes func() bool
+}
+
+// encodes is whether a film is offered re-encoded on this request.
+func (v Video) encodes() bool {
+	return v.Encoded != nil && (v.Encodes == nil || v.Encodes())
 }
 
 // filmView is the player page.
@@ -153,7 +161,7 @@ func (h *handler) play(w http.ResponseWriter, r *http.Request, user string, f db
 // encoding is a film's re-encode, when this machine makes them and the film
 // both needs one and can have one.
 func (h *handler) encoding(m db.Media) (stream.Encode, bool) {
-	if h.video.Encoded == nil || !stream.NeedsEncode(m) {
+	if !h.video.encodes() || !stream.NeedsEncode(m) {
 		return stream.Encode{}, false
 	}
 	e, err := stream.EncodeFor(m)

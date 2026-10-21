@@ -23,8 +23,8 @@ import (
 // choosing which shows. The month moves by links, so it is in the URL and a
 // month is something somebody can be sent.
 //
-// **The zone is the server's**, `time.Local` -- which is the TZ environment
-// variable, UTC in a container that sets none. A page with no script cannot
+// **The zone is the server's**, the TZ setting (#397) -- UTC where nobody
+// set one. A page with no script cannot
 // ask the browser, and what is drawn has to be one zone or the days would
 // disagree with themselves; the README says how to set it.
 const calendarsPrefix = "/calendars/"
@@ -119,10 +119,11 @@ func (h *handler) calendarMonth(w http.ResponseWriter, r *http.Request, user, na
 		h.fail(w, r, user, err)
 		return
 	}
-	now := time.Now().In(time.Local)
-	first := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.Local)
+	zone := h.zone()
+	now := time.Now().In(zone)
+	first := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, zone)
 	if m := r.URL.Query().Get(monthParam); m != "" {
-		parsed, perr := time.ParseInLocation("2006-01", m, time.Local)
+		parsed, perr := time.ParseInLocation("2006-01", m, zone)
 		if perr != nil {
 			h.fail(w, r, user, db.ErrInvalidPath)
 			return
@@ -142,7 +143,7 @@ func (h *handler) calendarMonth(w http.ResponseWriter, r *http.Request, user, na
 		h.fail(w, r, user, err)
 		return
 	}
-	events, err := calendar.Occurrences(objects, gridStart, gridEnd, time.Local)
+	events, err := calendar.Occurrences(objects, gridStart, gridEnd, zone)
 	if err != nil {
 		h.fail(w, r, user, err)
 		return
@@ -157,7 +158,7 @@ func (h *handler) calendarMonth(w http.ResponseWriter, r *http.Request, user, na
 		Weekdays:  []string{"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"},
 		Zone:      now.Format("MST"),
 	}
-	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, zone)
 	var week []calendarDay
 	for day := gridStart; day.Before(gridEnd); day = day.AddDate(0, 0, 1) {
 		d := calendarDay{
