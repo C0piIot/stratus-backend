@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"slices"
 
 	"github.com/C0piIot/stratus-backend/internal/config"
 	"github.com/C0piIot/stratus-backend/internal/settings"
@@ -141,6 +142,15 @@ func (h *handler) renderSettings(w http.ResponseWriter, code int, user string,
 			f.Value = posted[e.Key]
 		case e.Source == settings.FromStore:
 			f.Value = e.Value
+		}
+		if e.Key == "TZ" && !f.Fixed && len(h.zones) > 0 {
+			f.Choices = h.zones
+			// A zone stored from a machine whose database had it, and this
+			// one's does not, is still offered: a select that could not show
+			// it would put the default back on the next save.
+			if f.Value != "" && !slices.Contains(f.Choices, f.Value) {
+				f.Choices = append(slices.Clone(f.Choices), f.Value)
+			}
 		}
 		if len(sections) == 0 || sections[len(sections)-1].Name != e.Section {
 			sections = append(sections, settingsSection{Name: e.Section})

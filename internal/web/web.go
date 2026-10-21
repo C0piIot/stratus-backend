@@ -120,6 +120,9 @@ type Deps struct {
 	Settings func() config.Values
 	// Editor changes them, for the settings page; nil means there is no page.
 	Editor SettingsEditor
+	// Zones are the time zones this machine knows, which the settings page
+	// offers TZ from; empty, it takes one as typed.
+	Zones []string
 }
 
 // Thumbnails is the picture half: a file's own and a folder's cover art. An
@@ -183,6 +186,7 @@ type handler struct {
 	settings func() config.Values
 	// editor is the settings page's, and nil when there is no page.
 	editor SettingsEditor
+	zones  []string
 }
 
 // Handler builds the UI. It is mounted at the root, so it is also what answers
@@ -197,7 +201,7 @@ func Handler(d Deps) http.Handler {
 		version: d.Version, buildDate: d.BuildDate, verifier: d.Verifier, sessions: d.Sessions, shares: d.Shares,
 		files: d.Files, thumbs: d.Thumbs, captures: d.Index, library: d.Index, finder: d.Index, playlists: d.Playlists,
 		indexing: d.Indexing, imports: d.Imports, video: d.Video, kept: d.TrashRetention,
-		calendars: d.Calendars, settings: d.Settings, editor: d.Editor,
+		calendars: d.Calendars, settings: d.Settings, editor: d.Editor, zones: d.Zones,
 	}
 
 	mux := http.NewServeMux()
@@ -324,6 +328,15 @@ func (h *handler) indexingNow() Indexing {
 		ix.Interval, ix.Ahead, ix.Lookup = v.IndexInterval, v.ThumbsAhead, v.MusicLookup
 	}
 	return ix
+}
+
+// weekStart is the day the calendar page's weeks begin on, Monday for a
+// handler a test built.
+func (h *handler) weekStart() time.Weekday {
+	if h.settings != nil {
+		return h.settings().WeekStart
+	}
+	return time.Monday
 }
 
 // zone is what the calendar page draws times in: the setting's, or the

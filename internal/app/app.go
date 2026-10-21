@@ -217,6 +217,7 @@ func (a *App) Handler(deps Deps) http.Handler {
 			Imports: imports(deps), Video: a.films(deps), TrashRetention: a.cfg.TrashRetention,
 			Settings:  func() config.Values { return a.values(deps) },
 			Editor:    editor(deps),
+			Zones:     config.Zones(),
 			Calendars: calendarService,
 		})
 

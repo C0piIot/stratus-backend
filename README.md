@@ -1402,7 +1402,10 @@ make up STRATUS_PORT=9000 STRATUS_DATA_PATH=/srv/stratus
 **✎ can also be set on the Settings page** (the menu under your name), and so
 can `STRATUS_GC_INTERVAL`, `STRATUS_GC_GRACE`, `STRATUS_INDEX_INTERVAL`,
 `STRATUS_THUMBS_AHEAD`, `STRATUS_INCOMING_INTERVAL`, `STRATUS_VIDEO_TRANSCODE`
-and `STRATUS_MUSIC_LOOKUP`, described where they matter below. A change there
+and `STRATUS_MUSIC_LOOKUP`, described where they matter below, and
+`STRATUS_WEEK_START` — `monday` or `sunday`, the day the calendar page's weeks
+begin on. The page offers `TZ` from the zones the machine's own time zone
+database holds. A change there
 is in force at once, with no restart, and is kept in the database. **The
 environment wins**: a variable that is set is shown on the page and not
 offered, so whatever an install wrote in its compose file or its platform's

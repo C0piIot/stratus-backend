@@ -811,7 +811,12 @@ Hard constraints, in the same spirit as the rest of the project:
   disabled, with no name and the same twelve asterisks whatever it is, so the
   page says where it is changed while neither its value nor its length is in
   the HTML. `STRATUS_INCOMING_DIR` is shown the same way above its interval,
-  read-only but with its path, which is no secret.
+  read-only but with its path, which is no secret. **`TZ` is a list read
+  from the machine's own zone database** -- `$ZONEINFO`, then the directories
+  `time` itself searches -- rather than one kept here, walked once at startup
+  and filtered to what `time.LoadLocation` takes; with no database it is a
+  text field, and a stored zone missing from the list is added to it, or the
+  next save would quietly put the default back.
 - **A new folder posts to `/folders/<parent>`**, not to the listing's own URL
   with a different body. Two forms on one page mean two endpoints: telling them
   apart by what happens to be in the body -- a file part or a text field --
