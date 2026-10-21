@@ -170,3 +170,22 @@ func TestASettingThatCannotBeStored(t *testing.T) {
 		t.Errorf("a form that does not parse = %d, want 400", rec.Code)
 	}
 }
+
+// TestThePasswordIsShownAndNotGivenAway: the page says where the password is
+// changed, and neither its value nor its length is in what it sends.
+func TestThePasswordIsShownAndNotGivenAway(t *testing.T) {
+	t.Parallel()
+	h, _ := settingsHandler(t, nil)
+	cookie := signIn(t, h)
+	body := get(t, h, "/settings", cookie).Body.String()
+
+	if !strings.Contains(body, `id="STRATUS_PASSWORD" type="password" value="************" readonly disabled`) {
+		t.Errorf("the page does not show the password as fixed:\n%s", body)
+	}
+	if strings.Contains(body, examplePassword) {
+		t.Error("the page carries the password")
+	}
+	if strings.Contains(body, `name="STRATUS_PASSWORD"`) {
+		t.Error("the password is a field the form would post")
+	}
+}
