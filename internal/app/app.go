@@ -216,6 +216,7 @@ func (a *App) Handler(deps Deps) http.Handler {
 			},
 			Imports: imports(deps), Video: a.films(deps), TrashRetention: a.cfg.TrashRetention,
 			Settings:  func() config.Values { return a.values(deps) },
+			Editor:    editor(deps),
 			Calendars: calendarService,
 		})
 
@@ -424,6 +425,15 @@ func (a *App) films(deps Deps) web.Video {
 // It lives here because inbound adapters do not import each other, which is
 // the same reason hlsOr does, and because deciding which protocol a request
 // is in is wiring rather than either adapter's business.
+// editor is the settings page's service, and a nil interface rather than a
+// nil pointer inside one when there is none, for the reason transcoder gives.
+func editor(deps Deps) web.SettingsEditor {
+	if deps.Settings == nil {
+		return nil
+	}
+	return deps.Settings
+}
+
 // calendarsOrBrowser is davOrBrowser for /calendars/ (#111): a GET of a
 // collection is the month page, and a GET of an object -- the third segment
 // below the prefix -- is the .ics a CalDAV client asked for.

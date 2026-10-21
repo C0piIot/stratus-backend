@@ -799,6 +799,15 @@ Hard constraints, in the same spirit as the rest of the project:
   directory that still has descendants, and the page says that rather than the
   generic "something is in the way", which would send somebody looking for a
   thing that is not there.
+- **The settings page is one form and a plain POST** (#397), at `/settings`
+  in the user menu. An empty field is the default it names, so going back to
+  one is clearing it rather than a button per setting; a setting the
+  environment fixes is drawn disabled with its value and not offered, since a
+  field that took a value the environment then overrode would be the page
+  lying. **All or nothing**: every posted value is read through
+  `config.Setting.Apply` before any is stored, so a form with one mistake
+  changes nothing and comes back with the mistake marked and what was typed
+  kept.
 - **A new folder posts to `/folders/<parent>`**, not to the listing's own URL
   with a different body. Two forms on one page mean two endpoints: telling them
   apart by what happens to be in the body -- a file part or a text field --

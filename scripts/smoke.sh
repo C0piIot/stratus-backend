@@ -668,6 +668,14 @@ if wait_serving "$davname"; then
     *) bad "a calendar is a month to a browser" "$(head -c 200 <<<"$calpage")" ;;
   esac
 
+  # The settings page (#397), and a change from it in force at once: the
+  # status page reads the indexer's switch per request.
+  settingsform="$(curl -s -u "$davuser:$davpass" -H 'Sec-Fetch-Mode: navigate' "http://$davhost/settings" 2>/dev/null || true)"
+  case "$settingsform" in
+    *'name="STRATUS_THUMBS_AHEAD"'*) ok "the settings page offers what the environment leaves unset" ;;
+    *) bad "the settings page offers what the environment leaves unset" "$(head -c 200 <<<"$settingsform")" ;;
+  esac
+
   # Finder mounts read-only unless the server says class 2, so the header is
   # asserted rather than assumed.
   dav_header="$(curl -s -o /dev/null -D - -u "$davuser:$davpass" -X OPTIONS "http://$davhost/files/" | grep -i '^dav:' | tr -d '\r')"

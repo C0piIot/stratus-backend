@@ -118,6 +118,8 @@ type Deps struct {
 	// change is on the next page. Nil means the fields above are the whole
 	// story, which is a test.
 	Settings func() config.Values
+	// Editor changes them, for the settings page; nil means there is no page.
+	Editor SettingsEditor
 }
 
 // Thumbnails is the picture half: a file's own and a folder's cover art. An
@@ -179,6 +181,8 @@ type handler struct {
 	calendars CalendarReader
 	// settings are the settings in force, and nil for a handler a test built.
 	settings func() config.Values
+	// editor is the settings page's, and nil when there is no page.
+	editor SettingsEditor
 }
 
 // Handler builds the UI. It is mounted at the root, so it is also what answers
@@ -193,7 +197,7 @@ func Handler(d Deps) http.Handler {
 		version: d.Version, buildDate: d.BuildDate, verifier: d.Verifier, sessions: d.Sessions, shares: d.Shares,
 		files: d.Files, thumbs: d.Thumbs, captures: d.Index, library: d.Index, finder: d.Index, playlists: d.Playlists,
 		indexing: d.Indexing, imports: d.Imports, video: d.Video, kept: d.TrashRetention,
-		calendars: d.Calendars, settings: d.Settings,
+		calendars: d.Calendars, settings: d.Settings, editor: d.Editor,
 	}
 
 	mux := http.NewServeMux()
@@ -212,6 +216,10 @@ func Handler(d Deps) http.Handler {
 	// thumbnails and works.
 	mux.HandleFunc("GET /thumb/{path...}", h.readable(h.thumbnail))
 	mux.HandleFunc("GET /status", h.signedIn(h.status))
+	if h.editor != nil {
+		mux.HandleFunc("GET "+settingsPath, h.signedIn(h.settingsPage))
+		mux.HandleFunc("POST "+settingsPath, h.signedIn(h.saveSettings))
+	}
 	// Signed in and not readable: this route has no path for a share's
 	// signature to be checked against, and a search over somebody's whole
 	// library is not what a link to one folder authorises.

@@ -22,13 +22,24 @@ func TestEverySettingHasADefaultThatParses(t *testing.T) {
 				t.Errorf("%s: the choice %q does not parse: %v", s.Key, choice, err)
 			}
 		}
-		if seen[s.Key] || s.Help == "" {
-			t.Errorf("%s is listed twice or says nothing about itself", s.Key)
+		if seen[s.Key] || s.Help == "" || s.Section == "" {
+			t.Errorf("%s is listed twice, says nothing about itself or has no section", s.Key)
 		}
 		seen[s.Key] = true
 		if got, ok := config.SettingByKey(s.Key); !ok || got.Key != s.Key {
 			t.Errorf("SettingByKey(%s) = %v, %v", s.Key, got.Key, ok)
 		}
+	}
+	// The defaults are written the way somebody would type them, and are
+	// still the constants the rest of the code is written against.
+	defaults, err := config.Load(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if defaults.TrashRetention != config.DefaultTrashRetention || defaults.GCInterval != config.DefaultGCInterval ||
+		defaults.GCGrace != config.DefaultGCGrace || defaults.IndexInterval != config.DefaultIndexInterval ||
+		defaults.IncomingInterval != config.DefaultIncomingInterval || defaults.LogLevel != config.DefaultLogLevel {
+		t.Errorf("a default written in the list is not its constant: %+v", defaults.Values)
 	}
 	for _, key := range []string{"STRATUS_DB_DSN", "STRATUS_INCOMING_DIR", "STRATUS_PASSWORD", "STRATUS_SENTRY_DSN"} {
 		if _, ok := config.SettingByKey(key); ok {

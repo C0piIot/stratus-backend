@@ -1,0 +1,48 @@
+{{/* The settings that can change while the server runs (#397). One form, a
+     plain POST: an empty field is the default it names, and a setting the
+     environment fixes is shown and not offered, because the environment
+     wins. */}}
+{{define "content" -}}
+<div class="row justify-content-center">
+  <div class="col-12 col-lg-8">
+    <h1 class="h4">Settings</h1>
+    <p class="text-body-secondary small">
+      In force as soon as they are saved. A setting the environment sets is shown here and
+      changed there: the environment wins. An empty field is the default.
+    </p>
+    {{if .Notice}}<div class="alert alert-success py-2" role="status">{{.Notice}}</div>{{end}}
+    {{if .Error}}<div class="alert alert-danger py-2" role="alert">{{.Error}}</div>{{end}}
+    <form method="post" action="/settings">
+      {{range .Settings}}
+      <div class="card mb-3">
+        <div class="card-header fw-semibold">{{.Name}}</div>
+        <div class="card-body">
+          {{range .Fields}}
+          <div class="mb-3">
+            <label class="form-label mb-1" for="{{.Key}}"><code>{{.Key}}</code></label>
+            {{if .Fixed}}
+            <input class="form-control" id="{{.Key}}" type="text" value="{{.Value}}" disabled aria-describedby="{{.Key}}-help">
+            <div id="{{.Key}}-help" class="form-text">{{.Help}} <span class="badge text-bg-secondary">set by the environment</span></div>
+            {{else if .Choices}}
+            <select class="form-select{{if .Error}} is-invalid{{end}}" id="{{.Key}}" name="{{.Key}}" aria-describedby="{{.Key}}-help">
+              <option value=""{{if not .Value}} selected{{end}}>default ({{.Default}})</option>
+              {{$v := .Value}}{{range .Choices}}<option value="{{.}}"{{if eq . $v}} selected{{end}}>{{.}}</option>{{end}}
+            </select>
+            {{if .Error}}<div class="invalid-feedback">{{.Error}}</div>{{end}}
+            <div id="{{.Key}}-help" class="form-text">{{.Help}}</div>
+            {{else}}
+            <input class="form-control{{if .Error}} is-invalid{{end}}" id="{{.Key}}" name="{{.Key}}" type="text"
+                   value="{{.Value}}" placeholder="{{.Default}}" autocomplete="off" aria-describedby="{{.Key}}-help">
+            {{if .Error}}<div class="invalid-feedback">{{.Error}}</div>{{end}}
+            <div id="{{.Key}}-help" class="form-text">{{.Help}} Default: <code>{{.Default}}</code>.</div>
+            {{end}}
+          </div>
+          {{end}}
+        </div>
+      </div>
+      {{end}}
+      <button class="btn btn-primary" type="submit">Save</button>
+    </form>
+  </div>
+</div>
+{{- end}}
