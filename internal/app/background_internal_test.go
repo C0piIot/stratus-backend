@@ -38,7 +38,7 @@ func TestCollectorSurvivesAFailedPass(t *testing.T) {
 	t.Parallel()
 	blobs, meta := filestest.Backends(t)
 
-	a := New(config.Config{GCInterval: time.Millisecond, GCGrace: time.Hour}, "test", "2026-01-01T09:30:00Z")
+	a := New(config.Config{Values: config.Values{GCInterval: time.Millisecond, GCGrace: time.Hour}}, "test", "2026-01-01T09:30:00Z")
 	broken := dbtest.FailOn(t, meta, "ExpiredUploads")
 	deps := Deps{Storage: blobs, Database: broken, Files: files.New(blobs, broken)}
 
@@ -87,7 +87,7 @@ func TestTheTrashCanBeHeld(t *testing.T) {
 	}
 	// A retention so short that the deletion is already past it, which only
 	// a test can set: config refuses anything under a day.
-	brief := New(config.Config{TrashRetention: time.Nanosecond}, "test", "2026-01-01T09:30:00Z")
+	brief := New(config.Config{Values: config.Values{TrashRetention: time.Nanosecond}}, "test", "2026-01-01T09:30:00Z")
 	if !brief.emptyTrash(t.Context(), service) || held() != 0 {
 		t.Errorf("with a retention the pass left %d files in the trash, want 0", held())
 	}
@@ -156,7 +156,7 @@ func TestThePicturePassPacesItself(t *testing.T) {
 	blobs, meta := filestest.Backends(t)
 
 	service := files.New(blobs, meta)
-	a := New(config.Config{ThumbsAhead: true}, "test", "2026-01-01T09:30:00Z")
+	a := New(config.Config{Values: config.Values{ThumbsAhead: true}}, "test", "2026-01-01T09:30:00Z")
 	deps := Deps{
 		Storage: blobs, Database: meta, Files: service,
 		Thumbs: thumb.New(blobs, service, meta, "ffmpeg", t.TempDir()),
@@ -230,7 +230,7 @@ func TestThePicturePassStandsAside(t *testing.T) {
 	service := files.New(held, meta)
 	writePhoto(t, files.New(blobs, meta), meta, "holiday.jpg")
 
-	a := New(config.Config{ThumbsAhead: true}, "test", "2026-01-01T09:30:00Z")
+	a := New(config.Config{Values: config.Values{ThumbsAhead: true}}, "test", "2026-01-01T09:30:00Z")
 	thumbs := thumb.New(blobs, service, meta, "ffmpeg", t.TempDir())
 	deps := Deps{Storage: blobs, Database: meta, Files: service, Thumbs: thumbs}
 
@@ -296,7 +296,7 @@ func TestImporterKeepsGoingAndStopsWithItsContext(t *testing.T) {
 	}
 
 	service := files.New(blobs, meta)
-	a := New(config.Config{IncomingInterval: time.Millisecond}, "test", "2026-01-01T09:30:00Z")
+	a := New(config.Config{Values: config.Values{IncomingInterval: time.Millisecond}}, "test", "2026-01-01T09:30:00Z")
 	deps := Deps{Storage: blobs, Database: meta, Files: service,
 		Incoming: incoming.New(from, "edu", service)}
 

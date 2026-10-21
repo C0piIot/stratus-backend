@@ -260,6 +260,9 @@ func TestCalendarsOnAClosedStore(t *testing.T) {
 			_, err := store.PruneCalendarTombstones(t.Context(), now)
 			return err
 		},
+		"Settings":      func() error { _, err := store.Settings(t.Context()); return err },
+		"PutSetting":    func() error { return store.PutSetting(t.Context(), "A", "x", now) },
+		"DeleteSetting": func() error { return store.DeleteSetting(t.Context(), "A") },
 	}
 	for name, call := range calls {
 		if err := call(); err == nil {
