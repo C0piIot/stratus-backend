@@ -43,7 +43,7 @@ var repoMethods = []string{
 	"Trash", "TrashBatches", "TrashTotals", "TrashedIn", "ExpiredTrash",
 	"LyricsOf", "AlbumLookup", "LookupCounts",
 	"PruneAlbumLookups", "PendingAlbumLookups", "PendingLyrics", "PutAlbumLookup", "PutLyrics",
-	"PruneCalendarTombstones",
+	"PruneCalendarTombstones", "Settings", "PutSetting", "DeleteSetting",
 }
 
 // Failing is a db.Store that fails one named method and passes the rest
@@ -157,6 +157,30 @@ func (f *failingRepo) PruneAlbumLookups(ctx context.Context) (int64, error) {
 		return 0, err
 	}
 	return f.Repo.PruneAlbumLookups(ctx)
+}
+
+// Settings implements db.Repo.
+func (f *failingRepo) Settings(ctx context.Context) (map[string]string, error) {
+	if err := f.fails("Settings"); err != nil {
+		return nil, err
+	}
+	return f.Repo.Settings(ctx)
+}
+
+// PutSetting implements db.Repo.
+func (f *failingRepo) PutSetting(ctx context.Context, key, value string, at time.Time) error {
+	if err := f.fails("PutSetting"); err != nil {
+		return err
+	}
+	return f.Repo.PutSetting(ctx, key, value, at)
+}
+
+// DeleteSetting implements db.Repo.
+func (f *failingRepo) DeleteSetting(ctx context.Context, key string) error {
+	if err := f.fails("DeleteSetting"); err != nil {
+		return err
+	}
+	return f.Repo.DeleteSetting(ctx, key)
 }
 
 // PruneCalendarTombstones implements db.Repo.

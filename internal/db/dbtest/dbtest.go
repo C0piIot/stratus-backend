@@ -81,6 +81,11 @@ func Run(t *testing.T, newStore func(t *testing.T) db.Store) {
 		RunCalendars(t, func(t *testing.T) db.Repo { return newStore(t) })
 	})
 
+	t.Run("settings", func(t *testing.T) {
+		t.Parallel()
+		RunSettings(t, func(t *testing.T) db.Repo { return newStore(t) })
+	})
+
 	cases := []struct {
 		name string
 		fn   func(t *testing.T, s db.Store)

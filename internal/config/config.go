@@ -99,47 +99,18 @@ type Config struct {
 	Addr string
 	// DataDir holds blobs, the database and any derived media.
 	DataDir string
-	// LogLevel is the minimum level emitted by the JSON handler.
-	LogLevel slog.Level
 	// Storage selects and configures the blob backend.
 	Storage StorageDSN
 	// Database selects and configures the metadata backend.
 	Database DatabaseDSN
-	// GCInterval is how often orphaned blobs are collected. Zero disables it.
-	GCInterval time.Duration
-	// GCGrace is how long a blob is left alone before it can be collected.
-	GCGrace time.Duration
-	// TrashRetention is how long a deletion is kept before the sweep destroys
-	// it, and zero means never (#296). The variable spells that "never"
-	// rather than 0, because 0 turns the other intervals off and here it would
-	// read as the opposite of what it does.
-	TrashRetention time.Duration
-	// IndexInterval is how often the media indexer looks for work nobody told
-	// it about. Zero disables indexing altogether, notices included.
-	IndexInterval time.Duration
 	// IncomingDir is a directory on this machine's own filesystem whose
 	// contents are moved into the library. Empty, which is the default, is the
 	// feature switched off: there is no sensible default directory, and one
 	// that was guessed would be one somebody's files disappeared into.
 	IncomingDir string
-	// IncomingInterval is how often that directory is swept. It is also how
-	// long a file has to sit at the same size before it counts as finished, so
-	// it is the one number that trades "imported sooner" against "imported
-	// half-written". Zero disables the sweep.
-	IncomingInterval time.Duration
-	// VideoTranscode is whether a film is also offered re-encoded to H.264:
-	// VideoTranscodeAuto, VideoTranscodeOn or VideoTranscodeOff (#50).
-	VideoTranscode string
-	// ThumbsAhead is whether the indexer's second half makes the pictures a
-	// grid will ask for before it asks (#341). It follows IndexInterval,
-	// since it is that loop's pass: with the indexer off there is nothing to
-	// carry it.
-	ThumbsAhead bool
-	// MusicLookup is whether outside sources are asked about the music
-	// library (#217): album identity and covers from MusicBrainz and the
-	// Cover Art Archive, lyrics from LRCLIB. Off by default, because on
-	// means tags leave the machine.
-	MusicLookup bool
+	// Values are the settings that can also be changed from the web UI
+	// (#397), as the environment set them at startup.
+	Values
 	// Username and Password are the single user's credentials, and the
 	// password is held as configured rather than hashed: OpenSubsonic's token
 	// auth is md5(password + salt), which a hash cannot produce. See
@@ -170,16 +141,6 @@ func Load(getenv func(string) string) (Config, error) {
 		Password: Secret(getenv("STRATUS_PASSWORD")),
 	}
 
-	// Refused rather than defaulted, which is the rule every other setting in
-	// this function already follows: a typo would otherwise start the server at
-	// info and leave whoever set it debugging blind, wondering why the lines
-	// they asked for never appear.
-	level, err := parseLevel(lookup(getenv, "STRATUS_LOG_LEVEL", ""))
-	if err != nil {
-		return Config{}, fmt.Errorf("STRATUS_LOG_LEVEL: %w", err)
-	}
-	cfg.LogLevel = level
-
 	storage, err := ParseStorageDSN(lookup(getenv, "STRATUS_STORAGE_DSN", defaultStorageDSN(cfg.DataDir)))
 	if err != nil {
 		return Config{}, fmt.Errorf("STRATUS_STORAGE_DSN: %w", err)
@@ -192,85 +153,21 @@ func Load(getenv func(string) string) (Config, error) {
 	}
 	cfg.Database = database
 
-	// Unlike the log level, a typo here is not shrugged off: "1hour" would
-	// otherwise silently become the default and nobody would know the sweep was
-	// running on a schedule they did not choose.
-	interval, err := time.ParseDuration(lookup(getenv, "STRATUS_GC_INTERVAL", DefaultGCInterval.String()))
-	if err != nil {
-		return Config{}, errors.New("STRATUS_GC_INTERVAL: not a duration, try 24h or 0 to disable")
+	// Every editable setting goes through its own parser, the one the web
+	// UI's form goes through too. A typo is refused rather than defaulted:
+	// "1hour" would otherwise silently become the default and nobody would
+	// know the sweep was running on a schedule they did not choose.
+	for _, setting := range Settings {
+		if err := setting.Apply(&cfg.Values, getenv(setting.Key)); err != nil {
+			return Config{}, fmt.Errorf("%s: %w", setting.Key, err)
+		}
 	}
-	if interval < 0 {
-		return Config{}, errors.New("STRATUS_GC_INTERVAL: cannot be negative, use 0 to disable")
-	}
-	cfg.GCInterval = interval
-
-	grace, err := time.ParseDuration(lookup(getenv, "STRATUS_GC_GRACE", DefaultGCGrace.String()))
-	if err != nil {
-		return Config{}, errors.New("STRATUS_GC_GRACE: not a duration, try 1h")
-	}
-	// Zero is refused rather than taken as "collect immediately". Writes go
-	// blob first and row second, so with no grace a sweep landing between an
-	// upload's blob and its row deletes a blob whose row is about to exist, and
-	// the upload is gone with it. That is a correctness requirement rather than
-	// an operator preference, the same argument the SQLite pragmas get.
-	if grace <= 0 {
-		return Config{}, errors.New("STRATUS_GC_GRACE: must be greater than zero, or a sweep can delete an upload still in flight")
-	}
-	cfg.GCGrace = grace
-
-	retention, err := trashRetention(lookup(getenv, "STRATUS_TRASH_RETENTION", DefaultTrashRetention.String()))
-	if err != nil {
-		return Config{}, fmt.Errorf("STRATUS_TRASH_RETENTION: %w", err)
-	}
-	cfg.TrashRetention = retention
 
 	cfg.IncomingDir = getenv("STRATUS_INCOMING_DIR")
-	incoming, err := time.ParseDuration(lookup(getenv, "STRATUS_INCOMING_INTERVAL", DefaultIncomingInterval.String()))
-	if err != nil {
-		return Config{}, errors.New("STRATUS_INCOMING_INTERVAL: not a duration, try 1m or 0 to disable")
-	}
-	if incoming < 0 {
-		return Config{}, errors.New("STRATUS_INCOMING_INTERVAL: cannot be negative, use 0 to disable")
-	}
-	cfg.IncomingInterval = incoming
 	// Inside the data directory it would sweep the blob store into itself, one
 	// blob at a time, forever. Refused here rather than discovered there.
 	if cfg.IncomingDir != "" && within(cfg.IncomingDir, cfg.DataDir) {
 		return Config{}, errors.New("STRATUS_INCOMING_DIR: cannot be inside STRATUS_DATA_DIR, which is where the blobs are")
-	}
-
-	index, err := time.ParseDuration(lookup(getenv, "STRATUS_INDEX_INTERVAL", DefaultIndexInterval.String()))
-	if err != nil {
-		return Config{}, errors.New("STRATUS_INDEX_INTERVAL: not a duration, try 1m or 0 to disable")
-	}
-	if index < 0 {
-		return Config{}, errors.New("STRATUS_INDEX_INTERVAL: cannot be negative, use 0 to disable")
-	}
-	cfg.IndexInterval = index
-
-	switch mode := lookup(getenv, "STRATUS_THUMBS_AHEAD", ThumbsAheadOn); mode {
-	case ThumbsAheadOn:
-		cfg.ThumbsAhead = true
-	case ThumbsAheadOff:
-		cfg.ThumbsAhead = false
-	default:
-		return Config{}, errors.New("STRATUS_THUMBS_AHEAD: must be on or off")
-	}
-
-	switch mode := lookup(getenv, "STRATUS_MUSIC_LOOKUP", MusicLookupOff); mode {
-	case MusicLookupOn:
-		cfg.MusicLookup = true
-	case MusicLookupOff:
-		cfg.MusicLookup = false
-	default:
-		return Config{}, errors.New("STRATUS_MUSIC_LOOKUP: must be on or off")
-	}
-
-	switch mode := lookup(getenv, "STRATUS_VIDEO_TRANSCODE", VideoTranscodeAuto); mode {
-	case VideoTranscodeAuto, VideoTranscodeOn, VideoTranscodeOff:
-		cfg.VideoTranscode = mode
-	default:
-		return Config{}, errors.New("STRATUS_VIDEO_TRANSCODE: must be auto, on or off")
 	}
 
 	// Checked here rather than when the client is made, so that a DSN pasted
@@ -333,12 +230,9 @@ func lookup(getenv func(string) string, key, fallback string) string {
 // syntax -- "debug+2" is a level below debug, which is how a client library
 // asks for more than this program names.
 //
-// Unset is the default and not an error: the variable is optional. Anything
-// else that does not parse is, since it can only be a mistake.
+// Anything that does not parse is an error, since it can only be a mistake;
+// unset never reaches here, because Setting.Apply has put the default in.
 func parseLevel(raw string) (slog.Level, error) {
-	if raw == "" {
-		return DefaultLogLevel, nil
-	}
 	var lvl slog.Level
 	if err := lvl.UnmarshalText([]byte(strings.ToUpper(raw))); err != nil {
 		return 0, fmt.Errorf("%q is not a level, try debug, info, warn or error", raw)

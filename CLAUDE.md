@@ -827,6 +827,21 @@ STRATUS_USERNAME
 STRATUS_PASSWORD        held as configured, not hashed
 ```
 
+**Most settings can also be stored, and the environment still wins** (#397).
+`config.Settings` is the list of the ones that can change while the server
+runs -- the intervals, the trash, the indexer's switches, music lookup, video
+transcoding, the calendar page's zone and the log level -- each with its
+default and its parser, and `config.Load` reads the environment through that
+same list, so a value the web UI would store is one the environment would have
+taken. `internal/settings` decides what is in force: the variable when it is
+set, the `settings` row when it is not, the default otherwise, as one snapshot
+swapped on a change with a channel closed for whoever waits on it. The
+environment winning is the decision: an install described in code keeps
+authority over what it wrote, and a row nobody remembers never overrides a
+variable somebody just changed. What opens the database and the store, the
+credentials, the Sentry DSN and `STRATUS_INCOMING_DIR` -- a path whose
+contents are moved and deleted -- are not on the list.
+
 Rules that follow from this:
 
 - **A DSN may carry secrets, so it is never logged verbatim.** Redact userinfo and
@@ -1390,6 +1405,7 @@ internal/incoming/        the import folder on local disk, swept into the librar
 internal/music/           playlist edits in one transaction each, and the library as folders by tag
 internal/nextcloud/       reads somebody else's instance, so its bucket can be adopted
 internal/calendar/        collections, objects, the one form they are stored in
+internal/settings/        which value each editable setting has: the environment's, the stored one, or the default
 internal/media/           EXIF/tag extraction, ffprobe, the readers over ranges, and what the two below share
 internal/media/thumb/     the pictures: thumbnails, covers, the pass that makes them ahead
 internal/media/stream/    what plays: the transcode decision, the loopback ffmpeg reads from, HLS

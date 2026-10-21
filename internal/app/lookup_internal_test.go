@@ -54,7 +54,7 @@ func TestLookupLoopRunsAPassAndStopsWithTheContext(t *testing.T) {
 	}))
 	t.Cleanup(refusing.Close)
 	nowhere := "http://127.0.0.1:1"
-	a := New(config.Config{MusicLookup: true}, "test", "2026-01-01T09:30:00Z")
+	a := New(config.Config{Values: config.Values{MusicLookup: true}}, "test", "2026-01-01T09:30:00Z")
 	deps := Deps{
 		Storage: blobs, Database: meta, Files: service, Thumbs: thumbs,
 		Lookup: lookup.New(meta, thumbs, "test", lookup.WithEndpoints(refusing.URL, nowhere, nowhere), lookup.WithPace(0)),
@@ -165,7 +165,7 @@ func TestLookupLoopComesStraightBackWhileABatchFills(t *testing.T) {
 		Storage: blobs, Database: broken, Files: service, Thumbs: thumbs,
 		Lookup: lookup.New(broken, thumbs, "test", lookup.WithEndpoints(nowhere, nowhere, nowhere), lookup.WithPace(0)),
 	}
-	a := New(config.Config{MusicLookup: true}, "test", "2026-01-01T09:30:00Z")
+	a := New(config.Config{Values: config.Values{MusicLookup: true}}, "test", "2026-01-01T09:30:00Z")
 	a.lookupPause = 10 * time.Millisecond
 
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
