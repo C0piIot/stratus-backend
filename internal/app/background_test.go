@@ -211,6 +211,9 @@ func TestCollectorDisabled(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("PUT = %d, want 201", resp.StatusCode)
+	}
 
 	// A blob no row points at, put where only the collector would find it. An
 	// overwrite no longer leaves one: a write takes its predecessor itself

@@ -273,8 +273,9 @@ func liveServer(t *testing.T, vars map[string]string) (string, func()) {
 	go func() { done <- app.New(cfg, "test", "2026-01-01T09:30:00Z").Run(ctx) }()
 
 	deadline := time.Now().Add(startupWait)
-	for time.Now().Before(deadline) {
-		if app.Probe(cfg.Addr) == nil {
+	for {
+		probe := app.Probe(cfg.Addr)
+		if probe == nil {
 			break
 		}
 		select {
@@ -282,6 +283,13 @@ func liveServer(t *testing.T, vars map[string]string) (string, func()) {
 			cancel()
 			t.Fatalf("the server refused to start: %v", err)
 		default:
+		}
+		// Carrying on would turn a server that never answered into whatever
+		// the test asserts next (#418).
+		if time.Now().After(deadline) {
+			cancel()
+			<-done
+			t.Fatalf("the server did not answer within %s: %v", startupWait, probe)
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
