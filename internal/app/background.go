@@ -20,6 +20,7 @@ import (
 	"github.com/C0piIot/stratus-backend/internal/files"
 	"github.com/C0piIot/stratus-backend/internal/media"
 	"github.com/C0piIot/stratus-backend/internal/media/thumb"
+	"github.com/C0piIot/stratus-backend/internal/web"
 )
 
 // indexPeriodically extracts metadata from files that have none, and makes the
@@ -232,10 +233,15 @@ func (a *App) collectPeriodically(ctx context.Context, deps Deps) {
 
 	a.every(ctx, deps, "collecting orphan blobs", func(v config.Values) time.Duration { return v.GCInterval }, func() bool {
 		v := a.values(deps)
+		swept := web.Sweep{}
+		defer func() {
+			swept.At = time.Now()
+			a.swept.Store(&swept)
+		}()
 		// The trash first, because what leaves it becomes garbage the sweep
 		// below can then take in the same pass rather than a day later: the
 		// rows go, and the blobs with them.
-		if !a.emptyTrash(ctx, service, v.TrashRetention) {
+		if !a.emptyTrash(ctx, service, v.TrashRetention, &swept) {
 			return false
 		}
 
@@ -247,8 +253,10 @@ func (a *App) collectPeriodically(ctx context.Context, deps Deps) {
 			return false
 		case err != nil:
 			slog.Error("collecting abandoned uploads", "err", err)
+			failed(&swept, "collecting abandoned uploads", err)
 		case done > 0:
 			slog.Info("collected abandoned uploads", "count", done)
+			swept.Uploads = done
 		}
 
 		if !pruneCalendars(ctx, deps.Database) {
@@ -263,9 +271,13 @@ func (a *App) collectPeriodically(ctx context.Context, deps Deps) {
 			// library somebody emptied, so nothing is deleted and it says so.
 			slog.Warn("skipped collecting orphan blobs",
 				"reason", "the database references no blobs and the store is not empty")
+			failed(&swept, "collecting orphan blobs", err)
 		case err != nil:
 			slog.Error("collecting orphan blobs", "err", err)
+			failed(&swept, "collecting orphan blobs", err)
 		case done.Deleted > 0 || done.Trashed > 0:
+			swept.Deleted, swept.Unaccounted = done.Deleted, done.Trashed
+			swept.Freed += done.Bytes
 			// Two fates and two numbers: what was destroyed is gone, and what
 			// was moved is in the trash and still costs the same room (#276).
 			slog.Info("swept the blob store",
@@ -418,7 +430,7 @@ func (a *App) lookupPeriodically(ctx context.Context, deps Deps) {
 // uploads and the blob sweep behind it still run, and the trashed keys are
 // still what Collect counts as referenced, so holding the trash is not a
 // reason for the sweep to eat it (#296).
-func (a *App) emptyTrash(ctx context.Context, service *files.Service, kept time.Duration) bool {
+func (a *App) emptyTrash(ctx context.Context, service *files.Service, kept time.Duration, swept *web.Sweep) bool {
 	if kept == 0 {
 		return true
 	}
@@ -427,7 +439,9 @@ func (a *App) emptyTrash(ctx context.Context, service *files.Service, kept time.
 		return false
 	case err != nil:
 		slog.Error("emptying the trash", "err", err)
+		failed(swept, "emptying the trash", err)
 	case done.Batches > 0:
+		swept.Emptied, swept.Freed = done.Files, swept.Freed+done.Bytes
 		slog.Info("emptied the trash",
 			"deletions", done.Batches, "files", done.Files, "bytes", done.Bytes)
 	}
@@ -459,4 +473,21 @@ func retention(d time.Duration) any {
 		return "never"
 	}
 	return d
+}
+
+// failed keeps the first thing that went wrong in a pass, for the status
+// page: the parts after it still ran, and the log has the rest.
+func failed(s *web.Sweep, what string, err error) {
+	if s.Err == "" {
+		s.Err = what + ": " + err.Error()
+	}
+}
+
+// lastSweep is what the collector's last pass did, and a zero Sweep before
+// the first.
+func (a *App) lastSweep() web.Sweep {
+	if s := a.swept.Load(); s != nil {
+		return *s
+	}
+	return web.Sweep{}
 }

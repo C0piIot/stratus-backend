@@ -8,9 +8,9 @@
 </div>
 
 <p class="text-body-secondary small mb-0">
-  The room left is the whole volume's, shared with the database and with what
-  the indexer spools while it reads — not a figure set aside for files. An
-  object store has no size to report, so it says so instead.
+  Room is the whole volume's, shared with the database and with what the
+  indexer spools while it reads — not a figure set aside for files. An object
+  store has no size to report, so it says so instead.
 </p>
 {{- end}}
 
@@ -49,11 +49,11 @@
        to fit its own label -- a full library rendered as "100%" painted in a
        sliver. This takes its value in an attribute instead, and is what
        role="progressbar" was imitating. */}}
-  <div class="d-flex align-items-center gap-2 mb-3">
-    <progress class="w-100" max="100" value="{{.Percent}}"
-              aria-label="Files indexed">{{.Percent}}%</progress>
-    <span class="text-body-secondary small">{{.Percent}}%</span>
+  <div class="d-flex justify-content-between text-body-secondary small mb-1">
+    <label for="indexed">Indexed</label>
+    <span>{{.Percent}}%</span>
   </div>
+  <progress id="indexed" class="w-100 mb-3" max="100" value="{{.Percent}}">{{.Percent}}%</progress>
 
   <dl class="row mb-0">
     <dt class="col-sm-4 fw-normal text-body-secondary">Files</dt>
@@ -83,11 +83,6 @@
     <dd class="col-sm-8" data-count="no-picture">{{.Counts.Pictures.Refused}}</dd>
     {{end}}
 
-    {{if .FreeSpace}}
-    <dt class="col-sm-4 fw-normal text-body-secondary">Room left</dt>
-    <dd class="col-sm-8" data-free-space>{{.FreeSpace}}</dd>
-    {{end}}
-
     {{/* Only when there is something in it, or when it is being held: a row
          saying the trash is empty is a row about nothing, and a held one is a
          setting somebody turned on for a while and has to be reminded of. It is on this page because room held by what
@@ -106,6 +101,12 @@
     {{if .Unclaimed}}
     <dt class="col-sm-4 fw-normal text-body-secondary">Unaccounted for</dt>
     <dd class="col-sm-8" data-unclaimed><a href="/trash/">{{.Unclaimed}}</a></dd>
+    {{end}}
+
+    {{with .Sweep}}
+    <dt class="col-sm-4 fw-normal text-body-secondary">Last sweep</dt>
+    <dd class="col-sm-8" data-sweep>{{if .Pending}}<span class="text-body-secondary">not yet since the start</span>{{else}}{{.At}}<span class="text-body-secondary small"> · {{.Freed}} freed{{if .Emptied}} · {{.Emptied}} out of the trash{{end}}{{if .Deleted}} · {{.Deleted}} orphans deleted{{end}}{{if .Unaccounted}} · {{.Unaccounted}} unaccounted for{{end}}{{if .Uploads}} · {{.Uploads}} abandoned uploads{{end}}</span>{{with .Err}}
+      <span class="d-block text-warning-emphasis small">{{.}}</span>{{end}}{{end}}</dd>
     {{end}}
 
     <dt class="col-sm-4 fw-normal text-body-secondary">Extractor</dt>
@@ -134,6 +135,43 @@
 
     <dt class="col-sm-4 fw-normal text-body-secondary">Imported</dt>
     <dd class="col-sm-8" data-count="imported">{{.Imported}}{{with .LastRun}}<span class="text-body-secondary small"> · last looked at {{.}}</span>{{end}}</dd>
+    {{end}}
+  </dl>
+
+  {{/* The machine, in the same fragment so the load and the memory move
+       with the rest. A line nothing could read is left out rather than
+       shown as a zero. */}}
+  <h2 class="h6 mt-4 mb-3">System</h2>
+  <dl class="row mb-0">
+    {{with .Running}}
+    <dt class="col-sm-4 fw-normal text-body-secondary">Running since</dt>
+    <dd class="col-sm-8" data-running>{{.Since}}<span class="text-body-secondary small"> · {{.For}}</span></dd>
+
+    <dt class="col-sm-4 fw-normal text-body-secondary">Engines</dt>
+    <dd class="col-sm-8" data-engines>{{.Database}} · {{.Storage}}</dd>
+    {{end}}
+
+    {{if .FreeSpace}}
+    <dt class="col-sm-4 fw-normal text-body-secondary">Room for files</dt>
+    <dd class="col-sm-8" data-free-space>{{.FreeSpace}}</dd>
+    {{end}}
+
+    {{with .System}}
+    {{with .Disk}}
+    <dt class="col-sm-4 fw-normal text-body-secondary">{{if $.System.SharedDisk}}Room left{{else}}Room for scratch{{end}}</dt>
+    <dd class="col-sm-8" data-disk>{{.}}</dd>
+    {{end}}
+
+    {{with .Memory}}
+    <dt class="col-sm-4 fw-normal text-body-secondary">Memory free</dt>
+    <dd class="col-sm-8" data-memory>{{.}}</dd>
+    {{end}}
+
+    <dt class="col-sm-4 fw-normal text-body-secondary">CPUs</dt>
+    <dd class="col-sm-8" data-cpus>{{.CPUs}}{{with .Load}}<span class="text-body-secondary small"> · load {{.}}</span>{{end}}</dd>
+
+    <dt class="col-sm-4 fw-normal text-body-secondary">Platform</dt>
+    <dd class="col-sm-8" data-platform>{{.Platform}}<span class="text-body-secondary small">{{with .Kernel}} · kernel {{.}}{{end}} · {{.Go}}</span></dd>
     {{end}}
   </dl>
 

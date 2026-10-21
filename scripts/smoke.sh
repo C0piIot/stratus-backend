@@ -676,6 +676,14 @@ if wait_serving "$davname"; then
     *) bad "the settings page offers what the environment leaves unset" "$(head -c 200 <<<"$settingsform")" ;;
   esac
 
+  # What the status page says about the machine is read from /proc, which a
+  # non-root process in a distroless image has to be able to read.
+  statuspage="$(curl -s -u "$davuser:$davpass" -H 'Sec-Fetch-Mode: navigate' "http://$davhost/status" 2>/dev/null || true)"
+  case "$statuspage" in
+    *'data-memory'*'kernel '*) ok "the status page reads the machine" ;;
+    *) bad "the status page reads the machine" "$(grep -o 'data-[a-z]*' <<<"$statuspage" | tr '\n' ' ')" ;;
+  esac
+
   # Finder mounts read-only unless the server says class 2, so the header is
   # asserted rather than assumed.
   dav_header="$(curl -s -o /dev/null -D - -u "$davuser:$davpass" -X OPTIONS "http://$davhost/files/" | grep -i '^dav:' | tr -d '\r')"
