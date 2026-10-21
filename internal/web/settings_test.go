@@ -21,6 +21,11 @@ import (
 // environment fixing what fixed says.
 func settingsHandler(t *testing.T, fixed map[string]string, failing ...string) (http.Handler, *settings.Service) {
 	t.Helper()
+	return settingsHandlerWith(t, fixed, nil, failing...)
+}
+
+func settingsHandlerWith(t *testing.T, fixed map[string]string, imports web.Imports, failing ...string) (http.Handler, *settings.Service) {
+	t.Helper()
 	s, thumbs, meta := pieces(t)
 	var store db.Settings = meta
 	for _, method := range failing {
@@ -35,7 +40,7 @@ func settingsHandler(t *testing.T, fixed map[string]string, failing ...string) (
 		Version: version, BuildDate: buildDate, Verifier: creds,
 		Sessions: auth.NewSessions(creds, auth.DefaultSessionTTL), Shares: auth.NewShares(creds),
 		Files: s, Thumbs: thumbs, Index: meta, Playlists: playlistsOf(meta), Indexing: indexing(meta),
-		Video: web.Video{}, TrashRetention: aMonth, Settings: editor.Values, Editor: editor,
+		Video: web.Video{}, TrashRetention: aMonth, Settings: editor.Values, Editor: editor, Imports: imports,
 		Calendars: calendar.New(meta),
 	}), editor
 }
@@ -63,7 +68,7 @@ func TestTheSettingsPage(t *testing.T) {
 	body := htmlstd.UnescapeString(page.Body.String())
 	for _, want := range []string{
 		"Trash and sweep", "Calendar", `name="TZ"`, `placeholder="UTC"`,
-		`id="STRATUS_GC_INTERVAL" type="text" value="2h" disabled`, "set by the environment",
+		`id="STRATUS_GC_INTERVAL" type="text" value="2h" placeholder="not set" readonly disabled`, "set by the environment",
 		`<option value="" selected>default (off)</option>`,
 	} {
 		if !strings.Contains(body, want) {
@@ -187,5 +192,35 @@ func TestThePasswordIsShownAndNotGivenAway(t *testing.T) {
 	}
 	if strings.Contains(body, `name="STRATUS_PASSWORD"`) {
 		t.Error("the password is a field the form would post")
+	}
+}
+
+// TestTheImportFolderIsShownAndNotOffered: its path is on the page, read-only,
+// and not a field the form posts -- set or not.
+func TestTheImportFolderIsShownAndNotOffered(t *testing.T) {
+	t.Parallel()
+	h, _ := settingsHandler(t, nil)
+	cookie := signIn(t, h)
+	body := get(t, h, "/settings", cookie).Body.String()
+
+	for _, want := range []string{`id="STRATUS_INCOMING_DIR" type="text" value="" placeholder="not set" readonly disabled`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the page has no %q", want)
+		}
+	}
+	if strings.Contains(body, `name="STRATUS_INCOMING_DIR"`) {
+		t.Error("the import folder is a field the form would post")
+	}
+	if strings.Index(body, "STRATUS_INCOMING_DIR") > strings.Index(body, "STRATUS_INCOMING_INTERVAL") {
+		t.Error("the folder is not above its interval")
+	}
+}
+
+func TestASetImportFolderIsShownAsItIs(t *testing.T) {
+	t.Parallel()
+	h, _ := settingsHandlerWith(t, nil, stuck{dir: "/srv/scanner"})
+	cookie := signIn(t, h)
+	if body := get(t, h, "/settings", cookie).Body.String(); !strings.Contains(body, `id="STRATUS_INCOMING_DIR" type="text" value="/srv/scanner"`) {
+		t.Errorf("the page does not show the import folder:\n%s", body)
 	}
 }

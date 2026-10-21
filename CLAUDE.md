@@ -810,7 +810,8 @@ Hard constraints, in the same spirit as the rest of the project:
   kept. **The password is on it too, and only as a fact**: a password field,
   disabled, with no name and the same twelve asterisks whatever it is, so the
   page says where it is changed while neither its value nor its length is in
-  the HTML.
+  the HTML. `STRATUS_INCOMING_DIR` is shown the same way above its interval,
+  read-only but with its path, which is no secret.
 - **A new folder posts to `/folders/<parent>`**, not to the listing's own URL
   with a different body. Two forms on one page mean two endpoints: telling them
   apart by what happens to be in the body -- a file part or a text field --

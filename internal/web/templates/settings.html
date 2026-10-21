@@ -38,7 +38,7 @@
           <div class="mb-3">
             <label class="form-label mb-1" for="{{.Key}}"><code>{{.Key}}</code></label>
             {{if .Fixed}}
-            <input class="form-control" id="{{.Key}}" type="text" value="{{.Value}}" disabled aria-describedby="{{.Key}}-help">
+            <input class="form-control" id="{{.Key}}" type="text" value="{{.Value}}" placeholder="not set" readonly disabled aria-describedby="{{.Key}}-help">
             <div id="{{.Key}}-help" class="form-text">{{.Help}} <span class="badge text-bg-secondary">set by the environment</span></div>
             {{else if .Choices}}
             <select class="form-select{{if .Error}} is-invalid{{end}}" id="{{.Key}}" name="{{.Key}}" aria-describedby="{{.Key}}-help">

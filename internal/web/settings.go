@@ -105,6 +105,24 @@ func (h *handler) saveSettings(w http.ResponseWriter, r *http.Request, user stri
 	redirectLocal(w, r, settingsPath+"?saved")
 }
 
+// importSection is the heading the import folder's interval is under, where
+// its path is shown beside it.
+const importSection = "Import folder"
+
+// importDirField is the import folder's path, shown and not offered: a path on
+// this machine whose contents are moved and deleted is a decision about the
+// deployment, and stays the environment's (#397).
+func (h *handler) importDirField() settingsField {
+	f := settingsField{
+		Key: "STRATUS_INCOMING_DIR", Fixed: true,
+		Help: "The folder on this machine whose contents are moved into the library; unset, there is none.",
+	}
+	if h.imports != nil {
+		f.Value = h.imports.Dir()
+	}
+	return f
+}
+
 // renderSettings draws the page, with what was posted and what was wrong with
 // it when a form came back refused.
 func (h *handler) renderSettings(w http.ResponseWriter, code int, user string,
@@ -126,6 +144,9 @@ func (h *handler) renderSettings(w http.ResponseWriter, code int, user string,
 		}
 		if len(sections) == 0 || sections[len(sections)-1].Name != e.Section {
 			sections = append(sections, settingsSection{Name: e.Section})
+			if e.Section == importSection {
+				sections[len(sections)-1].Fields = append(sections[len(sections)-1].Fields, h.importDirField())
+			}
 		}
 		last := &sections[len(sections)-1]
 		last.Fields = append(last.Fields, f)
