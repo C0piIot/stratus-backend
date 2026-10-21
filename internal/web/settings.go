@@ -163,7 +163,7 @@ func (h *handler) renderSettings(w http.ResponseWriter, code int, user string,
 	}
 	v := view{Title: "Settings", User: user, Settings: sections}
 	if saved {
-		v.Notice = "Saved. It is in force now."
+		v.Notice = "Settings saved."
 	}
 	if len(problems) > 0 {
 		v.Error = "Nothing was saved: one of these is not a value it takes."
