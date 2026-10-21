@@ -12,7 +12,7 @@
 # the action provides the binary. Keeping the two the same is the point: the
 # version was already pinned in one file, and it was the *toolchain* that
 # drifted, which cost a red build nobody could reproduce locally.
-ARG GO_VERSION=1.27.2
+ARG GO_VERSION=1.27.3
 ARG ALPINE_VERSION=3.24
 ARG LINT_VERSION=v2.14.0
 

@@ -1,6 +1,6 @@
 module github.com/C0piIot/stratus-backend
 
-go 1.27.2
+go 1.27.3
 
 require (
 	github.com/emersion/go-ical v0.0.0-20240127095438-fc1c9d8fb2b6
