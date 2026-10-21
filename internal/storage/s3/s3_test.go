@@ -28,6 +28,11 @@ func TestConformance(t *testing.T) {
 	storagetest.Run(t, newStore)
 }
 
+// TestConformanceAlone is not parallel, and that is what it is for.
+func TestConformanceAlone(t *testing.T) {
+	storagetest.RunAlone(t, newStore)
+}
+
 // newStore gives every case its own bucket. That is the isolation the suite
 // asks for, and it is why this backend needs no notion of a prefix inside a
 // bucket to be testable.
