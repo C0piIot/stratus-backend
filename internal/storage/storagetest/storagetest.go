@@ -43,7 +43,6 @@ func Run(t *testing.T, newStore func(t *testing.T) storage.Storage) {
 		{"put and get round trip", putGetRoundTrip},
 		{"put overwrites atomically", putOverwrites},
 		{"put accepts an unknown size", putUnknownSize},
-		{"put of an unknown size holds at most a part", putUnknownSizeIsBounded},
 		{"put rejects a size that does not match", putSizeMismatch},
 		{"empty objects are objects", emptyObject},
 		{"large objects stream", largeObject},
@@ -135,6 +134,17 @@ func putUnknownSize(t *testing.T, s storage.Storage) {
 	}
 }
 
+// RunAlone executes the cases that measure the process rather than the
+// backend, and must be called from a test that is not parallel: the testing
+// package holds every parallel test back until the sequential ones are done,
+// which is what makes the measurement the backend's alone (#416).
+func RunAlone(t *testing.T, newStore func(t *testing.T) storage.Storage) {
+	t.Helper()
+	t.Run("put of an unknown size holds at most a part", func(t *testing.T) {
+		putUnknownSizeIsBounded(t, newStore(t))
+	})
+}
+
 // unknownSizeBound is how much a backend may allocate to store a body it was
 // not told the length of, over and above the body itself. The disk backend
 // streams to a file and needs nothing; the S3 backend holds one part, and a
@@ -143,13 +153,12 @@ func putUnknownSize(t *testing.T, s storage.Storage) {
 // multipart upload can hold, 528 MiB per PUT, which killed a 512 MB instance
 // on the fourth file of a folder (#348).
 //
-// Twice what it was, because the measurement is the process's and not the
-// backend's (#356): TotalAlloc counts every goroutine, the cases of this
-// suite run in parallel, and the coverage and race runtimes allocate on top.
-// CI saw 134 and 198 MiB for a backend that needs sixteen. A bound of 256
-// still refuses the 528 the constant exists to catch, which is the whole of
-// what it promises.
-const unknownSizeBound = 256 << 20
+// It was raised to 256 once (#356), because TotalAlloc counts every goroutine
+// and the cases of this suite ran in parallel: CI saw 134 and 198 MiB for a
+// backend that needs sixteen, and then more than 256 (#416). The case runs
+// alone now, where S3 measures 18 MiB, so the bound is back to a margin over
+// one part rather than over whatever else the process was doing.
+const unknownSizeBound = 64 << 20
 
 // putUnknownSizeIsBounded measures the allocation rather than trusting a
 // constant: TotalAlloc is cumulative, so it does not depend on when the

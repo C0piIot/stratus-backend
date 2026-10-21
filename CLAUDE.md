@@ -940,7 +940,8 @@ unknown-length upload for the largest object ten thousand parts can hold --
 killed on the fourth file of a folder. `Put` names the part when it is not
 told the size, which is the same 16 MiB and the same ceiling as above, and the
 conformance suite measures the allocation rather than trusting the constant:
-both backends store 24 MiB of unknown length inside 128 MiB. A known size
+both backends store 24 MiB of unknown length inside 64 MiB, measured
+with nothing else running in the process (#416). A known size
 needs none of it, which is why `internal/dav` now reads the `Content-Length`
 off a `PUT` before the library drops it: every client in the README sends one,
 and a body under a part is then a single request sized exactly. The

@@ -22,6 +22,14 @@ func TestConformance(t *testing.T) {
 	})
 }
 
+// TestConformanceAlone is not parallel, and that is what it is for.
+func TestConformanceAlone(t *testing.T) {
+	storagetest.RunAlone(t, func(t *testing.T) storage.Storage {
+		s, _ := newStore(t)
+		return s
+	})
+}
+
 // newStore returns a store and the directory behind it, for the tests that need
 // to look at the tree the backend is managing.
 func newStore(t *testing.T) (*disk.Store, string) {
