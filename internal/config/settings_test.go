@@ -73,3 +73,16 @@ func TestWhatTheEnvironmentFixedIsKept(t *testing.T) {
 		t.Errorf("Fixed = %v, want the one editable setting the environment set", cfg.Fixed)
 	}
 }
+
+func TestAWeekThatStartsOnAnotherDayIsRefused(t *testing.T) {
+	t.Parallel()
+	_, err := config.Load(func(key string) string {
+		if key == "STRATUS_WEEK_START" {
+			return "tuesday"
+		}
+		return ""
+	})
+	if err == nil {
+		t.Error("Load took a week that starts on Tuesday")
+	}
+}

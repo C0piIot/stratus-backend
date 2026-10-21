@@ -131,12 +131,15 @@ func (h *handler) calendarMonth(w http.ResponseWriter, r *http.Request, user, na
 		first = parsed
 	}
 
-	// The grid starts on the Monday on or before the first and ends on the
-	// Sunday on or after the last, and what is fetched is the grid: a day of
-	// the month before is drawn, so what is on it is drawn too.
-	gridStart := first.AddDate(0, 0, -((int(first.Weekday()) + 6) % 7))
+	// The grid starts on the first day of the week on or before the first of
+	// the month and ends on the last on or after its last day, and what is
+	// fetched is the grid: a day of the month before is drawn, so what is on
+	// it is drawn too.
+	weekStart := h.weekStart()
+	into := func(day time.Time) int { return (int(day.Weekday()) - int(weekStart) + 7) % 7 }
+	gridStart := first.AddDate(0, 0, -into(first))
 	last := first.AddDate(0, 1, -1)
-	gridEnd := last.AddDate(0, 0, 7-((int(last.Weekday())+6)%7))
+	gridEnd := last.AddDate(0, 0, 7-into(last))
 
 	objects, err := h.calendars.Objects(ctx, user, name)
 	if err != nil {
@@ -155,7 +158,7 @@ func (h *handler) calendarMonth(w http.ResponseWriter, r *http.Request, user, na
 		Prev:      monthHref(user, name, first.AddDate(0, -1, 0)),
 		Next:      monthHref(user, name, first.AddDate(0, 1, 0)),
 		ThisMonth: calendarHref(user, name),
-		Weekdays:  []string{"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"},
+		Weekdays:  weekdays(weekStart),
 		Zone:      now.Format("MST"),
 	}
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, zone)
@@ -189,6 +192,15 @@ func (h *handler) calendarMonth(w http.ResponseWriter, r *http.Request, user, na
 		}
 	}
 	h.render(w, http.StatusOK, pageCalendar, view{Title: cv.Name, User: user, Calendar: cv})
+}
+
+// weekdays are the grid's headings, from the day the week starts on.
+func weekdays(start time.Weekday) []string {
+	out := make([]string, 7)
+	for i := range out {
+		out[i] = time.Weekday((int(start) + i) % 7).String()[:3]
+	}
+	return out
 }
 
 // eventRow is one event as one day shows it: its time when it starts that

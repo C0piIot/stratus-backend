@@ -47,6 +47,9 @@ type Values struct {
 	// Zone is what the calendar page draws times in (#111). Unset is UTC: a
 	// page with no script cannot ask the browser for its own.
 	Zone *time.Location
+	// WeekStart is the day the calendar page's weeks begin on: Monday, or
+	// Sunday.
+	WeekStart time.Weekday
 }
 
 // Setting is one of Values as a variable: its name, what it is when nobody
@@ -171,6 +174,21 @@ var Settings = []Setting{
 				return errors.New("not a zone, try Europe/Madrid or UTC")
 			}
 			v.Zone = zone
+			return nil
+		},
+	},
+	{
+		Key: "STRATUS_WEEK_START", Section: "Calendar", Default: "monday", Choices: []string{"monday", "sunday"},
+		Help: "The day the calendar page's weeks begin on.",
+		apply: func(v *Values, raw string) error {
+			switch raw {
+			case "monday":
+				v.WeekStart = time.Monday
+			case "sunday":
+				v.WeekStart = time.Sunday
+			default:
+				return errors.New("must be monday or sunday")
+			}
 			return nil
 		},
 	},

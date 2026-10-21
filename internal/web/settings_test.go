@@ -21,6 +21,11 @@ import (
 // environment fixing what fixed says.
 func settingsHandler(t *testing.T, fixed map[string]string, failing ...string) (http.Handler, *settings.Service) {
 	t.Helper()
+	return settingsHandlerWith(t, fixed, nil, failing...)
+}
+
+func settingsHandlerWith(t *testing.T, fixed map[string]string, imports web.Imports, failing ...string) (http.Handler, *settings.Service) {
+	t.Helper()
 	s, thumbs, meta := pieces(t)
 	var store db.Settings = meta
 	for _, method := range failing {
@@ -35,7 +40,8 @@ func settingsHandler(t *testing.T, fixed map[string]string, failing ...string) (
 		Version: version, BuildDate: buildDate, Verifier: creds,
 		Sessions: auth.NewSessions(creds, auth.DefaultSessionTTL), Shares: auth.NewShares(creds),
 		Files: s, Thumbs: thumbs, Index: meta, Playlists: playlistsOf(meta), Indexing: indexing(meta),
-		Video: web.Video{}, TrashRetention: aMonth, Settings: editor.Values, Editor: editor,
+		Video: web.Video{}, TrashRetention: aMonth, Settings: editor.Values, Editor: editor, Imports: imports,
+		Zones:     []string{"America/New_York", "Europe/Madrid", "UTC"},
 		Calendars: calendar.New(meta),
 	}), editor
 }
@@ -62,8 +68,9 @@ func TestTheSettingsPage(t *testing.T) {
 	}
 	body := htmlstd.UnescapeString(page.Body.String())
 	for _, want := range []string{
-		"Trash and sweep", "Calendar", `name="TZ"`, `placeholder="UTC"`,
-		`id="STRATUS_GC_INTERVAL" type="text" value="2h" disabled`, "set by the environment",
+		"Trash and sweep", "Calendar", `name="TZ"`, `<option value="Europe/Madrid">Europe/Madrid</option>`,
+		`name="STRATUS_WEEK_START"`, `<option value="" selected>default (monday)</option>`,
+		`id="STRATUS_GC_INTERVAL" type="text" value="2h" placeholder="not set" readonly disabled`, "set by the environment",
 		`<option value="" selected>default (off)</option>`,
 	} {
 		if !strings.Contains(body, want) {
@@ -85,7 +92,7 @@ func TestTheSettingsPage(t *testing.T) {
 		t.Errorf("after saving the values are %+v", v)
 	}
 	saved := htmlstd.UnescapeString(get(t, h, "/settings?saved", cookie).Body.String())
-	for _, want := range []string{"Saved.", `value="Europe/Madrid"`, `<option value="on" selected>on</option>`} {
+	for _, want := range []string{"Saved.", `<option value="Europe/Madrid" selected>Europe/Madrid</option>`, `<option value="on" selected>on</option>`} {
 		if !strings.Contains(saved, want) {
 			t.Errorf("the saved page has no %q", want)
 		}
@@ -112,7 +119,7 @@ func TestAFormWithAMistakeChangesNothing(t *testing.T) {
 		t.Fatalf("a form with a mistake = %d, want 400", rec.Code)
 	}
 	body := htmlstd.UnescapeString(rec.Body.String())
-	for _, want := range []string{"Nothing was saved", "must be at least 24h", `value="1h"`, `value="Europe/Madrid"`, "is-invalid"} {
+	for _, want := range []string{"Nothing was saved", "must be at least 24h", `value="1h"`, `<option value="Europe/Madrid" selected>`, "is-invalid"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("the refusal has no %q", want)
 		}
@@ -168,5 +175,98 @@ func TestASettingThatCannotBeStored(t *testing.T) {
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("a form that does not parse = %d, want 400", rec.Code)
+	}
+}
+
+// TestThePasswordIsShownAndNotGivenAway: the page says where the password is
+// changed, and neither its value nor its length is in what it sends.
+func TestThePasswordIsShownAndNotGivenAway(t *testing.T) {
+	t.Parallel()
+	h, _ := settingsHandler(t, nil)
+	cookie := signIn(t, h)
+	body := get(t, h, "/settings", cookie).Body.String()
+
+	if !strings.Contains(body, `id="STRATUS_PASSWORD" type="password" value="************" readonly disabled`) {
+		t.Errorf("the page does not show the password as fixed:\n%s", body)
+	}
+	if strings.Contains(body, examplePassword) {
+		t.Error("the page carries the password")
+	}
+	if strings.Contains(body, `name="STRATUS_PASSWORD"`) {
+		t.Error("the password is a field the form would post")
+	}
+}
+
+// TestTheImportFolderIsShownAndNotOffered: its path is on the page, read-only,
+// and not a field the form posts -- set or not.
+func TestTheImportFolderIsShownAndNotOffered(t *testing.T) {
+	t.Parallel()
+	h, _ := settingsHandler(t, nil)
+	cookie := signIn(t, h)
+	body := get(t, h, "/settings", cookie).Body.String()
+
+	for _, want := range []string{`id="STRATUS_INCOMING_DIR" type="text" value="" placeholder="not set" readonly disabled`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the page has no %q", want)
+		}
+	}
+	if strings.Contains(body, `name="STRATUS_INCOMING_DIR"`) {
+		t.Error("the import folder is a field the form would post")
+	}
+	if strings.Index(body, "STRATUS_INCOMING_DIR") > strings.Index(body, "STRATUS_INCOMING_INTERVAL") {
+		t.Error("the folder is not above its interval")
+	}
+}
+
+func TestASetImportFolderIsShownAsItIs(t *testing.T) {
+	t.Parallel()
+	h, _ := settingsHandlerWith(t, nil, stuck{dir: "/srv/scanner"})
+	cookie := signIn(t, h)
+	if body := get(t, h, "/settings", cookie).Body.String(); !strings.Contains(body, `id="STRATUS_INCOMING_DIR" type="text" value="/srv/scanner"`) {
+		t.Errorf("the page does not show the import folder:\n%s", body)
+	}
+}
+
+// TestAZoneThisMachineDoesNotKnowIsStillOffered: a stored zone missing from
+// the list is added to it, or the next save would put the default back.
+func TestAZoneThisMachineDoesNotKnowIsStillOffered(t *testing.T) {
+	t.Parallel()
+	h, s := settingsHandler(t, nil)
+	cookie := signIn(t, h)
+	if err := s.Set(t.Context(), "TZ", "Asia/Tokyo"); err != nil {
+		t.Fatal(err)
+	}
+	if body := get(t, h, "/settings", cookie).Body.String(); !strings.Contains(body, `<option value="Asia/Tokyo" selected>Asia/Tokyo</option>`) {
+		t.Error("a stored zone the list does not have is not offered")
+	}
+}
+
+// TestTheWeekStartsWhereTheSettingSays: Sunday first, the grid and its
+// headings both.
+func TestTheWeekStartsWhereTheSettingSays(t *testing.T) {
+	t.Parallel()
+	h, s := settingsHandler(t, nil)
+	cookie := signIn(t, h)
+	month := func() string { return get(t, h, "/calendars/edu/default/?month=2024-03", cookie).Body.String() }
+
+	// March 2024 begins on a Friday: Monday-first draws from the 26th of
+	// February, Sunday-first from the 25th.
+	// The first 25 drawn is February's only when the grid reaches back to it.
+	startsOn25th := func(body string) bool {
+		return strings.Index(body, ">25</div>") < strings.Index(body, ">1</div>")
+	}
+	if body := month(); !strings.Contains(body, ">Mon</div>") ||
+		strings.Index(body, ">Mon</div>") > strings.Index(body, ">Sun</div>") || startsOn25th(body) {
+		t.Error("the week does not start on Monday by default")
+	}
+	if err := s.Set(t.Context(), "STRATUS_WEEK_START", "sunday"); err != nil {
+		t.Fatal(err)
+	}
+	body := month()
+	if strings.Index(body, ">Sun</div>") > strings.Index(body, ">Mon</div>") {
+		t.Error("the headings do not start on Sunday")
+	}
+	if !startsOn25th(body) {
+		t.Error("the grid does not start on Sunday the 25th of February")
 	}
 }

@@ -13,6 +13,23 @@
     {{if .Notice}}<div class="alert alert-success py-2" role="status">{{.Notice}}</div>{{end}}
     {{if .Error}}<div class="alert alert-danger py-2" role="alert">{{.Error}}</div>{{end}}
     <form method="post" action="/settings">
+      {{/* The password is the environment's and only the environment's, and
+           is shown so the page says where it is changed. Not its value nor
+           its length: the field holds a fixed string of the same twelve
+           characters whatever the password is, and has no name, so it is
+           neither posted nor something a look at the HTML gives away. */}}
+      <div class="card mb-3">
+        <div class="card-header fw-semibold">Account</div>
+        <div class="card-body">
+          <label class="form-label mb-1" for="STRATUS_PASSWORD"><code>STRATUS_PASSWORD</code></label>
+          <input class="form-control" id="STRATUS_PASSWORD" type="password" value="************" readonly disabled
+                 autocomplete="off" aria-describedby="STRATUS_PASSWORD-help">
+          <div id="STRATUS_PASSWORD-help" class="form-text">
+            The password for every way in: this page, WebDAV, CalDAV, OpenSubsonic.
+            <span class="badge text-bg-secondary">set by the environment</span>
+          </div>
+        </div>
+      </div>
       {{range .Settings}}
       <div class="card mb-3">
         <div class="card-header fw-semibold">{{.Name}}</div>
@@ -21,7 +38,7 @@
           <div class="mb-3">
             <label class="form-label mb-1" for="{{.Key}}"><code>{{.Key}}</code></label>
             {{if .Fixed}}
-            <input class="form-control" id="{{.Key}}" type="text" value="{{.Value}}" disabled aria-describedby="{{.Key}}-help">
+            <input class="form-control" id="{{.Key}}" type="text" value="{{.Value}}" placeholder="not set" readonly disabled aria-describedby="{{.Key}}-help">
             <div id="{{.Key}}-help" class="form-text">{{.Help}} <span class="badge text-bg-secondary">set by the environment</span></div>
             {{else if .Choices}}
             <select class="form-select{{if .Error}} is-invalid{{end}}" id="{{.Key}}" name="{{.Key}}" aria-describedby="{{.Key}}-help">
