@@ -842,6 +842,18 @@ variable somebody just changed. What opens the database and the store, the
 credentials, the Sentry DSN and `STRATUS_INCOMING_DIR` -- a path whose
 contents are moved and deleted -- are not on the list.
 
+**Everything on it is read where it is used, not once at startup.** The
+indexer, the import folder and the lookup pass are built whatever their
+setting says and switched by it -- which is also why ffprobe is looked up
+whether indexing is on or not -- and the loops are `App.every`: a ticker at the
+interval in force, made again when a change moves that interval and left alone
+when a change does not, and a loop at zero sleeping on the change channel
+rather than not being there. The channel is taken **before** the value is
+read, because the other order loses a change that lands between them; the race
+test found it. The web UI reads retention, the indexer's switches, the zone and
+whether a film is re-encoded per request, and the log level is a
+`slog.LevelVar` the App moves.
+
 Rules that follow from this:
 
 - **A DSN may carry secrets, so it is never logged verbatim.** Redact userinfo and

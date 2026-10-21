@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/C0piIot/stratus-backend/internal/auth"
+	"github.com/C0piIot/stratus-backend/internal/config"
 	"github.com/C0piIot/stratus-backend/internal/db"
 	"github.com/C0piIot/stratus-backend/internal/files"
 )
@@ -113,6 +114,10 @@ type Deps struct {
 	// Calendars is read for the month pages at /calendars/, which write
 	// nothing; nil means there are none.
 	Calendars CalendarReader
+	// Settings are the settings in force (#397), read per request so a
+	// change is on the next page. Nil means the fields above are the whole
+	// story, which is a test.
+	Settings func() config.Values
 }
 
 // Thumbnails is the picture half: a file's own and a folder's cover art. An
@@ -172,6 +177,8 @@ type handler struct {
 	kept time.Duration
 	// calendars is read for the month pages, and nil when there are none.
 	calendars CalendarReader
+	// settings are the settings in force, and nil for a handler a test built.
+	settings func() config.Values
 }
 
 // Handler builds the UI. It is mounted at the root, so it is also what answers
@@ -186,7 +193,7 @@ func Handler(d Deps) http.Handler {
 		version: d.Version, buildDate: d.BuildDate, verifier: d.Verifier, sessions: d.Sessions, shares: d.Shares,
 		files: d.Files, thumbs: d.Thumbs, captures: d.Index, library: d.Index, finder: d.Index, playlists: d.Playlists,
 		indexing: d.Indexing, imports: d.Imports, video: d.Video, kept: d.TrashRetention,
-		calendars: d.Calendars,
+		calendars: d.Calendars, settings: d.Settings,
 	}
 
 	mux := http.NewServeMux()
@@ -289,5 +296,33 @@ func secureHeaders(h http.Handler) http.Handler {
 // keptDays is the retention as the pages say it, and zero when the trash is
 // held.
 func (h *handler) keptDays() int {
-	return int(h.kept / (24 * time.Hour))
+	return int(h.retention() / (24 * time.Hour))
+}
+
+// retention is how long a deletion is kept, as the settings have it now.
+func (h *handler) retention() time.Duration {
+	if h.settings != nil {
+		return h.settings().TrashRetention
+	}
+	return h.kept
+}
+
+// indexingNow is the indexer as the status page reports it: the reads it was
+// built with, and the switches as the settings have them now.
+func (h *handler) indexingNow() Indexing {
+	ix := h.indexing
+	if h.settings != nil {
+		v := h.settings()
+		ix.Interval, ix.Ahead, ix.Lookup = v.IndexInterval, v.ThumbsAhead, v.MusicLookup
+	}
+	return ix
+}
+
+// zone is what the calendar page draws times in: the setting's, or the
+// process's own for a handler a test built.
+func (h *handler) zone() *time.Location {
+	if h.settings != nil && h.settings().Zone != nil {
+		return h.settings().Zone
+	}
+	return time.Local
 }

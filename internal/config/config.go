@@ -111,6 +111,9 @@ type Config struct {
 	// Values are the settings that can also be changed from the web UI
 	// (#397), as the environment set them at startup.
 	Values
+	// Fixed are the ones among them the environment set, as it set them:
+	// what internal/settings lets nothing else change.
+	Fixed map[string]string
 	// Username and Password are the single user's credentials, and the
 	// password is held as configured rather than hashed: OpenSubsonic's token
 	// auth is md5(password + salt), which a hash cannot produce. See
@@ -157,9 +160,14 @@ func Load(getenv func(string) string) (Config, error) {
 	// UI's form goes through too. A typo is refused rather than defaulted:
 	// "1hour" would otherwise silently become the default and nobody would
 	// know the sweep was running on a schedule they did not choose.
+	cfg.Fixed = map[string]string{}
 	for _, setting := range Settings {
-		if err := setting.Apply(&cfg.Values, getenv(setting.Key)); err != nil {
+		raw := getenv(setting.Key)
+		if err := setting.Apply(&cfg.Values, raw); err != nil {
 			return Config{}, fmt.Errorf("%s: %w", setting.Key, err)
+		}
+		if raw != "" {
+			cfg.Fixed[setting.Key] = raw
 		}
 	}
 

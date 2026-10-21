@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/C0piIot/stratus-backend/internal/calendar"
+	"github.com/C0piIot/stratus-backend/internal/config"
 	"github.com/C0piIot/stratus-backend/internal/db"
 	"github.com/C0piIot/stratus-backend/internal/files"
 	"github.com/C0piIot/stratus-backend/internal/media"
@@ -38,17 +39,43 @@ import (
 // One worker: ffprobe on four cores that are also serving requests does not
 // want company.
 func (a *App) indexPeriodically(ctx context.Context, deps Deps) {
-	slog.Info("indexing media", "safety_net", a.cfg.IndexInterval, "version", media.Version)
+	for {
+		changed := changes(deps)
+		d := a.values(deps).IndexInterval
+		if d <= 0 {
+			// Off, notices included: they pile up past what the channel
+			// holds, and LostTrack is what makes the query find them the day
+			// the setting comes back.
+			slog.Info("media indexing off until a setting changes", "reason", "STRATUS_INDEX_INTERVAL is zero")
+			select {
+			case <-ctx.Done():
+				return
+			case <-changed:
+				continue
+			}
+		}
+		if !a.indexEvery(ctx, deps, changed, d) {
+			return
+		}
+	}
+}
+
+// indexEvery is the indexer with its safety net at d, until ctx ends (false)
+// or the interval is changed (true).
+func (a *App) indexEvery(ctx context.Context, deps Deps, changed <-chan struct{}, d time.Duration) bool {
+	slog.Info("indexing media", "safety_net", d, "version", media.Version)
 
 	// A ticker and not a timer armed after each pass: with a steady trickle of
 	// uploads an interval that restarted every time would never arrive, and
 	// what waits behind it -- a version bump, rows an import inserted, a file
 	// deferred until its retry time -- would never be looked at.
-	ticker := time.NewTicker(a.cfg.IndexInterval)
+	ticker := time.NewTicker(d)
 	defer ticker.Stop()
 
-	// Whatever landed while this process was not running is nobody's notice.
-	a.indexUntilDry(ctx, deps)
+	// Whatever landed while this pass was not running is nobody's notice.
+	if !a.indexUntilDry(ctx, deps) {
+		return false
+	}
 
 	// again is armed when the pass has said when to come back, so the next
 	// batch happens then rather than on the hour -- and through the select, so
@@ -58,12 +85,19 @@ func (a *App) indexPeriodically(ctx context.Context, deps Deps) {
 	for {
 		select {
 		case <-ctx.Done():
-			return
+			return false
+
+		case <-changed:
+			changed = changes(deps)
+			if a.values(deps).IndexInterval != d {
+				return true
+			}
+			continue
 
 		case f := <-deps.Indexer.Noticed():
 			switch err := deps.Indexer.IndexFile(ctx, time.Now(), f); {
 			case errors.Is(err, context.Canceled):
-				return
+				return false
 			case err != nil:
 				slog.Error("indexing media", "path", f.Path, "err", err)
 				continue
@@ -82,7 +116,7 @@ func (a *App) indexPeriodically(ctx context.Context, deps Deps) {
 		}
 
 		if !a.indexUntilDry(ctx, deps) {
-			return
+			return false
 		}
 		again = after(a.thumbsAhead(ctx, deps))
 	}
@@ -117,7 +151,7 @@ const (
 // A duration rather than the timer itself, because what is worth testing here
 // is the number and not the channel.
 func (a *App) thumbsAhead(ctx context.Context, deps Deps) time.Duration {
-	if !a.cfg.ThumbsAhead || deps.Thumbs == nil {
+	if !a.values(deps).ThumbsAhead || deps.Thumbs == nil {
 		return 0
 	}
 
@@ -147,7 +181,7 @@ func (a *App) thumbsAhead(ctx context.Context, deps Deps) time.Duration {
 // Only for what a grid draws, by the name: a track's cover is a second picture
 // per blob and answers a different surface, and everything else has none.
 func (a *App) thumbFor(ctx context.Context, deps Deps, f db.File) {
-	if !a.cfg.ThumbsAhead || deps.Thumbs == nil {
+	if !a.values(deps).ThumbsAhead || deps.Thumbs == nil {
 		return
 	}
 	if !media.IsImage(f.Path) && !media.IsVideo(f.Path) {
@@ -191,24 +225,18 @@ func (a *App) indexUntilDry(ctx context.Context, deps Deps) bool {
 // generator has moved on.
 func (a *App) collectPeriodically(ctx context.Context, deps Deps) {
 	service := deps.Files
-	ticker := time.NewTicker(a.cfg.GCInterval)
-	defer ticker.Stop()
-
+	v := a.values(deps)
 	slog.Info("collecting orphan blobs, abandoned uploads and the trash",
-		"every", a.cfg.GCInterval, "grace", a.cfg.GCGrace,
-		"upload_ttl", files.DefaultUploadTTL, "trash_retention", retention(a.cfg.TrashRetention))
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-		}
+		"every", v.GCInterval, "grace", v.GCGrace,
+		"upload_ttl", files.DefaultUploadTTL, "trash_retention", retention(v.TrashRetention))
 
+	a.every(ctx, deps, "collecting orphan blobs", func(v config.Values) time.Duration { return v.GCInterval }, func() bool {
+		v := a.values(deps)
 		// The trash first, because what leaves it becomes garbage the sweep
 		// below can then take in the same pass rather than a day later: the
 		// rows go, and the blobs with them.
-		if !a.emptyTrash(ctx, service) {
-			return
+		if !a.emptyTrash(ctx, service, v.TrashRetention) {
+			return false
 		}
 
 		// Uploads next: an abandoned one holds bytes that are invisible to a
@@ -216,7 +244,7 @@ func (a *App) collectPeriodically(ctx context.Context, deps Deps) {
 		// Nothing else collects them at all.
 		switch done, err := service.CollectUploads(ctx, time.Now()); {
 		case errors.Is(err, context.Canceled):
-			return
+			return false
 		case err != nil:
 			slog.Error("collecting abandoned uploads", "err", err)
 		case done > 0:
@@ -224,12 +252,12 @@ func (a *App) collectPeriodically(ctx context.Context, deps Deps) {
 		}
 
 		if !pruneCalendars(ctx, deps.Database) {
-			return
+			return false
 		}
 
-		switch done, err := service.Collect(ctx, a.cfg.GCGrace); {
+		switch done, err := service.Collect(ctx, v.GCGrace); {
 		case errors.Is(err, context.Canceled):
-			return
+			return false
 		case errors.Is(err, files.ErrEmptyIndex):
 			// Almost certainly a database pointed somewhere new rather than a
 			// library somebody emptied, so nothing is deleted and it says so.
@@ -244,7 +272,8 @@ func (a *App) collectPeriodically(ctx context.Context, deps Deps) {
 				"scanned", done.Scanned, "deleted", done.Deleted,
 				"freed", done.Bytes, "unaccounted", done.Trashed)
 		}
-	}
+		return true
+	})
 }
 
 // importPeriodically moves what has landed in the import folder into the
@@ -255,20 +284,12 @@ func (a *App) collectPeriodically(ctx context.Context, deps Deps) {
 // after a slow import would keep moving the moment the next file qualifies.
 func (a *App) importPeriodically(ctx context.Context, deps Deps) {
 	slog.Info("importing what arrives on disk",
-		"dir", deps.Incoming.Dir(), "every", a.cfg.IncomingInterval)
+		"dir", deps.Incoming.Dir(), "every", a.values(deps).IncomingInterval)
 
-	ticker := time.NewTicker(a.cfg.IncomingInterval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-		}
-
+	a.every(ctx, deps, "importing what arrived on disk", func(v config.Values) time.Duration { return v.IncomingInterval }, func() bool {
 		switch imported, err := deps.Incoming.Pass(ctx); {
 		case errors.Is(err, context.Canceled):
-			return
+			return false
 		case err != nil:
 			// Logged and carried on with: the files that did import are
 			// imported, and the ones that did not are still on disk.
@@ -276,7 +297,8 @@ func (a *App) importPeriodically(ctx context.Context, deps Deps) {
 		case imported > 0:
 			slog.Info("imported what arrived on disk", "files", imported)
 		}
-	}
+		return true
+	})
 }
 
 // restartPause is how long a background loop that panicked waits before it is
@@ -347,9 +369,23 @@ func (a *App) lookupPeriodically(ctx context.Context, deps Deps) {
 	// Armed at once: whatever is pending was pending while nothing ran.
 	again := time.After(0)
 	for {
+		changed := changes(deps)
+		if !a.values(deps).MusicLookup {
+			// Asks nothing while the setting is off, and asks at once when
+			// it is turned on: what is pending was pending all along.
+			select {
+			case <-ctx.Done():
+				return
+			case <-changed:
+				again = time.After(0)
+				continue
+			}
+		}
 		select {
 		case <-ctx.Done():
 			return
+		case <-changed:
+			continue
 		case <-ticker.C:
 		case <-again:
 		}
@@ -382,11 +418,11 @@ func (a *App) lookupPeriodically(ctx context.Context, deps Deps) {
 // uploads and the blob sweep behind it still run, and the trashed keys are
 // still what Collect counts as referenced, so holding the trash is not a
 // reason for the sweep to eat it (#296).
-func (a *App) emptyTrash(ctx context.Context, service *files.Service) bool {
-	if a.cfg.TrashRetention == 0 {
+func (a *App) emptyTrash(ctx context.Context, service *files.Service, kept time.Duration) bool {
+	if kept == 0 {
 		return true
 	}
-	switch done, err := service.EmptyTrash(ctx, time.Now().Add(-a.cfg.TrashRetention)); {
+	switch done, err := service.EmptyTrash(ctx, time.Now().Add(-kept)); {
 	case errors.Is(err, context.Canceled):
 		return false
 	case err != nil:
