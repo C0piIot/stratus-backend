@@ -62,9 +62,11 @@ type Setting struct {
 	// Choices are the only values it takes, for one that is a choice; empty
 	// for one that is typed.
 	Choices []string
-	// Help says what it does, in a line, for the page that offers it.
-	Help  string
-	apply func(v *Values, raw string) error
+	// Help says what it does, in a line, for the page that offers it, and
+	// Section is the heading it is under there.
+	Help    string
+	Section string
+	apply   func(v *Values, raw string) error
 }
 
 // Apply reads raw into v, or says what is wrong with it. Empty is the
@@ -79,7 +81,7 @@ func (s Setting) Apply(v *Values, raw string) error {
 // Settings are every editable setting, in the order a page shows them.
 var Settings = []Setting{
 	{
-		Key: "STRATUS_TRASH_RETENTION", Default: DefaultTrashRetention.String(),
+		Key: "STRATUS_TRASH_RETENTION", Section: "Trash and sweep", Default: "720h",
 		Help: "How long a deletion stays in the trash: at least 24h, or never.",
 		apply: func(v *Values, raw string) (err error) {
 			v.TrashRetention, err = trashRetention(raw)
@@ -87,7 +89,7 @@ var Settings = []Setting{
 		},
 	},
 	{
-		Key: "STRATUS_GC_INTERVAL", Default: DefaultGCInterval.String(),
+		Key: "STRATUS_GC_INTERVAL", Section: "Trash and sweep", Default: "24h",
 		Help: "How often the blob store is swept for what no row claims; 0 never sweeps.",
 		apply: func(v *Values, raw string) (err error) {
 			v.GCInterval, err = interval(raw, "not a duration, try 24h or 0 to disable")
@@ -95,7 +97,7 @@ var Settings = []Setting{
 		},
 	},
 	{
-		Key: "STRATUS_GC_GRACE", Default: DefaultGCGrace.String(),
+		Key: "STRATUS_GC_GRACE", Section: "Trash and sweep", Default: "1h",
 		Help: "How old a blob has to be before the sweep may touch it.",
 		apply: func(v *Values, raw string) error {
 			grace, err := time.ParseDuration(raw)
@@ -116,7 +118,7 @@ var Settings = []Setting{
 		},
 	},
 	{
-		Key: "STRATUS_INDEX_INTERVAL", Default: DefaultIndexInterval.String(),
+		Key: "STRATUS_INDEX_INTERVAL", Section: "Indexing", Default: "1h",
 		Help: "How often the indexer asks what nobody told it about; 0 turns indexing off.",
 		apply: func(v *Values, raw string) (err error) {
 			v.IndexInterval, err = interval(raw, "not a duration, try 1m or 0 to disable")
@@ -124,7 +126,7 @@ var Settings = []Setting{
 		},
 	},
 	{
-		Key: "STRATUS_THUMBS_AHEAD", Default: ThumbsAheadOn, Choices: []string{ThumbsAheadOn, ThumbsAheadOff},
+		Key: "STRATUS_THUMBS_AHEAD", Section: "Indexing", Default: ThumbsAheadOn, Choices: []string{ThumbsAheadOn, ThumbsAheadOff},
 		Help: "Whether pictures are made before a grid asks for them, with a CPU that was idle.",
 		apply: func(v *Values, raw string) (err error) {
 			v.ThumbsAhead, err = onOff(raw)
@@ -132,7 +134,7 @@ var Settings = []Setting{
 		},
 	},
 	{
-		Key: "STRATUS_INCOMING_INTERVAL", Default: DefaultIncomingInterval.String(),
+		Key: "STRATUS_INCOMING_INTERVAL", Section: "Import folder", Default: "1m",
 		Help: "How often the import folder is swept, and how long a file must hold its size; 0 stops it.",
 		apply: func(v *Values, raw string) (err error) {
 			v.IncomingInterval, err = interval(raw, "not a duration, try 1m or 0 to disable")
@@ -140,7 +142,7 @@ var Settings = []Setting{
 		},
 	},
 	{
-		Key: "STRATUS_VIDEO_TRANSCODE", Default: VideoTranscodeAuto,
+		Key: "STRATUS_VIDEO_TRANSCODE", Section: "Video", Default: VideoTranscodeAuto,
 		Choices: []string{VideoTranscodeAuto, VideoTranscodeOn, VideoTranscodeOff},
 		Help:    "Whether a film a player cannot decode is also offered re-encoded; auto is from four CPUs.",
 		apply: func(v *Values, raw string) error {
@@ -153,7 +155,7 @@ var Settings = []Setting{
 		},
 	},
 	{
-		Key: "STRATUS_MUSIC_LOOKUP", Default: MusicLookupOff, Choices: []string{MusicLookupOn, MusicLookupOff},
+		Key: "STRATUS_MUSIC_LOOKUP", Section: "Music", Default: MusicLookupOff, Choices: []string{MusicLookupOn, MusicLookupOff},
 		Help: "Whether MusicBrainz, the Cover Art Archive and LRCLIB are asked about the music; on sends tags out.",
 		apply: func(v *Values, raw string) (err error) {
 			v.MusicLookup, err = onOff(raw)
@@ -161,7 +163,7 @@ var Settings = []Setting{
 		},
 	},
 	{
-		Key: "TZ", Default: "UTC",
+		Key: "TZ", Section: "Calendar", Default: "UTC",
 		Help: "The zone the calendar page draws times in, such as Europe/Madrid.",
 		apply: func(v *Values, raw string) error {
 			zone, err := time.LoadLocation(raw)
@@ -173,7 +175,7 @@ var Settings = []Setting{
 		},
 	},
 	{
-		Key: "STRATUS_LOG_LEVEL", Default: "info", Choices: []string{"debug", "info", "warn", "error"},
+		Key: "STRATUS_LOG_LEVEL", Section: "Logs", Default: "info", Choices: []string{"debug", "info", "warn", "error"},
 		Help: "The least a log line has to be to be written.",
 		apply: func(v *Values, raw string) (err error) {
 			v.LogLevel, err = parseLevel(raw)

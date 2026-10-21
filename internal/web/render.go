@@ -66,6 +66,7 @@ const (
 	pagePlaylists = "playlists.html"
 	pagePlaylist  = "playlist.html"
 	pageCalendar  = "calendar.html"
+	pageSettings  = "settings.html"
 )
 
 // Each page is parsed with the layout into a set of its own. One set for all of
@@ -95,6 +96,7 @@ var pages = map[string]*template.Template{
 	pagePlaylists: parse(pagePlaylists),
 	pagePlaylist:  parse(pagePlaylist),
 	pageCalendar:  parse(pageCalendar),
+	pageSettings:  parse(pageSettings),
 }
 
 // parse builds one page's template set: the layout, the page, and whatever
@@ -244,6 +246,8 @@ type view struct {
 	TrashHeld bool
 	// Calendar is a month of one calendar (#111).
 	Calendar *calendarView
+	// Settings are the settings page's headings and fields (#397).
+	Settings []settingsSection
 }
 
 // Shows reports whether a result page is showing one of its buckets: all of

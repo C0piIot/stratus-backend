@@ -1391,13 +1391,25 @@ make up STRATUS_PORT=9000 STRATUS_DATA_PATH=/srv/stratus
 | `STRATUS_PORT` | `8080` | host port the backend is published on |
 | `STRATUS_DATA_PATH` | `./data` | host dir for blobs, the database and temporary files |
 | `STRATUS_UID` / `STRATUS_GID` | invoking user | user the container runs as |
-| `STRATUS_LOG_LEVEL` | `info` | `debug` / `info` / `warn` / `error`; anything else refuses to start |
+| `STRATUS_LOG_LEVEL` ✎ | `info` | `debug` / `info` / `warn` / `error`; anything else refuses to start |
 | `STRATUS_STORAGE_DSN` | `file://<data>/blobs` | blob backend; the scheme picks it |
 | `STRATUS_DB_DSN` | `sqlite://<data>/stratus.db` | metadata backend; likewise |
 | `STRATUS_USERNAME` | unset | the single user |
 | `STRATUS_PASSWORD` | unset | the single user's password |
-| `STRATUS_TRASH_RETENTION` | `720h` | how long a deletion stays in the trash; `never` keeps everything, see [the sweep](#orphaned-blobs) |
-| `TZ` | UTC | the zone the calendar page draws times in, e.g. `Europe/Madrid`; CalDAV clients are not affected |
+| `STRATUS_TRASH_RETENTION` ✎ | `720h` | how long a deletion stays in the trash; `never` keeps everything, see [the sweep](#orphaned-blobs) |
+| `TZ` ✎ | UTC | the zone the calendar page draws times in, e.g. `Europe/Madrid`; CalDAV clients are not affected |
+
+**✎ can also be set on the Settings page** (the menu under your name), and so
+can `STRATUS_GC_INTERVAL`, `STRATUS_GC_GRACE`, `STRATUS_INDEX_INTERVAL`,
+`STRATUS_THUMBS_AHEAD`, `STRATUS_INCOMING_INTERVAL`, `STRATUS_VIDEO_TRANSCODE`
+and `STRATUS_MUSIC_LOOKUP`, described where they matter below. A change there
+is in force at once, with no restart, and is kept in the database. **The
+environment wins**: a variable that is set is shown on the page and not
+offered, so whatever an install wrote in its compose file or its platform's
+dashboard is what runs — and a value stored before somebody set the variable
+comes back if they unset it. What opens the database and the store, the
+credentials, the Sentry DSN and `STRATUS_INCOMING_DIR` are the environment's
+alone.
 
 ### Blob storage
 
@@ -1703,7 +1715,7 @@ Working now:
   conditional writes, recurring events matched by date and sync by token;
   tasks and journal entries beside them, in lists of their own or not.
 - A request log, migrations applied at startup, and a container asserted from
-  the outside by 149 smoke checks.
+  the outside by 150 smoke checks.
 
 Not there yet: sharing, and the calendar in the web UI. Work
 and the decisions behind it are tracked on the
