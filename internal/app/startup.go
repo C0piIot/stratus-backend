@@ -29,6 +29,7 @@ import (
 	"github.com/C0piIot/stratus-backend/internal/media"
 	"github.com/C0piIot/stratus-backend/internal/media/stream"
 	"github.com/C0piIot/stratus-backend/internal/media/thumb"
+	"github.com/C0piIot/stratus-backend/internal/settings"
 	"github.com/C0piIot/stratus-backend/internal/storage"
 	"github.com/C0piIot/stratus-backend/internal/storage/disk"
 	"github.com/C0piIot/stratus-backend/internal/storage/s3"
@@ -88,6 +89,15 @@ func (a *App) open(ctx context.Context) (deps Deps, err error) {
 	}
 	slog.Info("database ready", "scheme", a.cfg.Database.Scheme, "dsn", a.cfg.Database)
 
+	// What the web UI stored, under whatever the environment fixed (#397).
+	// Read before anything else is built, since what is built next reads it.
+	if deps.Settings, err = settings.New(startupCtx, func(key string) string { return a.cfg.Fixed[key] }, deps.Database); err != nil {
+		return deps, fmt.Errorf("read the settings: %w", err)
+	}
+	if a.level != nil {
+		a.level.Set(deps.Settings.Values().LogLevel)
+	}
+
 	// One file layer for the whole process, and the watcher that tells the
 	// indexer about a write as it happens. The variable is read by the watcher
 	// and written just below, both in this goroutine and both before Run serves
@@ -126,36 +136,38 @@ func (a *App) open(ctx context.Context) (deps Deps, err error) {
 	}
 	deps.Loopback = loopback
 	deps.Transcoder = stream.NewTranscoder(ffmpeg, loopback)
-	if on, why := videoEncoding(a.cfg.VideoTranscode, runtime.GOMAXPROCS(0)); on {
-		deps.Encoder = stream.NewEncoder(deps.Transcoder, deps.Storage)
+	// Built whatever the setting says, since the setting can change: whether
+	// a film is offered re-encoded is asked of it per request.
+	deps.Encoder = stream.NewEncoder(deps.Transcoder, deps.Storage)
+	if on, why := videoEncoding(deps.Settings.Values().VideoTranscode, runtime.GOMAXPROCS(0)); on {
 		slog.Info("films are also offered re-encoded to H.264", "because", why)
 	} else {
 		slog.Info("films are offered as they are and remuxed, never re-encoded", "because", why)
 	}
 
-	if a.cfg.IndexInterval > 0 {
-		ffprobe, perr := media.LookupFFprobe()
-		if perr != nil {
-			return deps, perr
-		}
-		indexer = media.NewIndexer(deps.Files, deps.Database, tmp, ffprobe)
-		deps.Indexer = indexer
+	// The indexer is built with indexing off too, and waits for the setting:
+	// which is why ffprobe is looked up whatever it says.
+	ffprobe, perr := media.LookupFFprobe()
+	if perr != nil {
+		return deps, perr
 	}
+	indexer = media.NewIndexer(deps.Files, deps.Database, tmp, ffprobe)
+	deps.Indexer = indexer
 
 	// The import folder needs somewhere to file things under, which is the
 	// single user: with none configured there is no owner and nothing to do.
-	if a.cfg.IncomingDir != "" && a.cfg.IncomingInterval > 0 && credentials(a.cfg).Configured() {
+	// Its path is the environment's alone; how often it is swept is a setting.
+	if a.cfg.IncomingDir != "" && credentials(a.cfg).Configured() {
 		deps.Incoming = incoming.New(a.cfg.IncomingDir, a.cfg.Username, deps.Files)
 	}
 
 	// The third source of an album's cover, read by every surface that serves
 	// one: the rows are there whether or not the pass that fills them runs.
+	// The pass is built whenever there is somebody's library to look at, and
+	// asks nothing while STRATUS_MUSIC_LOOKUP is off.
 	deps.Thumbs.WithLookups(deps.Database)
-	if a.cfg.MusicLookup && credentials(a.cfg).Configured() {
+	if credentials(a.cfg).Configured() {
 		deps.Lookup = lookup.New(deps.Database, deps.Thumbs, a.version)
-		slog.Info("music metadata is looked up outside", "sources", "musicbrainz, coverartarchive, lrclib")
-	} else {
-		slog.Info("music metadata is not looked up outside", "reason", "STRATUS_MUSIC_LOOKUP is off")
 	}
 
 	if credentials(a.cfg).Configured() {

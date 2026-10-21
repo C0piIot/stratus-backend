@@ -93,19 +93,19 @@ func TestLookupLoopRunsAPassAndStopsWithTheContext(t *testing.T) {
 	}
 }
 
-// TestOpenWiresTheLookupOnlyWhenAsked: the pass exists when the setting is on
-// and there is a user to file things under, and not otherwise -- nothing
-// leaves the machine by default.
-func TestOpenWiresTheLookupOnlyWhenAsked(t *testing.T) {
+// TestOpenWiresTheLookupWhenThereIsSomebody: the pass exists whenever there
+// is a user to file things under, and whether it asks anything is the setting
+// in force, read on every pass (#397) -- nothing leaves the machine by
+// default, which TestTheLookupAsksNothingWhileOff holds.
+func TestOpenWiresTheLookupWhenThereIsSomebody(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
 		name string
 		vars map[string]string
 		want bool
 	}{
-		{"off by default", map[string]string{"STRATUS_USERNAME": "edu", "STRATUS_PASSWORD": "example correct horse battery staple"}, false},
-		{"on with a user", map[string]string{"STRATUS_USERNAME": "edu", "STRATUS_PASSWORD": "example correct horse battery staple", "STRATUS_MUSIC_LOOKUP": "on"}, true},
-		{"on with nobody to file under", map[string]string{"STRATUS_MUSIC_LOOKUP": "on"}, false},
+		{"with a user", map[string]string{"STRATUS_USERNAME": "edu", "STRATUS_PASSWORD": "example correct horse battery staple"}, true},
+		{"with nobody to file under", map[string]string{"STRATUS_MUSIC_LOOKUP": "on"}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -124,6 +124,9 @@ func TestOpenWiresTheLookupOnlyWhenAsked(t *testing.T) {
 			defer func() { _ = deps.Close() }()
 			if got := deps.Lookup != nil; got != tc.want {
 				t.Errorf("Lookup wired = %v, want %v", got, tc.want)
+			}
+			if deps.Settings == nil || deps.Settings.Values().MusicLookup != (vars["STRATUS_MUSIC_LOOKUP"] == "on") {
+				t.Error("the settings in force are not what the environment said")
 			}
 		})
 	}

@@ -83,13 +83,13 @@ func (h *handler) status(w http.ResponseWriter, r *http.Request, user string) {
 		FreeSpace: h.freeSpace(r),
 		TrashSize: h.trashSize(r, user),
 		Unclaimed: h.trashSize(r, ""),
-		TrashHeld: h.kept == 0,
+		TrashHeld: h.retention() == 0,
 		Incoming:  h.incomingOf(),
 		// The version is on the page because it is what a re-index moves: an
 		// operator who raised it wants to see the numbers fall and climb again.
 		IndexVersion: media.Version,
-		IndexingOff:  h.indexing.Interval == 0,
-		PicturesOff:  !h.indexing.Ahead,
+		IndexingOff:  h.indexingNow().Interval == 0,
+		PicturesOff:  !h.indexingNow().Ahead,
 		Lookup:       h.lookupOf(r),
 	}
 
@@ -113,10 +113,10 @@ func (h *handler) lookupOf(r *http.Request) *lookupView {
 		slog.WarnContext(r.Context(), "counting music lookups", "err", err)
 		return nil
 	}
-	if !h.indexing.Lookup && counts.AlbumsTried == 0 && counts.TracksTried == 0 {
+	if !h.indexingNow().Lookup && counts.AlbumsTried == 0 && counts.TracksTried == 0 {
 		return nil
 	}
-	return &lookupView{On: h.indexing.Lookup, LookupCounts: counts}
+	return &lookupView{On: h.indexingNow().Lookup, LookupCounts: counts}
 }
 
 // incomingOf is what the page says about the import folder, and nil when there
