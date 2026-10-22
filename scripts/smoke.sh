@@ -416,6 +416,7 @@ fi
 leftovers="$(find "$datadir" -mindepth 1 \
   -not -path "$datadir/blobs" -not -path "$datadir/blobs/.tmp" \
   -not -path "$datadir/blobs/.uploads" \
+  -not -path "$datadir/blobs/backups" -not -path "$datadir/blobs/backups/*.db" \
   -not -path "$datadir/.index" \
   -not -name 'stratus.db*' | tr '\n' ' ')"
 if [ -z "$leftovers" ]; then
@@ -584,7 +585,7 @@ if wait_serving "$davname"; then
   # The blob is in the store under an opaque name, and the tree is in the
   # database: that split is the whole architecture, so it is worth asserting
   # from outside the process.
-  if [ -n "$(find "$davdir/blobs" -type f -not -path '*/.tmp/*' 2>/dev/null)" ] && [ -f "$davdir/stratus.db" ]; then
+  if [ -n "$(find "$davdir/blobs" -type f -not -path '*/.tmp/*' -not -path '*/backups/*' 2>/dev/null)" ] && [ -f "$davdir/stratus.db" ]; then
     ok "the bytes are a blob and the name is a row"
   else
     bad "the bytes are a blob and the name is a row" "$(find "$davdir" -maxdepth 2 | tr '\n' ' ')"

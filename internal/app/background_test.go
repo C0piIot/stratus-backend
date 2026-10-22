@@ -199,8 +199,6 @@ func TestCollectorDisabled(t *testing.T) {
 		"STRATUS_USERNAME":    "edu",
 		"STRATUS_PASSWORD":    password,
 		"STRATUS_GC_INTERVAL": "0",
-		// A backup is a blob too, and this test counts them.
-		"STRATUS_BACKUP_INTERVAL": "0",
 	})
 
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodPut, base+"/files/notes.txt", strings.NewReader("one"))
