@@ -46,6 +46,20 @@ swap_size_mb = 512
   # for the indexer would make the music look missing. Nothing else about this
   # instance is tuned.
   STRATUS_INDEX_INTERVAL = "5s"
+  # Every other editable setting at its default, because a variable that is
+  # set is one the settings page shows and does not offer (#397): the demo is
+  # open to anybody, and one visitor turning music lookup on or the log level
+  # to debug would be the next visitor's demo.
+  STRATUS_TRASH_RETENTION = "720h"
+  STRATUS_GC_INTERVAL = "24h"
+  STRATUS_GC_GRACE = "1h"
+  STRATUS_THUMBS_AHEAD = "on"
+  STRATUS_INCOMING_INTERVAL = "1m"
+  STRATUS_VIDEO_TRANSCODE = "auto"
+  STRATUS_MUSIC_LOOKUP = "off"
+  TZ = "UTC"
+  STRATUS_WEEK_START = "monday"
+  STRATUS_LOG_LEVEL = "info"
   # Read by the Sentry SDK itself, so the demo's errors can be told apart from
   # a real install's in the same project. The DSN is a Fly secret.
   SENTRY_ENVIRONMENT = "demo"
