@@ -60,6 +60,7 @@ swap_size_mb = 512
   TZ = "UTC"
   STRATUS_WEEK_START = "monday"
   STRATUS_LOG_LEVEL = "info"
+  STRATUS_BACKUP_INTERVAL = "24h"
   # Read by the Sentry SDK itself, so the demo's errors can be told apart from
   # a real install's in the same project. The DSN is a Fly secret.
   SENTRY_ENVIRONMENT = "demo"

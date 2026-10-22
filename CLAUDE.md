@@ -854,6 +854,19 @@ STRATUS_USERNAME
 STRATUS_PASSWORD        held as configured, not hashed
 ```
 
+**The database is backed up into the blob store** (#398), under
+`files.BackupPrefix`, every `STRATUS_BACKUP_INTERVAL` and at startup when
+the newest copy is older than that -- the clock is the newest backup's, read
+from the store, so a server restarted daily on a daily interval still backs
+up. **The format is a SQLite database with this schema whatever the engine**,
+which makes SQLite's own `VACUUM INTO` the whole of the first phase: a
+consistent copy while writes go on, restored by putting the file in place,
+and an old one migrated by the startup that opens it. `db.Backuper` is
+optional like `MigrationLocker`, and PostgreSQL and MySQL do not have it yet
+(#425 -- writing the same file from them, and `stratus restore`). The sweep
+skips the prefix before it counts, because no row will ever name a backup and
+a store holding only backups is a fresh install, not the empty-index case.
+
 **Most settings can also be stored, and the environment still wins** (#397).
 `config.Settings` is the list of the ones that can change while the server
 runs -- the intervals, the trash, the indexer's switches, music lookup, video

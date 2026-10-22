@@ -90,3 +90,31 @@ func TestStatusSaysWhatTheLastSweepDid(t *testing.T) {
 		}
 	}
 }
+
+func statusWithBackup(t *testing.T, b web.Backup) string {
+	t.Helper()
+	blobs, meta := backends(t)
+	creds := credentials()
+	h := web.Handler(web.Deps{
+		Version: version, BuildDate: buildDate, Verifier: creds,
+		Sessions: auth.NewSessions(creds, auth.DefaultSessionTTL), Shares: auth.NewShares(creds),
+		Files: files.New(blobs, meta), Indexing: indexing(meta), TrashRetention: aMonth,
+		Backup: func() web.Backup { return b },
+	})
+	return get(t, h, "/status", signIn(t, h)).Body.String()
+}
+
+func TestStatusSaysWhatTheLastBackupIs(t *testing.T) {
+	t.Parallel()
+	cases := map[string]web.Backup{
+		"none yet":                 {},
+		"not on this database yet": {Unsupported: true},
+		"2.0 MiB":                  {At: time.Now(), Size: 2 << 20},
+		"no room left on device":   {At: time.Now(), Size: 1, Err: "back up: no room left on device"},
+	}
+	for want, b := range cases {
+		if body := statusWithBackup(t, b); !strings.Contains(body, want) {
+			t.Errorf("the status page does not say %q:\n%s", want, between(body, "data-backup"))
+		}
+	}
+}

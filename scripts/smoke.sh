@@ -683,6 +683,12 @@ if wait_serving "$davname"; then
     *'data-memory'*'kernel '*) ok "the status page reads the machine" ;;
     *) bad "the status page reads the machine" "$(grep -o 'data-[a-z]*' <<<"$statuspage" | tr '\n' ' ')" ;;
   esac
+  # A fresh install backs its database up at startup (#398), with VACUUM INTO
+  # in the shipped driver and the spool directory as the way through.
+  case "$statuspage" in
+    *'data-backup>20'*) ok "the database is backed up at startup" ;;
+    *) bad "the database is backed up at startup" "$(grep -o 'data-backup>[^<]*<[^>]*>[^<]*' <<<"$statuspage")" ;;
+  esac
 
   # Finder mounts read-only unless the server says class 2, so the header is
   # asserted rather than assumed.

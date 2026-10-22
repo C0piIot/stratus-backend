@@ -94,6 +94,7 @@ func (h *handler) status(w http.ResponseWriter, r *http.Request, user string) {
 		Running:      h.runningOf(),
 		Sweep:        h.sweepOf(),
 		System:       h.systemOf(),
+		Backup:       h.backupOf(),
 	}
 	if v.System != nil && v.System.SharedDisk {
 		v.FreeSpace = ""
@@ -157,6 +158,36 @@ func uptime(d time.Duration) string {
 		return fmt.Sprintf("%d h %d min", hours, minutes)
 	}
 	return fmt.Sprintf("%d min", minutes)
+}
+
+// backupView is the database's newest backup, already rendered. Exactly one
+// of Unsupported, Off, None and At says what there is.
+type backupView struct {
+	At, Size         string
+	Err              string
+	Unsupported, Off bool
+	None             bool
+}
+
+// backupOf is nil when nothing reports backups.
+func (h *handler) backupOf() *backupView {
+	if h.backup == nil {
+		return nil
+	}
+	b := h.backup()
+	v := backupView{Err: b.Err}
+	switch {
+	case b.Unsupported:
+		v.Unsupported = true
+	case h.settings != nil && h.settings().BackupInterval == 0:
+		v.Off = true
+	case b.At.IsZero():
+		v.None = true
+	default:
+		v.At = b.At.In(h.zone()).Format("2006-01-02 15:04")
+		v.Size = humanBytes(b.Size)
+	}
+	return &v
 }
 
 // systemView is the machine, already rendered; an empty field could not be

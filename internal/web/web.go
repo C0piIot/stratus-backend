@@ -133,6 +133,20 @@ type Deps struct {
 	Sweep func() Sweep
 	// System is what the machine has left, and nil when nothing reports it.
 	System func() System
+	// Backup is the database's newest backup, and nil when nothing reports
+	// one.
+	Backup func() Backup
+}
+
+// Backup is the database's newest backup, as the status page tells it.
+type Backup struct {
+	// At and Size are the newest backup in the store, and a zero At is none.
+	At   time.Time
+	Size int64
+	// Err is why the last attempt failed, and empty when it did not.
+	Err string
+	// Unsupported is a database whose driver cannot write one yet (#425).
+	Unsupported bool
 }
 
 // System is the machine, for the status page. A zero or negative number is
@@ -234,6 +248,7 @@ type handler struct {
 	database, storage string
 	sweep             func() Sweep
 	system            func() System
+	backup            func() Backup
 }
 
 // Handler builds the UI. It is mounted at the root, so it is also what answers
@@ -249,7 +264,7 @@ func Handler(d Deps) http.Handler {
 		files: d.Files, thumbs: d.Thumbs, captures: d.Index, library: d.Index, finder: d.Index, playlists: d.Playlists,
 		indexing: d.Indexing, imports: d.Imports, video: d.Video, kept: d.TrashRetention,
 		calendars: d.Calendars, settings: d.Settings, editor: d.Editor, zones: d.Zones,
-		started: d.Started, database: d.Database, storage: d.Storage, sweep: d.Sweep, system: d.System,
+		started: d.Started, database: d.Database, storage: d.Storage, sweep: d.Sweep, system: d.System, backup: d.Backup,
 	}
 
 	mux := http.NewServeMux()

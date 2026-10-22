@@ -248,6 +248,12 @@ func (s *Service) Collect(ctx context.Context, olderThan time.Duration) (Collect
 		if err != nil {
 			return Collected{}, fmt.Errorf("list the blob store: %w", err)
 		}
+		// The database's own backups (#398): no row names one and none ever
+		// will, and a store holding only those is a fresh install rather than
+		// an index pointed somewhere new.
+		if strings.HasPrefix(info.Key, BackupPrefix) {
+			continue
+		}
 		done.Scanned++
 
 		// An index with no rows at all, against a store with objects in it, is
