@@ -5,10 +5,11 @@ name: demo reset
 # being worth abusing is that it forgets everything, every hour.
 #
 # scripts/demo-reset.sh is the whole of it: it destroys the machine and the
-# volume under it, which is the only thing that empties the disk (see fly.toml),
-# deploys the same image onto a new one, checks the tree is empty and seeds the
-# demo media again. It leaves the demo down for the length of a deploy, which is
-# the honest price of a wipe that actually wipes, and it is a demo.
+# volume under it, which is the only thing that empties the disk (see
+# deploy/demo/fly.toml), deploys the same image onto a new one, checks the tree
+# is empty and seeds the demo media again. It leaves the demo down for the
+# length of a deploy, which is the honest price of a wipe that actually wipes,
+# and it is a demo.
 #
 # Nothing here upgrades anything; the pipeline in ci.yml is what deploys new
 # code, through the same script.
@@ -60,10 +61,11 @@ jobs:
           */*@sha256:*) ;;
           *)
             # No machine to read it off, which is what a reset that failed
-            # halfway leaves behind. fly.toml names what CI publishes, so this
-            # recovers the instance rather than needing somebody to notice.
+            # halfway leaves behind. deploy/demo/fly.toml names what CI
+            # publishes, so this recovers the instance rather than needing
+            # somebody to notice.
             image=""
-            echo "no image on the app; falling back to the one in fly.toml"
+            echo "no image on the app; falling back to the one in deploy/demo/fly.toml"
             ;;
           esac
           echo "image=$image" >> "$GITHUB_OUTPUT"

@@ -1,0 +1,100 @@
+# Fly.io: the throwaway instance CI keeps on the last green main.
+#
+# Test infrastructure, not a recommended way to run this: the fly.toml at the
+# root of the repository is the one meant to be launched, and it is kept apart
+# from this one so that `fly launch --from` finds that and not this. The
+# smallest machine there is, the smallest volume Fly sells, and a password that
+# is the version in the page footer, which is the short sha of the commit
+# deployed and therefore public.
+# Every merge to main is a fresh server with nothing in it but the demo media,
+# a new password, and every client logged out -- and on the hour, every hour,
+# .github/workflows/demo-reset.yml empties it again without changing what it
+# runs. Do not put anything here that you would miss.
+#
+# **The data is on a volume** (#238). It used to sit on the machine's own disk,
+# which a cold start throws away: the demo emptied itself in the middle of an
+# hour with nothing destroyed. A volume survives the machine it is mounted on,
+# so **what empties it is destroying the volume**, which scripts/demo-reset.sh
+# does before every deploy and every reset. A deploy on its own replaces the
+# image and leaves the disk, and so does stopping the machine and starting it
+# again -- both were once believed to wipe, and the demo spent two days on a
+# database from before the schema the binary expected.
+#
+#   scripts/demo-reset.sh <app> [image]                         # by hand
+#   make demo BASE=https://<app>.fly.dev                        # the demo media
+#
+# CI deploys this same file, through that script, with the digest it just
+# published; see ci.yml.
+app = "stratus-demo"
+primary_region = "cdg"
+
+# 256 MB is not enough for the first thumbnails after a reset, while the
+# indexer reads the same files: the kernel killed the server mid-request and the
+# proxy answered 502. Swap takes the spike more slowly instead.
+swap_size_mb = 512
+
+[build]
+  # What CI publishes on every merge to main: multi-arch and public, so Fly
+  # takes it as published.
+  image = "ghcr.io/c0piiot/stratus-backend:main"
+
+[env]
+  STRATUS_ADDR = ":8080"
+  STRATUS_DATA_DIR = "/data"
+  # Not a secret, and the seeding step reads it from here so there is one place
+  # that says who the user is. Neither is the password: CI stages it on every
+  # deploy as the version string this build carries.
+  STRATUS_USERNAME = "demo"
+  # The demo is seeded seconds after the machine starts, and a minute of waiting
+  # for the indexer would make the music look missing. Nothing else about this
+  # instance is tuned.
+  STRATUS_INDEX_INTERVAL = "5s"
+  # Every other editable setting at its default, because a variable that is
+  # set is one the settings page shows and does not offer (#397): the demo is
+  # open to anybody, and one visitor turning music lookup on or the log level
+  # to debug would be the next visitor's demo.
+  STRATUS_TRASH_RETENTION = "720h"
+  STRATUS_GC_INTERVAL = "24h"
+  STRATUS_GC_GRACE = "1h"
+  STRATUS_THUMBS_AHEAD = "on"
+  STRATUS_INCOMING_INTERVAL = "1m"
+  STRATUS_VIDEO_TRANSCODE = "auto"
+  STRATUS_MUSIC_LOOKUP = "off"
+  TZ = "UTC"
+  STRATUS_WEEK_START = "monday"
+  STRATUS_LOG_LEVEL = "info"
+  STRATUS_BACKUP_INTERVAL = "24h"
+  # Read by the Sentry SDK itself, so the demo's errors can be told apart from
+  # a real install's in the same project. The DSN is a Fly secret.
+  SENTRY_ENVIRONMENT = "demo"
+
+[http_service]
+  internal_port = 8080
+  # Fly terminates TLS and forwards the scheme, which is what makes the session
+  # cookie Secure -- see overTLS in internal/web.
+  force_https = true
+  # Nobody is watching it most of the time, so it sleeps and the first request
+  # wakes it.
+  #
+  # stop rather than suspend, because Fly will not suspend a machine with swap.
+  # Either keeps the data now that it is on a volume; a stop only wakes slower.
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "15s"
+    method = "GET"
+    path = "/healthz"
+
+# 1 GB is the smallest volume there is, and fifteen times the demo media.
+[mounts]
+  source = "stratus_data"
+  destination = "/data"
+  initial_size = "1gb"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
