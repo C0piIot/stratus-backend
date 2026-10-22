@@ -44,6 +44,11 @@ func runConfig(t *testing.T, vars map[string]string) config.Config {
 	if _, ok := vars["STRATUS_INDEX_INTERVAL"]; !ok {
 		vars["STRATUS_INDEX_INTERVAL"] = "0"
 	}
+	// And backups, for the same reason: the one taken at startup is a blob in
+	// a store several tests count.
+	if _, ok := vars["STRATUS_BACKUP_INTERVAL"]; !ok {
+		vars["STRATUS_BACKUP_INTERVAL"] = "0"
+	}
 
 	cfg, err := config.Load(func(key string) string { return vars[key] })
 	if err != nil {

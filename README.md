@@ -1405,6 +1405,7 @@ make up STRATUS_PORT=9000 STRATUS_DATA_PATH=/srv/stratus
 | `STRATUS_USERNAME` | unset | the single user |
 | `STRATUS_PASSWORD` | unset | the single user's password |
 | `STRATUS_TRASH_RETENTION` ✎ | `720h` | how long a deletion stays in the trash; `never` keeps everything, see [the sweep](#orphaned-blobs) |
+| `STRATUS_BACKUP_INTERVAL` ✎ | `24h` | how often the database is copied into the blob store; `0` stops it, see [Backups](#backups) |
 | `TZ` ✎ | UTC | the zone the calendar page draws times in, e.g. `Europe/Madrid`; CalDAV clients are not affected |
 
 **✎ can also be set on the Settings page** (the menu under your name), and so
@@ -1481,6 +1482,30 @@ in the same position: delete it and let this build create one.
 
 SQLite takes no DSN parameters. WAL, `foreign_keys` and `busy_timeout` are
 correctness requirements for a server, not preferences, so they are set for you.
+
+### Backups
+
+**The database is the only index of the tree**: the blobs carry no names, so
+losing it leaves a store full of files nobody can find. The server therefore
+copies it into the blob store — usually the more durable of the two — every
+`STRATUS_BACKUP_INTERVAL`, a day by default, and once at startup when the
+newest copy is older than that. They are `backups/<UTC time>.db` beside your
+files, the last seven are kept, the sweep leaves them alone, and `/status`
+says when the newest was taken.
+
+A backup is a SQLite database with this server's schema, taken with
+`VACUUM INTO` while the server runs. **Today that is SQLite only**: on
+PostgreSQL and MySQL `/status` says there is none, and backing those up is your
+provider's job until the same format can be written from them
+([#425](https://github.com/C0piIot/stratus-backend/issues/425)).
+
+**To restore one**, stop the server, copy the backup over the database file —
+`<data>/stratus.db`, or whatever `STRATUS_DB_DSN` names — and delete the
+`-wal` and `-shm` files beside it, then start again. A backup from an older
+build is brought up to date by the migrations at startup like any other
+database. What changed since the backup was taken is what is lost: files
+uploaded after it are blobs no row names, and the sweep puts them in the
+trash's unaccounted section rather than deleting them.
 
 ### Credentials
 

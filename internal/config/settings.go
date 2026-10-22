@@ -50,6 +50,9 @@ type Values struct {
 	// WeekStart is the day the calendar page's weeks begin on: Monday, or
 	// Sunday.
 	WeekStart time.Weekday
+	// BackupInterval is how often the database is copied into the blob store
+	// (#398). Zero disables it.
+	BackupInterval time.Duration
 }
 
 // Setting is one of Values as a variable: its name, what it is when nobody
@@ -190,6 +193,14 @@ var Settings = []Setting{
 				return errors.New("must be monday or sunday")
 			}
 			return nil
+		},
+	},
+	{
+		Key: "STRATUS_BACKUP_INTERVAL", Section: "Backup", Default: "24h",
+		Help: "How often the database is copied into the blob store, keeping the last seven; 0 stops it.",
+		apply: func(v *Values, raw string) (err error) {
+			v.BackupInterval, err = interval(raw, "not a duration, try 24h or 0 to disable")
+			return err
 		},
 	},
 	{

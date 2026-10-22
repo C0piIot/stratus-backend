@@ -194,6 +194,7 @@ type view struct {
 	Running *runningView
 	Sweep   *sweepView
 	System  *systemView
+	Backup  *backupView
 	// Lookup is music metadata from outside (#217), and nil when the pass is
 	// off and nothing was ever fetched.
 	Lookup *lookupView

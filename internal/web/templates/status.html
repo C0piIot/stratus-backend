@@ -109,6 +109,14 @@
       <span class="d-block text-warning-emphasis small">{{.}}</span>{{end}}{{end}}</dd>
     {{end}}
 
+    {{/* The database is the only index of the tree (#398): what somebody
+         wants to know here is whether there is a copy, and how old. */}}
+    {{with .Backup}}
+    <dt class="col-sm-4 fw-normal text-body-secondary">Last backup</dt>
+    <dd class="col-sm-8" data-backup>{{if .Unsupported}}<span class="text-body-secondary">not on this database yet</span>{{else if .Off}}<span class="text-body-secondary"><code>STRATUS_BACKUP_INTERVAL</code> is zero</span>{{else if .None}}<span class="text-body-secondary">none yet</span>{{else}}{{.At}}<span class="text-body-secondary small"> · {{.Size}}</span>{{end}}{{with .Err}}
+      <span class="d-block text-warning-emphasis small">{{.}}</span>{{end}}</dd>
+    {{end}}
+
     <dt class="col-sm-4 fw-normal text-body-secondary">Extractor</dt>
     <dd class="col-sm-8">version {{.IndexVersion}}</dd>
 

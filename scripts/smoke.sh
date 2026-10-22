@@ -416,6 +416,7 @@ fi
 leftovers="$(find "$datadir" -mindepth 1 \
   -not -path "$datadir/blobs" -not -path "$datadir/blobs/.tmp" \
   -not -path "$datadir/blobs/.uploads" \
+  -not -path "$datadir/blobs/backups" -not -path "$datadir/blobs/backups/*.db" \
   -not -path "$datadir/.index" \
   -not -name 'stratus.db*' | tr '\n' ' ')"
 if [ -z "$leftovers" ]; then
@@ -584,7 +585,7 @@ if wait_serving "$davname"; then
   # The blob is in the store under an opaque name, and the tree is in the
   # database: that split is the whole architecture, so it is worth asserting
   # from outside the process.
-  if [ -n "$(find "$davdir/blobs" -type f -not -path '*/.tmp/*' 2>/dev/null)" ] && [ -f "$davdir/stratus.db" ]; then
+  if [ -n "$(find "$davdir/blobs" -type f -not -path '*/.tmp/*' -not -path '*/backups/*' 2>/dev/null)" ] && [ -f "$davdir/stratus.db" ]; then
     ok "the bytes are a blob and the name is a row"
   else
     bad "the bytes are a blob and the name is a row" "$(find "$davdir" -maxdepth 2 | tr '\n' ' ')"
@@ -682,6 +683,12 @@ if wait_serving "$davname"; then
   case "$statuspage" in
     *'data-memory'*'kernel '*) ok "the status page reads the machine" ;;
     *) bad "the status page reads the machine" "$(grep -o 'data-[a-z]*' <<<"$statuspage" | tr '\n' ' ')" ;;
+  esac
+  # A fresh install backs its database up at startup (#398), with VACUUM INTO
+  # in the shipped driver and the spool directory as the way through.
+  case "$statuspage" in
+    *'data-backup>20'*) ok "the database is backed up at startup" ;;
+    *) bad "the database is backed up at startup" "$(grep -o 'data-backup>[^<]*<[^>]*>[^<]*' <<<"$statuspage")" ;;
   esac
 
   # Finder mounts read-only unless the server says class 2, so the header is

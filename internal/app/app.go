@@ -107,6 +107,9 @@ type App struct {
 	started time.Time
 	// swept is what the collector's last pass did, for the status page.
 	swept atomic.Pointer[web.Sweep]
+	// backedUp is the newest backup and what became of the last attempt, and
+	// nil until the backup loop has looked.
+	backedUp atomic.Pointer[web.Backup]
 }
 
 // Deps are the backends the protocol surfaces are built on.
@@ -123,6 +126,9 @@ type Deps struct {
 	// the watcher that tells the indexer a file has just landed: a second
 	// instance would be a second half of the system whose writes nobody hears.
 	Files *files.Service
+	// Scratch is the directory the spools go in, which a backup is written to
+	// on its way into the blob store.
+	Scratch string
 	// Thumbs makes the pictures every surface offers, and is built here rather
 	// than per surface because it holds the path to ffmpeg and the directory a
 	// blob is put down in for it.
@@ -229,6 +235,7 @@ func (a *App) Handler(deps Deps) http.Handler {
 			Storage:   a.cfg.Storage.Scheme,
 			Sweep:     a.lastSweep,
 			System:    a.system,
+			Backup:    a.lastBackup,
 		})
 
 		// Every protocol surface is behind the same realm and the same
@@ -344,6 +351,9 @@ func (a *App) Run(ctx context.Context) error {
 	// Every loop starts whatever its setting says, and one that is off
 	// waits for the setting to change rather than not being there (#397).
 	start("collecting orphan blobs", a.collectPeriodically)
+	if deps.Files != nil && deps.Scratch != "" {
+		start("backing up the database", a.backupPeriodically)
+	}
 	if deps.Indexer != nil {
 		start("indexing media", a.indexPeriodically)
 	}

@@ -50,7 +50,10 @@ type Store struct {
 	db *sql.DB
 }
 
-var _ db.Store = (*Store)(nil)
+var (
+	_ db.Store    = (*Store)(nil)
+	_ db.Backuper = (*Store)(nil)
+)
 
 // New opens the database at path, creating the file if it is not there.
 func New(ctx context.Context, path string) (*Store, error) {
@@ -107,6 +110,16 @@ func New(ctx context.Context, path string) (*Store, error) {
 // fails to start -- and that is the same thing as every other reason this
 // driver assumes one process (#192).
 func (s *Store) Migrate(ctx context.Context) error { return db.Migrate(ctx, s.db, migrations, nil) }
+
+// BackupTo implements db.Backuper. VACUUM INTO reads the database inside one
+// transaction, so the copy is consistent while writes go on, and what it
+// writes is already the backup format: this same schema, compacted.
+func (s *Store) BackupTo(ctx context.Context, path string) error {
+	if _, err := s.db.ExecContext(ctx, "VACUUM INTO ?", path); err != nil {
+		return fmt.Errorf("sqlite: back up into %s: %w", path, err)
+	}
+	return nil
+}
 
 // Ping implements db.Store.
 func (s *Store) Ping(ctx context.Context) error { return s.db.PingContext(ctx) }
