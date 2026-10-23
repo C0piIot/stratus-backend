@@ -15,7 +15,10 @@ import (
 	"github.com/C0piIot/stratus-backend/internal/files/filestest"
 )
 
-const photosPrefix = "/photos/"
+const (
+	photosPrefix = "/photos/"
+	filesPrefix  = "/files/"
+)
 
 type byDateRig struct {
 	h     http.Handler
@@ -27,7 +30,7 @@ func byDateServer(t *testing.T) *byDateRig {
 	t.Helper()
 	blobs, meta := filestest.Backends(t)
 	service := files.New(blobs, meta)
-	return &byDateRig{h: withUser(dav.ByDate(photosPrefix, meta, db.KindImage), "edu"), files: service, meta: meta}
+	return &byDateRig{h: withUser(dav.ByDate(photosPrefix, filesPrefix, meta, db.KindImage), "edu"), files: service, meta: meta}
 }
 
 func (r *byDateRig) add(t *testing.T, p, body, mime string, taken time.Time) db.File {
@@ -158,10 +161,10 @@ func TestWhatIsNotThereIsNotFound(t *testing.T) {
 			t.Errorf("PROPFIND %s = %d, want 404", target, rec.Code)
 		}
 	}
-	if rec := do(t, dav.ByDate(photosPrefix, r.meta, db.KindImage), "PROPFIND", "/photos/", ""); rec.Code != http.StatusUnauthorized {
+	if rec := do(t, dav.ByDate(photosPrefix, filesPrefix, r.meta, db.KindImage), "PROPFIND", "/photos/", ""); rec.Code != http.StatusUnauthorized {
 		t.Errorf("with nobody authenticated = %d", rec.Code)
 	}
-	theirs := withUser(dav.ByDate(photosPrefix, r.meta, db.KindImage), "someone-else")
+	theirs := withUser(dav.ByDate(photosPrefix, filesPrefix, r.meta, db.KindImage), "someone-else")
 	wantHrefs(t, hrefs(t, do(t, theirs, "PROPFIND", "/photos/", "", "Depth", "1")), "/photos/")
 }
 
@@ -205,7 +208,7 @@ func TestAMonthIsReadWhole(t *testing.T) {
 			SortAt: june,
 		})
 	}
-	h := withUser(dav.ByDate(photosPrefix, fakeCaptures{photos: many}, db.KindImage), "edu")
+	h := withUser(dav.ByDate(photosPrefix, filesPrefix, fakeCaptures{photos: many}, db.KindImage), "edu")
 	if got := hrefs(t, do(t, h, "PROPFIND", "/photos/2024/06/", "", "Depth", "1")); len(got) != 2501 {
 		t.Errorf("a month of 2500 lists %d entries", len(got))
 	}
@@ -214,7 +217,7 @@ func TestAMonthIsReadWhole(t *testing.T) {
 func TestABrokenBackendIsNotANotFound(t *testing.T) {
 	t.Parallel()
 	for _, call := range []string{"Months", "Timeline"} {
-		h := withUser(dav.ByDate(photosPrefix, fakeCaptures{fail: call}, db.KindImage), "edu")
+		h := withUser(dav.ByDate(photosPrefix, filesPrefix, fakeCaptures{fail: call}, db.KindImage), "edu")
 		if rec := do(t, h, "PROPFIND", "/photos/2024/06/", "", "Depth", "1"); rec.Code != http.StatusInternalServerError {
 			t.Errorf("PROPFIND with %s broken = %d, want 500", call, rec.Code)
 		}
@@ -231,7 +234,7 @@ func TestTheVideosAreTheirOwnCollection(t *testing.T) {
 	r.add(t, "Camera/IMG_0001.JPG", "a still", "image/jpeg", june)
 	r.addKind(t, "Camera/VID_0002.MP4", "a recording", "video/mp4", june, db.KindVideo)
 
-	videos := withUser(dav.ByDate("/videos/", r.meta, db.KindVideo), "edu")
+	videos := withUser(dav.ByDate("/videos/", filesPrefix, r.meta, db.KindVideo), "edu")
 	wantHrefs(t, hrefs(t, do(t, videos, "PROPFIND", "/videos/2024/06/", "", "Depth", "1")),
 		"/videos/2024/06/", "/videos/2024/06/VID_0002.MP4")
 
@@ -242,5 +245,21 @@ func TestTheVideosAreTheirOwnCollection(t *testing.T) {
 	// A year with only video in it is not a year in the gallery at all.
 	if rec := do(t, r.h, "PROPFIND", "/photos/2024/06/VID_0002.MP4", "", "Depth", "0"); rec.Code != http.StatusNotFound {
 		t.Errorf("the recording answers under /photos/: %d", rec.Code)
+	}
+}
+
+// TestAPhotographSaysWhereItIs is #431: what is listed here is a file in the
+// tree, and that address is the only one a share link or a thumbnail is
+// answered at, so a client casting from here needs it. Escaped as an href,
+// and only on a file.
+func TestAPhotographSaysWhereItIs(t *testing.T) {
+	t.Parallel()
+	r := byDateServer(t)
+	r.add(t, "Camera/a & b#1.jpg", "one", "image/jpeg", june)
+
+	got := sourcesOf(t, do(t, r.h, "PROPFIND", "/photos/2024/06/", "", "Depth", "1").Body.String())
+	want := map[string]string{"/photos/2024/06/a%20&%20b%231.jpg": "/files/Camera/a%20&%20b%231.jpg"}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("sources = %v, want %v", got, want)
 	}
 }

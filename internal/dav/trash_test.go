@@ -163,3 +163,17 @@ func TestTheTrashRefusesInfiniteDepth(t *testing.T) {
 		t.Errorf("Depth: infinity = %d, want 403", got)
 	}
 }
+
+// TestADeletedFileSaysNothingAboutWhereItWas: its path in the tree is no
+// address any more, and a client that cast it would hand a television a 404
+// (#431).
+func TestADeletedFileSaysNothingAboutWhereItWas(t *testing.T) {
+	t.Parallel()
+	h, svc, _ := trashServer(t)
+	put(t, svc, "notes.txt", "notes")
+	remove(t, svc, "notes.txt")
+
+	if got := sourcesOf(t, do(t, h, "PROPFIND", trashPrefix, "", "Depth", "1").Body.String()); len(got) != 0 {
+		t.Errorf("sources = %v, want none", got)
+	}
+}

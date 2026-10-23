@@ -503,3 +503,26 @@ func TestPropfindOfSomethingMissing(t *testing.T) {
 		t.Errorf("a property nobody has was left out instead of refused: %s", body)
 	}
 }
+
+// sourcesOf is "href -> the href its source property points at", for the
+// generated mounts (#431). Matched by local name, as elements is.
+func sourcesOf(t *testing.T, body string) map[string]string {
+	t.Helper()
+	out := map[string]string{}
+	for _, resp := range parseMultistatus(t, body).Responses {
+		for _, ps := range resp.Propstat {
+			var prop struct {
+				Source *struct {
+					Href string `xml:"href"`
+				} `xml:"source"`
+			}
+			if err := xml.Unmarshal([]byte("<r>"+string(ps.Prop.Inner)+"</r>"), &prop); err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(ps.Status, "200") && prop.Source != nil {
+				out[resp.Href] = prop.Source.Href
+			}
+		}
+	}
+	return out
+}

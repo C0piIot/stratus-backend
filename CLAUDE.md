@@ -1755,6 +1755,16 @@ Restraint here is principle 3, not laziness:
   goes through the same verifier as every other surface, so a guess counts
   against the same rate limit rather than opening an oracle beside it.
 
+  **The generated mounts say where each file really is** (#431): a file
+  under `/photos/`, `/videos/` or `/music/` carries a `source` property in the
+  same namespace, holding a `DAV:href` to its address under `/files/`. That
+  is the only path a share link can be signed for and the only one `/thumb/`
+  and HLS answer at, so it is what a client casting from those collections
+  has to present (stratus-app#163). The same exception, on the same terms:
+  a client that does not read it casts nothing from there and works. The
+  trash does not carry it, because a deleted file's path is no address any
+  more.
+
   **A `PROPFIND` for the whole tree is refused before the library sees it**
   (#160), with the `403` and the `DAV:propfind-finite-depth` precondition
   RFC 4918 9.1 provides for exactly this. The library builds a multistatus as

@@ -305,6 +305,7 @@ const stratusNamespace = "https://github.com/C0piIot/stratus"
 
 var (
 	hasPreviewName = xml.Name{Space: stratusNamespace, Local: "has-preview"}
+	sourceName     = xml.Name{Space: stratusNamespace, Local: "source"}
 	quotaAvailable = xml.Name{Space: "DAV:", Local: "quota-available-bytes"}
 	quotaUsed      = xml.Name{Space: "DAV:", Local: "quota-used-bytes"}
 )
