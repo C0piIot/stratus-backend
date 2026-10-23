@@ -498,13 +498,20 @@ expect_startup_failure() {
   ok "$what (exit $rc in ${elapsed}s)"
 }
 
-# The original bug: Docker does not carry image ownership into a fresh named
-# volume, so /data arrives root-owned and the nonroot user cannot write.
+# A fresh named volume copies the ownership of the image's /data, which is
+# there for exactly this: without it the volume arrives root-owned and the
+# nonroot user cannot write, which was this suite's first bug.
 vol="stratus-smoke-vol-$$"
 volumes+=("$vol")
 docker volume create "$vol" >/dev/null
-expect_startup_failure "fresh named volume as nonroot refuses to start" "not writable" \
-  -v "$vol:/data"
+name="stratus-smoke-vol"
+run_detached "$name" -v "$vol:/data"
+if wait_serving "$name"; then
+  ok "a fresh named volume starts as nonroot"
+else
+  bad "a fresh named volume starts as nonroot" "$(docker logs "$name" 2>&1 | tail -3)"
+fi
+stop_container "$name"
 
 foreign="$(mktmp)"
 docker run --rm -v "$foreign:/d" alpine:3.24 sh -c 'chown 0:0 /d && chmod 755 /d' >/dev/null 2>&1

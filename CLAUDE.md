@@ -2915,7 +2915,7 @@ Restraint here is principle 3, not laziness:
   vendored assets and 50 KB of that htmx -- which is the whole reason
   `scripts/smoke.sh` carries a size budget: the number moved because a decision
   moved it.
-- **Two deploy manifests, Render's and Fly's** (#13, #177). `render.yaml` is
+- **Three deploy manifests: Render's, Fly's and Coolify's** (#13, #177). `render.yaml` is
   the one with a button: a web service on the
   published image and a disk at `/data`. The three platforms a Go binary is
   usually pushed to are excluded on purpose -- Vercel, Netlify and Cloud Run are
@@ -2927,6 +2927,9 @@ Restraint here is principle 3, not laziness:
   can never find it, and is deployed with `--config` by
   `scripts/demo-reset.sh`. The two are never merged: one is somebody's library
   and the other is a throwaway open to anybody and emptied every hour.
+  Coolify's is `deploy/coolify/compose.yaml`, apart from the root
+  `compose.yaml` because that one builds the image and binds `./data` for
+  development, while this one runs what CI publishes on a named volume.
 
   **The deploy pages live in `doc/deploy/` and the README links them**, because
   the quickstart is read in the first five minutes and a platform's cost,
@@ -2949,9 +2952,14 @@ Restraint here is principle 3, not laziness:
   a laptop and a terminal before the first boot.
 
   **The thing to check on any platform added here is who owns the mount.** The
-  image runs as 65532, and a platform that hands it a root-owned volume -- which
-  is exactly what Docker does with a fresh named one -- produces a server that
-  refuses to start with a message about `/data` and no obvious cause. Fly reads
+  image runs as 65532, and a platform that hands it a root-owned volume
+  produces a server that refuses to start with a message about `/data` and no
+  obvious cause. **Docker's fresh named volume is no longer one of them**
+  (#177): it takes the ownership of the directory it is mounted over, so the
+  image carries an empty `/data` owned by 65532 -- which is what made Coolify
+  work, and a plain `docker run -v name:/data` with it. Railway is the platform
+  this does not reach: its volumes arrive root-owned whatever the image says,
+  and its answer is running as root. Fly reads
   the image's user and mounts accordingly; that is a property of the platform,
   not of the manifest, so it is answered by deploying rather than by reading --
   which the demo's own volume has now done (#238), and a paid Render service
