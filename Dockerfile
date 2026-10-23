@@ -79,5 +79,9 @@ COPY --from=build --chown=65532:65532 /out/data /data
 # No VOLUME: an anonymous volume per container would be a library nobody named.
 # Numeric rather than "nonroot:nonroot": it needs no passwd lookup, and hadolint
 # DL3066 flags the symbolic form. 65532 is distroless's nonroot user.
+#
+# **Changing it breaks every named volume already made**: a volume takes /data's
+# owner once, when it is created, so after an upgrade the server would refuse to
+# start on it until somebody chowned it by hand. scripts/smoke.sh pins it.
 USER 65532:65532
 ENTRYPOINT ["/usr/local/bin/stratus"]
