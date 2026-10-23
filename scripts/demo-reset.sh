@@ -15,8 +15,8 @@
 # anything would seed on top of it and look fine, which is how a schema change
 # once landed on a database written by the build before it.
 #
-# Without an image it deploys what fly.toml names, which is what CI last
-# published.
+# Without an image it deploys what deploy/demo/fly.toml names, which is what
+# CI last published.
 
 set -euo pipefail
 
@@ -46,15 +46,15 @@ for id in $(flyctl volumes list --app "$APP" --json | jq -r '.[].id'); do
 done
 
 # A deploy will not make a volume for a new machine, only mount one that is
-# there: the name, region and size are fly.toml's. No snapshots, which are
-# billed, of a volume that is thrown away within the hour.
-toml="$HERE/../fly.toml"
+# there: the name, region and size are the demo fly.toml's. No snapshots,
+# which are billed, of a volume that is thrown away within the hour.
+toml="$HERE/../deploy/demo/fly.toml"
 setting() { sed -n "s/^ *$1 *= *\"\(.*\)\"/\1/p" "$toml" | head -1; }
 size="$(setting initial_size)"
 flyctl volumes create "$(setting source)" --app "$APP" --region "$(setting primary_region)" \
 	--size "${size%gb}" --scheduled-snapshots=false --yes
 
-flyctl deploy --app "$APP" ${IMAGE:+--image "$IMAGE"} --ha=false --yes --wait-timeout 5m
+flyctl deploy --config "$toml" --app "$APP" ${IMAGE:+--image "$IMAGE"} --ha=false --yes --wait-timeout 5m
 
 # The version is the password, and every OpenSubsonic answer carries it,
 # including the refusal for asking with no credentials.

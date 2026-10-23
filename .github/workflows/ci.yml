@@ -238,10 +238,11 @@ jobs:
   # nothing in a fork or in any repo where FLY_APP is unset, which is what keeps
   # this from being a deploy recipe pretending to be one -- see issue #13.
   #
-  # fly.toml carries the machine, so changing its size or its settings is a
-  # commit rather than somebody's shell history; --app takes the name from a
-  # variable so a fork deploys the same configuration to its own instance. The
-  # image is the digest publish just pushed, not the tag it pushed it under.
+  # deploy/demo/fly.toml carries the machine, so changing its size or its
+  # settings is a commit rather than somebody's shell history; --app takes the
+  # name from a variable so a fork deploys the same configuration to its own
+  # instance. The image is the digest publish just pushed, not the tag it
+  # pushed it under.
   deploy:
     name: deploy
     needs: publish

@@ -2915,16 +2915,18 @@ Restraint here is principle 3, not laziness:
   vendored assets and 50 KB of that htmx -- which is the whole reason
   `scripts/smoke.sh` carries a size budget: the number moved because a decision
   moved it.
-- **One deploy manifest, and it is Render's** (#13). `render.yaml` is the only
-  hosted-platform file here that is a recommendation: a web service on the
+- **Two deploy manifests, Render's and Fly's** (#13, #177). `render.yaml` is
+  the one with a button: a web service on the
   published image and a disk at `/data`. The three platforms a Go binary is
   usually pushed to are excluded on purpose -- Vercel, Netlify and Cloud Run are
   stateless and scale to zero, which kills the indexer goroutine and forces S3
   plus a hosted database before anything works -- and Fly has no button to
-  offer, so it gets a page of commands instead: `doc/deploy/fly.md` carries a
-  `fly.toml` of its own, written to be copied. The `fly.toml` in this
-  repository is not that example and never becomes it -- it is the throwaway
-  test instance, open to anybody and emptied every hour.
+  offer, so it gets the next best thing (#177): the root `fly.toml` is written
+  for `fly launch --from <repo> --copy-config`, which is the one place launch
+  looks. The demo's lives at `deploy/demo/fly.toml`, out of the root so launch
+  can never find it, and is deployed with `--config` by
+  `scripts/demo-reset.sh`. The two are never merged: one is somebody's library
+  and the other is a throwaway open to anybody and emptied every hour.
 
   **The deploy pages live in `doc/deploy/` and the README links them**, because
   the quickstart is read in the first five minutes and a platform's cost,

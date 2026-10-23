@@ -1,70 +1,34 @@
 # Fly.io
 
-No button — Fly has none. A `fly.toml`, an app, a volume, two secrets and a
-deploy.
+No button — Fly has none — but [`fly.toml`](../../fly.toml) at the root of the
+repository is written to be launched, so one command makes the app, the
+volume, the secrets and the first deploy:
 
 ```sh
-fly apps create my-stratus
-fly volumes create stratus_data --app my-stratus --region cdg --size 1
-fly secrets set --app my-stratus STRATUS_USERNAME=edu STRATUS_PASSWORD='choose one'
-fly deploy --app my-stratus --ha=false   # reads ./fly.toml
+fly launch --from https://github.com/C0piIot/stratus-backend --copy-config \
+  --ha=false --secret STRATUS_USERNAME=edu --secret STRATUS_PASSWORD='choose one'
 ```
 
-## fly.toml
+It asks for an app name unless `--name` gives one, and the region is `cdg`
+unless `--primary-region` says otherwise. `--from` clones the repository into
+the current directory, so run it in an empty one; what it leaves there is a
+copy of `fly.toml` with the app name written in, which is yours to keep or
+throw away.
 
-```toml
-app = "my-stratus"
-primary_region = "cdg"
+**`--copy-config` is not optional.** Without it launch ignores the file, scans
+the clone, finds the Dockerfile and builds it, on a 1 GB machine with no
+volume — a server that loses the library on its first cold start.
 
-# 256 MB is not enough for the first thumbnails while the indexer is still
-# reading: the kernel kills the server mid-request and the proxy answers 502.
-# Swap takes the spike more slowly instead.
-swap_size_mb = 512
-
-[build]
-  image = "ghcr.io/c0piiot/stratus-backend:main"
-
-[env]
-  STRATUS_ADDR = ":8080"
-  STRATUS_DATA_DIR = "/data"
-
-[http_service]
-  internal_port = 8080
-  # Fly terminates TLS and forwards the scheme, which is what makes the
-  # session cookie Secure.
-  force_https = true
-  # Nobody is watching it most of the time, so it sleeps and the first request
-  # wakes it. Fly will not suspend a machine with swap, so: stop.
-  auto_stop_machines = "stop"
-  auto_start_machines = true
-  min_machines_running = 0
-
-  [[http_service.checks]]
-    interval = "30s"
-    timeout = "5s"
-    grace_period = "15s"
-    method = "GET"
-    path = "/healthz"
-
-# Name, region and size are the volume you created above. 1 GB is the
-# smallest Fly sells; a volume can be extended, never shrunk, so size it for
-# the library rather than for the first week.
-[mounts]
-  source = "stratus_data"
-  destination = "/data"
-  initial_size = "1gb"
-
-[[vm]]
-  size = "shared-cpu-1x"
-  memory = "256mb"
-```
+Read the file before launching: the machine size, the swap and the volume
+size are in it, each with the reason it is what it is.
 
 ## Things worth knowing
 
-- **The volume is not optional, and a deploy will not make it.** A deploy
-  mounts a volume that is already there, which is why `fly volumes create` is
-  its own step. A machine's own disk is thrown away on a cold start, and
-  `auto_stop_machines` guarantees cold starts.
+- **The volume is not optional, and only launch makes it.** A later deploy
+  mounts a volume that is already there; a machine's own disk is thrown away
+  on a cold start, and `auto_stop_machines` guarantees cold starts. A volume
+  can be extended, never shrunk, so size it for the library rather than for
+  the first week.
 - **A deploy does not empty the volume**, and neither does stopping the machine
   and starting it again. Only destroying the volume does.
 - **One machine, hence `--ha=false`.** Fly's default is to spread a new app
@@ -76,8 +40,18 @@ swap_size_mb = 512
 - **The mount is owned by uid 65532**, the image's user, because Fly reads it
   from the image. A platform that hands over a root-owned volume instead
   produces a server that refuses to start with `/data` in the message.
-- **Upgrading is `fly deploy --ha=false` again**: `:main` is a moving tag,
-  pulled when you ask for it.
+- **Upgrading is `fly deploy --app my-stratus --ha=false`**, from anywhere:
+  with no `fly.toml` in the directory it deploys the configuration the app
+  already has, and `:main` is a moving tag, pulled when you ask for it.
+
+## What a real deploy answered
+
+October 2026, with flyctl 0.4.112 and the file as it is (#177): launch made one
+256 MB machine and the 1 GB volume, and set both secrets before the first
+boot. The volume came up writable for uid 65532, plain http redirected to
+https, the web sign-in set a `Secure` cookie, a WebDAV `PUT` landed, tus
+answered, and the file was still there after a stop and a start and after a
+`fly deploy` run from a directory with no `fly.toml` in it.
 
 ## Changing the options
 
@@ -97,6 +71,7 @@ generator work in. Everything else is in the README's configuration table.
 
 ---
 
-The [`fly.toml`](../../fly.toml) in this repository is not that file: it is the
-disposable instance CI keeps on the last green `main`, open to anybody and
-emptied every hour. Read it as a worked example, not as a starting point.
+[`deploy/demo/fly.toml`](../../deploy/demo/fly.toml) is the other Fly file in
+this repository, and it is not for launching: it is the disposable instance CI
+keeps on the last green `main`, open to anybody and emptied every hour. It
+lives out of the root so that `fly launch --from` cannot find it.

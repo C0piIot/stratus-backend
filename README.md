@@ -1382,8 +1382,17 @@ would lose every photograph on the next deploy.
 [doc/deploy/render.md](doc/deploy/render.md) has the rest: what it costs, what
 to change and where, and what a real deploy answered.
 
-Fly has no button, and takes four commands:
-[doc/deploy/fly.md](doc/deploy/fly.md).
+Fly has no button, but [`fly.toml`](fly.toml) is written to be launched, and
+one command makes the app, the volume and the credentials:
+
+```sh
+fly launch --from https://github.com/C0piIot/stratus-backend --copy-config \
+  --ha=false --secret STRATUS_USERNAME=you --secret STRATUS_PASSWORD='choose one'
+```
+
+[doc/deploy/fly.md](doc/deploy/fly.md) has the rest. The demo's own
+configuration is [`deploy/demo/fly.toml`](deploy/demo/fly.toml), and is not
+something to launch.
 
 ## Configuration
 
@@ -1580,7 +1589,7 @@ end-to-end run can satisfy has stopped being a statement about unit tests.
 
 CI publishes `ghcr.io/c0piiot/stratus-backend:main` on every merge, multi-arch,
 and — where a repository sets a `FLY_APP` variable — deploys that exact digest to
-a test instance described by [`fly.toml`](fly.toml), which is the one at
+a test instance described by [`deploy/demo/fly.toml`](deploy/demo/fly.toml), which is the one at
 <https://stratus-demo.dropdatabase.es>. It is one job at the end of
 a pipeline that has already run the linters, the race detector, both conformance
 suites, the coverage floors and the container suite, so nothing reaches it that
