@@ -1,0 +1,43 @@
+# DigitalOcean App Platform: what the Deploy to DigitalOcean button in the
+# README creates. doc/deploy/digitalocean.md is the page that explains it.
+#
+# App Platform has no volumes -- an instance's disk is gone on every deploy and
+# restart -- so this is the one install where neither half of the library is on
+# the machine: the index is a dev PostgreSQL the button makes, and the blobs are
+# a Spaces bucket made beforehand, whose DSN the form asks for. /data stays the
+# image's default and is only scratch here, which is all the s3 driver needs.
+spec:
+  name: stratus
+  services:
+    - name: stratus
+      image:
+        # What CI publishes on every merge to main, public, so App Platform
+        # pulls it with no credentials.
+        registry_type: GHCR
+        registry: c0piiot
+        repository: stratus-backend
+        tag: main
+      http_port: 8080
+      instance_count: 1
+      instance_size_slug: basic-xxs
+      # Liveness, which touches no dependency -- see the README on why this and
+      # not /readyz.
+      health_check:
+        http_path: /healthz
+      envs:
+        - key: STRATUS_DB_DSN
+          scope: RUN_TIME
+          value: ${db.DATABASE_URL}
+        # s3://KEY:SECRET@<region>.digitaloceanspaces.com/<bucket>?region=<region>
+        - key: STRATUS_STORAGE_DSN
+          scope: RUN_TIME
+          type: SECRET
+        - key: STRATUS_USERNAME
+          scope: RUN_TIME
+        - key: STRATUS_PASSWORD
+          scope: RUN_TIME
+          type: SECRET
+  databases:
+    - name: db
+      engine: PG
+      production: false
