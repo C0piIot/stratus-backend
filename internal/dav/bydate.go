@@ -31,11 +31,12 @@ import (
 // The mount itself is the generated one in generated.go (#359).
 
 // ByDate serves the owner's files of one kind under prefix, by year and month.
-func ByDate(prefix string, source timeline.Source, kind db.Kind) http.Handler {
+func ByDate(prefix, filesPrefix string, source timeline.Source, kind db.Kind) http.Handler {
 	return mount[timeline.Node]{
 		what:  "the library by date",
 		open:  func(_ context.Context, owner string) tree[timeline.Node] { return timeline.New(source, owner, kind) },
 		entry: func(n timeline.Node) entry { return dateEntry{n} },
+		files: filesPrefix,
 	}.handler(prefix)
 }
 

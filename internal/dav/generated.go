@@ -1,8 +1,10 @@
 package dav
 
 import (
+	"bytes"
 	"cmp"
 	"context"
+	"encoding/xml"
 	"errors"
 	"io/fs"
 	"log/slog"
@@ -88,12 +90,14 @@ type tree[N any] interface {
 }
 
 // mount is one generated collection: what it is called in a refusal and a
-// log line, how one request's tree is opened for the owner, and how a node
-// of it is read as an entry.
+// log line, how one request's tree is opened for the owner, how a node of it
+// is read as an entry, and where the user's tree is mounted -- empty for a
+// mount whose rows are not in it any more, which is the trash.
 type mount[N any] struct {
 	what  string
 	open  func(ctx context.Context, owner string) tree[N]
 	entry func(N) entry
+	files string
 }
 
 // handler serves the mount under prefix.
@@ -122,7 +126,7 @@ func (m mount[N]) handler(prefix string) http.Handler {
 			return
 		}
 
-		gfs := &generatedFS[N]{ctx: r.Context(), tree: m.open(r.Context(), owner), entry: m.entry}
+		gfs := &generatedFS[N]{ctx: r.Context(), tree: m.open(r.Context(), owner), entry: m.entry, files: m.files}
 		n, err := gfs.tree.Resolve(r.Context(), strings.TrimPrefix(r.URL.Path, prefix))
 		if err == nil && m.entry(n).IsDir() && r.Header.Get("Depth") == "1" {
 			_, err = gfs.tree.Children(r.Context(), n)
@@ -151,6 +155,7 @@ type generatedFS[N any] struct {
 	ctx   context.Context
 	tree  tree[N]
 	entry func(N) entry
+	files string
 }
 
 func (g *generatedFS[N]) Stat(ctx context.Context, name string) (os.FileInfo, error) {
@@ -203,6 +208,29 @@ func (f *generatedFile[N]) Readdir(count int) ([]os.FileInfo, error) {
 }
 
 func (f *generatedFile[N]) Stat() (os.FileInfo, error) { return entryInfo{e: f.fs.entry(f.node)}, nil }
+
+// DeadProps says where a file listed here lives in the user's tree, as an
+// href, because that path is the only one a share link can be signed for and
+// the only one /thumb/ and HLS answer at: a client that casts from here has
+// to present that address and could not otherwise find it (#431).
+func (f *generatedFile[N]) DeadProps() (map[xml.Name]xnet.Property, error) {
+	e := f.fs.entry(f.node)
+	if f.fs.files == "" || e.IsDir() {
+		return nil, nil
+	}
+	var href bytes.Buffer
+	if err := xml.EscapeText(&href, []byte(hrefOf(f.fs.files+e.File().Path))); err != nil {
+		return nil, err
+	}
+	return map[xml.Name]xnet.Property{
+		sourceName: property(sourceName, `<D:href xmlns:D="DAV:">`+href.String()+`</D:href>`),
+	}, nil
+}
+
+// Patch refuses every write, as the rest of the mount does.
+func (f *generatedFile[N]) Patch([]xnet.Proppatch) ([]xnet.Propstat, error) {
+	return nil, errReadOnly
+}
 
 // entryInfo is x/net's FileInfo, ETager and ContentTyper for one generated
 // resource: the original's own validator and type, for the reasons rowInfo

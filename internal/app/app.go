@@ -276,10 +276,10 @@ func (a *App) Handler(deps Deps) http.Handler {
 		// by date -- the same handler over the same tree with a different kind
 		// in it (#213, #215). Every one's byte-serving half is the browser's.
 		mux.Handle(playlistsPrefix, collection(dav.Playlists(playlistsPrefix, filesPrefix, playlists)))
-		mux.Handle(musicPrefix, collection(dav.Music(musicPrefix, deps.Database)))
+		mux.Handle(musicPrefix, collection(dav.Music(musicPrefix, filesPrefix, deps.Database)))
 		mux.Handle(trashPrefix, collection(dav.Trash(trashPrefix, service)))
-		mux.Handle(photosPrefix, collection(dav.ByDate(photosPrefix, deps.Database, db.KindImage)))
-		mux.Handle(videosPrefix, collection(dav.ByDate(videosPrefix, deps.Database, db.KindVideo)))
+		mux.Handle(photosPrefix, collection(dav.ByDate(photosPrefix, filesPrefix, deps.Database, db.KindImage)))
+		mux.Handle(videosPrefix, collection(dav.ByDate(videosPrefix, filesPrefix, deps.Database, db.KindVideo)))
 		// Calendars have no browser half, so nothing splits them by method.
 		// The redirect asks for no credentials: it says where to look and
 		// nothing about what is there, and it keeps the method, which is a

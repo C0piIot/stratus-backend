@@ -36,7 +36,7 @@ func musicServer(t *testing.T, tracks ...[3]string) (http.Handler, db.Store) {
 			t.Fatal(err)
 		}
 	}
-	return withUser(dav.Music(musicPrefix, meta), "edu"), meta
+	return withUser(dav.Music(musicPrefix, filesPrefix, meta), "edu"), meta
 }
 
 // TestTheLibraryIsFoldersByTag is the mount: artists, their albums, and the
@@ -104,11 +104,11 @@ func TestWhatIsNotInTheLibraryIsNotFound(t *testing.T) {
 			t.Errorf("PROPFIND %s = %d, want 404", target, rec.Code)
 		}
 	}
-	if rec := do(t, dav.Music(musicPrefix, meta), "PROPFIND", "/music/", ""); rec.Code != http.StatusUnauthorized {
+	if rec := do(t, dav.Music(musicPrefix, filesPrefix, meta), "PROPFIND", "/music/", ""); rec.Code != http.StatusUnauthorized {
 		t.Errorf("with nobody authenticated = %d, want 401", rec.Code)
 	}
 	// Somebody else's library is empty, not somebody else's.
-	theirs := withUser(dav.Music(musicPrefix, meta), "someone-else")
+	theirs := withUser(dav.Music(musicPrefix, filesPrefix, meta), "someone-else")
 	wantHrefs(t, hrefs(t, do(t, theirs, "PROPFIND", "/music/", "", "Depth", "1")), "/music/")
 }
 
@@ -146,9 +146,20 @@ func TestABrokenLibraryIsNotAnEmptyOne(t *testing.T) {
 	_, meta := musicServer(t, [3]string{"a.flac", "A", "B"})
 
 	for _, call := range []string{"Artists", "Albums", "Tracks"} {
-		h := withUser(dav.Music(musicPrefix, failingLibrary{Music: meta, fail: call}), "edu")
+		h := withUser(dav.Music(musicPrefix, filesPrefix, failingLibrary{Music: meta, fail: call}), "edu")
 		if rec := do(t, h, "PROPFIND", "/music/A/B/", "", "Depth", "1"); rec.Code != http.StatusInternalServerError {
 			t.Errorf("PROPFIND with %s broken = %d, want 500", call, rec.Code)
 		}
+	}
+}
+
+// TestATrackSaysWhereItIs is #431, for the library by tag.
+func TestATrackSaysWhereItIs(t *testing.T) {
+	t.Parallel()
+	h, _ := musicServer(t, [3]string{"sorted/Amber/a.flac", "Autechre", "Amber"})
+
+	got := sourcesOf(t, do(t, h, "PROPFIND", "/music/Autechre/Amber/", "", "Depth", "1").Body.String())
+	if got["/music/Autechre/Amber/a.flac"] != "/files/sorted/Amber/a.flac" || len(got) != 1 {
+		t.Errorf("sources = %v", got)
 	}
 }

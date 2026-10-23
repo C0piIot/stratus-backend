@@ -30,11 +30,12 @@ import (
 // generated one in generated.go (#359).
 
 // Music serves the owner's library under prefix, by artist and album.
-func Music(prefix string, source music.Source) http.Handler {
+func Music(prefix, filesPrefix string, source music.Source) http.Handler {
 	return mount[music.Node]{
 		what:  "the music library",
 		open:  func(_ context.Context, owner string) tree[music.Node] { return music.NewTree(source, owner) },
 		entry: func(n music.Node) entry { return trackEntry{n} },
+		files: filesPrefix,
 	}.handler(prefix)
 }
 
