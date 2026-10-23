@@ -154,6 +154,15 @@ fi
 # ---------------------------------------------------------------------------
 section "Image properties"
 # ---------------------------------------------------------------------------
+# Not merely non-root but this uid: every named volume out there was made owned
+# by it, and a different one would refuse to start on all of them (#177).
+img_user="$(docker image inspect -f '{{.Config.User}}' "$REF")"
+if [ "$img_user" = "65532:65532" ]; then
+  ok "runs as 65532:65532, which existing volumes are owned by"
+else
+  bad "runs as 65532:65532, which existing volumes are owned by" "image user is '$img_user'"
+fi
+
 # The image must add exactly the layers it means to: see the count below.
 # A second layer means a stray COPY or a leaked source tree.
 docker pull -q "$BASE_IMAGE" >/dev/null 2>&1 || true
