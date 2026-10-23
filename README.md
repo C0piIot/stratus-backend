@@ -1370,7 +1370,7 @@ make down      # stop, keeping your data
 WebDAV is only mounted once there are credentials, so set `STRATUS_USERNAME` and
 `STRATUS_PASSWORD` in `.env` before mounting anything.
 
-### Hosted, on Render or Fly
+### Hosted, on Render, Fly or Coolify
 
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/C0piIot/stratus-backend)
 
@@ -1393,6 +1393,12 @@ fly launch --from https://github.com/C0piIot/stratus-backend --copy-config \
 [doc/deploy/fly.md](doc/deploy/fly.md) has the rest. The demo's own
 configuration is [`deploy/demo/fly.toml`](deploy/demo/fly.toml), and is not
 something to launch.
+
+On a Coolify server of your own, a Docker Compose resource on this repository
+with the compose location set to
+[`deploy/coolify/compose.yaml`](deploy/coolify/compose.yaml): a named volume, a
+username to fill in and a password Coolify generates.
+[doc/deploy/coolify.md](doc/deploy/coolify.md) has the steps.
 
 ## Configuration
 
@@ -1534,7 +1540,9 @@ written anywhere.
 `STRATUS_DATA_PATH` is a bind mount, not a named volume: your library stays on
 your own filesystem, and the container runs as the user that owns it. The server
 verifies the directory is writable at startup and exits with a clear error if it
-is not.
+is not. A named volume works too -- `docker run -v stratus-data:/data` -- since
+the image's `/data` belongs to the user it runs as and a fresh volume takes that
+ownership.
 
 ## Development
 

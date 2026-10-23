@@ -47,6 +47,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     go build -trimpath ${COVER:+-cover -covermode=atomic} \
       -ldflags "-s -w -X main.version=${VERSION} -X main.buildDate=${BUILD_DATE}" \
       -o /out/stratus ./cmd/stratus
+RUN mkdir /out/data
 
 FROM gcr.io/distroless/static:nonroot AS runtime
 COPY --from=build /out/stratus /usr/local/bin/stratus
@@ -68,9 +69,14 @@ ENV STRATUS_ADDR=":8080" \
     STRATUS_DATA_DIR="/data"
 EXPOSE 8080
 
-# No VOLUME: /data is expected to be a bind mount owned by the host user the
-# container runs as. Docker does not carry image ownership into a fresh named
-# volume, so relying on one would leave /data root-owned and unwritable.
+# An empty /data owned by the user below, because a fresh named volume takes
+# the ownership of the directory it is mounted over: without one in the image
+# the volume arrives root-owned and the server refuses to start, which is what
+# Coolify and a plain `docker run -v name:/data` both hand it. A bind mount
+# still brings the host's ownership, as before.
+COPY --from=build --chown=65532:65532 /out/data /data
+
+# No VOLUME: an anonymous volume per container would be a library nobody named.
 # Numeric rather than "nonroot:nonroot": it needs no passwd lookup, and hadolint
 # DL3066 flags the symbolic form. 65532 is distroless's nonroot user.
 USER 65532:65532

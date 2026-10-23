@@ -1,0 +1,43 @@
+# Coolify: a Stratus of your own, deployed as a Docker Compose resource from
+# this repository with the compose location set to /deploy/coolify/compose.yaml.
+# doc/deploy/coolify.md is the page that explains it.
+#
+# Not the compose.yaml at the root, which builds the image and binds ./data for
+# development. This one runs what CI publishes on a named volume.
+
+services:
+  stratus:
+    image: ghcr.io/c0piiot/stratus-backend:main
+    restart: unless-stopped
+
+    environment:
+      # Coolify's proxy routes the domain it is given to this port.
+      SERVICE_URL_STRATUS_8080: ""
+      # Required: Coolify refuses to deploy until it is filled in.
+      STRATUS_USERNAME: "${STRATUS_USERNAME:?}"
+      # Generated once by Coolify and kept across deploys; it is on the
+      # resource's Environment Variables page, where it can be changed.
+      STRATUS_PASSWORD: "${SERVICE_PASSWORD_STRATUS}"
+
+    # The library and the SQLite database. The image's /data is owned by the
+    # user it runs as, and a fresh named volume takes that ownership.
+    volumes:
+      - stratus-data:/data
+
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/stratus", "-healthcheck"]
+      interval: 30s
+      timeout: 5s
+      start_period: 5s
+      retries: 3
+
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  stratus-data:

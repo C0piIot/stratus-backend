@@ -159,14 +159,15 @@ section "Image properties"
 docker pull -q "$BASE_IMAGE" >/dev/null 2>&1 || true
 base_layers="$(docker image inspect -f '{{len .RootFS.Layers}}' "$BASE_IMAGE" 2>/dev/null || echo 0)"
 img_layers="$(docker image inspect -f '{{len .RootFS.Layers}}' "$REF")"
-# Four layers now: the binary, ffprobe, ffmpeg and ffmpeg's licence notice,
-# which GPLv3 wants beside the binary since it carries libx264 (#50). The
+# Five layers now: the binary, ffprobe, ffmpeg, ffmpeg's licence notice, which
+# GPLv3 wants beside the binary since it carries libx264 (#50), and an empty
+# /data for a fresh named volume to take its owner from (#177). The
 # number matters less than the fact that it is counted -- a base swapped for
 # something with a package manager in it would show up here first.
-if [ "$base_layers" -gt 0 ] && [ "$((img_layers - base_layers))" -eq 4 ]; then
-  ok "adds exactly four layers over the base ($base_layers -> $img_layers)"
+if [ "$base_layers" -gt 0 ] && [ "$((img_layers - base_layers))" -eq 5 ]; then
+  ok "adds exactly five layers over the base ($base_layers -> $img_layers)"
 else
-  bad "adds exactly four layers over the base" "base=$base_layers image=$img_layers"
+  bad "adds exactly five layers over the base" "base=$base_layers image=$img_layers"
 fi
 
 # Both media tools are requirements, so an absence has to fail here rather than
@@ -498,13 +499,20 @@ expect_startup_failure() {
   ok "$what (exit $rc in ${elapsed}s)"
 }
 
-# The original bug: Docker does not carry image ownership into a fresh named
-# volume, so /data arrives root-owned and the nonroot user cannot write.
+# A fresh named volume copies the ownership of the image's /data, which is
+# there for exactly this: without it the volume arrives root-owned and the
+# nonroot user cannot write, which was this suite's first bug.
 vol="stratus-smoke-vol-$$"
 volumes+=("$vol")
 docker volume create "$vol" >/dev/null
-expect_startup_failure "fresh named volume as nonroot refuses to start" "not writable" \
-  -v "$vol:/data"
+name="stratus-smoke-vol"
+run_detached "$name" -v "$vol:/data"
+if wait_serving "$name"; then
+  ok "a fresh named volume starts as nonroot"
+else
+  bad "a fresh named volume starts as nonroot" "$(docker logs "$name" 2>&1 | tail -3)"
+fi
+stop_container "$name"
 
 foreign="$(mktmp)"
 docker run --rm -v "$foreign:/d" alpine:3.24 sh -c 'chown 0:0 /d && chmod 755 /d' >/dev/null 2>&1
@@ -515,10 +523,12 @@ rodir="$(mktmp)"
 expect_startup_failure "read-only bind mount refuses to start" "not writable" \
   -u "$(id -u):$(id -g)" -v "$rodir:/data:ro"
 
+# Somewhere other than /data, which is a directory in the image now: Docker
+# refuses to put a file over one, and this is about what the server says.
 filedir="$(mktmp)"
 : > "$filedir/afile"
 expect_startup_failure "a regular file as the data dir refuses to start" "data dir" \
-  -u "$(id -u):$(id -g)" -v "$filedir/afile:/data"
+  -u "$(id -u):$(id -g)" -v "$filedir/afile:/srv/data" -e STRATUS_DATA_DIR=/srv/data
 
 # A probe file left by a previous crash must not wedge startup.
 staledir="$(mktmp)"
