@@ -53,7 +53,7 @@ func TestAPictureThatIsNotReadyIsNotAPictureThatIsMissing(t *testing.T) {
 		Playlists: playlistsOf(meta),
 		Indexing:  indexing(meta),
 		Imports:   nil,
-		Video:     web.Video{},
+		Playback:  web.Playback{},
 	})
 	cookie := signIn(t, h)
 

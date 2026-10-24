@@ -41,6 +41,11 @@ const (
 	playParam = "play"
 	// hlsParam names the playlist or a segment.
 	hlsParam = "hls"
+	// formatParam, bitrateParam and estimateParam ask for a track transcoded,
+	// under the names OpenSubsonic's stream already gives them (#433).
+	formatParam   = "format"
+	bitrateParam  = "maxBitRate"
+	estimateParam = "estimateContentLength"
 	// playlistName is what a player is given: the one playlist when there is
 	// one way to stream a film, the master over both when there are two.
 	// copyName and encodedName are the two media playlists behind it.
@@ -55,10 +60,11 @@ const (
 	castLife = 24 * time.Hour
 )
 
-// Video is what films need from the rest of the process: the media row that
-// says what a film is, and the transcoder that remuxes its segments. The zero
-// value offers no player and no HLS.
-type Video struct {
+// Playback is what films and tracks need from the rest of the process: the
+// media row that says what a file is, the transcoder that remuxes a film's
+// segments and the one that turns a track into another format. The zero value
+// offers no player, no HLS and no transcode.
+type Playback struct {
 	Media interface {
 		MediaByFile(ctx context.Context, fileID int64) (db.Media, error)
 	}
@@ -73,10 +79,15 @@ type Video struct {
 	// Encodes says whether Encoded is offered now, which is a setting that
 	// can change while the server runs (#397); nil is always.
 	Encodes func() bool
+	// Transcode turns a track into what ?format= asks for (#433), and is nil
+	// where nothing does: the file is then served as it is.
+	Transcode interface {
+		Transcode(ctx context.Context, f db.File, p stream.Plan, offset time.Duration) (io.ReadCloser, error)
+	}
 }
 
 // encodes is whether a film is offered re-encoded on this request.
-func (v Video) encodes() bool {
+func (v Playback) encodes() bool {
 	return v.Encoded != nil && (v.Encodes == nil || v.Encodes())
 }
 
@@ -95,12 +106,17 @@ type filmView struct {
 // hls.js is started with its worker off, so no worker-src is needed.
 const playerPolicy = contentSecurityPolicy + "; media-src 'self' blob:"
 
-// file serves a file, its player or its HLS, by what the query asks for.
+// file serves a file, its player, its HLS or a track transcoded, by what the
+// query asks for.
 func (h *handler) file(w http.ResponseWriter, r *http.Request, user string, f db.File) {
 	q := r.URL.Query()
 	token := q.Get(shareParam)
 	switch {
-	case h.video.Media == nil || !media.IsVideo(f.Path):
+	case h.playback.Media == nil:
+		h.download(w, r, user, f)
+	case q.Has(formatParam) && media.IsAudio(f.Path):
+		h.transcoded(w, r, user, f)
+	case !media.IsVideo(f.Path):
 		h.download(w, r, user, f)
 	case q.Has(hlsParam):
 		h.hls(w, r, f, q.Get(hlsParam))
@@ -139,7 +155,7 @@ func (h *handler) play(w http.ResponseWriter, r *http.Request, user string, f db
 	// A film the browser takes as it is needs nothing more; one it does not,
 	// and that can be remuxed, gets the playlist. A row nobody has read yet
 	// is neither, and the file itself is offered.
-	if m, err := h.video.Media.MediaByFile(r.Context(), f.ID); err == nil && !stream.PlaysInBrowser(f, m) {
+	if m, err := h.playback.Media.MediaByFile(r.Context(), f.ID); err == nil && !stream.PlaysInBrowser(f, m) {
 		_, remuxErr := stream.RemuxFor(m)
 		if _, ok := h.encoding(m); remuxErr == nil || ok {
 			film.HLS = shared(href(f.Path)+"?"+hlsParam+"="+playlistName, cast)
@@ -161,7 +177,7 @@ func (h *handler) play(w http.ResponseWriter, r *http.Request, user string, f db
 // encoding is a film's re-encode, when this machine makes them and the film
 // both needs one and can have one.
 func (h *handler) encoding(m db.Media) (stream.Encode, bool) {
-	if !h.video.encodes() || !stream.NeedsEncode(m) {
+	if !h.playback.encodes() || !stream.NeedsEncode(m) {
 		return stream.Encode{}, false
 	}
 	e, err := stream.EncodeFor(m)
@@ -178,7 +194,7 @@ func (h *handler) hls(w http.ResponseWriter, r *http.Request, f db.File, which s
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Cache-Control", "private, no-cache")
 
-	m, err := h.video.Media.MediaByFile(r.Context(), f.ID)
+	m, err := h.playback.Media.MediaByFile(r.Context(), f.ID)
 	if err != nil {
 		http.Error(w, "this film has not been read yet", http.StatusNotFound)
 		return
@@ -208,7 +224,7 @@ func (h *handler) hls(w http.ResponseWriter, r *http.Request, f db.File, which s
 			http.Error(w, "that is not a segment of this film", http.StatusBadRequest)
 			return
 		}
-		out, err := h.video.Encoded.Segment(r.Context(), f, enc, seg)
+		out, err := h.playback.Encoded.Segment(r.Context(), f, enc, seg)
 		h.segment(w, r, f, which, out, err)
 	case remuxErr == nil:
 		seg, err := stream.ParseSegment(which)
@@ -216,7 +232,7 @@ func (h *handler) hls(w http.ResponseWriter, r *http.Request, f db.File, which s
 			http.Error(w, "that is not a segment of this film", http.StatusBadRequest)
 			return
 		}
-		out, err := h.video.Segments.Segment(r.Context(), f, remux, seg)
+		out, err := h.playback.Segments.Segment(r.Context(), f, remux, seg)
 		h.segment(w, r, f, which, out, err)
 	default:
 		http.Error(w, "this film cannot be streamed here", http.StatusNotFound)

@@ -55,7 +55,7 @@ func newHandler(t *testing.T, v auth.Verifier) http.Handler {
 		Playlists: playlistsOf(meta),
 		Indexing:  indexing(meta),
 		Imports:   nil,
-		Video:     web.Video{},
+		Playback:  web.Playback{},
 		// The default rather than zero, which is the trash held (#296).
 		TrashRetention: aMonth,
 		Calendars:      calendar.New(meta),
@@ -80,7 +80,7 @@ func browser(t *testing.T) (http.Handler, *files.Service) {
 		Playlists:      playlistsOf(meta),
 		Indexing:       indexing(meta),
 		Imports:        nil,
-		Video:          web.Video{},
+		Playback:       web.Playback{},
 		TrashRetention: aMonth,
 		Calendars:      calendar.New(meta),
 	}), s
@@ -126,7 +126,7 @@ func browserOver(t *testing.T) (http.Handler, *files.Service, db.Store) {
 		Playlists:      playlistsOf(meta),
 		Indexing:       indexing(meta),
 		Imports:        nil,
-		Video:          web.Video{},
+		Playback:       web.Playback{},
 		TrashRetention: aMonth,
 		Calendars:      calendar.New(meta),
 	}), s, meta
@@ -152,7 +152,7 @@ func browserOverStore(t *testing.T) (http.Handler, *files.Service, storage.Stora
 		Playlists:      playlistsOf(meta),
 		Indexing:       indexing(meta),
 		Imports:        nil,
-		Video:          web.Video{},
+		Playback:       web.Playback{},
 		TrashRetention: aMonth,
 		Calendars:      calendar.New(meta),
 	}), s, blobs
@@ -175,7 +175,7 @@ func handlerIndexing(t *testing.T, s *files.Service, blobs storage.Storage, ix w
 		Playlists:      nil,
 		Indexing:       ix,
 		Imports:        nil,
-		Video:          web.Video{},
+		Playback:       web.Playback{},
 		TrashRetention: aMonth,
 	})
 }
@@ -228,7 +228,7 @@ func handlerOver(t *testing.T, s *files.Service, blobs storage.Storage, index db
 		Playlists:      nil,
 		Indexing:       indexing(index),
 		Imports:        nil,
-		Video:          web.Video{},
+		Playback:       web.Playback{},
 		TrashRetention: aMonth,
 	})
 }
@@ -250,7 +250,7 @@ func handlerImports(t *testing.T, s *files.Service, blobs storage.Storage, meta 
 		Playlists:      nil,
 		Indexing:       indexing(meta),
 		Imports:        imports,
-		Video:          web.Video{},
+		Playback:       web.Playback{},
 		TrashRetention: aMonth,
 		Calendars:      calendar.New(meta),
 	})
@@ -277,7 +277,7 @@ func handlerOverIndex(t *testing.T, s *files.Service, blobs storage.Storage, ind
 		Playlists:      playlistsOf(index),
 		Indexing:       indexing(nil),
 		Imports:        nil,
-		Video:          web.Video{},
+		Playback:       web.Playback{},
 		TrashRetention: aMonth,
 		Calendars:      calendar.New(meta),
 	})
@@ -425,7 +425,7 @@ func TestASessionFromAnotherPasswordIsNotOne(t *testing.T) {
 		Playlists:      playlistsOf(meta),
 		Indexing:       indexing(meta),
 		Imports:        nil,
-		Video:          web.Video{},
+		Playback:       web.Playback{},
 		TrashRetention: aMonth,
 		Calendars:      calendar.New(meta),
 	})

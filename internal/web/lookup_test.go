@@ -88,7 +88,7 @@ func TestTheAlbumPageOverABackendThatWillNotAnswerForTheWords(t *testing.T) {
 		Playlists: playlistsOf(broken),
 		Indexing:  web.Indexing{Index: broken, Interval: time.Minute},
 		Imports:   nil,
-		Video:     web.Video{},
+		Playback:  web.Playback{},
 	})
 	cookie := signIn(t, h)
 	homework(t, s, meta)
@@ -174,7 +174,7 @@ func TestAnAlbumsCoverInAFlatFolderIsItsOwn(t *testing.T) {
 		Playlists: playlistsOf(meta),
 		Indexing:  indexing(meta),
 		Imports:   nil,
-		Video:     web.Video{},
+		Playback:  web.Playback{},
 	})
 	cookie := signIn(t, h)
 

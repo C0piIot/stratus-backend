@@ -106,8 +106,9 @@ type Deps struct {
 	Indexing Indexing
 	// Imports is the import folder, and nil when there is none.
 	Imports Imports
-	// Video is the player and HLS, and a zero one means neither is offered.
-	Video Video
+	// Playback is the film player, HLS and a track transcoded on request, and
+	// a zero one offers none of them.
+	Playback Playback
 	// TrashRetention is how long a deletion is kept, for the pages that say
 	// so, and zero when the trash is held and never emptied (#296).
 	TrashRetention time.Duration
@@ -233,7 +234,7 @@ type handler struct {
 	// playlists is read for the pages at /playlists/, which write nothing.
 	playlists PlaylistReader
 	// video is the player and HLS, and a zero one means neither is offered.
-	video Video
+	playback Playback
 	// kept is Deps.TrashRetention.
 	kept time.Duration
 	// calendars is read for the month pages, and nil when there are none.
@@ -262,7 +263,7 @@ func Handler(d Deps) http.Handler {
 	h := &handler{
 		version: d.Version, buildDate: d.BuildDate, verifier: d.Verifier, sessions: d.Sessions, shares: d.Shares,
 		files: d.Files, thumbs: d.Thumbs, captures: d.Index, library: d.Index, finder: d.Index, playlists: d.Playlists,
-		indexing: d.Indexing, imports: d.Imports, video: d.Video, kept: d.TrashRetention,
+		indexing: d.Indexing, imports: d.Imports, playback: d.Playback, kept: d.TrashRetention,
 		calendars: d.Calendars, settings: d.Settings, editor: d.Editor, zones: d.Zones,
 		started: d.Started, database: d.Database, storage: d.Storage, sweep: d.Sweep, system: d.System, backup: d.Backup,
 	}

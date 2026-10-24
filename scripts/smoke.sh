@@ -1635,6 +1635,21 @@ TRACK
     bad "an Opus track's tags reach the library" "no artist for tagged.opus under /music/"
   fi
 
+  # The same Opus asked for as MP3 at its own address (#433), which is what a
+  # client casting to a screen that lists no Opus does: a HEAD to check, then
+  # the bytes from the shipped ffmpeg.
+  headtype="$(curl -s -o /dev/null -I -w '%{http_code} %{content_type}' -u "$davuser:$davpass" \
+    "http://$davhost/files/tagged.opus?format=mp3")"
+  asmp3="$(mktmp)/tagged.mp3"
+  gettype="$(curl -s -o "$asmp3" -w '%{content_type}' -u "$davuser:$davpass" \
+    "http://$davhost/files/tagged.opus?format=mp3")"
+  magic="$(head -c 3 "$asmp3" | od -An -tx1 | tr -d ' \n')"
+  case "$headtype|$gettype:$magic" in
+    "200 audio/mpeg|audio/mpeg:494433"* | "200 audio/mpeg|audio/mpeg:fff"*)
+      ok "a track's own address transcodes it on request ($(wc -c <"$asmp3") bytes of MP3)" ;;
+    *) bad "a track's own address transcodes it on request" "HEAD $headtype, GET $gettype starting $magic" ;;
+  esac
+
   page=""
   if [ -n "$album" ]; then
     page="$(curl -fsS -b "$jar" "http://$davhost$album" 2>/dev/null || true)"

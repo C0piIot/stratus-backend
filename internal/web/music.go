@@ -140,9 +140,10 @@ func (h *handler) music(w http.ResponseWriter, r *http.Request, user string) {
 	case n.TrackName == "":
 		h.album(w, r, user, tree, n)
 	default:
-		// A track's own address is the track, like a file's is under /files/.
-		// This is also the GET a WebDAV client makes.
-		h.download(w, r, user, n.Track.File)
+		// A track's own address is the track, like a file's is under /files/,
+		// and takes ?format= the same way (#433). This is also the GET a
+		// WebDAV client makes.
+		h.file(w, r, user, n.Track.File)
 	}
 }
 

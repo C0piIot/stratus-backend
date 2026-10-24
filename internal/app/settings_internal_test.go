@@ -265,7 +265,7 @@ func TestAFilmIsReencodedAsTheSettingSays(t *testing.T) {
 	_, meta := filestest.Backends(t)
 	s := liveSettings(t, meta)
 	a := New(config.Config{}, "test", "2026-01-01T09:30:00Z")
-	v := a.films(Deps{Database: meta, Transcoder: &stream.Transcoder{}, Encoder: &stream.Encoder{}, Settings: s})
+	v := a.playback(Deps{Database: meta, Transcoder: &stream.Transcoder{}, Encoder: &stream.Encoder{}, Settings: s})
 	if v.Encodes == nil {
 		t.Fatal("no switch on the encoder")
 	}

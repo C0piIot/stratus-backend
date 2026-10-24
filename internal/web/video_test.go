@@ -64,7 +64,7 @@ func newCinema(t *testing.T) *cinema {
 		Playlists: playlistsOf(meta),
 		Indexing:  indexing(meta),
 		Imports:   nil,
-		Video:     web.Video{Media: meta, Segments: segs},
+		Playback:  web.Playback{Media: meta, Segments: segs},
 	})
 	return &cinema{Handler: h, files: s, meta: meta, segments: segs}
 }
@@ -322,7 +322,7 @@ func newEncodingCinema(t *testing.T) (*cinema, *fakeEncoder) {
 		Playlists: playlistsOf(meta),
 		Indexing:  indexing(meta),
 		Imports:   nil,
-		Video:     web.Video{Media: meta, Segments: segs, Encoded: enc},
+		Playback:  web.Playback{Media: meta, Segments: segs, Encoded: enc},
 	})
 	return &cinema{Handler: h, files: s, meta: meta, segments: segs}, enc
 }
