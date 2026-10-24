@@ -196,7 +196,7 @@ func (h *handler) transcodeStream(w http.ResponseWriter, r *http.Request, userna
 	}
 
 	if r.Method == http.MethodHead {
-		transcodeHeaders(w.Header(), plan, -1)
+		plan.Headers(w.Header(), -1)
 		return
 	}
 	offset := time.Duration(intParam(q, "offset", 0)) * time.Second
@@ -212,6 +212,6 @@ func (h *handler) transcodeStream(w http.ResponseWriter, r *http.Request, userna
 		return
 	}
 	defer func() { _ = out.Close() }()
-	transcodeHeaders(w.Header(), plan, -1)
+	plan.Headers(w.Header(), -1)
 	_, _ = io.Copy(w, out)
 }

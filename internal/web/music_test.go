@@ -206,7 +206,7 @@ func TestABrokenIndexIsNotAnEmptyLibrary(t *testing.T) {
 				Playlists: playlistsOf(broken),
 				Indexing:  indexing(meta),
 				Imports:   nil,
-				Video:     web.Video{},
+				Playback:  web.Playback{},
 			})
 			if rec := get(t, h, tc.target, signIn(t, h)); rec.Code != http.StatusInternalServerError {
 				t.Errorf("%s with %s broken = %d, want 500", tc.target, tc.call, rec.Code)

@@ -174,3 +174,8 @@ func Seconds(d time.Duration) string {
 func IsVideo(name string) bool {
 	return KindFromExtension(path.Ext(name)) == db.KindVideo
 }
+
+// IsAudio is IsVideo for a track.
+func IsAudio(name string) bool {
+	return KindFromExtension(path.Ext(name)) == db.KindAudio
+}

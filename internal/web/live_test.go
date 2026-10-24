@@ -27,7 +27,7 @@ func TestAPageAsksTheSettingsEachTime(t *testing.T) {
 		Version: version, BuildDate: buildDate, Verifier: creds,
 		Sessions: auth.NewSessions(creds, auth.DefaultSessionTTL), Shares: auth.NewShares(creds),
 		Files: s, Thumbs: thumbs, Index: meta, Playlists: playlistsOf(meta), Indexing: indexing(meta),
-		Video: web.Video{}, TrashRetention: aMonth, Calendars: calendar.New(meta),
+		Playback: web.Playback{}, TrashRetention: aMonth, Calendars: calendar.New(meta),
 		Settings: func() config.Values { return now },
 	})
 	cookie := signIn(t, h)

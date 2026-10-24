@@ -26,7 +26,7 @@ of this file.
 |---|---|---|---|
 | WebDAV | files, photo backup, sync | rclone, Finder, Nautilus, FolderSync | **works** |
 | tus | resumable upload of large files | tus-js-client, TUSKit, tus-android-client | **works** ‡ |
-| HTTP range | audio/video streaming | browsers, VLC, mpv | **works** |
+| HTTP range | audio/video streaming, and a track transcoded on request | browsers, VLC, mpv | **works** |
 | HLS | films a player cannot take as they are, remuxed | Chromecast, Safari, VLC, the web UI's player | **works** § |
 | CalDAV | calendar events, tasks, journal entries | DAVx5, Thunderbird, iOS/macOS | **works** ¶ |
 | OpenSubsonic | music | Symfonium, Substreamer, DSub, Feishin | **works** † |
@@ -1008,6 +1008,14 @@ is sent: `?hls=index.m3u8` on the file's URL, or on its share link, since a
 receiver cannot sign in. It answers on the film's own URL with the same
 signature, which is where `stratus-app` casts from — and that address is the
 WebDAV one as well now.
+
+**A track can be asked for in another format at its own URL**:
+`?format=mp3` (or `aac`, `opus`, `flac`), with `maxBitRate=` and
+`estimateContentLength=true` meaning what they mean to OpenSubsonic's `stream`.
+It is how a television that lists no Opus is sent an Opus track. A format it
+cannot make, or the one the file already is, answers the original, so the
+`Content-Type` says which you got; a transcode has no ranges, and when every
+transcode slot is busy it is a `503` rather than the original.
 
 **The player signs what it points at**, so the cast button a browser offers by
 itself — Chrome's, and AirPlay in Safari — hands the television an address it

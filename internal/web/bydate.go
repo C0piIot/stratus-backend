@@ -177,7 +177,7 @@ func (h *handler) serveByDate(w http.ResponseWriter, r *http.Request, user strin
 		h.month(w, r, user, l, tree, db.Month{Year: n.Year, Month: n.Month})
 	case r.URL.Query().Has(l.leaf) && l.viewer:
 		h.viewer(w, r, user, l, tree, n)
-	case r.URL.Query().Has(l.leaf) && h.video.Media != nil:
+	case r.URL.Query().Has(l.leaf) && h.playback.Media != nil:
 		// A video's page is the player #50 built, at the video's own address
 		// rather than the file's: one URL per thing, here too. With no video
 		// wiring there is no player, and the file itself is what is offered --

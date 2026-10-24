@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"net/http"
 	"path"
-	"strconv"
 	"time"
 
 	"github.com/C0piIot/stratus-backend/internal/db"
@@ -31,13 +30,10 @@ type Transcoder interface {
 // mobile data asking for format=mp3&maxBitRate=128 gets 128 kbps MP3; the same
 // phone at home asking for nothing gets the FLAC.
 //
-// **A transcode cannot be ranged.** Its length is not known until it is over,
-// so it goes out with Accept-Ranges: none and no Content-Length, and a client
+// **A transcode cannot be ranged** (see stream.Plan.Headers), so a client
 // seeks inside it with timeOffset instead -- which is the transcodeOffset
-// extension, advertised for exactly that. estimateContentLength asks for a
-// length anyway, from the bitrate and what is left of the duration: the body
-// is cut to it if it runs long and ends early if it runs short, which is the
-// price of a number the client asked to be told in advance.
+// extension, advertised for exactly that -- and estimateContentLength asks for
+// a length anyway.
 //
 // **When every transcode slot is taken, the original goes out instead.** A
 // client that asked for a smaller file gets a larger one and plays it, where
@@ -65,12 +61,12 @@ func (h *handler) stream(w http.ResponseWriter, r *http.Request, username string
 	offset := time.Duration(intParam(q, "timeOffset", 0)) * time.Second
 	length := int64(-1)
 	if q.Get("estimateContentLength") == "true" {
-		length = estimatedLength(plan, t.Media.DurationMS, offset)
+		length = plan.EstimatedLength(t.Media.DurationMS, offset)
 	}
 
 	header := w.Header()
 	if r.Method == http.MethodHead {
-		transcodeHeaders(header, plan, length)
+		plan.Headers(header, length)
 		return
 	}
 
@@ -87,7 +83,7 @@ func (h *handler) stream(w http.ResponseWriter, r *http.Request, username string
 	}
 	defer func() { _ = out.Close() }()
 
-	transcodeHeaders(header, plan, length)
+	plan.Headers(header, length)
 	if length >= 0 {
 		_, _ = io.CopyN(w, out, length)
 		return
@@ -141,22 +137,4 @@ func (h *handler) original(w http.ResponseWriter, r *http.Request, t db.Track, a
 		w.Header().Set("Content-Type", t.File.MIMEType)
 	}
 	http.ServeContent(w, r, name, t.File.MTime, body)
-}
-
-func transcodeHeaders(header http.Header, plan stream.Plan, length int64) {
-	header.Set("Content-Type", plan.MIME)
-	header.Set("Accept-Ranges", "none")
-	if length >= 0 {
-		header.Set("Content-Length", strconv.FormatInt(length, 10))
-	}
-}
-
-// estimatedLength is the bitrate times what is left of the track, or -1 when
-// either is unknown -- a lossless target has no bitrate to multiply.
-func estimatedLength(plan stream.Plan, durationMS int64, offset time.Duration) int64 {
-	left := durationMS - offset.Milliseconds()
-	if plan.Bitrate <= 0 || left <= 0 {
-		return -1
-	}
-	return int64(plan.Bitrate) / 8 * left / 1000
 }

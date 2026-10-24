@@ -40,7 +40,7 @@ func settingsHandlerWith(t *testing.T, fixed map[string]string, imports web.Impo
 		Version: version, BuildDate: buildDate, Verifier: creds,
 		Sessions: auth.NewSessions(creds, auth.DefaultSessionTTL), Shares: auth.NewShares(creds),
 		Files: s, Thumbs: thumbs, Index: meta, Playlists: playlistsOf(meta), Indexing: indexing(meta),
-		Video: web.Video{}, TrashRetention: aMonth, Settings: editor.Values, Editor: editor, Imports: imports,
+		Playback: web.Playback{}, TrashRetention: aMonth, Settings: editor.Values, Editor: editor, Imports: imports,
 		Zones:     []string{"America/New_York", "Europe/Madrid", "UTC"},
 		Calendars: calendar.New(meta),
 	}), editor

@@ -127,7 +127,7 @@ func TestStatusSaysWhenPicturesAreOnlyMadeOnRequest(t *testing.T) {
 		Playlists: playlistsOf(meta),
 		Indexing:  web.Indexing{Index: meta, Interval: time.Minute},
 		Imports:   nil,
-		Video:     web.Video{},
+		Playback:  web.Playback{},
 	})
 	picture(t, s, meta, "IMG_0001.jpg")
 

@@ -225,7 +225,7 @@ func (a *App) Handler(deps Deps) http.Handler {
 				Index: deps.Database, Interval: a.cfg.IndexInterval, Ahead: a.cfg.ThumbsAhead,
 				Lookups: deps.Database, Lookup: a.cfg.MusicLookup,
 			},
-			Imports: imports(deps), Video: a.films(deps), TrashRetention: a.cfg.TrashRetention,
+			Imports: imports(deps), Playback: a.playback(deps), TrashRetention: a.cfg.TrashRetention,
 			Settings:  func() config.Values { return a.values(deps) },
 			Editor:    editor(deps),
 			Zones:     config.Zones(),
@@ -415,13 +415,14 @@ func imports(deps Deps) web.Imports {
 	return deps.Incoming
 }
 
-// films is what the web UI plays and streams as HLS with: the media rows and
-// the transcoder, or nothing at all when there is no transcoder to remux with.
-func (a *App) films(deps Deps) web.Video {
+// playback is what the web UI plays, streams as HLS and transcodes with: the
+// media rows and the transcoder, or nothing at all when there is no
+// transcoder.
+func (a *App) playback(deps Deps) web.Playback {
 	if deps.Transcoder == nil || deps.Database == nil {
-		return web.Video{}
+		return web.Playback{}
 	}
-	v := web.Video{Media: deps.Database, Segments: deps.Transcoder}
+	v := web.Playback{Media: deps.Database, Segments: deps.Transcoder, Transcode: deps.Transcoder}
 	// A nil interface rather than a nil pointer inside one, for the reason
 	// transcoder gives.
 	if deps.Encoder != nil {

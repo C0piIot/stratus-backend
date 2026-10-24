@@ -173,6 +173,20 @@ Hard constraints, in the same spirit as the rest of the project:
   started with its worker off, so the policy needs no `worker-src`. It
   answers nothing in JSON and adds no endpoint: HLS is a protocol every player
   already speaks, served at the file's own URL (see Tech decisions).
+
+  **A track is transcoded at its own URL the same way** (#433):
+  `?format=` with `maxBitRate` and `estimateContentLength`, OpenSubsonic's
+  names and `stream.Decide`'s decision, so the two surfaces cannot disagree
+  about what a request gets. It is what `stratus-app` casts to a renderer
+  that lists no Opus, behind the same gate and so the same signature as
+  `?hls=`. What cannot be done answers the original, which the
+  `Content-Type` tells apart; what could be done and cannot right now is a
+  `503`, not the original Subsonic falls back to -- that fallback exists
+  because a player does not read Subsonic's XML errors, and here the client
+  asked for another format because the original is no use to it. Its headers
+  and its estimate are `stream.Plan`'s, which is where they moved from
+  `internal/subsonic` once a second adapter needed them; `web.Video` became
+  `web.Playback` for the same reason.
 - **A web app manifest and a service worker, which together make it installable** (#129). `/manifest.webmanifest`
   is a handler rather than a file, because every address in it carries the
   build: the icons and the screenshots sit under the same immutable cache
