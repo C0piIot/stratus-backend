@@ -1,6 +1,7 @@
 package tus_test
 
 import (
+	"context"
 	"encoding/base64"
 	"io"
 	"net/http"
@@ -374,5 +375,27 @@ func TestABackendFailureIsNotServedToTheClient(t *testing.T) {
 	}
 	if body := rec.Body.String(); body != "the upload failed\n" {
 		t.Errorf("the client was told %q, want a fixed sentence", body)
+	}
+}
+
+// TestAClientThatHungUpIsNotAFailure: what the store says once the request's
+// context is gone is that it was cancelled, and that is not this server's fault
+// to log or anybody's to be answered.
+func TestAClientThatHungUpIsNotAFailure(t *testing.T) {
+	t.Parallel()
+	h, _ := server(t)
+	location := create(t, h, "files/notes.txt", 5)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	req := httptest.NewRequestWithContext(ctx, http.MethodPatch, location, strings.NewReader("hello"))
+	req.Header.Set("Tus-Resumable", tus.Version)
+	req.Header.Set("Upload-Offset", "0")
+	req.Header.Set("Content-Type", "application/offset+octet-stream")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code == http.StatusInternalServerError || rec.Body.Len() != 0 {
+		t.Errorf("PATCH from a client that hung up = %d %q, want nothing written", rec.Code, rec.Body.String())
 	}
 }

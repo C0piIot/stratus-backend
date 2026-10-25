@@ -273,6 +273,10 @@ func parseMetadata(header string) map[string]string {
 // which is what it can act on. The other adapters have always done the same.
 func writeErr(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
+	// Whoever sent it has gone -- a phone losing signal halfway through a
+	// PATCH -- so there is nobody to answer and nothing that went wrong here.
+	case r.Context().Err() != nil && errors.Is(err, r.Context().Err()):
+		return
 	case errors.Is(err, db.ErrNotFound):
 		// Covers both an upload id that is not there and a parent directory
 		// that is not: from the client's side the request named something that
