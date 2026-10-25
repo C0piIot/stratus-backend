@@ -11,8 +11,6 @@ import (
 
 	"github.com/emersion/go-ical"
 	"github.com/emersion/go-vcard"
-	"golang.org/x/text/runes"
-	"golang.org/x/text/transform"
 	"golang.org/x/text/unicode/norm"
 
 	"github.com/C0piIot/stratus-backend/internal/calendar"
@@ -45,14 +43,18 @@ type foundContact struct {
 	Href, Name, Detail string
 }
 
-// unaccent drops the marks a letter carries once it is decomposed, so é is e.
-var unaccent = transform.Chain(norm.NFD, runes.Remove(runes.In(unicode.Mn)), norm.NFC)
-
-// words is text as a search compares it: folded, and split wherever a letter
-// or a digit is not.
+// words is text as a search compares it: lower case, without the marks a
+// letter carries once it is decomposed -- so é is e -- and split wherever a
+// letter or a digit is not. Not a transform.Chain held in a variable: a chain
+// keeps state between calls, and two searches at once tore it.
 func words(text string) []string {
-	folded, _, _ := transform.String(unaccent, strings.ToLower(text))
-	return strings.FieldsFunc(folded, func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsNumber(r) })
+	var folded strings.Builder
+	for _, r := range norm.NFD.String(strings.ToLower(text)) {
+		if !unicode.Is(unicode.Mn, r) {
+			folded.WriteRune(r)
+		}
+	}
+	return strings.FieldsFunc(folded.String(), func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsNumber(r) })
 }
 
 // matches is whether any of texts holds the term's words, in order and
