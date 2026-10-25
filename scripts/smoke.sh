@@ -55,7 +55,11 @@ fi
 # repository are 184 KB on amd64, and main was 12 KB under the line before
 # them -- 28,299,424 bytes against a budget of 28,311,552. Measured by building
 # the commit before and after with GOARCH=amd64; arm64 did not show it again.
-BIN_SIZE_FAIL=$((28 * 1024 * 1024))
+# Raised from 28 MB with contacts over CardDAV (#423): go-vcard, the library's
+# carddav package and a repository are 284 KB on amd64, and main was 28 KB
+# under the line before them -- 29,331,616 bytes against 29,360,128, measured
+# the same way.
+BIN_SIZE_FAIL=$((29 * 1024 * 1024))
 # ffprobe and ffmpeg together, which are trimmed builds of our own: 2.4 MB and
 # 13.2 MB on amd64 today against the 128 MB one general-purpose static FFmpeg costs.
 # Raised from 10 MB when ffmpeg learned audio and HTTPS (#50): the encoders and
@@ -625,8 +629,8 @@ if wait_serving "$davname"; then
   # URLs.
   root_list="$(curl -s -u "$davuser:$davpass" -H 'Depth: 1' -X PROPFIND "http://$davhost/" 2>/dev/null || true)"
   case "$root_list" in
-    *'>/calendars/<'*'>/files/<'*'>/music/<'*'>/photos/<'*'>/playlists/<'*'>/trash/<'*'>/videos/<'*) ok "PROPFIND / lists the seven collections" ;;
-    *) bad "PROPFIND / lists the seven collections" "$(head -c 200 <<<"$root_list")" ;;
+    *'>/calendars/<'*'>/contacts/<'*'>/files/<'*'>/music/<'*'>/photos/<'*'>/playlists/<'*'>/trash/<'*'>/videos/<'*) ok "PROPFIND / lists the eight collections" ;;
+    *) bad "PROPFIND / lists the eight collections" "$(head -c 200 <<<"$root_list")" ;;
   esac
 
   # A calendar client is given the address and nothing else (#75): the
@@ -686,6 +690,28 @@ if wait_serving "$davname"; then
   case "$calpage" in
     *'March 2024'*'smoke'*) ok "a calendar is a month to a browser" ;;
     *) bad "a calendar is a month to a browser" "$(head -c 200 <<<"$calpage")" ;;
+  esac
+
+  # Contacts are the calendars' twin (#423): found from the well-known path,
+  # written as a vCard, and synced by token.
+  wellknown="$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' -X PROPFIND "http://$davhost/.well-known/carddav")"
+  case "$wellknown" in
+    "308 http://$davhost/contacts/") ok "/.well-known/carddav points at the contacts" ;;
+    *) bad "/.well-known/carddav points at the contacts" "got '$wellknown'" ;;
+  esac
+  cardput="$(printf 'BEGIN:VCARD\r\nVERSION:4.0\r\nUID:smoke-contact\r\nFN:Smoke Test\r\nEMAIL:smoke@example.com\r\nEND:VCARD\r\n' |
+    curl -s -o /dev/null -w '%{http_code}' -u "$davuser:$davpass" -X PUT -H 'Content-Type: text/vcard' \
+      --data-binary @- "http://$davhost/contacts/$davuser/contacts/smoke.vcf")"
+  case "$cardput" in
+    201) ok "an address book takes a contact" ;;
+    *) bad "an address book takes a contact" "got $cardput" ;;
+  esac
+  cardsync="$(curl -s -u "$davuser:$davpass" -X REPORT -H 'Content-Type: application/xml' \
+    --data '<D:sync-collection xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:carddav"><D:sync-token/><D:sync-level>1</D:sync-level><D:prop><D:getetag/><C:address-data/></D:prop></D:sync-collection>' \
+    "http://$davhost/contacts/$davuser/contacts/" 2>/dev/null || true)"
+  case "$cardsync" in
+    *'smoke.vcf'*'FN:Smoke Test'*'urn:stratus:sync:'*) ok "an address book syncs by token" ;;
+    *) bad "an address book syncs by token" "$(head -c 200 <<<"$cardsync")" ;;
   esac
 
   # The settings page (#397), and a change from it in force at once: the

@@ -335,6 +335,7 @@ type Repo interface {
 	Trash
 	Lookups
 	Calendars
+	Contacts
 	Settings
 }
 

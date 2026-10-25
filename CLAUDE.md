@@ -1972,6 +1972,28 @@ Restraint here is principle 3, not laziness:
   tick; a token from before the oldest one left is `valid-sync-token`, which
   is a client's cue to list again.
 
+- **Contacts are CardDAV at `/contacts/`, the calendars' twin** (#423), and
+  everything above that is not about iCalendar holds for them: four depths
+  under the prefix, the slash given to a collection before the library
+  compares it, the vCard stored as the server encodes it, `If-Match` compared
+  inside the write's transaction in `internal/contacts`, sync-collection from
+  a counter and tombstones in tables of their own -- not the calendars' with a
+  kind on them, since nothing reads both and the calendars were already
+  serving. The sync half and the properties spliced into `PROPFIND` were
+  pulled out of `caldavsync.go` into functions both adapters call
+  (`writeSyncFeed`, `propfindExtras`), so the two cannot answer a token
+  differently; a `db.ContactChange` is a `db.CalendarChange` for the same
+  reason.
+
+  **The library does more of it here than CalDAV's does**: the extended
+  `MKCOL` and the `DELETE` of an address book reach the backend, so only
+  `PROPPATCH` -- a 405 there -- is answered in front of it. Two things it
+  gets wrong are corrected: an address book advertises vCard 3.0 *and* 4.0,
+  since its default is 3.0 alone; and `addressbook-query` is asked of folded
+  copies, because its matcher compares bytes and RFC 6352 makes
+  `i;unicode-casemap` the default collation. MySQL keeps the vCard in a
+  `MEDIUMTEXT`, since a client sends the photograph inside it.
+
 - **Playlists are `.m3u8` files on a mount of their own**, `/playlists/`
   (#203), read-only WebDAV from `internal/dav/playlists.go`. **Not a folder in
   the tree, and that is the design:** `/files/` is the user's namespace, and a

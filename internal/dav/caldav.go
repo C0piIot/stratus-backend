@@ -70,7 +70,7 @@ func CalDAV(prefix string, service *calendar.Service) http.Handler {
 		case "REPORT":
 			b.report(w, r, h)
 		case "PROPFIND":
-			b.propfindExtras(w, r, h)
+			propfindExtras(w, r, h, calendarExtras, b.calendarValues)
 		case "MKCALENDAR":
 			serve(w, b.mkcalendar(w, r))
 		case "PROPPATCH":
@@ -360,21 +360,27 @@ func (b *calendarBackend) object(ctx context.Context, owner, cal string, o db.Ca
 	}, nil
 }
 
-// split reads the owner, the calendar and the object out of a path, wanting
-// exactly segments of them. Somebody else's owner segment is not found rather
-// than forbidden, which is what their calendar is from here.
+// split reads the owner, the calendar and the object out of a path.
 func (b *calendarBackend) split(ctx context.Context, p string, segments int) (owner, cal, name string, err error) {
+	return splitOwned(ctx, b.prefix, p, segments)
+}
+
+// splitOwned reads the owner, the collection and the member out of a path
+// under prefix, wanting exactly segments of them. Somebody else's owner
+// segment is not found rather than forbidden, which is what their calendars
+// and address books are from here.
+func splitOwned(ctx context.Context, prefix, p string, segments int) (owner, collection, name string, err error) {
 	user, err := calendarOwner(ctx)
 	if err != nil {
 		return "", "", "", err
 	}
-	rest, ok := strings.CutPrefix(p, b.prefix)
+	rest, ok := strings.CutPrefix(p, prefix)
 	parts := strings.Split(strings.TrimSuffix(rest, "/"), "/")
 	if !ok || len(parts) != segments || slicesContainEmpty(parts) {
-		return "", "", "", webdav.NewHTTPError(http.StatusNotFound, errors.New("not a calendar path"))
+		return "", "", "", webdav.NewHTTPError(http.StatusNotFound, errors.New("not a collection path"))
 	}
 	if parts[0] != user {
-		return "", "", "", webdav.NewHTTPError(http.StatusNotFound, errors.New("not your calendars"))
+		return "", "", "", webdav.NewHTTPError(http.StatusNotFound, errors.New("not your collections"))
 	}
 	if segments == 3 {
 		return parts[0], parts[1], parts[2], nil

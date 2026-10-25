@@ -29,9 +29,9 @@ of this file.
 | HTTP range | audio/video streaming, and a track transcoded on request | browsers, VLC, mpv | **works** |
 | HLS | films a player cannot take as they are, remuxed | Chromecast, Safari, VLC, the web UI's player | **works** § |
 | CalDAV | calendar events, tasks, journal entries | DAVx5, Thunderbird, iOS/macOS | **works** ¶ |
+| CardDAV | contacts | DAVx5, Thunderbird, iOS/macOS | **works** ¶ |
 | OpenSubsonic | music | Symfonium, Substreamer, DSub, Feishin | **works** † |
 | Web UI | sign in, browse, search, upload, download, rename, delete, the trash, what is known about a file, a photo gallery, a music library, a month of a calendar, library status | any browser | **partly** |
-| CardDAV | contacts | DAVx5, Thunderbird | planned |
 | DLNA / UPnP-AV | TVs, set-top players | | planned |
 
 § Two ways, and the player chooses between them by the codecs each declares.
@@ -64,10 +64,11 @@ a track out of the shipped container. **No real client has been pointed at it
 yet**, so read that row as the server holding up its end rather than as a
 promise about any particular app.
 
-¶ Asserted with go-webdav's own CalDAV client and with the requests DAVx5
-sends — discovery, writes, conditional writes, a recurring event and a task
-found by date, sync by token — but **no real client has been pointed at it yet**, so read the row the way
-the one above it reads.
+¶ Asserted with go-webdav's own CalDAV and CardDAV clients and with the
+requests DAVx5 sends — discovery, writes, conditional writes, a recurring event
+and a task found by date, a contact found by name, sync by token — but **no
+real client has been pointed at either yet**, so read both rows the way the one
+above them reads.
 
 Nothing here is a private API: every feature is reachable from a client that
 already exists, and no Stratus app is required to use any of it. There is one —
@@ -785,6 +786,31 @@ What to expect from it:
   deletions included. A deletion is remembered for **thirty days**: a client
   away for longer is told its token is stale and lists the calendar again,
   which costs it one listing and nothing else.
+
+## CardDAV
+
+Contacts, at `/contacts/`, and the calendars' twin in every way that matters:
+the same credentials, `/.well-known/carddav` to start from, and the same four
+levels.
+
+| address | what is there |
+|---|---|
+| `/contacts/` | whoever is signed in, as CardDAV's principal |
+| `/contacts/<user>/` | their address books |
+| `/contacts/<user>/<book>/` | one address book |
+| `/contacts/<user>/<book>/<name>.vcf` | one contact |
+
+- **Everybody has an address book called `contacts`**, made the first time a
+  client looks and never deleted. Others are made with the extended `MKCOL` of
+  RFC 5689, renamed and described with `PROPPATCH`, and deleted with
+  everything in them.
+- **A contact is a vCard 3.0 or 4.0 with a `UID` and an `FN`**, one per `UID`
+  in an address book, stored as the server writes it like an event is. A
+  photograph inside it is kept whole.
+- **A search** (`addressbook-query`) matches regardless of case, as RFC 6352
+  says it should, over the whole address book.
+- **A client syncs by token**, with deletions remembered for thirty days, as a
+  calendar's are.
 
 ## OpenSubsonic
 
@@ -1786,8 +1812,10 @@ Working now:
 - Calendar events over CalDAV, discovered from the bare address, with
   conditional writes, recurring events matched by date and sync by token;
   tasks and journal entries beside them, in lists of their own or not.
+- Contacts over CardDAV, the same way: discovered from the bare address,
+  conditional writes, search and sync by token.
 - A request log, migrations applied at startup, and a container asserted from
-  the outside by 150 smoke checks.
+  the outside by 157 smoke checks.
 
 Not there yet: sharing, and the calendar in the web UI. Work
 and the decisions behind it are tracked on the

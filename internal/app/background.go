@@ -16,6 +16,7 @@ import (
 
 	"github.com/C0piIot/stratus-backend/internal/calendar"
 	"github.com/C0piIot/stratus-backend/internal/config"
+	"github.com/C0piIot/stratus-backend/internal/contacts"
 	"github.com/C0piIot/stratus-backend/internal/db"
 	"github.com/C0piIot/stratus-backend/internal/files"
 	"github.com/C0piIot/stratus-backend/internal/media"
@@ -259,7 +260,7 @@ func (a *App) collectPeriodically(ctx context.Context, deps Deps) {
 			swept.Uploads = done
 		}
 
-		if !pruneCalendars(ctx, deps.Database) {
+		if !pruneCalendars(ctx, deps.Database) || !pruneContacts(ctx, deps.Database) {
 			return false
 		}
 
@@ -462,6 +463,22 @@ func pruneCalendars(ctx context.Context, meta db.Store) bool {
 		slog.Error("forgetting old calendar deletions", "err", err)
 	case done > 0:
 		slog.Info("forgot old calendar deletions", "count", done)
+	}
+	return true
+}
+
+// pruneContacts is pruneCalendars for address books (#423).
+func pruneContacts(ctx context.Context, meta db.Store) bool {
+	if meta == nil {
+		return true
+	}
+	switch done, err := contacts.New(meta).Prune(ctx); {
+	case errors.Is(err, context.Canceled):
+		return false
+	case err != nil:
+		slog.Error("forgetting old contact deletions", "err", err)
+	case done > 0:
+		slog.Info("forgot old contact deletions", "count", done)
 	}
 	return true
 }

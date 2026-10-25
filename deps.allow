@@ -8,6 +8,7 @@ filippo.io/edwards25519
 github.com/cespare/xxhash/v2
 github.com/dustin/go-humanize
 github.com/emersion/go-ical
+github.com/emersion/go-vcard
 github.com/emersion/go-webdav
 github.com/evanoberholster/imagemeta
 github.com/getsentry/sentry-go

@@ -317,3 +317,29 @@ func ScanCalendarChange(s Scanner) (db.CalendarChange, error) {
 	}
 	return c, nil
 }
+
+// AddressBookColumns is an address book's row.
+const AddressBookColumns = `id, owner_id, name, display_name, description, sync_token, pruned_token, created_at`
+
+// ScanAddressBook reads one row of AddressBookColumns.
+func ScanAddressBook(s Scanner, t Times) (db.AddressBook, error) {
+	var b db.AddressBook
+	if err := s.Scan(&b.ID, &b.OwnerID, &b.Name, &b.DisplayName, &b.Description,
+		&b.SyncToken, &b.PrunedToken, t.Dest(&b.Created)); err != nil {
+		return db.AddressBook{}, err
+	}
+	return b, nil
+}
+
+// ContactColumns is a contact's row.
+const ContactColumns = `address_book_id, name, uid, data, etag, sync_token, changed_at`
+
+// ScanContact reads one row of ContactColumns.
+func ScanContact(s Scanner, t Times) (db.Contact, error) {
+	var c db.Contact
+	if err := s.Scan(&c.AddressBookID, &c.Name, &c.UID, &c.Data, &c.ETag,
+		&c.SyncToken, t.Dest(&c.Changed)); err != nil {
+		return db.Contact{}, err
+	}
+	return c, nil
+}
