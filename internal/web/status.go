@@ -167,6 +167,9 @@ type backupView struct {
 	Err              string
 	Unsupported, Off bool
 	None             bool
+	// Folder is where they can be fetched, and empty before the loop has
+	// looked.
+	Folder, FolderHref string
 }
 
 // backupOf is nil when nothing reports backups.
@@ -176,6 +179,9 @@ func (h *handler) backupOf() *backupView {
 	}
 	b := h.backup()
 	v := backupView{Err: b.Err}
+	if b.Dir != "" {
+		v.Folder, v.FolderHref = filesPrefix+b.Dir+"/", href(b.Dir)+"/"
+	}
 	switch {
 	case b.Unsupported:
 		v.Unsupported = true

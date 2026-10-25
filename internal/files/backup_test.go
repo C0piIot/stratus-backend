@@ -13,21 +13,26 @@ import (
 	"github.com/C0piIot/stratus-backend/internal/storage"
 )
 
-func TestABackupIsTheDatabaseInTheStore(t *testing.T) {
+const backupOwner = "edu"
+
+func TestABackupIsTheDatabaseFiledInTheTree(t *testing.T) {
 	t.Parallel()
-	blobs, _, s := filestest.Stack(t)
+	_, _, s := filestest.Stack(t)
 	if !s.CanBackUp() {
 		t.Fatal("SQLite cannot be backed up")
 	}
 	at := time.Date(2026, 10, 22, 3, 0, 0, 0, time.UTC)
-	done, err := s.BackUp(t.Context(), t.TempDir(), at)
+	// A folder nobody made: it is a setting, and is made when it is needed.
+	done, err := s.BackUp(t.Context(), backupOwner, "admin/backups", t.TempDir(), at)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if done.Key != "backups/20261022T030000Z.db" || !done.At.Equal(at) || done.Size == 0 {
+	if done.Key != "backups/20261022T030000Z.db" || done.Path != "admin/backups/20261022T030000Z.db" ||
+		!done.At.Equal(at) || done.Size == 0 {
 		t.Errorf("BackUp = %+v", done)
 	}
-	body, _, err := blobs.Get(t.Context(), done.Key, storage.All())
+
+	body, row, err := s.Open(t.Context(), backupOwner, done.Path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,22 +41,29 @@ func TestABackupIsTheDatabaseInTheStore(t *testing.T) {
 	if _, err := io.ReadFull(body, head); err != nil || !bytes.Equal(head, []byte("SQLite format 3\x00")) {
 		t.Errorf("the backup is not a SQLite database: %q, %v", head, err)
 	}
+	if row.ETag == "" || row.MIMEType != "application/vnd.sqlite3" {
+		t.Errorf("the backup's row = %+v", row)
+	}
 }
 
 func TestOnlyTheNewestBackupsAreKept(t *testing.T) {
 	t.Parallel()
 	blobs, _, s := filestest.Stack(t)
-	// Somebody else's object under the prefix is neither counted nor dropped.
-	if _, err := blobs.Put(t.Context(), "backups/notes.txt", strings.NewReader("mine"), 4); err != nil {
+	start := time.Date(2026, 10, 1, 3, 0, 0, 0, time.UTC)
+	first, err := s.BackUp(t.Context(), backupOwner, "backups", t.TempDir(), start)
+	if err != nil {
 		t.Fatal(err)
 	}
-	start := time.Date(2026, 10, 1, 3, 0, 0, 0, time.UTC)
-	for day := range files.BackupsKept + 2 {
-		if _, err := s.BackUp(t.Context(), t.TempDir(), start.AddDate(0, 0, day)); err != nil {
-			t.Fatal(err)
+	// Somebody else's file in the folder is neither counted nor dropped.
+	if _, werr := s.Write(t.Context(), backupOwner, "backups/notes.txt", strings.NewReader("mine"), 4, ""); werr != nil {
+		t.Fatal(werr)
+	}
+	for day := 1; day < files.BackupsKept+2; day++ {
+		if _, berr := s.BackUp(t.Context(), backupOwner, "backups", t.TempDir(), start.AddDate(0, 0, day)); berr != nil {
+			t.Fatal(berr)
 		}
 	}
-	all, err := s.Backups(t.Context())
+	all, err := s.Backups(t.Context(), backupOwner, "backups")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,26 +76,68 @@ func TestOnlyTheNewestBackupsAreKept(t *testing.T) {
 	if oldest := start.AddDate(0, 0, 2); !all[len(all)-1].At.Equal(oldest) {
 		t.Errorf("oldest = %v, want %v", all[len(all)-1].At, oldest)
 	}
-	if _, err := blobs.Stat(t.Context(), "backups/notes.txt"); err != nil {
-		t.Errorf("an object that is not a backup was dropped: %v", err)
+	// Destroyed, not trashed: the rotation is what somebody asked for.
+	if _, err := blobs.Stat(t.Context(), first.Key); !errors.Is(err, storage.ErrNotFound) {
+		t.Errorf("a rotated backup is still in the store: %v", err)
+	}
+	if totals, _ := s.TrashTotals(t.Context(), backupOwner); totals.Files != 0 {
+		t.Errorf("the rotation filled the trash: %+v", totals)
+	}
+	if _, err := s.Stat(t.Context(), backupOwner, "backups/notes.txt"); err != nil {
+		t.Errorf("a file that is not a backup was dropped: %v", err)
 	}
 }
 
-// No row claims a backup, so the sweep has to know them by where they are --
-// and a store holding nothing else is a fresh install, not an index pointed
-// somewhere new.
+// A database put back from a backup has no row for the ones taken after it,
+// so the sweep keeps them by where they are until they are filed again.
 func TestTheSweepLeavesBackupsAlone(t *testing.T) {
 	t.Parallel()
 	blobs, _, s := filestest.Stack(t)
-	done, err := s.BackUp(t.Context(), t.TempDir(), time.Now().Add(-48*time.Hour))
-	if err != nil {
+	const key = "backups/20261001T030000Z.db"
+	if _, err := blobs.Put(t.Context(), key, strings.NewReader("SQLite"), 6); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.Collect(t.Context(), 0); err != nil {
 		t.Fatalf("Collect over a store holding only a backup: %v", err)
 	}
-	if _, err := blobs.Stat(t.Context(), done.Key); err != nil {
+	if _, err := blobs.Stat(t.Context(), key); err != nil {
 		t.Errorf("the sweep took the backup: %v", err)
+	}
+}
+
+func TestBackupsNoRowNamesAreFiled(t *testing.T) {
+	t.Parallel()
+	blobs, _, s := filestest.Stack(t)
+	const loose = "backups/20261001T030000Z.db"
+	if _, err := blobs.Put(t.Context(), loose, strings.NewReader("SQLite"), 6); err != nil {
+		t.Fatal(err)
+	}
+	// One somebody deleted is their decision, and stays in the trash.
+	deleted, err := s.BackUp(t.Context(), backupOwner, "backups", t.TempDir(), time.Date(2026, 10, 2, 3, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rerr := s.Remove(t.Context(), backupOwner, deleted.Path); rerr != nil {
+		t.Fatal(rerr)
+	}
+	kept, err := s.BackUp(t.Context(), backupOwner, "backups", t.TempDir(), time.Date(2026, 10, 3, 3, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	n, err := s.AdoptBackups(t.Context(), backupOwner, "backups")
+	if err != nil || n != 1 {
+		t.Fatalf("AdoptBackups = %d, %v, want 1", n, err)
+	}
+	all, err := s.Backups(t.Context(), backupOwner, "backups")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 2 || all[0].Key != kept.Key || all[1].Key != loose {
+		t.Errorf("after filing, the backups are %+v", all)
+	}
+	if n, err := s.AdoptBackups(t.Context(), backupOwner, "backups"); err != nil || n != 0 {
+		t.Errorf("a second look filed %d, %v", n, err)
 	}
 }
 
@@ -97,7 +151,7 @@ func TestADatabaseWithNoBackupSaysSo(t *testing.T) {
 	if s.CanBackUp() {
 		t.Error("a database with no backup claims one")
 	}
-	if _, err := s.BackUp(t.Context(), t.TempDir(), time.Now()); !errors.Is(err, files.ErrNoBackup) {
+	if _, err := s.BackUp(t.Context(), backupOwner, "backups", t.TempDir(), time.Now()); !errors.Is(err, files.ErrNoBackup) {
 		t.Errorf("BackUp = %v, want ErrNoBackup", err)
 	}
 }
@@ -105,10 +159,24 @@ func TestADatabaseWithNoBackupSaysSo(t *testing.T) {
 func TestABackupThatCannotBeWrittenLandsNothing(t *testing.T) {
 	t.Parallel()
 	_, _, s := filestest.Stack(t)
-	if _, err := s.BackUp(t.Context(), t.TempDir()+"/not-there", time.Now()); err == nil {
+	if _, err := s.BackUp(t.Context(), backupOwner, "backups", t.TempDir()+"/not-there", time.Now()); err == nil {
 		t.Fatal("a backup into a directory that is not there succeeded")
 	}
-	if all, err := s.Backups(t.Context()); err != nil || len(all) != 0 {
+	if all, err := s.Backups(t.Context(), backupOwner, "backups"); err != nil || len(all) != 0 {
 		t.Errorf("Backups = %v, %v, want none", all, err)
+	}
+}
+
+func TestABackupCannotBeFiledUnderAFile(t *testing.T) {
+	t.Parallel()
+	blobs, _, s := filestest.Stack(t)
+	if _, err := s.Write(t.Context(), backupOwner, "backups", strings.NewReader("x"), 1, ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.BackUp(t.Context(), backupOwner, "backups", t.TempDir(), time.Now()); err == nil {
+		t.Fatal("a backup was filed under a file")
+	}
+	for info, err := range blobs.List(t.Context(), files.BackupPrefix) {
+		t.Errorf("a backup that could not be filed was left in the store: %v, %v", info.Key, err)
 	}
 }

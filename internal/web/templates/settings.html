@@ -34,7 +34,9 @@
           <div class="mb-3">
             <label class="form-label mb-1" for="{{.Key}}"><code>{{.Key}}</code></label>
             {{if .Fixed}}
-            <input class="form-control" id="{{.Key}}" type="text" value="{{.Value}}" placeholder="not set" readonly disabled aria-describedby="{{.Key}}-help">
+            <div class="input-group">{{with .Under}}<span class="input-group-text">{{.}}</span>{{end}}
+              <input class="form-control" id="{{.Key}}" type="text" value="{{.Value}}" placeholder="not set" readonly disabled aria-describedby="{{.Key}}-help">
+            </div>
             <div id="{{.Key}}-help" class="form-text">{{.Help}} <span class="badge text-bg-secondary">set by the environment</span></div>
             {{else if .Choices}}
             <select class="form-select{{if .Error}} is-invalid{{end}}" id="{{.Key}}" name="{{.Key}}" aria-describedby="{{.Key}}-help">
@@ -44,9 +46,14 @@
             {{if .Error}}<div class="invalid-feedback">{{.Error}}</div>{{end}}
             <div id="{{.Key}}-help" class="form-text">{{.Help}}</div>
             {{else}}
-            <input class="form-control{{if .Error}} is-invalid{{end}}" id="{{.Key}}" name="{{.Key}}" type="text"
-                   value="{{.Value}}" placeholder="{{.Default}}" autocomplete="off" aria-describedby="{{.Key}}-help">
-            {{if .Error}}<div class="invalid-feedback">{{.Error}}</div>{{end}}
+            {{/* A path inside something says what it is under in front of
+                 the field so nobody types it twice. The feedback is
+                 inside the group, or Bootstrap does not show it. */}}
+            <div class="input-group{{if .Error}} has-validation{{end}}">{{with .Under}}<span class="input-group-text">{{.}}</span>{{end}}
+              <input class="form-control{{if .Error}} is-invalid{{end}}" id="{{.Key}}" name="{{.Key}}" type="text"
+                     value="{{.Value}}" placeholder="{{.Default}}" autocomplete="off" aria-describedby="{{.Key}}-help">
+              {{if .Error}}<div class="invalid-feedback">{{.Error}}</div>{{end}}
+            </div>
             <div id="{{.Key}}-help" class="form-text">{{.Help}} Default: <code>{{.Default}}</code>.</div>
             {{end}}
           </div>

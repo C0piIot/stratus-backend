@@ -270,3 +270,16 @@ func TestTheWeekStartsWhereTheSettingSays(t *testing.T) {
 		t.Error("the grid does not start on Sunday the 25th of February")
 	}
 }
+
+// A path inside the tree is written after /files/, which the page shows in
+// front of the field so nobody types it twice.
+func TestTheBackupFolderIsWrittenUnderFiles(t *testing.T) {
+	t.Parallel()
+	h, _ := settingsHandler(t, nil)
+	body := get(t, h, "/settings", signIn(t, h)).Body.String()
+	want := `<span class="input-group-text">/files/</span>
+              <input class="form-control" id="STRATUS_BACKUP_DIR"`
+	if !strings.Contains(body, want) {
+		t.Errorf("the backup folder is not shown under /files/:\n%s", between(body, "STRATUS_BACKUP_DIR"))
+	}
+}

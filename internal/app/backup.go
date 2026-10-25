@@ -37,34 +37,48 @@ func (a *App) backUpIfDue(ctx context.Context, deps Deps) bool {
 		a.backedUp.Store(&web.Backup{Unsupported: true})
 		return true
 	}
-	every := a.values(deps).BackupInterval
-	if every <= 0 {
+	v := a.values(deps)
+	// With no user there is no tree to file a backup in, and nothing written
+	// into the database worth one.
+	if v.BackupInterval <= 0 || a.cfg.Username == "" {
 		return true
 	}
+	owner, dir := a.cfg.Username, v.BackupDir
 
 	last := a.backedUp.Load()
-	if last == nil {
-		// The first look reads the store, so the clock survives a restart.
-		all, err := service.Backups(ctx)
+	if last == nil || last.Dir != dir {
+		// The first look in a folder reads the tree, so the clock survives a
+		// restart and a folder that moved is backed up into at once.
+		if last == nil {
+			if n, err := service.AdoptBackups(ctx, owner, dir); err != nil {
+				if errors.Is(err, context.Canceled) {
+					return false
+				}
+				slog.Error("filing the backups no row names", "err", err)
+			} else if n > 0 {
+				slog.Info("filed the backups no row named", "dir", dir, "backups", n)
+			}
+		}
+		all, err := service.Backups(ctx, owner, dir)
 		switch {
 		case errors.Is(err, context.Canceled):
 			return false
 		case err != nil:
 			slog.Error("listing the database backups", "err", err)
-			a.backedUp.Store(&web.Backup{Err: err.Error()})
+			a.backedUp.Store(&web.Backup{Dir: dir, Err: err.Error()})
 			return true
 		}
-		last = &web.Backup{}
+		last = &web.Backup{Dir: dir}
 		if len(all) > 0 {
-			last = &web.Backup{At: all[0].At, Size: all[0].Size}
+			last = &web.Backup{Dir: dir, At: all[0].At, Size: all[0].Size}
 		}
 		a.backedUp.Store(last)
 	}
-	if !last.At.IsZero() && time.Since(last.At) < every {
+	if !last.At.IsZero() && time.Since(last.At) < v.BackupInterval {
 		return true
 	}
 
-	done, err := service.BackUp(ctx, deps.Scratch, time.Now())
+	done, err := service.BackUp(ctx, owner, dir, deps.Scratch, time.Now())
 	switch {
 	case errors.Is(err, context.Canceled):
 		return false
@@ -77,10 +91,10 @@ func (a *App) backUpIfDue(ctx context.Context, deps Deps) bool {
 	case err != nil:
 		// It landed and an old one would not go, which costs room.
 		slog.Error("dropping an old database backup", "err", err)
-		a.backedUp.Store(&web.Backup{At: done.At, Size: done.Size, Err: err.Error()})
+		a.backedUp.Store(&web.Backup{Dir: dir, At: done.At, Size: done.Size, Err: err.Error()})
 	default:
-		slog.Info("backed up the database", "key", done.Key, "bytes", done.Size, "kept", files.BackupsKept)
-		a.backedUp.Store(&web.Backup{At: done.At, Size: done.Size})
+		slog.Info("backed up the database", "path", done.Path, "bytes", done.Size, "kept", files.BackupsKept)
+		a.backedUp.Store(&web.Backup{Dir: dir, At: done.At, Size: done.Size})
 	}
 	return true
 }

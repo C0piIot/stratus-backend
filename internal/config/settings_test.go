@@ -86,3 +86,22 @@ func TestAWeekThatStartsOnAnotherDayIsRefused(t *testing.T) {
 		t.Error("Load took a week that starts on Tuesday")
 	}
 }
+
+func TestTheBackupFolderIsAFolderInTheTree(t *testing.T) {
+	t.Parallel()
+	for raw, want := range map[string]string{"": "backups", "/admin/backups/": "admin/backups"} {
+		cfg, err := config.Load(func(key string) string {
+			return map[string]string{"STRATUS_BACKUP_DIR": raw}[key]
+		})
+		if err != nil || cfg.BackupDir != want {
+			t.Errorf("STRATUS_BACKUP_DIR=%q is %q, %v, want %q", raw, cfg.BackupDir, err, want)
+		}
+	}
+	for _, raw := range []string{"/", "a//b", "../up", "a/./b"} {
+		if _, err := config.Load(func(key string) string {
+			return map[string]string{"STRATUS_BACKUP_DIR": raw}[key]
+		}); err == nil {
+			t.Errorf("Load took %q for a folder", raw)
+		}
+	}
+}

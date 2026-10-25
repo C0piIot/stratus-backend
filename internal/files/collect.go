@@ -248,9 +248,11 @@ func (s *Service) Collect(ctx context.Context, olderThan time.Duration) (Collect
 		if err != nil {
 			return Collected{}, fmt.Errorf("list the blob store: %w", err)
 		}
-		// The database's own backups (#398): no row names one and none ever
-		// will, and a store holding only those is a fresh install rather than
-		// an index pointed somewhere new.
+		// The database's own backups (#398). Each is a file with a row now,
+		// but a database put back from one has no row for the backups taken
+		// after it -- AdoptBackups files them on the next start, and this is
+		// what keeps them until then. A store holding only those is a fresh
+		// install rather than an index pointed somewhere new.
 		if strings.HasPrefix(info.Key, BackupPrefix) {
 			continue
 		}

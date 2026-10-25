@@ -41,7 +41,7 @@ type settingsSection struct {
 }
 
 type settingsField struct {
-	Key, Help, Default string
+	Key, Help, Default, Under string
 	// Value is what goes in the field: the stored value, or empty for the
 	// default -- and for a setting the environment fixes, its value there.
 	Value   string
@@ -132,7 +132,7 @@ func (h *handler) renderSettings(w http.ResponseWriter, code int, user string,
 	var sections []settingsSection
 	for _, e := range h.editor.Entries() {
 		f := settingsField{
-			Key: e.Key, Help: e.Help, Default: e.Default, Choices: e.Choices,
+			Key: e.Key, Help: e.Help, Default: e.Default, Under: e.Under, Choices: e.Choices,
 			Fixed: e.Source == settings.FromEnvironment, Error: problems[e.Key],
 		}
 		switch {

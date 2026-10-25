@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"log/slog"
+	"strings"
 	"time"
 )
 
@@ -53,6 +54,9 @@ type Values struct {
 	// BackupInterval is how often the database is copied into the blob store
 	// (#398). Zero disables it.
 	BackupInterval time.Duration
+	// BackupDir is the folder of the tree the backups are filed in, which is
+	// /files/backups for "backups".
+	BackupDir string
 }
 
 // Setting is one of Values as a variable: its name, what it is when nobody
@@ -72,7 +76,11 @@ type Setting struct {
 	// Section is the heading it is under there.
 	Help    string
 	Section string
-	apply   func(v *Values, raw string) error
+	// Under is what the value is written after, for one that is a path inside
+	// something: the page shows it in front of the field, so nobody types it
+	// twice.
+	Under string
+	apply func(v *Values, raw string) error
 }
 
 // Apply reads raw into v, or says what is wrong with it. Empty is the
@@ -204,6 +212,14 @@ var Settings = []Setting{
 		},
 	},
 	{
+		Key: "STRATUS_BACKUP_DIR", Section: "Backup", Default: "backups", Under: "/files/",
+		Help: "The folder the backups are filed in, where they can be fetched like any other file.",
+		apply: func(v *Values, raw string) (err error) {
+			v.BackupDir, err = folder(raw)
+			return err
+		},
+	},
+	{
 		Key: "STRATUS_LOG_LEVEL", Section: "Logs", Default: "info", Choices: []string{"debug", "info", "warn", "error"},
 		Help: "The least a log line has to be to be written.",
 		apply: func(v *Values, raw string) (err error) {
@@ -244,4 +260,15 @@ func onOff(raw string) (bool, error) {
 		return false, nil
 	}
 	return false, errors.New("must be on or off")
+}
+
+// folder is a path inside the tree, written without the slashes at either end.
+func folder(raw string) (string, error) {
+	dir := strings.Trim(raw, "/")
+	for seg := range strings.SplitSeq(dir, "/") {
+		if seg == "" || seg == "." || seg == ".." {
+			return "", errors.New("not a folder, try backups or admin/backups")
+		}
+	}
+	return dir, nil
 }

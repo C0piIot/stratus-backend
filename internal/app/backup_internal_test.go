@@ -12,8 +12,9 @@ import (
 )
 
 func backupApp(every time.Duration) *App {
-	cfg := config.Config{}
+	cfg := config.Config{Username: "edu"}
 	cfg.BackupInterval = every
+	cfg.BackupDir = "backups"
 	return &App{cfg: cfg}
 }
 
@@ -31,7 +32,7 @@ func TestABackupIsTakenWhenDueAndNotBefore(t *testing.T) {
 		t.Fatalf("a fresh install was not backed up: %+v", first)
 	}
 	a.backUpIfDue(t.Context(), deps)
-	if all, _ := service.Backups(t.Context()); len(all) != 1 {
+	if all, _ := service.Backups(t.Context(), "edu", "backups"); len(all) != 1 {
 		t.Errorf("%d backups after a second look inside the interval, want 1", len(all))
 	}
 
@@ -48,7 +49,7 @@ func TestBackupsOffTakeNone(t *testing.T) {
 	_, _, service := filestest.Stack(t)
 	a := backupApp(0)
 	a.backUpIfDue(t.Context(), Deps{Files: service, Scratch: t.TempDir()})
-	if all, _ := service.Backups(t.Context()); len(all) != 0 {
+	if all, _ := service.Backups(t.Context(), "edu", "backups"); len(all) != 0 {
 		t.Errorf("%d backups with the interval at zero", len(all))
 	}
 }
@@ -86,5 +87,33 @@ func TestACancelledBackupStopsTheLoop(t *testing.T) {
 	cancel()
 	if backupApp(24*time.Hour).backUpIfDue(ctx, Deps{Files: service, Scratch: t.TempDir()}) {
 		t.Error("a cancelled pass did not stop the loop")
+	}
+}
+
+func TestAFolderThatMovedIsBackedUpIntoAtOnce(t *testing.T) {
+	t.Parallel()
+	_, _, service := filestest.Stack(t)
+	deps := Deps{Files: service, Scratch: t.TempDir()}
+	a := backupApp(24 * time.Hour)
+	a.backUpIfDue(t.Context(), deps)
+
+	a.cfg.BackupDir = "elsewhere"
+	a.backUpIfDue(t.Context(), deps)
+	if all, _ := service.Backups(t.Context(), "edu", "elsewhere"); len(all) != 1 {
+		t.Errorf("%d backups in the new folder, want 1", len(all))
+	}
+	if got := a.lastBackup(); got.Dir != "elsewhere" || got.At.IsZero() {
+		t.Errorf("after the move the newest backup is %+v", got)
+	}
+}
+
+func TestWithNoUserNothingIsBackedUp(t *testing.T) {
+	t.Parallel()
+	_, _, service := filestest.Stack(t)
+	a := backupApp(24 * time.Hour)
+	a.cfg.Username = ""
+	a.backUpIfDue(t.Context(), Deps{Files: service, Scratch: t.TempDir()})
+	if got := a.lastBackup(); !got.At.IsZero() {
+		t.Errorf("a server with no user backed up: %+v", got)
 	}
 }
