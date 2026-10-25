@@ -31,7 +31,7 @@ of this file.
 | CalDAV | calendar events, tasks, journal entries | DAVx5, Thunderbird, iOS/macOS | **works** ¶ |
 | CardDAV | contacts | DAVx5, Thunderbird, iOS/macOS | **works** ¶ |
 | OpenSubsonic | music | Symfonium, Substreamer, DSub, Feishin | **works** † |
-| Web UI | sign in, browse, search, upload, download, rename, delete, the trash, what is known about a file, a photo gallery, a music library, a month of a calendar, library status | any browser | **partly** |
+| Web UI | sign in, browse, search, upload, download, rename, delete, the trash, what is known about a file, a photo gallery, a music library, a month of a calendar, an address book, library status | any browser | **partly** |
 | DLNA / UPnP-AV | TVs, set-top players | | planned |
 
 § Two ways, and the player chooses between them by the codecs each declares.
@@ -811,6 +811,9 @@ levels.
   says it should, over the whole address book.
 - **A client syncs by token**, with deletions remembered for thirty days, as a
   calendar's are.
+- **A browser at the same address gets the list** of the address book,
+  read-only, as a calendar's address gives the month; a contact's own address
+  stays the vCard.
 
 ## OpenSubsonic
 
@@ -963,7 +966,10 @@ calendars answer over CalDAV, and **Calendar** in the menu under your name is a 
 them: read-only, a grid on a wide screen and a list of the days with something
 on them on a phone, moved by links so a month is an address. Times are drawn in
 the server's zone, `TZ`, because a page with no script cannot ask the browser
-for its own. Events only; tasks are for a tasks app. It is a convenience for when reaching for
+for its own. Events only; tasks are for a tasks app. **Contacts**, beside it, is
+one address book the same way: read-only, everybody in it by name under a
+letter, with each number and address a link a phone can dial or write to, and
+no photographs. It is a convenience for when reaching for
 rclone or DAVx5 is overkill, and it consumes the same internals the protocol
 handlers do — it will never grow a private JSON API of its own.
 
@@ -1815,7 +1821,7 @@ Working now:
 - Contacts over CardDAV, the same way: discovered from the bare address,
   conditional writes, search and sync by token.
 - A request log, migrations applied at startup, and a container asserted from
-  the outside by 157 smoke checks.
+  the outside by 158 smoke checks.
 
 Not there yet: sharing, and the calendar in the web UI. Work
 and the decisions behind it are tracked on the

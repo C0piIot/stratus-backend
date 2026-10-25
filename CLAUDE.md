@@ -27,6 +27,16 @@ download files, view the calendar.
   itself. The instances are `calendar.Occurrences`, which is `Expand` read
   back, so the page and a client asking for `expand` see the same ones. It is a convenience for the cases where
 reaching for rclone or DAVx5 is overkill, not the primary way to use Stratus.
+- **An address book is a list, read-only, at its own address** (#423), the
+  calendar's twin: `/contacts/<owner>/<book>/` is the page and the CardDAV
+  collection, split by `collectionOrBrowser` in the composition root -- the
+  one function both prefixes go through now -- with a contact's address the
+  vCard for a GET too. By name under a letter, the same list on every width,
+  no script. **A number is a `tel:` link only when it is written like one**:
+  html/template refuses the scheme, so the URL is built from the digits and a
+  leading plus alone, and anything else in the field leaves it text. The
+  photograph is not drawn: it lives inside the vCard, and serving it is a
+  data: URI the policy refuses or an address of its own.
 
 Hard constraints, in the same spirit as the rest of the project:
 

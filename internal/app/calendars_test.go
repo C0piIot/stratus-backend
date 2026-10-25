@@ -124,4 +124,31 @@ func TestContactsAreWiredFromTheOrigin(t *testing.T) {
 	if rec := propfind("/", "1", true); !strings.Contains(rec.Body.String(), "/contacts/") {
 		t.Errorf("the origin does not list the contacts:\n%s", rec.Body.String())
 	}
+
+	// One address, two protocols: a browser gets the address book, and a
+	// client asking for a contact by GET still gets the vCard.
+	vcf := "BEGIN:VCARD\r\nVERSION:4.0\r\nUID:ada\r\nFN:Ada Lovelace\r\nEND:VCARD\r\n"
+	put := httptest.NewRequestWithContext(t.Context(), http.MethodPut, "/contacts/edu/contacts/ada.vcf", strings.NewReader(vcf))
+	put.Header.Set("Content-Type", "text/vcard")
+	put.SetBasicAuth("edu", password)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, put)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("PUT of a contact = %d: %s", rec.Code, rec.Body.String())
+	}
+	get := func(target string) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, target, nil)
+		req.SetBasicAuth("edu", password)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec
+	}
+	if rec := get("/contacts/edu/contacts/"); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Ada Lovelace") ||
+		!strings.Contains(rec.Header().Get("Content-Type"), "text/html") {
+		t.Errorf("a browser at the address book = %d %q", rec.Code, rec.Header().Get("Content-Type"))
+	}
+	if rec := get("/contacts/edu/contacts/ada.vcf"); rec.Code != http.StatusOK || !strings.HasPrefix(rec.Body.String(), "BEGIN:VCARD") {
+		t.Errorf("GET of a contact = %d:\n%s", rec.Code, rec.Body.String())
+	}
 }

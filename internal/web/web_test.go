@@ -12,6 +12,7 @@ import (
 
 	"github.com/C0piIot/stratus-backend/internal/auth"
 	"github.com/C0piIot/stratus-backend/internal/calendar"
+	"github.com/C0piIot/stratus-backend/internal/contacts"
 	"github.com/C0piIot/stratus-backend/internal/db"
 	"github.com/C0piIot/stratus-backend/internal/files"
 	"github.com/C0piIot/stratus-backend/internal/files/filestest"
@@ -59,6 +60,7 @@ func newHandler(t *testing.T, v auth.Verifier) http.Handler {
 		// The default rather than zero, which is the trash held (#296).
 		TrashRetention: aMonth,
 		Calendars:      calendar.New(meta),
+		Contacts:       contacts.New(meta),
 	})
 }
 
@@ -83,6 +85,7 @@ func browser(t *testing.T) (http.Handler, *files.Service) {
 		Playback:       web.Playback{},
 		TrashRetention: aMonth,
 		Calendars:      calendar.New(meta),
+		Contacts:       contacts.New(meta),
 	}), s
 }
 
@@ -129,6 +132,7 @@ func browserOver(t *testing.T) (http.Handler, *files.Service, db.Store) {
 		Playback:       web.Playback{},
 		TrashRetention: aMonth,
 		Calendars:      calendar.New(meta),
+		Contacts:       contacts.New(meta),
 	}), s, meta
 }
 
@@ -155,6 +159,7 @@ func browserOverStore(t *testing.T) (http.Handler, *files.Service, storage.Stora
 		Playback:       web.Playback{},
 		TrashRetention: aMonth,
 		Calendars:      calendar.New(meta),
+		Contacts:       contacts.New(meta),
 	}), s, blobs
 }
 
@@ -253,6 +258,7 @@ func handlerImports(t *testing.T, s *files.Service, blobs storage.Storage, meta 
 		Playback:       web.Playback{},
 		TrashRetention: aMonth,
 		Calendars:      calendar.New(meta),
+		Contacts:       contacts.New(meta),
 	})
 }
 
@@ -280,6 +286,7 @@ func handlerOverIndex(t *testing.T, s *files.Service, blobs storage.Storage, ind
 		Playback:       web.Playback{},
 		TrashRetention: aMonth,
 		Calendars:      calendar.New(meta),
+		Contacts:       contacts.New(meta),
 	})
 }
 
@@ -428,6 +435,7 @@ func TestASessionFromAnotherPasswordIsNotOne(t *testing.T) {
 		Playback:       web.Playback{},
 		TrashRetention: aMonth,
 		Calendars:      calendar.New(meta),
+		Contacts:       contacts.New(meta),
 	})
 
 	rec := get(t, after, "/files/", before)

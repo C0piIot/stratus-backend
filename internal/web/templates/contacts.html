@@ -1,0 +1,40 @@
+{{/* One address book (#423), read-only and without a script: the contacts by
+     name under a letter each, every way to reach one a link, and the same
+     list on every width. */}}
+{{define "content" -}}
+{{with .Contacts}}
+<div class="mb-3">
+  <h1 class="h4 mb-0">{{.Name}}</h1>
+  <div class="small text-body-secondary">{{.Count}} {{if eq .Count 1}}contact{{else}}contacts{{end}}</div>
+</div>
+
+{{if .Others}}
+<ul class="nav nav-pills small mb-3">
+  {{range .Others}}
+  <li class="nav-item"><a class="nav-link py-1{{if .Current}} active{{end}}" href="{{.Href}}"{{if .Current}} aria-current="page"{{end}}>{{.Name}}</a></li>
+  {{end}}
+</ul>
+{{end}}
+
+{{if .Letters}}
+{{range .Letters}}
+<h2 class="h6 text-body-secondary mt-3 mb-1">{{.Letter}}</h2>
+<div class="list-group mb-2">
+  {{range .Contacts}}
+  <div class="list-group-item">
+    <div class="fw-semibold text-break">{{.Name}}</div>
+    {{if or .Org .Title}}<div class="small text-body-secondary">{{.Title}}{{if and .Org .Title}} · {{end}}{{.Org}}</div>{{end}}
+    {{range .Phones}}<div class="small">{{if .Href}}<a href="{{.Href}}">{{.Number}}</a>{{else}}{{.Number}}{{end}}{{with .Kind}} <span class="text-body-secondary">{{.}}</span>{{end}}</div>{{end}}
+    {{range .Emails}}<div class="small text-break"><a href="mailto:{{.}}">{{.}}</a></div>{{end}}
+    {{range .Addresses}}<div class="small text-body-secondary">{{.}}</div>{{end}}
+    {{with .Birthday}}<div class="small text-body-secondary">born {{.}}</div>{{end}}
+    {{with .Note}}<div class="small text-body-secondary text-break">{{.}}</div>{{end}}
+  </div>
+  {{end}}
+</div>
+{{end}}
+{{else}}
+<div class="card"><div class="card-body text-body-secondary">No contacts in this address book.</div></div>
+{{end}}
+{{end}}
+{{- end}}

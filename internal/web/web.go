@@ -115,6 +115,9 @@ type Deps struct {
 	// Calendars is read for the month pages at /calendars/, which write
 	// nothing; nil means there are none.
 	Calendars CalendarReader
+	// Contacts is read for the address book pages at /contacts/; nil means
+	// there are none.
+	Contacts ContactsReader
 	// Settings are the settings in force (#397), read per request so a
 	// change is on the next page. Nil means the fields above are the whole
 	// story, which is a test.
@@ -241,6 +244,9 @@ type handler struct {
 	kept time.Duration
 	// calendars is read for the month pages, and nil when there are none.
 	calendars CalendarReader
+	// contacts is read for the address book pages, and nil when there are
+	// none.
+	contacts ContactsReader
 	// settings are the settings in force, and nil for a handler a test built.
 	settings func() config.Values
 	// editor is the settings page's, and nil when there is no page.
@@ -266,7 +272,7 @@ func Handler(d Deps) http.Handler {
 		version: d.Version, buildDate: d.BuildDate, verifier: d.Verifier, sessions: d.Sessions, shares: d.Shares,
 		files: d.Files, thumbs: d.Thumbs, captures: d.Index, library: d.Index, finder: d.Index, playlists: d.Playlists,
 		indexing: d.Indexing, imports: d.Imports, playback: d.Playback, kept: d.TrashRetention,
-		calendars: d.Calendars, settings: d.Settings, editor: d.Editor, zones: d.Zones,
+		calendars: d.Calendars, contacts: d.Contacts, settings: d.Settings, editor: d.Editor, zones: d.Zones,
 		started: d.Started, database: d.Database, storage: d.Storage, sweep: d.Sweep, system: d.System, backup: d.Backup,
 	}
 
@@ -300,6 +306,9 @@ func Handler(d Deps) http.Handler {
 	mux.HandleFunc("GET "+playlistsPrefix+"{path...}", h.signedIn(h.playlistPages))
 	if h.calendars != nil {
 		mux.HandleFunc("GET "+calendarsPrefix+"{path...}", h.signedIn(h.calendarPages))
+	}
+	if h.contacts != nil {
+		mux.HandleFunc("GET "+contactsPrefix+"{path...}", h.signedIn(h.contactPages))
 	}
 	mux.HandleFunc("POST /files/{path...}", h.signedIn(h.upload))
 	// The share sheet's door, which is the upload's twin with the destination
