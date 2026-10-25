@@ -1715,7 +1715,14 @@ It also makes a playlist out of that album, which is not in the bundle and
 could not be: `/playlists/` is a read-only mount over rows the database holds,
 so the only way to make one is the way a client makes one, over OpenSubsonic.
 That is also the check — it is created with `createPlaylist` and read back as
-a generated `.m3u8` over WebDAV, which is both halves of that surface at once. It is the only check here that runs against something deployed rather
+a generated `.m3u8` over WebDAV, which is both halves of that surface at once.
+
+And six contacts and seven events, film characters with 555 numbers and
+`example.com` addresses, written over CardDAV and CalDAV the way a phone would
+write them and then looked for on the address book and month pages. The events
+are dated from the moment of the seed -- a lunch tomorrow, a dig next week, a
+briefing that repeats -- since the demo is reset every hour and a calendar of
+fixed dates would soon be a calendar of the past. It is the only check here that runs against something deployed rather
 than against an image on the build machine, and `make demo BASE=…` runs the same
 thing against a local instance.
 

@@ -9,6 +9,9 @@
 # fifteen seconds of video in eight containers and codecs, each there for a
 # different thing a server has to do with a film (scripts/demo/CREDITS.md).
 #
+# And contacts and events, which are text written inline below rather than
+# media in the bundle.
+#
 # And a playlist, which is not in the bundle and cannot be: /playlists/ is a
 # read-only mount of rows the database holds, so the only way to make one is
 # the way a client does, over OpenSubsonic.
@@ -193,6 +196,92 @@ m3u="$(curl -fsS -u "$USER:$PASS" "$BASE/playlists/$(encode "Demo mix.m3u8")" ||
 case "$m3u" in
 *"#EXTM3U"*) ok "/playlists/ serves it as .m3u8 over WebDAV" ;;
 *) die "/playlists/Demo mix.m3u8 did not come back as a playlist" ;;
+esac
+
+# Contacts and events, written over CardDAV and CalDAV the way a phone writes
+# them, so the address book and the month page have something to show. Film
+# characters, every number a 555 one and every address at example.com. The
+# events are dated from now rather than from a fixed day, because the demo is
+# reset every hour and a calendar full of last year shows an empty month.
+put_text() {
+	local type="$1" path="$2" body="$3"
+	printf '%s\n' "$body" | sed 's/$/\r/' |
+		dav -T - -H "Content-Type: $type; charset=utf-8" "$BASE/$path" >/dev/null || die "PUT $path failed"
+}
+
+card() {
+	local uid="$1"; shift
+	local IFS=$'\n'
+	put_text text/vcard "contacts/$(encode "$USER")/contacts/$uid.vcf" \
+		"BEGIN:VCARD
+VERSION:3.0
+UID:$uid
+$*
+END:VCARD"
+}
+
+card marty-mcfly "FN:Marty McFly" "N:McFly;Marty;;;" "TEL;TYPE=cell:+1 555 0185" \
+	"EMAIL;TYPE=home:marty@example.com" "ADR;TYPE=home:;;9303 Lyon Drive;Hill Valley;CA;95420;USA" \
+	"BDAY:1968-06-09" "NOTE:Plays guitar. Do not call him chicken."
+card emmett-brown "FN:Emmett Brown" "N:Brown;Emmett;Lathrop;Dr.;" "ORG:Brown Laboratories" "TITLE:Inventor" \
+	"TEL;TYPE=work:+1 555 0121" "EMAIL;TYPE=work:doc@example.com" \
+	"ADR;TYPE=work:;;1640 Riverside Drive;Hill Valley;CA;95420;USA" "NOTE:Needs 1.21 gigawatts."
+card ellen-ripley "FN:Ellen Ripley" "N:Ripley;Ellen;Louise;;" "ORG:Weyland-Yutani Corp." "TITLE:Warrant Officer" \
+	"TEL;TYPE=cell:+1 555 0179" "EMAIL;TYPE=work:ripley@example.com" "NOTE:USCSS Nostromo, crew of seven."
+card indiana-jones "FN:Indiana Jones" "N:Jones;Henry;Walton;Dr.;Jr." "ORG:Marshall College" \
+	"TITLE:Professor of Archaeology" "TEL;TYPE=work:+1 555 0136" "EMAIL;TYPE=work:indy@example.com" \
+	"NOTE:Hates snakes."
+card amelie-poulain "FN:Amélie Poulain" "N:Poulain;Amélie;;;" "ORG:Café des 2 Moulins" "TITLE:Waitress" \
+	"TEL;TYPE=cell:+33 1 55 50 01 01" "EMAIL;TYPE=home:amelie@example.com" \
+	"ADR;TYPE=home:;;56 Rue des Trois Frères;Paris;;75018;France"
+card jeffrey-lebowski "FN:The Dude" "N:Lebowski;Jeffrey;;;" "TEL;TYPE=home:+1 555 0110" \
+	"EMAIL;TYPE=home:dude@example.com" "ADR;TYPE=home:;;606 Venezia Avenue;Venice;CA;90291;USA" \
+	"NOTE:The Dude abides. Bowling on Tuesdays."
+ok "six contacts in the address book over CardDAV"
+
+event() {
+	local uid="$1"; shift
+	local IFS=$'\n'
+	put_text text/calendar "calendars/$(encode "$USER")/default/$uid.ics" \
+		"BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Stratus//seed-demo//EN
+BEGIN:VEVENT
+UID:$uid
+DTSTAMP:$(date -u +%Y%m%dT%H%M%SZ)
+$*
+END:VEVENT
+END:VCALENDAR"
+}
+day() { date -u -d "$1" +%Y%m%d; }
+at() { date -u -d "$1" +%Y%m%dT%H%M%SZ; }
+
+event standup "SUMMARY:Crew briefing" "LOCATION:Nostromo, mess hall" \
+	"DTSTART:$(at "monday this week 08:00")" "DURATION:PT30M" "RRULE:FREQ=WEEKLY;BYDAY=MO,WE,FR"
+event lunch-doc "SUMMARY:Lunch with Doc Brown" "LOCATION:Lou's Café, Hill Valley" \
+	"DTSTART:$(at "tomorrow 12:30")" "DTEND:$(at "tomorrow 13:30")" \
+	"BEGIN:VALARM" "ACTION:DISPLAY" "TRIGGER:-PT15M" "DESCRIPTION:Lunch with Doc Brown" "END:VALARM"
+event test-run "SUMMARY:88 mph test run" "LOCATION:Twin Pines Mall, parking lot" \
+	"DTSTART:$(at "+3 days 01:15")" "DTEND:$(at "+3 days 01:35")" "DESCRIPTION:Bring the plutonium. And a camera."
+event movie-night "SUMMARY:Movie night: Alien" "LOCATION:The Dude's place" \
+	"DTSTART:$(at "-2 days 19:30")" "DTEND:$(at "-2 days 21:30")" "DESCRIPTION:In space no one can hear you scream."
+event bowling "SUMMARY:League bowling" "LOCATION:Hollywood Star Lanes" \
+	"DTSTART:$(at "tuesday 20:00")" "DURATION:PT2H" "RRULE:FREQ=WEEKLY"
+event dig "SUMMARY:Dig in Tanis" "LOCATION:Egypt" \
+	"DTSTART;VALUE=DATE:$(day "+8 days")" "DTEND;VALUE=DATE:$(day "+11 days")"
+event gnome "SUMMARY:Send the garden gnome on holiday" "DTSTART;VALUE=DATE:$(day "+5 days")" \
+	"DTEND;VALUE=DATE:$(day "+6 days")"
+ok "seven events in the calendar over CalDAV"
+
+month="$(curl -fsS -u "$USER:$PASS" -H 'Sec-Fetch-Mode: navigate' "$BASE/calendars/$(encode "$USER")/default/" || true)"
+case "$month" in
+*"Lunch with Doc Brown"* | *"Dig in Tanis"* | *"League bowling"*) ok "the month page shows them" ;;
+*) die "the month page does not show the events" ;;
+esac
+book="$(curl -fsS -u "$USER:$PASS" -H 'Sec-Fetch-Mode: navigate' "$BASE/contacts/$(encode "$USER")/contacts/" || true)"
+case "$book" in
+*"Ellen Ripley"*) ok "the address book page lists them" ;;
+*) die "the address book page does not list the contacts" ;;
 esac
 
 # A thumbnail for every video the listing would offer one for, which is every
