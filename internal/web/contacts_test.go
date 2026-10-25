@@ -8,8 +8,11 @@ import (
 
 	"github.com/emersion/go-vcard"
 
+	"github.com/C0piIot/stratus-backend/internal/auth"
 	"github.com/C0piIot/stratus-backend/internal/contacts"
 	"github.com/C0piIot/stratus-backend/internal/db"
+	"github.com/C0piIot/stratus-backend/internal/db/dbtest"
+	"github.com/C0piIot/stratus-backend/internal/web"
 )
 
 func putContact(t *testing.T, meta db.Store, book, name string, lines ...string) {
@@ -44,7 +47,7 @@ func TestAnAddressBookIsAListByName(t *testing.T) {
 		"TITLE:Cryptanalyst", "TEL;TYPE=cell,voice:+44 (0)20 7946-0000", "EMAIL:alan@example.com",
 		"ADR;TYPE=home:;;2 Station Rd;Bletchley;;MK3 6EB;UK", "BDAY:19120623")
 	putContact(t, meta, contacts.DefaultName, "ada", "FN:ada Lovelace", "NOTE:Notes & numbers")
-	putContact(t, meta, contacts.DefaultName, "odd", "FN:3M Helpdesk", `TEL:javascript:alert(1)`)
+	putContact(t, meta, contacts.DefaultName, "odd", "FN:3M Helpdesk", `TEL:javascript:alert(1)`, "TEL:()")
 
 	rec := get(t, h, "/contacts/", cookie)
 	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/contacts/edu/" {
@@ -88,14 +91,14 @@ func TestAnEmptyAddressBookAndTheOthers(t *testing.T) {
 	if _, err := svc.AddressBooks(t.Context(), username); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.Create(t.Context(), username, db.AddressBook{Name: "work", DisplayName: "Work"}); err != nil {
+	if _, err := svc.Create(t.Context(), username, db.AddressBook{Name: "work"}); err != nil {
 		t.Fatal(err)
 	}
 
 	body := get(t, h, "/contacts/edu/work/", cookie).Body.String()
 	for _, want := range []string{
 		"No contacts in this address book.", `href="/contacts/edu/contacts/">Contacts</a>`,
-		`active" href="/contacts/edu/work/" aria-current="page">Work</a>`,
+		`active" href="/contacts/edu/work/" aria-current="page">work</a>`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("the address book has no %q:\n%s", want, body)
@@ -109,5 +112,43 @@ func TestAnEmptyAddressBookAndTheOthers(t *testing.T) {
 		if rec := get(t, h, target, cookie); rec.Code != code {
 			t.Errorf("%s = %d, want %d", target, rec.Code, code)
 		}
+	}
+}
+
+func TestAnAddressBookThatCannotBeReadIsAFailure(t *testing.T) {
+	t.Parallel()
+	for name, broken := range map[string]func(t *testing.T, meta db.Store) db.Store{
+		"the listing": func(t *testing.T, meta db.Store) db.Store { return dbtest.FailOn(t, meta, "Contacts") },
+		"a vCard": func(t *testing.T, meta db.Store) db.Store {
+			b, err := contacts.New(meta).AddressBook(t.Context(), username, contacts.DefaultName)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := meta.PutContact(t.Context(), db.Contact{AddressBookID: b.ID, Name: "x.vcf", UID: "x", Data: "not a vCard"}); err != nil {
+				t.Fatal(err)
+			}
+			return meta
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			s, thumbs, meta := pieces(t)
+			creds := credentials()
+			h := web.Handler(web.Deps{
+				Version:   version,
+				BuildDate: buildDate,
+				Verifier:  creds,
+				Sessions:  auth.NewSessions(creds, auth.DefaultSessionTTL),
+				Shares:    auth.NewShares(creds),
+				Files:     s,
+				Thumbs:    thumbs,
+				Indexing:  indexing(meta),
+				Playback:  web.Playback{},
+				Contacts:  contacts.New(broken(t, meta)),
+			})
+			if rec := get(t, h, "/contacts/edu/contacts/", signIn(t, h)); rec.Code != http.StatusInternalServerError {
+				t.Errorf("an address book with %s broken = %d, want 500", name, rec.Code)
+			}
+		})
 	}
 }
