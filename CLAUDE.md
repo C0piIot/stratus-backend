@@ -877,9 +877,22 @@ which makes SQLite's own `VACUUM INTO` the whole of the first phase: a
 consistent copy while writes go on, restored by putting the file in place,
 and an old one migrated by the startup that opens it. `db.Backuper` is
 optional like `MigrationLocker`, and PostgreSQL and MySQL do not have it yet
-(#425 -- writing the same file from them, and `stratus restore`). The sweep
-skips the prefix before it counts, because no row will ever name a backup and
-a store holding only backups is a fresh install, not the empty-index case.
+(#425 -- writing the same file from them, and `stratus restore`).
+
+**A backup is a file in the tree, and its key is still not a file's.** It is
+filed in `STRATUS_BACKUP_DIR` under `/files/` with a row like any other, so it
+is listed and fetched over every surface the tree has; the settings page draws
+that setting with `/files/` in front of the field, which is what
+`config.Setting.Under` is for. But the blob is written at
+`files.BackupPrefix` + its time and the row points at it, as `Adopt` points
+rows at keys it did not choose: a backup is for the day the database is gone,
+and with no rows left a `newBlobKey` is a random name in a dated folder. The
+rotation destroys rather than trashes, since it is policy and not an accident.
+The sweep still skips the prefix, because a database put back from a backup
+has no row for the ones taken after it, and `AdoptBackups` files every
+unclaimed one at the next start -- what is in the trash counts as claimed, so
+a backup somebody deleted is not brought back. A store holding only backups is
+a fresh install, not the empty-index case.
 
 **Most settings can also be stored, and the environment still wins** (#397).
 `config.Settings` is the list of the ones that can change while the server

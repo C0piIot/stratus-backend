@@ -110,7 +110,10 @@ func TestStatusSaysWhatTheLastBackupIs(t *testing.T) {
 		"none yet":                 {},
 		"not on this database yet": {Unsupported: true},
 		"2.0 MiB":                  {At: time.Now(), Size: 2 << 20},
-		"no room left on device":   {At: time.Now(), Size: 1, Err: "back up: no room left on device"},
+		`in <a href="/files/admin/old%20backups/">/files/admin/old backups/</a>`: {
+			At: time.Now(), Size: 1, Dir: "admin/old backups",
+		},
+		"no room left on device": {At: time.Now(), Size: 1, Err: "back up: no room left on device"},
 	}
 	for want, b := range cases {
 		if body := statusWithBackup(t, b); !strings.Contains(body, want) {

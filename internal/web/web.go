@@ -148,6 +148,8 @@ type Backup struct {
 	Err string
 	// Unsupported is a database whose driver cannot write one yet (#425).
 	Unsupported bool
+	// Dir is the folder of the tree they are filed in.
+	Dir string
 }
 
 // System is the machine, for the status page. A zero or negative number is
