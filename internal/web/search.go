@@ -26,11 +26,13 @@ const searchPageSize = 50
 // The buckets a search answers, by the name the URL uses. A page with none of
 // them shows them all; one with a name shows that bucket alone and pages it.
 const (
-	inFiles   = "files"
-	inTracks  = "tracks"
-	inPhotos  = "photos"
-	inArtists = "artists"
-	inAlbums  = "albums"
+	inFiles    = "files"
+	inTracks   = "tracks"
+	inPhotos   = "photos"
+	inArtists  = "artists"
+	inAlbums   = "albums"
+	inEvents   = "events"
+	inContacts = "contacts"
 )
 
 // The fragments htmx asks for when it extends one of the buckets, as
@@ -49,7 +51,7 @@ func (h *handler) search(w http.ResponseWriter, r *http.Request, user string) {
 
 	only := q.Get("in")
 	switch only {
-	case "", inFiles, inTracks, inPhotos, inArtists, inAlbums:
+	case "", inFiles, inTracks, inPhotos, inArtists, inAlbums, inEvents, inContacts:
 	default:
 		h.badRequest(w, user, "There is nothing here to search called that.")
 		return
@@ -99,6 +101,26 @@ func (h *handler) search(w http.ResponseWriter, r *http.Request, user string) {
 	if only == "" || only == inAlbums {
 		filter.Albums = db.TagWindow{After: afterTag, Limit: searchPageSize + 1}
 	}
+	v.Only = only
+	if only == "" || only == inEvents {
+		v.FoundEvents = h.findEvents(r.Context(), user, term)
+		v.SearchesEvents = h.calendars != nil
+		if only == "" && len(v.FoundEvents) > searchCollectionLimit {
+			v.FoundEvents, v.MoreEvents = v.FoundEvents[:searchCollectionLimit], searchResumed(term, inEvents, "")
+		}
+	}
+	if only == "" || only == inContacts {
+		v.FoundContacts = h.findContacts(r.Context(), user, term)
+		v.SearchesContacts = h.contacts != nil
+		if only == "" && len(v.FoundContacts) > searchCollectionLimit {
+			v.FoundContacts, v.MoreContacts = v.FoundContacts[:searchCollectionLimit], searchResumed(term, inContacts, "")
+		}
+	}
+	if only == inEvents || only == inContacts {
+		h.render(w, http.StatusOK, pageSearch, v)
+		return
+	}
+
 	found, findErr := h.finder.Find(r.Context(), user, filter)
 	if findErr != nil {
 		h.fail(w, r, user, findErr)
@@ -107,7 +129,6 @@ func (h *handler) search(w http.ResponseWriter, r *http.Request, user string) {
 
 	files, moreFiles := trim(found.Files)
 	v.Entries = entries(files, h.statesOf(r.Context(), r.URL.Path, files), "")
-	v.Only = only
 	if moreFiles {
 		v.NextPage = searchLink(term, inFiles, db.After(files[len(files)-1]))
 	}
@@ -183,7 +204,9 @@ func searchResumed(term, only, after string) string {
 	q := url.Values{}
 	q.Set("q", term)
 	q.Set("in", only)
-	q.Set("after", after)
+	if after != "" {
+		q.Set("after", after)
+	}
 	return searchPrefix + "?" + q.Encode()
 }
 

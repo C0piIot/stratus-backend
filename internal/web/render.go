@@ -184,7 +184,16 @@ type view struct {
 	MorePhotos   string
 	MoreArtists  string
 	MoreAlbums   string
-	Only         string
+	// FoundEvents and FoundContacts are the two buckets matched in Go, the
+	// first page's twenty and a link to the rest; Searches says there is a
+	// calendar or an address book to have searched at all.
+	FoundEvents      []foundEvent
+	FoundContacts    []foundContact
+	MoreEvents       string
+	MoreContacts     string
+	SearchesEvents   bool
+	SearchesContacts bool
+	Only             string
 	// Counts and the three fields under it are the status page: how much of the
 	// library has been looked at, and by which extractor.
 	Counts       db.MediaCounts

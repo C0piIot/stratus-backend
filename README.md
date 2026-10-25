@@ -1095,6 +1095,13 @@ coordinate is two numbers, and turning one into "Lisbon" means asking a service
 somewhere else, which a self-hosted server should not have to do to answer its
 own search box.
 
+**Events and contacts are in it too**: an event by its title, its place or its
+description, and a contact by name, company, email or note, each a line that
+opens its form. The same whole words in the same order, and accents do not
+matter here -- `amelie` finds Amélie. Twenty of each beside the rest, and the
+link under them opens all of them; a repeating event is one line, not one per
+time it happens.
+
 Each part shows fifty at a time and offers the rest, which opens that part on
 its own: `/search?q=sunset&in=files`. What is not in it yet is a place: a
 photograph knows where it was taken as two numbers, and turning those into
@@ -1832,8 +1839,8 @@ Working now:
 - An import folder on local disk, swept into the library: `STRATUS_INCOMING_DIR`.
 - Adopting a Nextcloud instance on S3, surveyed first and then imported without
   moving a byte, from its SQLite, PostgreSQL or MySQL database.
-- A search box over names, titles, artists, albums and what a camera
-  recorded, paged by a cursor.
+- A search box over names, titles, artists, albums, what a camera recorded,
+  events and contacts.
 - A web UI: sign in, walk the tree, open or download a file, upload one, make a folder,
   rename and delete, see what the indexer found about a file, a gallery of every photo by date -- also served as
   folders by date over WebDAV -- and a music library to browse and play. A signed-cookie session and a CSP that allows nothing but
