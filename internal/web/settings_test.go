@@ -253,7 +253,7 @@ func TestTheWeekStartsWhereTheSettingSays(t *testing.T) {
 	// February, Sunday-first from the 25th.
 	// The first 25 drawn is February's only when the grid reaches back to it.
 	startsOn25th := func(body string) bool {
-		return strings.Index(body, ">25</div>") < strings.Index(body, ">1</div>")
+		return strings.Index(body, ">25</a>") < strings.Index(body, ">1</a>")
 	}
 	if body := month(); !strings.Contains(body, ">Mon</div>") ||
 		strings.Index(body, ">Mon</div>") > strings.Index(body, ">Sun</div>") || startsOn25th(body) {

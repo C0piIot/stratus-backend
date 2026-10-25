@@ -33,9 +33,9 @@ const (
 	contactDeletePrefix = "/contact/delete/"
 )
 
-// errChanged is a contact written or deleted elsewhere since its form was
-// drawn, which is the form's If-Match failing.
-var errChanged = errors.New("web: the contact changed since its form was drawn")
+// errChanged is a contact or an event written or deleted elsewhere since its
+// form was drawn, which is the form's If-Match failing.
+var errChanged = errors.New("web: what the form edits changed since it was drawn")
 
 var (
 	phoneKinds = []string{vcard.TypeCell, vcard.TypeHome, vcard.TypeWork, vcard.TypeFax}

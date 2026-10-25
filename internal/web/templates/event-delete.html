@@ -1,0 +1,19 @@
+{{define "content" -}}
+<div class="row justify-content-center">
+  <div class="col-12 col-md-8 col-lg-6">
+    <h1 class="h4">Delete event</h1>
+    <div class="card card-body">
+      <p class="mb-3">
+        <strong>{{.Event.Summary}}</strong>{{if .Event.Repeats}}, every occurrence of it,{{end}} will be deleted for good,
+        here and on every device that syncs this calendar. Calendars have no trash.
+      </p>
+      <div class="d-flex gap-2">
+        <form method="post" action="{{.Action}}">
+          <button class="btn btn-danger" type="submit">Delete</button>
+        </form>
+        <a class="btn btn-outline-secondary" href="{{.Back}}">Cancel</a>
+      </div>
+    </div>
+  </div>
+</div>
+{{- end}}

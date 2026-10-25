@@ -10,9 +10,9 @@ code it describes.
 ## Web UI
 
 A small server-rendered UI, built up feature by feature: log in, browse and
-download files, view the calendar.
+download files, the calendar and the contacts.
 
-- **The calendar is a month, read-only, at the calendar's own address**
+- **The calendar is a month at the calendar's own address**
   (#111): `/calendars/<owner>/<calendar>/?month=YYYY-MM` is the page, and the
   same address is the CalDAV collection, split by method in the composition
   root like the others -- with the one difference that a `GET` of an object
@@ -25,7 +25,21 @@ download files, view the calendar.
   **Times are in the server's zone, `TZ`**: a page with no script cannot ask
   the browser for its own, and a month drawn in two zones would disagree with
   itself. The instances are `calendar.Occurrences`, which is `Expand` read
-  back, so the page and a client asking for `expand` see the same ones. It is a convenience for the cases where
+  back, so the page and a client asking for `expand` see the same ones.
+
+  **An event is written by three forms under `/event/`** (#444), the
+  contacts' twins below and by the same rules: the form is compared with the
+  stored event drawn as a form and only what differs is written, so an alarm,
+  the attendees and an `X-` property survive and a form saved untouched
+  writes nothing; the ETag is the precondition. A change bumps `SEQUENCE`
+  and moves `DTSTAMP` and `LAST-MODIFIED`, which is how a client tells which
+  copy is newer. **A time is written in UTC unless the event already had a
+  `TZID` Go can load**, because naming a zone for a new event means writing a
+  `VTIMEZONE`, which is a table of rules to keep; a moved event keeps its zone
+  and its `VTIMEZONE`. A repeating event is edited as a series -- its rule and
+  its moved instances stay, and it cannot switch between all day and timed,
+  since `UNTIL`, `EXDATE` and `RECURRENCE-ID` have to share `DTSTART`'s type.
+  One instance alone, and giving an event a rule, are #445. It is a convenience for the cases where
 reaching for rclone or DAVx5 is overkill, not the primary way to use Stratus.
 - **An address book is a list at its own address** (#423), the
   calendar's twin: `/contacts/<owner>/<book>/` is the page and the CardDAV

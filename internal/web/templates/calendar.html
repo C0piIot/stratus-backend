@@ -1,4 +1,5 @@
-{{/* A month of one calendar (#111), read-only. A grid on a screen wide
+{{/* A month of one calendar (#111), each event a link to its form and
+     each day's number one to a new event on that day (#444). A grid on a screen wide
      enough for seven columns and a list of the days with something on them
      on one that is not: both are rendered, and the breakpoint picks. No
      script and no stylesheet of our own. The grid is rows of seven .col and
@@ -12,10 +13,13 @@
     <h1 class="h4 mb-0">{{.Month}}</h1>
     <div class="small text-body-secondary">{{.Name}} · times in {{.Zone}}</div>
   </div>
-  <div class="btn-group btn-group-sm" role="group" aria-label="Month">
-    <a class="btn btn-outline-secondary" href="{{.Prev}}" aria-label="Previous month">‹</a>
-    <a class="btn btn-outline-secondary" href="{{.ThisMonth}}">Today</a>
-    <a class="btn btn-outline-secondary" href="{{.Next}}" aria-label="Next month">›</a>
+  <div class="d-flex gap-2">
+    {{with .New}}<a class="btn btn-sm btn-primary" href="{{.}}">New event</a>{{end}}
+    <div class="btn-group btn-group-sm" role="group" aria-label="Month">
+      <a class="btn btn-outline-secondary" href="{{.Prev}}" aria-label="Previous month">‹</a>
+      <a class="btn btn-outline-secondary" href="{{.ThisMonth}}">Today</a>
+      <a class="btn btn-outline-secondary" href="{{.Next}}" aria-label="Next month">›</a>
+    </div>
   </div>
 </div>
 
@@ -35,12 +39,12 @@
   <div class="row g-0">
     {{range .}}
     <div class="col border-end border-bottom p-1 text-break{{if not .InMonth}} bg-body-tertiary{{end}}">
-      <div class="small text-end{{if .Today}} fw-bold text-primary{{else if not .InMonth}} text-body-tertiary{{end}}">{{.Number}}</div>
+      <div class="small text-end{{if .Today}} fw-bold text-primary{{else if not .InMonth}} text-body-tertiary{{end}}">{{if .New}}<a class="link-underline link-underline-opacity-0 text-reset" href="{{.New}}" aria-label="New event on {{.Label}}">{{.Number}}</a>{{else}}{{.Number}}{{end}}</div>
       {{range .Events}}
-      <div class="small mb-1{{if .AllDay}} badge text-bg-primary d-block text-start text-wrap fw-normal{{end}}"
+      <a class="d-block small mb-1 text-decoration-none{{if .AllDay}} badge text-bg-primary text-start text-wrap fw-normal{{else}} text-body{{end}}" href="{{.Href}}"
            title="{{if .Time}}{{.Time}} {{end}}{{.Summary}}{{if .Location}} · {{.Location}}{{end}}">
         {{if .Time}}<span class="text-body-secondary">{{.Time}}</span> {{end}}{{.Summary}}
-      </div>
+      </a>
       {{end}}
     </div>
     {{end}}
@@ -55,10 +59,10 @@
     <div class="list-group-item">
       <div class="small fw-semibold{{if .Today}} text-primary{{end}}">{{.Label}}</div>
       {{range .Events}}
-      <div class="d-flex gap-2">
+      <a class="d-flex gap-2 text-body text-decoration-none" href="{{.Href}}">
         <span class="text-body-secondary small flex-shrink-0">{{if .AllDay}}all day{{else if .Time}}{{.Time}}{{else}}…{{end}}</span>
         <span>{{.Summary}}{{if .Location}} <span class="text-body-secondary small">· {{.Location}}</span>{{end}}</span>
-      </div>
+      </a>
       {{end}}
     </div>
     {{end}}

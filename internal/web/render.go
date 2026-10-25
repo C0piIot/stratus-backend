@@ -69,6 +69,8 @@ const (
 	pageContacts  = "contacts.html"
 	pageContact   = "contact.html"
 	pageUncontact = "contact-delete.html"
+	pageEvent     = "event.html"
+	pageUnevent   = "event-delete.html"
 	pageSettings  = "settings.html"
 )
 
@@ -102,6 +104,8 @@ var pages = map[string]*template.Template{
 	pageContacts:  parse(pageContacts),
 	pageContact:   parse(pageContact),
 	pageUncontact: parse(pageUncontact),
+	pageEvent:     parse(pageEvent),
+	pageUnevent:   parse(pageUnevent),
 	pageSettings:  parse(pageSettings),
 }
 
@@ -262,6 +266,8 @@ type view struct {
 	Contacts *contactsView
 	// Contact is one contact's form (#442).
 	Contact *contactForm
+	// Event is one event's form, or the event a delete asks about (#444).
+	Event *eventForm
 	// Settings are the settings page's headings and fields (#397).
 	Settings []settingsSection
 }

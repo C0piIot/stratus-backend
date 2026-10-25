@@ -731,6 +731,17 @@ if wait_serving "$davname"; then
     303*'VERSION:3.0'*'FN:Form Written'*) ok "a contact written from the web syncs to a client" ;;
     *) bad "a contact written from the web syncs to a client" "got $formpost: $(head -c 200 <<<"$formsync")" ;;
   esac
+  # So is an event written from its form (#444).
+  eventpost="$(curl -s -o /dev/null -w '%{http_code}' -u "$davuser:$davpass" -H 'Sec-Fetch-Mode: navigate' \
+    --data-urlencode summary='Form Event' --data-urlencode start-date=2024-03-06 --data-urlencode start-time=10:00 \
+    "http://$davhost/event/new/default")"
+  eventsync="$(curl -s -u "$davuser:$davpass" -X REPORT -H 'Content-Type: application/xml' \
+    --data '<D:sync-collection xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav"><D:sync-token/><D:sync-level>1</D:sync-level><D:prop><C:calendar-data/></D:prop></D:sync-collection>' \
+    "http://$davhost/calendars/$davuser/default/" 2>/dev/null || true)"
+  case "$eventpost $eventsync" in
+    303*'SUMMARY:Form Event'*) ok "an event written from the web syncs to a client" ;;
+    *) bad "an event written from the web syncs to a client" "got $eventpost: $(head -c 200 <<<"$eventsync")" ;;
+  esac
 
   # The settings page (#397), and a change from it in force at once: the
   # status page reads the indexer's switch per request.

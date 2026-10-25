@@ -9,7 +9,7 @@ protocols your existing apps already understand.
 > **Work in progress.** Files over WebDAV, music over OpenSubsonic and
 > calendars and tasks over CalDAV work today, the web UI browses, uploads,
 > downloads and tidies the files, and the container is real. Sharing is not
-> written yet, nor the calendar in the web UI.
+> written yet.
 > The tables below say what answers and what does not, rather than what is
 > intended — if a row says **works**, it works.
 
@@ -31,7 +31,7 @@ of this file.
 | CalDAV | calendar events, tasks, journal entries | DAVx5, Thunderbird, iOS/macOS | **works** ¶ |
 | CardDAV | contacts | DAVx5, Thunderbird, iOS/macOS | **works** ¶ |
 | OpenSubsonic | music | Symfonium, Substreamer, DSub, Feishin | **works** † |
-| Web UI | sign in, browse, search, upload, download, rename, delete, the trash, what is known about a file, a photo gallery, a music library, a month of a calendar, an address book to read and write, library status | any browser | **partly** |
+| Web UI | sign in, browse, search, upload, download, rename, delete, the trash, what is known about a file, a photo gallery, a music library, a month of a calendar and its events to write, an address book to read and write, library status | any browser | **partly** |
 | DLNA / UPnP-AV | TVs, set-top players | | planned |
 
 § Two ways, and the player chooses between them by the codecs each declares.
@@ -964,10 +964,16 @@ than a form for a user who does not exist.
 What it does today is sign you in, walk the tree, hand you a file, take one
 back, make a folder to put it in, and rename or delete what is there. The
 calendars answer over CalDAV, and **Calendar** in the menu under your name is a month of one of
-them: read-only, a grid on a wide screen and a list of the days with something
-on them on a phone, moved by links so a month is an address. Times are drawn in
-the server's zone, `TZ`, because a page with no script cannot ask the browser
-for its own. Events only; tasks are for a tasks app. **Contacts**, beside it, is
+them: a grid on a wide screen and a list of the days with something on them on
+a phone, moved by links so a month is an address. Times are drawn in the
+server's zone, `TZ`, because a page with no script cannot ask the browser for
+its own. Events only; tasks are for a tasks app. **New event**, a day's number
+and the event itself open a form for the title, the day and the times or all
+day, the place and a description, and like a contact's it touches nothing
+else -- an alarm, the guests and a phone's own fields survive. A new event is
+written in UTC; one a client wrote in a zone stays in that zone. A repeating
+event is edited and deleted as a whole series: changing one instance of it,
+or making an event repeat, is for a calendar app for now. **Contacts**, beside it, is
 one address book the same way: everybody in it by name under a letter, with
 each number and address a link a phone can dial or write to, and no
 photographs. That one can be written as well: **New contact** and **Edit** are
@@ -1828,9 +1834,9 @@ Working now:
 - Contacts over CardDAV, the same way: discovered from the bare address,
   conditional writes, search and sync by token.
 - A request log, migrations applied at startup, and a container asserted from
-  the outside by 159 smoke checks.
+  the outside by 160 smoke checks.
 
-Not there yet: sharing, and the calendar in the web UI. Work
+Not there yet: sharing, and one instance of a repeating event from the web UI. Work
 and the decisions behind it are tracked on the
 [Stratus project board](https://github.com/users/C0piIot/projects/2), where
 `Priority` says when and the `decision` label says what still needs a call.

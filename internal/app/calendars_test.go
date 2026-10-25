@@ -88,6 +88,27 @@ func TestCalendarsAreWiredFromTheOrigin(t *testing.T) {
 			t.Errorf("GET %s = %d %q, want 200 %s", target, rec.Code, rec.Header().Get("Content-Type"), want)
 		}
 	}
+
+	// And an event written from its form (#444) is in the calendar a client
+	// syncs.
+	form := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/event/new/default",
+		strings.NewReader("summary=Retro&start-date=2024-03-06&start-time=10:00"))
+	form.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	form.SetBasicAuth("edu", password)
+	posted := httptest.NewRecorder()
+	h.ServeHTTP(posted, form)
+	if posted.Code != http.StatusSeeOther {
+		t.Fatalf("the new event form = %d:\n%s", posted.Code, posted.Body.String())
+	}
+	report := httptest.NewRequestWithContext(t.Context(), "REPORT", "/calendars/edu/default/", strings.NewReader(
+		`<D:sync-collection xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav"><D:sync-token/><D:sync-level>1</D:sync-level><D:prop><C:calendar-data/></D:prop></D:sync-collection>`))
+	report.Header.Set("Content-Type", "application/xml")
+	report.SetBasicAuth("edu", password)
+	synced := httptest.NewRecorder()
+	h.ServeHTTP(synced, report)
+	if synced.Code != http.StatusMultiStatus || !strings.Contains(synced.Body.String(), "SUMMARY:Retro") {
+		t.Errorf("a client syncing after the form = %d:\n%s", synced.Code, synced.Body.String())
+	}
 }
 
 // TestContactsAreWiredFromTheOrigin is the same for address books (#423).
