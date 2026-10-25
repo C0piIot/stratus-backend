@@ -721,6 +721,17 @@ Hard constraints, in the same spirit as the rest of the project:
   be checked against, and a link to one folder does not authorise a search
   across somebody's whole library.
 
+
+  **Events and contacts are two more buckets, matched in Go** (#449). Every
+  object the calendar and contact services list is decoded and its words
+  compared, rather than indexed by each engine: a personal calendar is
+  hundreds of objects, which is the size CalDAV's query by date already loads
+  whole, and an index would be a migration and a tokeniser per engine for a
+  few milliseconds. What it promises is `db.Finder`'s -- whole words, several
+  as a phrase, case ignored -- plus accents, which only Go is comparing here.
+  No cursor: the page shows twenty of each and the page narrowed to one shows
+  all, since every one was read to find the first. A repeating event is its
+  master component, once.
 - **What the indexer found is a page of its own, `/info/<path>`** (#249): the
   file row's half -- type, size, modified, validator -- and the extracted half
   by kind, each field dropped when it is unknown rather than printed as a zero,

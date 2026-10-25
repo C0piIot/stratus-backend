@@ -5,9 +5,10 @@
 <div class="card">
   <div class="card-body text-body-secondary">
     Type into the box above to find a file or a folder by its name, a track by
-    its title, or an artist, an album or a photograph by what the tags and the
-    camera say. Whole words, and several of them mean those words in that
-    order.
+    its title, an artist, an album or a photograph by what the tags and the
+    camera say, an event by its title, place or description, or a contact by
+    name, company, email or note. Whole words, and several of them mean those
+    words in that order.
   </div>
 </div>
 {{else}}
@@ -72,6 +73,43 @@
 </div>
 {{else}}
 <p class="text-body-secondary small mb-4">No photograph was taken by anything called that.</p>
+{{end}}
+{{end}}
+
+{{if and .SearchesEvents (.Shows "events")}}
+<h2 class="h6 text-body-secondary">Calendar</h2>
+{{if .FoundEvents}}
+<div class="list-group mb-4">
+  {{range .FoundEvents}}
+  <a class="list-group-item list-group-item-action d-flex justify-content-between align-items-center gap-3" href="{{.Href}}">
+    <div class="text-break">
+      {{.Summary}}
+      <div class="small text-body-secondary">{{.Calendar}}{{if .Repeats}} · repeats{{end}}</div>
+    </div>
+    {{with .When}}<span class="small text-body-secondary flex-shrink-0">{{.}}</span>{{end}}
+  </a>
+  {{end}}
+  {{with .MoreEvents}}<a class="list-group-item text-center link-secondary small text-decoration-none py-3" href="{{.}}">More events</a>{{end}}
+</div>
+{{else}}
+<p class="text-body-secondary small mb-4">No event says that.</p>
+{{end}}
+{{end}}
+
+{{if and .SearchesContacts (.Shows "contacts")}}
+<h2 class="h6 text-body-secondary">Contacts</h2>
+{{if .FoundContacts}}
+<div class="list-group mb-4">
+  {{range .FoundContacts}}
+  <a class="list-group-item list-group-item-action" href="{{.Href}}">
+    <span class="text-break">{{.Name}}</span>
+    {{with .Detail}}<div class="small text-body-secondary text-break">{{.}}</div>{{end}}
+  </a>
+  {{end}}
+  {{with .MoreContacts}}<a class="list-group-item text-center link-secondary small text-decoration-none py-3" href="{{.}}">More contacts</a>{{end}}
+</div>
+{{else}}
+<p class="text-body-secondary small mb-4">Nobody is called that.</p>
 {{end}}
 {{end}}
 
