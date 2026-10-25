@@ -12,6 +12,9 @@ import (
 // Occurrence is one instance of an event as a page shows it (#111): what it is
 // called, where, and from when to when in the zone the page is drawn in.
 type Occurrence struct {
+	// Object is the name of the object the event is stored in, which is
+	// what a page links to for editing it.
+	Object            string
 	Summary, Location string
 	Start, End        time.Time
 	// AllDay is an event dated by the day: Start is that day's midnight and
@@ -39,10 +42,11 @@ func Occurrences(objects []db.CalendarObject, start, end time.Time, loc *time.Lo
 			if comp.Name != ical.CompEvent {
 				continue
 			}
-			occ, err := occurrence(comp, loc)
+			occ, err := When(comp, loc)
 			if err != nil {
 				return nil, err
 			}
+			occ.Object = o.Name
 			out = append(out, occ)
 		}
 	}
@@ -55,7 +59,9 @@ func Occurrences(objects []db.CalendarObject, start, end time.Time, loc *time.Lo
 	return out, nil
 }
 
-func occurrence(comp *ical.Component, loc *time.Location) (Occurrence, error) {
+// When is one event as a page reads it: what it is called, where, and from
+// when to when in loc.
+func When(comp *ical.Component, loc *time.Location) (Occurrence, error) {
 	occ := Occurrence{}
 	occ.Summary, _ = comp.Props.Text(ical.PropSummary)
 	occ.Location, _ = comp.Props.Text(ical.PropLocation)

@@ -7,11 +7,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/emersion/go-ical"
+
 	"github.com/C0piIot/stratus-backend/internal/calendar"
 	"github.com/C0piIot/stratus-backend/internal/db"
 )
 
-// The calendar (#111): a month of one calendar's events, read-only, at the
+// The calendar (#111): a month of one calendar's events at the
 // same address CalDAV serves that calendar at -- one URL per thing, split by
 // method in the composition root like the other collections, with one
 // difference: an object's address stays CalDAV's for a GET too, because a
@@ -32,13 +34,16 @@ const calendarsPrefix = "/calendars/"
 // monthParam is the month a calendar page shows, as YYYY-MM.
 const monthParam = "month"
 
-// CalendarReader is the pages' view of the calendars: reading, and nothing
-// else. internal/calendar's service, so the default calendar a client would
-// find is the one a page finds.
-type CalendarReader interface {
+// Calendars is the pages' and the event forms' view of the calendars:
+// internal/calendar's service, so the default calendar a client would find is
+// the one a page finds, and an event written here is one a client syncs.
+type Calendars interface {
 	Calendars(ctx context.Context, owner string) ([]db.Calendar, error)
 	Calendar(ctx context.Context, owner, name string) (db.Calendar, error)
 	Objects(ctx context.Context, owner, calendar string) ([]db.CalendarObject, error)
+	Object(ctx context.Context, owner, calendar, name string) (db.CalendarObject, error)
+	Put(ctx context.Context, owner, calendar, name string, cal *ical.Calendar, check calendar.Precondition) (db.CalendarObject, error)
+	Delete(ctx context.Context, owner, calendar, name string) error
 }
 
 // calendarView is one month of one calendar.
@@ -48,8 +53,11 @@ type calendarView struct {
 	Prev      string
 	Next      string
 	ThisMonth string
-	Weekdays  []string
-	Weeks     [][]calendarDay
+	// New is the form for an event, and empty on a calendar that does not
+	// take them -- a task list.
+	New      string
+	Weekdays []string
+	Weeks    [][]calendarDay
 	// Days are the ones with something on them, for the narrow layout.
 	Days   []calendarDay
 	Others []calendarLink
@@ -57,6 +65,8 @@ type calendarView struct {
 }
 
 type calendarDay struct {
+	// New is the form for an event on this day, as New is for the month.
+	New     string
 	Number  int
 	Label   string
 	InMonth bool
@@ -65,6 +75,7 @@ type calendarDay struct {
 }
 
 type calendarEvent struct {
+	Href     string
 	Time     string
 	Summary  string
 	Location string
@@ -161,6 +172,9 @@ func (h *handler) calendarMonth(w http.ResponseWriter, r *http.Request, user, na
 		Weekdays:  weekdays(weekStart),
 		Zone:      now.Format("MST"),
 	}
+	if c.Holds(ical.CompEvent) {
+		cv.New = eventHref(eventNewPrefix, name, "")
+	}
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, zone)
 	var week []calendarDay
 	for day := gridStart; day.Before(gridEnd); day = day.AddDate(0, 0, 1) {
@@ -168,10 +182,13 @@ func (h *handler) calendarMonth(w http.ResponseWriter, r *http.Request, user, na
 			Number: day.Day(), Label: day.Format("Monday 2 January"),
 			InMonth: day.Month() == first.Month(), Today: day.Equal(today),
 		}
+		if cv.New != "" {
+			d.New = cv.New + "?" + dateParam + "=" + day.Format(time.DateOnly)
+		}
 		next := day.AddDate(0, 0, 1)
 		for _, e := range events {
 			if e.Start.Before(next) && (e.End.After(day) || e.End.Equal(e.Start) && !e.Start.Before(day)) {
-				d.Events = append(d.Events, eventRow(e, day))
+				d.Events = append(d.Events, eventRow(e, name, day))
 			}
 		}
 		week = append(week, d)
@@ -205,8 +222,10 @@ func weekdays(start time.Weekday) []string {
 
 // eventRow is one event as one day shows it: its time when it starts that
 // day, and nothing when it is all day or began on a day before.
-func eventRow(e calendar.Occurrence, day time.Time) calendarEvent {
-	row := calendarEvent{Summary: e.Summary, Location: e.Location, AllDay: e.AllDay}
+func eventRow(e calendar.Occurrence, cal string, day time.Time) calendarEvent {
+	row := calendarEvent{
+		Href: eventHref(eventEditPrefix, cal, e.Object), Summary: e.Summary, Location: e.Location, AllDay: e.AllDay,
+	}
 	if row.Summary == "" {
 		row.Summary = "(no title)"
 	}

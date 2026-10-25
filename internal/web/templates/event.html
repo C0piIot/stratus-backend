@@ -1,0 +1,70 @@
+{{/* One event's form (#444), new or stored, with no script. Dates and
+     times are in the zone the month is drawn in; all day ignores the times.
+     The first button is the save, hidden, because Enter in a field presses
+     the first one in the form. */}}
+{{define "content" -}}
+{{with .Event}}
+<div class="row justify-content-center">
+  <div class="col-12 col-md-10 col-lg-8">
+    <h1 class="h4">{{.Heading}}</h1>
+    {{if .Changed}}<div class="alert alert-warning py-2" role="alert">
+      This event was changed or deleted somewhere else since this form was opened, so nothing was saved.
+      {{if .Delete}}<a href="{{.Action}}">Open it again</a> to see it as it is now; what you typed is still below.{{end}}
+    </div>{{end}}
+    {{with .Repeats}}<div class="alert alert-info py-2">{{.}}: what is saved here changes every occurrence.</div>{{end}}
+    <form method="post" action="{{.Action}}">
+      <button class="d-none" type="submit" tabindex="-1" aria-hidden="true">Save</button>
+      <input type="hidden" name="etag" value="{{.ETag}}">
+
+      <div class="card mb-3"><div class="card-body">
+        <label class="form-label mb-1" for="summary">Title</label>
+        <input class="form-control{{if .SummaryErr}} is-invalid{{end}}" id="summary" name="summary" value="{{.Summary}}" autocomplete="off" autofocus>
+        {{with .SummaryErr}}<div class="invalid-feedback">{{.}}</div>{{end}}
+      </div></div>
+
+      <div class="card mb-3"><div class="card-body">
+        <div class="form-check mb-2">
+          <input class="form-check-input" type="checkbox" id="allday" name="allday" value="1"{{if .AllDay}} checked{{end}}>
+          <label class="form-check-label" for="allday">All day</label>
+        </div>
+        <div class="row g-2">
+          <div class="col-7 col-sm-4">
+            <label class="form-label mb-1" for="start-date">Starts</label>
+            <input class="form-control{{if .WhenErr}} is-invalid{{end}}" id="start-date" name="start-date" type="date" value="{{.StartDate}}">
+          </div>
+          <div class="col-5 col-sm-2">
+            <label class="form-label mb-1" for="start-time">at</label>
+            <input class="form-control" id="start-time" name="start-time" type="time" value="{{.StartTime}}">
+          </div>
+          <div class="col-7 col-sm-4">
+            <label class="form-label mb-1" for="end-date">Ends</label>
+            <input class="form-control" id="end-date" name="end-date" type="date" value="{{.EndDate}}">
+          </div>
+          <div class="col-5 col-sm-2">
+            <label class="form-label mb-1" for="end-time">at</label>
+            <input class="form-control" id="end-time" name="end-time" type="time" value="{{.EndTime}}">
+          </div>
+        </div>
+        {{with .WhenErr}}<div class="text-danger small mt-1">{{.}}</div>{{end}}
+        <div class="form-text">Times in {{.Zone}}.</div>
+      </div></div>
+
+      <div class="card mb-3"><div class="card-body">
+        <div class="mb-2">
+          <label class="form-label mb-1" for="location">Location</label>
+          <input class="form-control" id="location" name="location" value="{{.Location}}" autocomplete="off">
+        </div>
+        <label class="form-label mb-1" for="description">Description</label>
+        <textarea class="form-control" id="description" name="description" rows="3">{{.Description}}</textarea>
+      </div></div>
+
+      <div class="d-flex gap-2">
+        <button class="btn btn-primary" type="submit">Save</button>
+        <a class="btn btn-outline-secondary" href="{{.Back}}">Cancel</a>
+        {{with .Delete}}<a class="btn btn-outline-danger ms-auto" href="{{.}}">Delete</a>{{end}}
+      </div>
+    </form>
+  </div>
+</div>
+{{end}}
+{{- end}}

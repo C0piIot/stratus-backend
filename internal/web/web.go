@@ -112,9 +112,9 @@ type Deps struct {
 	// TrashRetention is how long a deletion is kept, for the pages that say
 	// so, and zero when the trash is held and never emptied (#296).
 	TrashRetention time.Duration
-	// Calendars is read for the month pages at /calendars/, which write
-	// nothing; nil means there are none.
-	Calendars CalendarReader
+	// Calendars is the month pages at /calendars/ and the forms that write
+	// events under /event/; nil means there are none.
+	Calendars Calendars
 	// Contacts is the address book pages at /contacts/ and the forms that
 	// write them under /contact/; nil means there are none.
 	Contacts Contacts
@@ -242,8 +242,9 @@ type handler struct {
 	playback Playback
 	// kept is Deps.TrashRetention.
 	kept time.Duration
-	// calendars is read for the month pages, and nil when there are none.
-	calendars CalendarReader
+	// calendars is the month pages and the event forms, and nil when there
+	// are none.
+	calendars Calendars
 	// contacts is read for the address book pages, and nil when there are
 	// none.
 	contacts Contacts
@@ -306,6 +307,12 @@ func Handler(d Deps) http.Handler {
 	mux.HandleFunc("GET "+playlistsPrefix+"{path...}", h.signedIn(h.playlistPages))
 	if h.calendars != nil {
 		mux.HandleFunc("GET "+calendarsPrefix+"{path...}", h.signedIn(h.calendarPages))
+		mux.HandleFunc("GET "+eventNewPrefix+"{cal}", h.signedIn(h.newEventForm))
+		mux.HandleFunc("POST "+eventNewPrefix+"{cal}", h.signedIn(h.createEvent))
+		mux.HandleFunc("GET "+eventEditPrefix+"{cal}/{name}", h.signedIn(h.editEventForm))
+		mux.HandleFunc("POST "+eventEditPrefix+"{cal}/{name}", h.signedIn(h.updateEvent))
+		mux.HandleFunc("GET "+eventDeletePrefix+"{cal}/{name}", h.signedIn(h.deleteEventForm))
+		mux.HandleFunc("POST "+eventDeletePrefix+"{cal}/{name}", h.signedIn(h.deleteEvent))
 	}
 	if h.contacts != nil {
 		mux.HandleFunc("GET "+contactsPrefix+"{path...}", h.signedIn(h.contactPages))
