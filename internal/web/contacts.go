@@ -28,17 +28,22 @@ import (
 // number.
 const contactsPrefix = "/contacts/"
 
-// ContactsReader is the pages' view of the address books: internal/contacts'
-// service, so the default address book a client finds is the one a page finds.
-type ContactsReader interface {
+// Contacts is the pages' view of the address books: internal/contacts'
+// service, so the default address book a client finds is the one a page finds
+// and a contact written here is one a client syncs like its own.
+type Contacts interface {
 	AddressBooks(ctx context.Context, owner string) ([]db.AddressBook, error)
 	AddressBook(ctx context.Context, owner, name string) (db.AddressBook, error)
 	Contacts(ctx context.Context, owner, book string) ([]db.Contact, error)
+	Contact(ctx context.Context, owner, book, name string) (db.Contact, error)
+	Put(ctx context.Context, owner, book, name string, card vcard.Card, check contacts.Precondition) (db.Contact, error)
+	Delete(ctx context.Context, owner, book, name string) error
 }
 
 // contactsView is one address book.
 type contactsView struct {
 	Name    string
+	New     string
 	Count   int
 	Letters []contactLetter
 	Others  []calendarLink
@@ -50,6 +55,7 @@ type contactLetter struct {
 }
 
 type contactRow struct {
+	Edit             string
 	Name, Org, Title string
 	Emails           []string
 	Phones           []contactPhone
@@ -97,13 +103,15 @@ func (h *handler) addressBook(w http.ResponseWriter, r *http.Request, user, name
 			h.fail(w, r, user, err)
 			return
 		}
-		rows = append(rows, contactRowOf(card))
+		row := contactRowOf(card)
+		row.Edit = contactHref(contactEditPrefix, name, c.Name)
+		rows = append(rows, row)
 	}
 	slices.SortStableFunc(rows, func(a, b contactRow) int {
 		return strings.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name))
 	})
 
-	cv := &contactsView{Name: bookName(b), Count: len(rows)}
+	cv := &contactsView{Name: bookName(b), New: contactHref(contactNewPrefix, name, ""), Count: len(rows)}
 	for _, row := range rows {
 		letter := initial(row.Name)
 		if n := len(cv.Letters); n == 0 || cv.Letters[n-1].Letter != letter {

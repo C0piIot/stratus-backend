@@ -1,11 +1,14 @@
-{{/* One address book (#423), read-only and without a script: the contacts by
-     name under a letter each, every way to reach one a link, and the same
-     list on every width. */}}
+{{/* One address book (#423), without a script: the contacts by name under a
+     letter each, every way to reach one a link, and the same list on every
+     width. Writing one is a form of its own (#442). */}}
 {{define "content" -}}
 {{with .Contacts}}
-<div class="mb-3">
-  <h1 class="h4 mb-0">{{.Name}}</h1>
-  <div class="small text-body-secondary">{{.Count}} {{if eq .Count 1}}contact{{else}}contacts{{end}}</div>
+<div class="d-flex align-items-start gap-2 mb-3">
+  <div class="me-auto">
+    <h1 class="h4 mb-0">{{.Name}}</h1>
+    <div class="small text-body-secondary">{{.Count}} {{if eq .Count 1}}contact{{else}}contacts{{end}}</div>
+  </div>
+  <a class="btn btn-sm btn-primary" href="{{.New}}">New contact</a>
 </div>
 
 {{if .Others}}
@@ -22,7 +25,10 @@
 <div class="list-group mb-2">
   {{range .Contacts}}
   <div class="list-group-item">
-    <div class="fw-semibold text-break">{{.Name}}</div>
+    <div class="d-flex gap-2">
+      <div class="fw-semibold text-break me-auto">{{.Name}}</div>
+      <a class="small" href="{{.Edit}}">Edit</a>
+    </div>
     {{if or .Org .Title}}<div class="small text-body-secondary">{{.Title}}{{if and .Org .Title}} · {{end}}{{.Org}}</div>{{end}}
     {{range .Phones}}<div class="small">{{if .Href}}<a href="{{.Href}}">{{.Number}}</a>{{else}}{{.Number}}{{end}}{{with .Kind}} <span class="text-body-secondary">{{.}}</span>{{end}}</div>{{end}}
     {{range .Emails}}<div class="small text-break"><a href="mailto:{{.}}">{{.}}</a></div>{{end}}

@@ -720,6 +720,17 @@ if wait_serving "$davname"; then
     *'Smoke Test'*'mailto:smoke@example.com'*) ok "an address book is a list to a browser" ;;
     *) bad "an address book is a list to a browser" "$(head -c 200 <<<"$bookpage")" ;;
   esac
+  # And a contact written from its form (#442) is one a client syncs.
+  formpost="$(curl -s -o /dev/null -w '%{http_code}' -u "$davuser:$davpass" -H 'Sec-Fetch-Mode: navigate' \
+    --data-urlencode given=Form --data-urlencode family=Written --data-urlencode email-index=-1 \
+    --data-urlencode email=form@example.com "http://$davhost/contact/new/contacts")"
+  formsync="$(curl -s -u "$davuser:$davpass" -X REPORT -H 'Content-Type: application/xml' \
+    --data '<D:sync-collection xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:carddav"><D:sync-token/><D:sync-level>1</D:sync-level><D:prop><C:address-data/></D:prop></D:sync-collection>' \
+    "http://$davhost/contacts/$davuser/contacts/" 2>/dev/null || true)"
+  case "$formpost $formsync" in
+    303*'VERSION:3.0'*'FN:Form Written'*) ok "a contact written from the web syncs to a client" ;;
+    *) bad "a contact written from the web syncs to a client" "got $formpost: $(head -c 200 <<<"$formsync")" ;;
+  esac
 
   # The settings page (#397), and a change from it in force at once: the
   # status page reads the indexer's switch per request.

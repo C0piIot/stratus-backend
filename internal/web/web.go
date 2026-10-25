@@ -115,9 +115,9 @@ type Deps struct {
 	// Calendars is read for the month pages at /calendars/, which write
 	// nothing; nil means there are none.
 	Calendars CalendarReader
-	// Contacts is read for the address book pages at /contacts/; nil means
-	// there are none.
-	Contacts ContactsReader
+	// Contacts is the address book pages at /contacts/ and the forms that
+	// write them under /contact/; nil means there are none.
+	Contacts Contacts
 	// Settings are the settings in force (#397), read per request so a
 	// change is on the next page. Nil means the fields above are the whole
 	// story, which is a test.
@@ -246,7 +246,7 @@ type handler struct {
 	calendars CalendarReader
 	// contacts is read for the address book pages, and nil when there are
 	// none.
-	contacts ContactsReader
+	contacts Contacts
 	// settings are the settings in force, and nil for a handler a test built.
 	settings func() config.Values
 	// editor is the settings page's, and nil when there is no page.
@@ -309,6 +309,12 @@ func Handler(d Deps) http.Handler {
 	}
 	if h.contacts != nil {
 		mux.HandleFunc("GET "+contactsPrefix+"{path...}", h.signedIn(h.contactPages))
+		mux.HandleFunc("GET "+contactNewPrefix+"{book}", h.signedIn(h.newContactForm))
+		mux.HandleFunc("POST "+contactNewPrefix+"{book}", h.signedIn(h.createContact))
+		mux.HandleFunc("GET "+contactEditPrefix+"{book}/{name}", h.signedIn(h.editContactForm))
+		mux.HandleFunc("POST "+contactEditPrefix+"{book}/{name}", h.signedIn(h.updateContact))
+		mux.HandleFunc("GET "+contactDeletePrefix+"{book}/{name}", h.signedIn(h.deleteContactForm))
+		mux.HandleFunc("POST "+contactDeletePrefix+"{book}/{name}", h.signedIn(h.deleteContact))
 	}
 	mux.HandleFunc("POST /files/{path...}", h.signedIn(h.upload))
 	// The share sheet's door, which is the upload's twin with the destination

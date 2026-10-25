@@ -1,0 +1,19 @@
+{{define "content" -}}
+<div class="row justify-content-center">
+  <div class="col-12 col-md-8 col-lg-6">
+    <h1 class="h4">Delete contact</h1>
+    <div class="card card-body">
+      <p class="mb-3">
+        <strong>{{.Name}}</strong> will be deleted for good, here and on every device that syncs this address book.
+        Contacts have no trash.
+      </p>
+      <div class="d-flex gap-2">
+        <form method="post" action="{{.Action}}">
+          <button class="btn btn-danger" type="submit">Delete</button>
+        </form>
+        <a class="btn btn-outline-secondary" href="{{.Back}}">Cancel</a>
+      </div>
+    </div>
+  </div>
+</div>
+{{- end}}

@@ -151,4 +151,25 @@ func TestContactsAreWiredFromTheOrigin(t *testing.T) {
 	if rec := get("/contacts/edu/contacts/ada.vcf"); rec.Code != http.StatusOK || !strings.HasPrefix(rec.Body.String(), "BEGIN:VCARD") {
 		t.Errorf("GET of a contact = %d:\n%s", rec.Code, rec.Body.String())
 	}
+
+	// And a contact written from its form (#442) is in the same address book
+	// a client reads, not in something the web keeps beside it.
+	form := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/contact/new/contacts",
+		strings.NewReader("given=Grace&family=Hopper"))
+	form.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	form.SetBasicAuth("edu", password)
+	posted := httptest.NewRecorder()
+	h.ServeHTTP(posted, form)
+	if posted.Code != http.StatusSeeOther {
+		t.Fatalf("the new contact form = %d:\n%s", posted.Code, posted.Body.String())
+	}
+	report := httptest.NewRequestWithContext(t.Context(), "REPORT", "/contacts/edu/contacts/", strings.NewReader(
+		`<D:sync-collection xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:carddav"><D:sync-token/><D:sync-level>1</D:sync-level><D:prop><C:address-data/></D:prop></D:sync-collection>`))
+	report.Header.Set("Content-Type", "application/xml")
+	report.SetBasicAuth("edu", password)
+	synced := httptest.NewRecorder()
+	h.ServeHTTP(synced, report)
+	if synced.Code != http.StatusMultiStatus || !strings.Contains(synced.Body.String(), "FN:Grace Hopper") {
+		t.Errorf("a client syncing after the form = %d:\n%s", synced.Code, synced.Body.String())
+	}
 }
