@@ -43,7 +43,7 @@ var repoMethods = []string{
 	"Trash", "TrashBatches", "TrashTotals", "TrashedIn", "ExpiredTrash",
 	"LyricsOf", "AlbumLookup", "LookupCounts",
 	"PruneAlbumLookups", "PendingAlbumLookups", "PendingLyrics", "PutAlbumLookup", "PutLyrics",
-	"PruneCalendarTombstones", "Contacts", "PruneContactTombstones", "Settings", "PutSetting", "DeleteSetting",
+	"PruneCalendarTombstones", "Calendars", "CalendarObjects", "AddressBooks", "Contacts", "PruneContactTombstones", "Settings", "PutSetting", "DeleteSetting",
 }
 
 // Failing is a db.Store that fails one named method and passes the rest
@@ -181,6 +181,30 @@ func (f *failingRepo) DeleteSetting(ctx context.Context, key string) error {
 		return err
 	}
 	return f.Repo.DeleteSetting(ctx, key)
+}
+
+// Calendars implements db.Repo.
+func (f *failingRepo) Calendars(ctx context.Context, owner string) ([]db.Calendar, error) {
+	if err := f.fails("Calendars"); err != nil {
+		return nil, err
+	}
+	return f.Repo.Calendars(ctx, owner)
+}
+
+// CalendarObjects implements db.Repo.
+func (f *failingRepo) CalendarObjects(ctx context.Context, calendarID int64) ([]db.CalendarObject, error) {
+	if err := f.fails("CalendarObjects"); err != nil {
+		return nil, err
+	}
+	return f.Repo.CalendarObjects(ctx, calendarID)
+}
+
+// AddressBooks implements db.Repo.
+func (f *failingRepo) AddressBooks(ctx context.Context, owner string) ([]db.AddressBook, error) {
+	if err := f.fails("AddressBooks"); err != nil {
+		return nil, err
+	}
+	return f.Repo.AddressBooks(ctx, owner)
 }
 
 // Contacts implements db.Repo.

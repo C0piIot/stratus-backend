@@ -7,6 +7,22 @@
   </div>
 </div>
 
+{{/* Each calendar and address book, with what is in it and when it last
+     changed: what a phone that stopped syncing is compared with. */}}
+{{with .Collections}}
+<div class="card mb-3">
+  <div class="card-body">
+    <h2 class="h6 mb-3">Calendars and contacts</h2>
+    <dl class="row mb-0" data-collections>
+      {{range .}}
+      <dt class="col-sm-4 fw-normal text-body-secondary"><a href="{{.Href}}">{{.Name}}</a></dt>
+      <dd class="col-sm-8">{{or .What "empty"}}{{with .Changed}}<span class="text-body-secondary small"> · last changed {{.}}</span>{{end}}</dd>
+      {{end}}
+    </dl>
+  </div>
+</div>
+{{end}}
+
 <p class="text-body-secondary small mb-0">
   Room is the whole volume's, shared with the database and with what the
   indexer spools while it reads — not a figure set aside for files. An object

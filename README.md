@@ -1255,6 +1255,9 @@ how many files there are, how many have been read, how many are waiting and how
 many could not be read at all. The page refreshes itself, and a file the
 indexer has not reached yet is marked in the listing as well — which is
 something to see during that first pass and nothing the rest of the time.
+Below the numbers it lists each calendar and address book with how many
+events, tasks or contacts it holds and when one last changed, which is what to
+compare with a phone that seems to have stopped syncing.
 
 **A link somebody without an account can open.** Share a file or a folder from
 the listing and what comes back is the ordinary URL with a signature on it —
