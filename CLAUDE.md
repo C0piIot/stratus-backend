@@ -2019,6 +2019,17 @@ Restraint here is principle 3, not laziness:
   `i;unicode-casemap` the default collation. MySQL keeps the vCard in a
   `MEDIUMTEXT`, since a client sends the photograph inside it.
 
+  **And the bytes are ours, because go-vcard's are not the same twice**
+  (#442): its encoder writes a field's parameters in map order, so a number
+  with a `TYPE` and a `PREF` came out either way round and the same card
+  stored twice had two ETags -- which a web form saved untouched found, in
+  CI, one run in a few. `contacts.Encode` is that encoder with the
+  parameters sorted, and a `GET` of a contact is answered in front of the
+  library from the stored bytes, since the library's would encode the card
+  again its own way. The `address-data` inside a multiget or a query is
+  still the library's encoding: the same contact, possibly with its
+  parameters in another order, which nothing compares.
+
 - **Playlists are `.m3u8` files on a mount of their own**, `/playlists/`
   (#203), read-only WebDAV from `internal/dav/playlists.go`. **Not a folder in
   the tree, and that is the design:** `/files/` is the user's namespace, and a

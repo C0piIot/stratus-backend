@@ -267,3 +267,31 @@ func TestADatabaseThatFailsSaysSo(t *testing.T) {
 		t.Error("Decode took text that is not a vCard")
 	}
 }
+
+// TestAContactIsAlwaysTheSameBytes is what the ETag rests on: go-vcard writes
+// a field's parameters in map order, so a number with two of them came out
+// either way round.
+func TestAContactIsAlwaysTheSameBytes(t *testing.T) {
+	t.Parallel()
+	card := parse(t, "BEGIN:VCARD\r\nVERSION:4.0\r\nUID:x\r\nFN:A\\, B\r\n"+
+		"item1.TEL;TYPE=cell,voice;PREF=1;X-A=1;X-B=2:+1 555\r\nNOTE:one\\ntwo\r\nEND:VCARD\r\n")
+	first, err := contacts.Encode(card)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range 50 {
+		if again, _ := contacts.Encode(card); again != first {
+			t.Fatalf("the same card came out twice differently:\n%s\n%s", first, again)
+		}
+	}
+	if want := "BEGIN:VCARD\r\nVERSION:4.0\r\nFN:A\\, B\r\nNOTE:one\\ntwo\r\n" +
+		"item1.TEL;PREF=1;TYPE=cell;TYPE=voice;X-A=1;X-B=2:+1 555\r\nUID:x\r\nEND:VCARD\r\n"; first != want {
+		t.Errorf("the card is\n%q, want\n%q", first, want)
+	}
+	if again, _ := contacts.Encode(parse(t, first)); again != first {
+		t.Errorf("a card read back is not the same bytes:\n%s", again)
+	}
+	if _, err := contacts.Encode(vcard.Card{}); !errors.Is(err, contacts.ErrInvalid) {
+		t.Errorf("a card with no VERSION = %v", err)
+	}
+}

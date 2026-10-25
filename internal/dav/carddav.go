@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/emersion/go-vcard"
@@ -29,7 +30,10 @@ import (
 // ==, and the same sync-collection answered in front of it. What differs is
 // what the library does itself: it routes the extended MKCOL of RFC 5689 and
 // the DELETE of an address book to the backend, so neither is intercepted
-// here, while a PROPPATCH of one is a 405 there and is answered here.
+// here, while a PROPPATCH of one is a 405 there and is answered here. A GET
+// of a contact is answered here too, from the bytes stored: the library
+// encodes the card again with go-vcard, whose parameters come out in map
+// order, so the body would not be the bytes the ETag is a digest of.
 func CardDAV(prefix string, service *contacts.Service) http.Handler {
 	b := &contactsBackend{prefix: prefix, contacts: service}
 	h := &carddav.Handler{Backend: b}
@@ -52,6 +56,8 @@ func CardDAV(prefix string, service *contacts.Service) http.Handler {
 			propfindExtras(w, r, h, addressBookExtras, b.addressBookValues)
 		case r.Method == "PROPPATCH" && b.isAddressBook(r.URL.Path):
 			serve(w, b.proppatch(w, r))
+		case (r.Method == http.MethodGet || r.Method == http.MethodHead) && !strings.HasSuffix(r.URL.Path, "/"):
+			serve(w, b.get(w, r))
 		default:
 			h.ServeHTTP(w, r)
 		}
@@ -290,6 +296,26 @@ func (b *contactsBackend) GetAddressObject(ctx context.Context, p string, _ *car
 		return nil, err
 	}
 	return &out, nil
+}
+
+func (b *contactsBackend) get(w http.ResponseWriter, r *http.Request) error {
+	ctx := r.Context()
+	owner, book, name, err := b.split(ctx, r.URL.Path, 3)
+	if err != nil {
+		return err
+	}
+	c, err := b.contacts.Contact(ctx, owner, book, name)
+	if err != nil {
+		return mapContactsErr(ctx, err)
+	}
+	w.Header().Set("Content-Type", vcard.MIMEType)
+	w.Header().Set("Content-Length", strconv.Itoa(len(c.Data)))
+	w.Header().Set("ETag", `"`+c.ETag+`"`)
+	w.Header().Set("Last-Modified", c.Changed.UTC().Format(http.TimeFormat))
+	if r.Method == http.MethodGet {
+		_, _ = io.WriteString(w, c.Data)
+	}
+	return nil
 }
 
 // ListAddressObjects implements carddav.Backend.
