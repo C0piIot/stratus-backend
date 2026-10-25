@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/C0piIot/stratus-backend/internal/db/dbtest"
 	"github.com/C0piIot/stratus-backend/internal/files"
 	"github.com/C0piIot/stratus-backend/internal/files/filestest"
 	"github.com/C0piIot/stratus-backend/internal/storage"
@@ -178,5 +179,33 @@ func TestABackupCannotBeFiledUnderAFile(t *testing.T) {
 	}
 	for info, err := range blobs.List(t.Context(), files.BackupPrefix) {
 		t.Errorf("a backup that could not be filed was left in the store: %v, %v", info.Key, err)
+	}
+}
+
+func TestWhatTheIndexWillNotSayStopsTheBackups(t *testing.T) {
+	t.Parallel()
+	for _, method := range []string{"ListFiles", "BlobKeys"} {
+		blobs, meta := filestest.Backends(t)
+		if _, err := blobs.Put(t.Context(), "backups/20261001T030000Z.db", strings.NewReader("SQLite"), 6); err != nil {
+			t.Fatal(err)
+		}
+		s := files.New(blobs, dbtest.FailOn(t, meta, method))
+		_, listErr := s.Backups(t.Context(), backupOwner, "backups")
+		_, adoptErr := s.AdoptBackups(t.Context(), backupOwner, "backups")
+		if listErr == nil && adoptErr == nil {
+			t.Errorf("with %s failing, the backups were read as if nothing had", method)
+		}
+	}
+}
+
+// What is under the prefix and was not written there as a backup is not one.
+func TestOnlyBackupsAreFiled(t *testing.T) {
+	t.Parallel()
+	blobs, _, s := filestest.Stack(t)
+	if _, err := blobs.Put(t.Context(), "backups/notes.txt", strings.NewReader("mine"), 4); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := s.AdoptBackups(t.Context(), backupOwner, "backups"); err != nil || n != 0 {
+		t.Errorf("AdoptBackups = %d, %v, want nothing filed", n, err)
 	}
 }
