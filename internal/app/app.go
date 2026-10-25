@@ -18,6 +18,7 @@ import (
 	"github.com/C0piIot/stratus-backend/internal/auth"
 	"github.com/C0piIot/stratus-backend/internal/calendar"
 	"github.com/C0piIot/stratus-backend/internal/config"
+	"github.com/C0piIot/stratus-backend/internal/contacts"
 	"github.com/C0piIot/stratus-backend/internal/dav"
 	"github.com/C0piIot/stratus-backend/internal/db"
 	"github.com/C0piIot/stratus-backend/internal/files"
@@ -89,6 +90,13 @@ const calendarsPrefix = "/calendars/"
 // wellKnownCalDAV is where a client starts when it was given only the origin
 // (RFC 6764), which is what DAVx5 is given.
 const wellKnownCalDAV = "/.well-known/caldav"
+
+// contactsPrefix is where address books are served over CardDAV (#423). No
+// browser half: a GET of a contact is the vCard.
+const contactsPrefix = "/contacts/"
+
+// wellKnownCardDAV is wellKnownCalDAV for contacts.
+const wellKnownCardDAV = "/.well-known/carddav"
 
 // App holds the wired application. Construction is pure: no I/O happens until
 // Run, so Handler can be exercised from tests without touching the filesystem.
@@ -293,6 +301,11 @@ func (a *App) Handler(deps Deps) http.Handler {
 		mux.Handle(calendarsPrefix, calendars)
 		mux.Handle(strings.TrimSuffix(calendarsPrefix, "/"), calendars)
 		mux.Handle(wellKnownCalDAV, http.RedirectHandler(calendarsPrefix, http.StatusPermanentRedirect))
+		// Address books are calendars' twin, with no browser half at all.
+		addressBooks := guard(dav.CardDAV(contactsPrefix, contacts.New(deps.Database)))
+		mux.Handle(contactsPrefix, addressBooks)
+		mux.Handle(strings.TrimSuffix(contactsPrefix, "/"), addressBooks)
+		mux.Handle(wellKnownCardDAV, http.RedirectHandler(contactsPrefix, http.StatusPermanentRedirect))
 
 		// The browser surface, at the root, so everything the prefixes above did
 		// not claim is a page rather than a bare 404 -- and in front of it, the
@@ -301,7 +314,7 @@ func (a *App) Handler(deps Deps) http.Handler {
 		// also what the Windows redirector probes before it will mount anything
 		// at all (#281).
 		mux.Handle("/", collection(dav.Root("/", dav.Searchable("/", filesPrefix, deps.Database),
-			"calendars", "files", "music", "photos", "playlists", "trash", "videos")))
+			"calendars", "contacts", "files", "music", "photos", "playlists", "trash", "videos")))
 	}
 	// The log is outside the compression so that the bytes it counts are the
 	// bytes that went out rather than the ones the handler wrote, and the

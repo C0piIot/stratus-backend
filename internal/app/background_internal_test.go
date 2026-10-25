@@ -16,6 +16,7 @@ import (
 
 	"github.com/C0piIot/stratus-backend/internal/calendar"
 	"github.com/C0piIot/stratus-backend/internal/config"
+	"github.com/C0piIot/stratus-backend/internal/contacts"
 	"github.com/C0piIot/stratus-backend/internal/db"
 	"github.com/C0piIot/stratus-backend/internal/db/dbtest"
 	"github.com/C0piIot/stratus-backend/internal/files"
@@ -350,5 +351,39 @@ func TestKeepRunningRestartsAfterAPanic(t *testing.T) {
 	keepRunning(ctx, "test", time.Hour, func() { runs++; panic("boom") })
 	if runs != 1 {
 		t.Errorf("ran %d times after the context ended, want 1", runs)
+	}
+}
+
+func TestOldContactDeletionsAreForgotten(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	_, meta := filestest.Backends(t)
+	b, err := meta.CreateAddressBook(ctx, db.AddressBook{OwnerID: "edu", Name: "contacts", Created: time.Now()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = meta.PutContact(ctx, db.Contact{AddressBookID: b.ID, Name: "a.vcf", UID: "a", Data: "x", Changed: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	if err = meta.DeleteContact(ctx, b.ID, "a.vcf", time.Now().Add(-contacts.TombstoneRetention-time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+
+	if !pruneContacts(ctx, meta) {
+		t.Fatal("a pass with a live context said it had gone")
+	}
+	if changes, err := meta.ContactChanges(ctx, b.ID, 0); err != nil || len(changes) != 0 {
+		t.Errorf("ContactChanges after the pass = %+v, %v; want the deletion forgotten", changes, err)
+	}
+	if !pruneContacts(ctx, dbtest.FailOn(t, meta, "PruneContactTombstones")) {
+		t.Error("a failed pass stopped the loop")
+	}
+	if !pruneContacts(ctx, nil) {
+		t.Error("no database stopped the loop")
+	}
+	gone, cancel := context.WithCancel(ctx)
+	cancel()
+	if pruneContacts(gone, meta) {
+		t.Error("a pass whose context had gone did not say so")
 	}
 }

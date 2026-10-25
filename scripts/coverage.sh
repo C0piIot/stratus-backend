@@ -122,6 +122,7 @@ internal/media/thumb:91
 internal/media/stream:89
 internal/music:100
 internal/calendar:92
+internal/contacts:92
 internal/settings:98
 internal/timeline:92
 internal/nextcloud:87

@@ -89,3 +89,39 @@ func TestCalendarsAreWiredFromTheOrigin(t *testing.T) {
 		}
 	}
 }
+
+// TestContactsAreWiredFromTheOrigin is the same for address books (#423).
+func TestContactsAreWiredFromTheOrigin(t *testing.T) {
+	t.Parallel()
+	blobs, meta := filestest.Backends(t)
+	const password = "an example password"
+	cfg := runConfig(t, map[string]string{"STRATUS_USERNAME": "edu", "STRATUS_PASSWORD": password})
+	h := app.New(cfg, "test", "2026-01-01T09:30:00Z").Handler(app.Deps{
+		Storage: blobs, Database: meta, Files: files.New(blobs, meta),
+	})
+	propfind := func(target string, depth string, basic bool) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequestWithContext(t.Context(), "PROPFIND", target, nil)
+		req.Header.Set("Depth", depth)
+		if basic {
+			req.SetBasicAuth("edu", password)
+		}
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec
+	}
+
+	if rec := propfind("/.well-known/carddav", "0", false); rec.Code != http.StatusPermanentRedirect ||
+		rec.Header().Get("Location") != "/contacts/" {
+		t.Fatalf("well-known = %d to %q, want 308 to /contacts/", rec.Code, rec.Header().Get("Location"))
+	}
+	if rec := propfind("/contacts/", "0", false); rec.Code != http.StatusUnauthorized {
+		t.Errorf("the principal without credentials = %d, want 401", rec.Code)
+	}
+	if rec := propfind("/contacts", "0", true); rec.Code != http.StatusMultiStatus || !strings.Contains(rec.Body.String(), "/contacts/edu/") {
+		t.Errorf("the principal without its slash = %d, want 207 naming the home set:\n%s", rec.Code, rec.Body.String())
+	}
+	if rec := propfind("/", "1", true); !strings.Contains(rec.Body.String(), "/contacts/") {
+		t.Errorf("the origin does not list the contacts:\n%s", rec.Body.String())
+	}
+}

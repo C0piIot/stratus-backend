@@ -159,6 +159,7 @@ linters:
             - "**/internal/files/**"
             - "**/internal/music/**"
             - "**/internal/calendar/**"
+            - "**/internal/contacts/**"
             - "**/internal/media/**"
             - "**/internal/timeline/**"
             - "**/internal/sniff/**"

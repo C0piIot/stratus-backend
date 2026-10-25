@@ -43,7 +43,7 @@ var repoMethods = []string{
 	"Trash", "TrashBatches", "TrashTotals", "TrashedIn", "ExpiredTrash",
 	"LyricsOf", "AlbumLookup", "LookupCounts",
 	"PruneAlbumLookups", "PendingAlbumLookups", "PendingLyrics", "PutAlbumLookup", "PutLyrics",
-	"PruneCalendarTombstones", "Settings", "PutSetting", "DeleteSetting",
+	"PruneCalendarTombstones", "PruneContactTombstones", "Settings", "PutSetting", "DeleteSetting",
 }
 
 // Failing is a db.Store that fails one named method and passes the rest
@@ -181,6 +181,14 @@ func (f *failingRepo) DeleteSetting(ctx context.Context, key string) error {
 		return err
 	}
 	return f.Repo.DeleteSetting(ctx, key)
+}
+
+// PruneContactTombstones implements db.Repo.
+func (f *failingRepo) PruneContactTombstones(ctx context.Context, before time.Time) (int64, error) {
+	if err := f.fails("PruneContactTombstones"); err != nil {
+		return 0, err
+	}
+	return f.Repo.PruneContactTombstones(ctx, before)
 }
 
 // PruneCalendarTombstones implements db.Repo.

@@ -328,3 +328,44 @@ func TestCalendarsOnAClosedStore(t *testing.T) {
 		}
 	}
 }
+
+// TestContactsOnAClosedStore covers the error paths of the address book
+// repository the way TestCalendarsOnAClosedStore covers the calendars'.
+func TestContactsOnAClosedStore(t *testing.T) {
+	t.Parallel()
+	store := newStore(t)
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now()
+	calls := map[string]func() error{
+		"CreateAddressBook": func() error {
+			_, err := store.CreateAddressBook(t.Context(), db.AddressBook{OwnerID: "edu", Name: "x", Created: now})
+			return err
+		},
+		"AddressBooks":      func() error { _, err := store.AddressBooks(t.Context(), "edu"); return err },
+		"AddressBookByName": func() error { _, err := store.AddressBookByName(t.Context(), "edu", "x"); return err },
+		"UpdateAddressBook": func() error {
+			return store.UpdateAddressBook(t.Context(), db.AddressBook{OwnerID: "edu", Name: "x"})
+		},
+		"DeleteAddressBook": func() error { return store.DeleteAddressBook(t.Context(), "edu", "x") },
+		"Contacts":          func() error { _, err := store.Contacts(t.Context(), 1); return err },
+		"Contact":           func() error { _, err := store.Contact(t.Context(), 1, "a.vcf"); return err },
+		"PutContact": func() error {
+			_, err := store.PutContact(t.Context(), db.Contact{AddressBookID: 1, Name: "a.vcf", UID: "a", Data: "x", Changed: now})
+			return err
+		},
+		"DeleteContact":  func() error { return store.DeleteContact(t.Context(), 1, "a.vcf", now) },
+		"ContactChanges": func() error { _, err := store.ContactChanges(t.Context(), 1, 0); return err },
+		"PruneContactTombstones": func() error {
+			_, err := store.PruneContactTombstones(t.Context(), now)
+			return err
+		},
+	}
+	for name, call := range calls {
+		if err := call(); err == nil {
+			t.Errorf("%s against a closed store reported no error", name)
+		}
+	}
+}

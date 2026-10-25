@@ -9,8 +9,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/emersion/go-ical"
 
@@ -49,19 +51,22 @@ var (
 	propCTag            = xml.Name{Space: nsCS, Local: "getctag"}
 	propSupportedReport = xml.Name{Space: nsDAV, Local: "supported-report-set"}
 	propColor           = xml.Name{Space: nsApple, Local: "calendar-color"}
+	propCalendarData    = xml.Name{Space: nsCalDAV, Local: "calendar-data"}
 )
 
-// syncTokenPrefix makes a token a URI, which RFC 6578 asks for. The calendar's
-// id is in it so that one calendar's token is not read as another's.
+// syncTokenPrefix makes a token a URI, which RFC 6578 asks for. The
+// collection's id is in it so that one calendar's token is not read as
+// another's. An address book's id can be a calendar's too, which costs
+// nothing: a token is only ever read back by the collection it came from.
 const syncTokenPrefix = "urn:stratus:sync:" //nolint:gosec // a sync token is a counter, not a credential
 
-func syncToken(c db.Calendar) string {
-	return fmt.Sprintf("%s%d:%d", syncTokenPrefix, c.ID, c.SyncToken)
+func syncToken(collectionID, token int64) string {
+	return fmt.Sprintf("%s%d:%d", syncTokenPrefix, collectionID, token)
 }
 
 // parseSyncToken reads a token back, or answers false for one this server did
-// not write for that calendar. An empty token is a first sync.
-func parseSyncToken(token string, calendarID int64) (int64, bool) {
+// not write for that collection. An empty token is a first sync.
+func parseSyncToken(token string, collectionID int64) (int64, bool) {
 	if token == "" {
 		return 0, true
 	}
@@ -70,7 +75,7 @@ func parseSyncToken(token string, calendarID int64) (int64, bool) {
 		return 0, false
 	}
 	id, n, ok := strings.Cut(rest, ":")
-	if !ok || id != strconv.FormatInt(calendarID, 10) {
+	if !ok || id != strconv.FormatInt(collectionID, 10) {
 		return 0, false
 	}
 	v, err := strconv.ParseInt(n, 10, 64)
@@ -193,32 +198,64 @@ func (b *calendarBackend) serveSync(w http.ResponseWriter, r *http.Request, req 
 	if err != nil {
 		return mapCalendarErr(ctx, err)
 	}
+	return writeSyncFeed(w, syncFeed{
+		base: b.home(owner) + name + "/", changes: changes, token: syncToken(c.ID, c.SyncToken),
+		item: func(n string) (syncItem, error) {
+			o, err := b.cal.Object(ctx, owner, name, n)
+			if err != nil {
+				return syncItem{}, err
+			}
+			return syncItem{etag: o.ETag, data: o.Data, changed: o.Changed, dataName: propCalendarData, mime: ical.MIMEType}, nil
+		},
+	}, req.Prop, func(err error) error { return mapCalendarErr(ctx, err) })
+}
 
-	ms := syncMultistatus{SyncToken: syncToken(c)}
-	base := b.home(owner) + name + "/"
-	for _, ch := range changes {
-		href := hrefOf(base + ch.Name)
+// syncFeed is one collection's answer to sync-collection, whatever the
+// collection holds: where its members are, what changed in it, the token to
+// come back with, and how to read one member.
+type syncFeed struct {
+	base    string
+	changes []db.CalendarChange
+	token   string
+	item    func(name string) (syncItem, error)
+}
+
+// syncItem is a member as a sync answer describes it.
+type syncItem struct {
+	etag, data string
+	changed    time.Time
+	// dataName and mime are the member's text as a property and as a type:
+	// calendar-data and iCalendar, or address-data and vCard.
+	dataName xml.Name
+	mime     string
+}
+
+// writeSyncFeed writes what changed, a deletion as a 404 each.
+func writeSyncFeed(w http.ResponseWriter, f syncFeed, asked *namesOnly, mapErr func(error) error) error {
+	ms := syncMultistatus{SyncToken: f.token}
+	for _, ch := range f.changes {
+		href := hrefOf(f.base + ch.Name)
 		if ch.Deleted {
 			ms.Responses = append(ms.Responses, syncResponse{Hrefs: []string{href}, Status: statusLine(http.StatusNotFound)})
 			continue
 		}
-		o, err := b.cal.Object(ctx, owner, name, ch.Name)
+		it, err := f.item(ch.Name)
 		if errors.Is(err, db.ErrNotFound) {
 			// Deleted between the two reads; the next sync says so.
 			continue
 		}
 		if err != nil {
-			return mapCalendarErr(ctx, err)
+			return mapErr(err)
 		}
-		ms.Responses = append(ms.Responses, objectResponse(href, o, req.Prop))
+		ms.Responses = append(ms.Responses, itemResponse(href, it, asked))
 	}
 	return writeMultistatus(w, ms)
 }
 
-// objectResponse is one changed object with the properties asked for: the ones
+// itemResponse is one changed member with the properties asked for: the ones
 // a client syncing actually asks for are here, and anything else is a 404 in
 // its own propstat, as RFC 4918 has it.
-func objectResponse(href string, o db.CalendarObject, asked *namesOnly) syncResponse {
+func itemResponse(href string, it syncItem, asked *namesOnly) syncResponse {
 	found, missing := syncProp{}, syncProp{}
 	if asked == nil {
 		asked = &namesOnly{}
@@ -226,15 +263,15 @@ func objectResponse(href string, o db.CalendarObject, asked *namesOnly) syncResp
 	for _, n := range asked.Names {
 		switch n.XMLName {
 		case xml.Name{Space: nsDAV, Local: "getetag"}:
-			found.Props = append(found.Props, element(n.XMLName, string(escapeText(`"`+o.ETag+`"`))))
+			found.Props = append(found.Props, element(n.XMLName, string(escapeText(`"`+it.etag+`"`))))
 		case xml.Name{Space: nsDAV, Local: "getcontenttype"}:
-			found.Props = append(found.Props, element(n.XMLName, ical.MIMEType))
+			found.Props = append(found.Props, element(n.XMLName, it.mime))
 		case xml.Name{Space: nsDAV, Local: "getcontentlength"}:
-			found.Props = append(found.Props, element(n.XMLName, strconv.Itoa(len(o.Data))))
+			found.Props = append(found.Props, element(n.XMLName, strconv.Itoa(len(it.data))))
 		case xml.Name{Space: nsDAV, Local: "getlastmodified"}:
-			found.Props = append(found.Props, element(n.XMLName, o.Changed.UTC().Format(http.TimeFormat)))
-		case xml.Name{Space: nsCalDAV, Local: "calendar-data"}:
-			found.Props = append(found.Props, element(n.XMLName, string(escapeText(o.Data))))
+			found.Props = append(found.Props, element(n.XMLName, it.changed.UTC().Format(http.TimeFormat)))
+		case it.dataName:
+			found.Props = append(found.Props, element(n.XMLName, string(escapeText(it.data))))
 		default:
 			missing.Props = append(missing.Props, rawXML{XMLName: n.XMLName})
 		}
@@ -255,10 +292,16 @@ const supportedReports = `<supported-report xmlns="DAV:"><report><calendar-query
 	`<supported-report xmlns="DAV:"><report><calendar-multiget xmlns="urn:ietf:params:xml:ns:caldav"/></report></supported-report>` +
 	`<supported-report xmlns="DAV:"><report><sync-collection/></report></supported-report>`
 
+// calendarExtras is what a calendar adds to the library's PROPFIND: the
+// three properties sync-collection needs, and the color.
+var calendarExtras = []xml.Name{propSyncToken, propCTag, propSupportedReport, propColor}
+
 // propfindExtras passes a PROPFIND to the library and, when it asked for any
-// of the properties the library does not know -- the three sync-collection
-// needs, and the color -- adds them to each calendar in its answer.
-func (b *calendarBackend) propfindExtras(w http.ResponseWriter, r *http.Request, next http.Handler) {
+// of the properties wanted -- ones the library does not know -- adds them to
+// each response valuesFor has values for.
+func propfindExtras(w http.ResponseWriter, r *http.Request, next http.Handler, wanted []xml.Name,
+	valuesFor func(r *http.Request, p string) (map[xml.Name]string, error),
+) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		http.Error(w, "cannot read the request", http.StatusBadRequest)
@@ -267,12 +310,7 @@ func (b *calendarBackend) propfindExtras(w http.ResponseWriter, r *http.Request,
 	r.Body = io.NopCloser(bytes.NewReader(body))
 
 	var asked propfindBody
-	if xml.Unmarshal(body, &asked) != nil {
-		next.ServeHTTP(w, r)
-		return
-	}
-	if !asked.Prop.has(propSyncToken) && !asked.Prop.has(propCTag) && !asked.Prop.has(propSupportedReport) &&
-		!asked.Prop.has(propColor) {
+	if xml.Unmarshal(body, &asked) != nil || !slices.ContainsFunc(wanted, asked.Prop.has) {
 		next.ServeHTTP(w, r)
 		return
 	}
@@ -285,44 +323,56 @@ func (b *calendarBackend) propfindExtras(w http.ResponseWriter, r *http.Request,
 		return
 	}
 	for i := range ms.Responses {
-		if err := b.addExtraProps(r, &ms.Responses[i]); err != nil {
+		resp := &ms.Responses[i]
+		if len(resp.Hrefs) != 1 {
+			continue
+		}
+		p, err := url.PathUnescape(resp.Hrefs[0])
+		if err != nil || !strings.HasSuffix(p, "/") {
+			continue
+		}
+		values, err := valuesFor(r, p)
+		if err != nil {
 			serveCalendarError(w, err)
 			return
 		}
+		spliceProps(resp, values)
 	}
 	if err := writeMultistatus(w, ms); err != nil {
 		serveCalendarError(w, err)
 	}
 }
 
-// addExtraProps moves those properties out of the 404 the library answered
-// them with and into the 200, for a response that is a calendar.
-func (b *calendarBackend) addExtraProps(r *http.Request, resp *syncResponse) error {
-	if len(resp.Hrefs) != 1 {
-		return nil
-	}
-	p, err := url.PathUnescape(resp.Hrefs[0])
-	if err != nil || !strings.HasSuffix(p, "/") {
-		return nil //nolint:nilerr // not a calendar, and not ours to judge
-	}
+// calendarValues are a calendar's extra properties, and none for a path that
+// is not a calendar: the home set or the principal.
+func (b *calendarBackend) calendarValues(r *http.Request, p string) (map[xml.Name]string, error) {
 	owner, name, _, err := b.split(r.Context(), p, 2)
 	if err != nil {
-		return nil //nolint:nilerr // the home set or the principal
+		return nil, nil //nolint:nilerr // not a calendar, and not ours to judge
 	}
 	c, err := b.cal.Calendar(r.Context(), owner, name)
 	if err != nil {
-		return mapCalendarErr(r.Context(), err)
+		return nil, mapCalendarErr(r.Context(), err)
 	}
+	token := string(escapeText(syncToken(c.ID, c.SyncToken)))
 	values := map[xml.Name]string{
-		propSyncToken:       string(escapeText(syncToken(c))),
-		propCTag:            string(escapeText(syncToken(c))),
+		propSyncToken:       token,
+		propCTag:            token,
 		propSupportedReport: supportedReports,
 	}
 	// A color nobody chose stays the 404 it was: a client then picks one.
 	if c.Color != "" {
 		values[propColor] = c.Color
 	}
+	return values, nil
+}
 
+// spliceProps moves the properties values has out of the 404 the library
+// answered them with and into the 200.
+func spliceProps(resp *syncResponse, values map[xml.Name]string) {
+	if len(values) == 0 {
+		return
+	}
 	var ours []rawXML
 	for i := range resp.Propstats {
 		ps := &resp.Propstats[i]
@@ -340,7 +390,7 @@ func (b *calendarBackend) addExtraProps(r *http.Request, resp *syncResponse) err
 		ps.Prop.Props = kept
 	}
 	if len(ours) == 0 {
-		return nil
+		return
 	}
 
 	propstats := resp.Propstats[:0]
@@ -358,7 +408,6 @@ func (b *calendarBackend) addExtraProps(r *http.Request, resp *syncResponse) err
 		propstats = append(propstats, syncPropstat{Prop: syncProp{Props: ours}, Status: statusLine(http.StatusOK)})
 	}
 	resp.Propstats = propstats
-	return nil
 }
 
 func copyRecorded(w http.ResponseWriter, rec *httptest.ResponseRecorder) {
