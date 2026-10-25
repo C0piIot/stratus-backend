@@ -64,10 +64,13 @@ user="$(setting STRATUS_USERNAME)"
 
 # The writable tree, which is what a reseed would be writing into -- not the
 # origin, whose listing is the three collections and is never empty (#279).
+# The one thing allowed in it is the backup taken at startup, which is a file
+# in the tree since #436.
 listing="$(curl -fsS -u "$user:$version" -X PROPFIND -H "Depth: 1" "$BASE/files/")"
-if [ "$(grep -o '<D:href>' <<<"$listing" | wc -l)" -ne 1 ]; then
+hrefs="$(grep -o '<D:href>[^<]*' <<<"$listing" | grep -v "^<D:href>/files/$(setting STRATUS_BACKUP_DIR)/")"
+if [ "$(wc -l <<<"$hrefs")" -ne 1 ]; then
 	echo "the tree is not empty after the reset; not seeding on top of it:" >&2
-	grep -o '<D:href>[^<]*' <<<"$listing" >&2
+	echo "$hrefs" >&2
 	exit 1
 fi
 
