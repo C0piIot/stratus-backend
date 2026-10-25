@@ -5,7 +5,11 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
+
+	"github.com/emersion/go-ical"
 
 	"github.com/C0piIot/stratus-backend/internal/db"
 	"github.com/C0piIot/stratus-backend/internal/files"
@@ -95,6 +99,9 @@ func (h *handler) status(w http.ResponseWriter, r *http.Request, user string) {
 		Sweep:        h.sweepOf(),
 		System:       h.systemOf(),
 		Backup:       h.backupOf(),
+	}
+	if r.Header.Get("HX-Request") != "true" {
+		v.Collections = h.collectionsOf(r, user)
 	}
 	if v.System != nil && v.System.SharedDisk {
 		v.FreeSpace = ""
@@ -354,4 +361,93 @@ func percent(c db.MediaCounts) int {
 		return 100
 	}
 	return int(done * 100 / c.Files)
+}
+
+// collectionRow is one calendar or address book as the status page counts it.
+type collectionRow struct {
+	Name, Href string
+	// What is how much it holds, "3 events · 1 task", and empty when nothing.
+	What    string
+	Changed string
+}
+
+// collectionsOf is every calendar and address book with what is in it and
+// when that last changed: what a phone that stopped syncing would be compared
+// with. On the full page and not in the fragment, since nothing here moves
+// while somebody watches. Logged rather than failed, like the lookup line.
+func (h *handler) collectionsOf(r *http.Request, user string) []collectionRow {
+	ctx := r.Context()
+	var rows []collectionRow
+	changed := func(at time.Time) string {
+		if at.IsZero() {
+			return ""
+		}
+		return at.In(h.zone()).Format("2006-01-02 15:04")
+	}
+	if h.calendars != nil {
+		all, err := h.calendars.Calendars(ctx, user)
+		if err != nil {
+			slog.WarnContext(ctx, "listing calendars for the status page", "err", err)
+		}
+		for _, c := range all {
+			objects, err := h.calendars.Objects(ctx, user, c.Name)
+			if err != nil {
+				slog.WarnContext(ctx, "counting a calendar for the status page", "calendar", c.Name, "err", err)
+				continue
+			}
+			counts := map[string]int{}
+			var last time.Time
+			for _, o := range objects {
+				counts[o.Component]++
+				if o.Changed.After(last) {
+					last = o.Changed
+				}
+			}
+			var what []string
+			for _, k := range []struct{ component, one, many string }{
+				{ical.CompEvent, "event", "events"},
+				{ical.CompToDo, "task", "tasks"},
+				{ical.CompJournal, "journal entry", "journal entries"},
+			} {
+				if n := counts[k.component]; n > 0 {
+					what = append(what, howMany(n, k.one, k.many))
+				}
+			}
+			rows = append(rows, collectionRow{
+				Name: displayName(c), Href: calendarHref(user, c.Name), What: strings.Join(what, " · "), Changed: changed(last),
+			})
+		}
+	}
+	if h.contacts != nil {
+		books, err := h.contacts.AddressBooks(ctx, user)
+		if err != nil {
+			slog.WarnContext(ctx, "listing address books for the status page", "err", err)
+		}
+		for _, b := range books {
+			list, err := h.contacts.Contacts(ctx, user, b.Name)
+			if err != nil {
+				slog.WarnContext(ctx, "counting an address book for the status page", "book", b.Name, "err", err)
+				continue
+			}
+			var last time.Time
+			for _, c := range list {
+				if c.Changed.After(last) {
+					last = c.Changed
+				}
+			}
+			row := collectionRow{Name: bookName(b), Href: addressBookHref(user, b.Name), Changed: changed(last)}
+			if len(list) > 0 {
+				row.What = howMany(len(list), "contact", "contacts")
+			}
+			rows = append(rows, row)
+		}
+	}
+	return rows
+}
+
+func howMany(n int, one, many string) string {
+	if n == 1 {
+		return "1 " + one
+	}
+	return strconv.Itoa(n) + " " + many
 }

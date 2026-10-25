@@ -613,6 +613,12 @@ Hard constraints, in the same spirit as the rest of the project:
   `STRATUS_THUMBS_AHEAD` off the page says so where the numbers are, for the
   same reason it says indexing is off: a number that moves only when somebody
   browses otherwise reads as a pass that is stuck.
+
+  **And each calendar and address book**, with what it holds and when it last
+  changed, read through the same services the protocols use. On the full page
+  and not in the fragment: it lists every object to count it, and nothing
+  there moves while somebody watches. A listing that fails is logged and left
+  out, like the lookup line, since it is not what the page is for.
 - **An import folder is a feature package, `internal/incoming`** (#257): a
   directory on the machine's own disk whose contents are moved into the library
   through `files.Service.Write`, so an imported file is indistinguishable from

@@ -205,6 +205,9 @@ type view struct {
 	Sweep   *sweepView
 	System  *systemView
 	Backup  *backupView
+	// Collections are the calendars and address books, one row each, for
+	// the status page.
+	Collections []collectionRow
 	// Lookup is music metadata from outside (#217), and nil when the pass is
 	// off and nothing was ever fetched.
 	Lookup *lookupView
