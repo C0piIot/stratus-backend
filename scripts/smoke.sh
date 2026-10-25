@@ -713,6 +713,13 @@ if wait_serving "$davname"; then
     *'smoke.vcf'*'FN:Smoke Test'*'urn:stratus:sync:'*) ok "an address book syncs by token" ;;
     *) bad "an address book syncs by token" "$(head -c 200 <<<"$cardsync")" ;;
   esac
+  # And a browser at the same address gets the list of it.
+  bookpage="$(curl -s -u "$davuser:$davpass" -H 'Sec-Fetch-Mode: navigate' \
+    "http://$davhost/contacts/$davuser/contacts/" 2>/dev/null || true)"
+  case "$bookpage" in
+    *'Smoke Test'*'mailto:smoke@example.com'*) ok "an address book is a list to a browser" ;;
+    *) bad "an address book is a list to a browser" "$(head -c 200 <<<"$bookpage")" ;;
+  esac
 
   # The settings page (#397), and a change from it in force at once: the
   # status page reads the indexer's switch per request.

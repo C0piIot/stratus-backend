@@ -84,15 +84,15 @@ const trashPrefix = "/trash/"
 
 // calendarsPrefix is where calendars are served over CalDAV (#75), and where a
 // browser gets a month of one (#111): one address and two protocols, split by
-// calendarsOrBrowser.
+// collectionOrBrowser.
 const calendarsPrefix = "/calendars/"
 
 // wellKnownCalDAV is where a client starts when it was given only the origin
 // (RFC 6764), which is what DAVx5 is given.
 const wellKnownCalDAV = "/.well-known/caldav"
 
-// contactsPrefix is where address books are served over CardDAV (#423). No
-// browser half: a GET of a contact is the vCard.
+// contactsPrefix is where address books are served over CardDAV (#423), and
+// where a browser gets the list of one: split like the calendars.
 const contactsPrefix = "/contacts/"
 
 // wellKnownCardDAV is wellKnownCalDAV for contacts.
@@ -226,6 +226,7 @@ func (a *App) Handler(deps Deps) http.Handler {
 		sessions := auth.NewSessions(creds, auth.DefaultSessionTTL)
 		playlists := music.New(deps.Database)
 		calendarService := calendar.New(deps.Database)
+		contactsService := contacts.New(deps.Database)
 		browser := web.Handler(web.Deps{
 			Version: a.version, BuildDate: a.buildDate, Verifier: verifier, Sessions: sessions, Shares: shares,
 			Files: service, Thumbs: deps.Thumbs, Index: deps.Database, Playlists: playlists,
@@ -238,6 +239,7 @@ func (a *App) Handler(deps Deps) http.Handler {
 			Editor:    editor(deps),
 			Zones:     config.Zones(),
 			Calendars: calendarService,
+			Contacts:  contactsService,
 			Started:   a.started,
 			Database:  a.cfg.Database.Scheme,
 			Storage:   a.cfg.Storage.Scheme,
@@ -297,12 +299,13 @@ func (a *App) Handler(deps Deps) http.Handler {
 		// One address and two protocols like the collections above, with one
 		// difference: GET of an object stays CalDAV's, since a client fetches
 		// an .ics that way and the browser half has no page for one event.
-		calendars := calendarsOrBrowser(guard(dav.CalDAV(calendarsPrefix, calendarService)), browser)
+		calendars := collectionOrBrowser(calendarsPrefix, guard(dav.CalDAV(calendarsPrefix, calendarService)), browser)
 		mux.Handle(calendarsPrefix, calendars)
 		mux.Handle(strings.TrimSuffix(calendarsPrefix, "/"), calendars)
 		mux.Handle(wellKnownCalDAV, http.RedirectHandler(calendarsPrefix, http.StatusPermanentRedirect))
-		// Address books are calendars' twin, with no browser half at all.
-		addressBooks := guard(dav.CardDAV(contactsPrefix, contacts.New(deps.Database)))
+		// Address books are calendars' twin, and so is their browser half:
+		// an address book is a page, and a contact stays the vCard (#423).
+		addressBooks := collectionOrBrowser(contactsPrefix, guard(dav.CardDAV(contactsPrefix, contactsService)), browser)
 		mux.Handle(contactsPrefix, addressBooks)
 		mux.Handle(strings.TrimSuffix(contactsPrefix, "/"), addressBooks)
 		mux.Handle(wellKnownCardDAV, http.RedirectHandler(contactsPrefix, http.StatusPermanentRedirect))
@@ -469,14 +472,14 @@ func editor(deps Deps) web.SettingsEditor {
 	return deps.Settings
 }
 
-// calendarsOrBrowser is davOrBrowser for /calendars/ (#111): a GET of a
-// collection is the month page, and a GET of an object -- the third segment
-// below the prefix -- is the .ics a CalDAV client asked for.
-func calendarsOrBrowser(dav, browser http.Handler) http.Handler {
+// collectionOrBrowser is davOrBrowser for /calendars/ and /contacts/ (#111,
+// #423): a GET of a collection is the page, and a GET of a member -- the third
+// segment below the prefix -- is the .ics or the .vcf a client asked for.
+func collectionOrBrowser(prefix string, dav, browser http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		rest := strings.Trim(strings.TrimPrefix(r.URL.Path, strings.TrimSuffix(calendarsPrefix, "/")), "/")
-		object := strings.Count(rest, "/") >= 2
-		if (r.Method == http.MethodGet || r.Method == http.MethodHead) && !object {
+		rest := strings.Trim(strings.TrimPrefix(r.URL.Path, strings.TrimSuffix(prefix, "/")), "/")
+		member := strings.Count(rest, "/") >= 2
+		if (r.Method == http.MethodGet || r.Method == http.MethodHead) && !member {
 			browser.ServeHTTP(w, r)
 			return
 		}
