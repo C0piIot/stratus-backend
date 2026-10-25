@@ -55,7 +55,11 @@ fi
 # repository are 184 KB on amd64, and main was 12 KB under the line before
 # them -- 28,299,424 bytes against a budget of 28,311,552. Measured by building
 # the commit before and after with GOARCH=amd64; arm64 did not show it again.
-BIN_SIZE_FAIL=$((28 * 1024 * 1024))
+# Raised from 28 MB with contacts over CardDAV (#423): go-vcard, the library's
+# carddav package and a repository are 284 KB on amd64, and main was 28 KB
+# under the line before them -- 29,331,616 bytes against 29,360,128, measured
+# the same way.
+BIN_SIZE_FAIL=$((29 * 1024 * 1024))
 # ffprobe and ffmpeg together, which are trimmed builds of our own: 2.4 MB and
 # 13.2 MB on amd64 today against the 128 MB one general-purpose static FFmpeg costs.
 # Raised from 10 MB when ffmpeg learned audio and HTTPS (#50): the encoders and
