@@ -67,6 +67,8 @@ const (
 	pagePlaylist  = "playlist.html"
 	pageCalendar  = "calendar.html"
 	pageContacts  = "contacts.html"
+	pageContact   = "contact.html"
+	pageUncontact = "contact-delete.html"
 	pageSettings  = "settings.html"
 )
 
@@ -98,6 +100,8 @@ var pages = map[string]*template.Template{
 	pagePlaylist:  parse(pagePlaylist),
 	pageCalendar:  parse(pageCalendar),
 	pageContacts:  parse(pageContacts),
+	pageContact:   parse(pageContact),
+	pageUncontact: parse(pageUncontact),
 	pageSettings:  parse(pageSettings),
 }
 
@@ -256,6 +260,8 @@ type view struct {
 	Calendar *calendarView
 	// Contacts is one address book (#423).
 	Contacts *contactsView
+	// Contact is one contact's form (#442).
+	Contact *contactForm
 	// Settings are the settings page's headings and fields (#397).
 	Settings []settingsSection
 }

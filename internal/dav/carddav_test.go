@@ -3,6 +3,7 @@ package dav_test
 import (
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -296,5 +297,46 @@ func TestAnAddressBookSyncsByToken(t *testing.T) {
 	}
 	if rec := do(t, h, "PROPFIND", "/contacts/edu/nope/", props, "Depth", "0", "Content-Type", "application/xml"); rec.Code != http.StatusNotFound {
 		t.Errorf("PROPFIND for the token of an address book nobody made = %d, want 404", rec.Code)
+	}
+}
+
+// TestAContactIsServedAsStored is a GET answered from the bytes the ETag is a
+// digest of, which the library's own GET -- go-vcard encoding the card again,
+// its parameters in map order -- could not promise.
+func TestAContactIsServedAsStored(t *testing.T) {
+	t.Parallel()
+	_, meta := filestest.Backends(t)
+	service := contacts.New(meta)
+	h := withUser(dav.CardDAV("/contacts/", service), "edu")
+	card := person("ada", "Ada Lovelace")
+	card.Add(vcard.FieldTelephone, &vcard.Field{Value: "+44 1", Params: vcard.Params{"TYPE": {"cell"}, "PREF": {"1"}, "X-A": {"1"}}})
+	stored, err := service.Put(t.Context(), "edu", contacts.DefaultName, "ada.vcf", card, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	serve := func(method, target string) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), method, target, nil))
+		return rec
+	}
+
+	for range 20 {
+		rec := serve(http.MethodGet, "/contacts/edu/contacts/ada.vcf")
+		if rec.Code != http.StatusOK || rec.Body.String() != stored.Data || rec.Header().Get("ETag") != `"`+stored.ETag+`"` ||
+			rec.Header().Get("Content-Type") != vcard.MIMEType {
+			t.Fatalf("GET = %d %v:\n%s\nwant\n%s", rec.Code, rec.Header(), rec.Body, stored.Data)
+		}
+	}
+	if rec := serve(http.MethodHead, "/contacts/edu/contacts/ada.vcf"); rec.Code != http.StatusOK || rec.Body.Len() != 0 ||
+		rec.Header().Get("Content-Length") != strconv.Itoa(len(stored.Data)) {
+		t.Errorf("HEAD = %d, %d bytes, length %q", rec.Code, rec.Body.Len(), rec.Header().Get("Content-Length"))
+	}
+	for target, code := range map[string]int{
+		"/contacts/edu/contacts/nobody.vcf":  http.StatusNotFound,
+		"/contacts/someone/contacts/ada.vcf": http.StatusNotFound,
+	} {
+		if rec := serve(http.MethodGet, target); rec.Code != code {
+			t.Errorf("GET %s = %d, want %d", target, rec.Code, code)
+		}
 	}
 }

@@ -1,0 +1,119 @@
+{{/* One contact's form (#442), new or stored, with no script: a row per
+     number and address and one empty, and a button that posts the form back
+     with one more instead of saving it. The first button is the save, hidden,
+     because Enter in a field presses the first one in the form. */}}
+{{define "content" -}}
+{{with .Contact}}
+<div class="row justify-content-center">
+  <div class="col-12 col-md-10 col-lg-8">
+    <h1 class="h4">{{.Heading}}</h1>
+    {{if .Changed}}<div class="alert alert-warning py-2" role="alert">
+      This contact was changed or deleted somewhere else since this form was opened, so nothing was saved.
+      {{if .Delete}}<a href="{{.Action}}">Open it again</a> to see it as it is now; what you typed is still below.{{end}}
+    </div>{{end}}
+    <form method="post" action="{{.Action}}">
+      <button class="d-none" type="submit" tabindex="-1" aria-hidden="true">Save</button>
+      <input type="hidden" name="etag" value="{{.ETag}}">
+      {{if .BirthdayText}}<input type="hidden" name="bday-text" value="1">{{end}}
+      {{$phoneKinds := .PhoneKinds}}{{$placeKinds := .PlaceKinds}}
+
+      <div class="card mb-3"><div class="card-body">
+        <div class="row g-2">
+          <div class="col-sm-6">
+            <label class="form-label mb-1" for="given">First name</label>
+            <input class="form-control{{if .NameError}} is-invalid{{end}}" id="given" name="given" value="{{.Given}}" autocomplete="off" autofocus>
+            {{with .NameError}}<div class="invalid-feedback">{{.}}</div>{{end}}
+          </div>
+          <div class="col-sm-6">
+            <label class="form-label mb-1" for="family">Last name</label>
+            <input class="form-control" id="family" name="family" value="{{.Family}}" autocomplete="off">
+          </div>
+          <div class="col-sm-6">
+            <label class="form-label mb-1" for="org">Company</label>
+            <input class="form-control" id="org" name="org" value="{{.Org}}" autocomplete="off">
+          </div>
+          <div class="col-sm-6">
+            <label class="form-label mb-1" for="title">Job title</label>
+            <input class="form-control" id="title" name="title" value="{{.JobTitle}}" autocomplete="off">
+          </div>
+        </div>
+      </div></div>
+
+      <div class="card mb-3">
+        <div class="card-header fw-semibold">Phone</div>
+        <div class="card-body">
+          {{range .Phones}}
+          <div class="input-group mb-2">
+            <input type="hidden" name="tel-index" value="{{.Index}}">
+            <select class="form-select flex-grow-0 w-auto" name="tel-kind" aria-label="Kind of number">
+              <option value=""{{if not .Kind}} selected{{end}}>other</option>
+              {{$k := .Kind}}{{range $phoneKinds}}<option value="{{.}}"{{if eq . $k}} selected{{end}}>{{.}}</option>{{end}}
+            </select>
+            <input class="form-control" type="tel" name="tel" value="{{.Value}}" aria-label="Number" autocomplete="off">
+          </div>
+          {{end}}
+          <button class="btn btn-sm btn-outline-secondary" type="submit" name="add" value="tel" formnovalidate>Add another number</button>
+        </div>
+      </div>
+
+      <div class="card mb-3">
+        <div class="card-header fw-semibold">Email</div>
+        <div class="card-body">
+          {{range .Emails}}
+          <div class="input-group mb-2{{if .Error}} has-validation{{end}}">
+            <input type="hidden" name="email-index" value="{{.Index}}">
+            <select class="form-select flex-grow-0 w-auto" name="email-kind" aria-label="Kind of address">
+              <option value=""{{if not .Kind}} selected{{end}}>other</option>
+              {{$k := .Kind}}{{range $placeKinds}}<option value="{{.}}"{{if eq . $k}} selected{{end}}>{{.}}</option>{{end}}
+            </select>
+            <input class="form-control{{if .Error}} is-invalid{{end}}" type="email" name="email" value="{{.Value}}" aria-label="Email address" autocomplete="off">
+            {{with .Error}}<div class="invalid-feedback">{{.}}</div>{{end}}
+          </div>
+          {{end}}
+          <button class="btn btn-sm btn-outline-secondary" type="submit" name="add" value="email" formnovalidate>Add another email</button>
+        </div>
+      </div>
+
+      <div class="card mb-3">
+        <div class="card-header fw-semibold">Address</div>
+        <div class="card-body">
+          {{range .Addresses}}
+          <fieldset class="row g-2 mb-3">
+            <input type="hidden" name="adr-index" value="{{.Index}}">
+            <div class="col-sm-3">
+              <select class="form-select" name="adr-kind" aria-label="Kind of address">
+                <option value=""{{if not .Kind}} selected{{end}}>other</option>
+                {{$k := .Kind}}{{range $placeKinds}}<option value="{{.}}"{{if eq . $k}} selected{{end}}>{{.}}</option>{{end}}
+              </select>
+            </div>
+            <div class="col-sm-9"><input class="form-control" name="street" value="{{.Street}}" placeholder="Street" aria-label="Street" autocomplete="off"></div>
+            <div class="col-sm-3"><input class="form-control" name="postcode" value="{{.PostalCode}}" placeholder="Postcode" aria-label="Postcode" autocomplete="off"></div>
+            <div class="col-sm-5"><input class="form-control" name="locality" value="{{.Locality}}" placeholder="City" aria-label="City" autocomplete="off"></div>
+            <div class="col-sm-4"><input class="form-control" name="region" value="{{.Region}}" placeholder="Region" aria-label="Region" autocomplete="off"></div>
+            <div class="col-12"><input class="form-control" name="country" value="{{.Country}}" placeholder="Country" aria-label="Country" autocomplete="off"></div>
+          </fieldset>
+          {{end}}
+          <button class="btn btn-sm btn-outline-secondary" type="submit" name="add" value="adr" formnovalidate>Add another address</button>
+        </div>
+      </div>
+
+      <div class="card mb-3"><div class="card-body">
+        <div class="mb-2">
+          <label class="form-label mb-1" for="bday">Birthday</label>
+          <input class="form-control{{if .BirthdayErr}} is-invalid{{end}}" id="bday" name="bday" type="{{if .BirthdayText}}text{{else}}date{{end}}" value="{{.Birthday}}">
+          {{with .BirthdayErr}}<div class="invalid-feedback">{{.}}</div>{{end}}
+        </div>
+        <label class="form-label mb-1" for="note">Note</label>
+        <textarea class="form-control" id="note" name="note" rows="3">{{.Note}}</textarea>
+      </div></div>
+
+      <div class="d-flex gap-2">
+        <button class="btn btn-primary" type="submit">Save</button>
+        <a class="btn btn-outline-secondary" href="{{.Back}}">Cancel</a>
+        {{with .Delete}}<a class="btn btn-outline-danger ms-auto" href="{{.}}">Delete</a>{{end}}
+      </div>
+    </form>
+  </div>
+</div>
+{{end}}
+{{- end}}

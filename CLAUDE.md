@@ -27,7 +27,7 @@ download files, view the calendar.
   itself. The instances are `calendar.Occurrences`, which is `Expand` read
   back, so the page and a client asking for `expand` see the same ones. It is a convenience for the cases where
 reaching for rclone or DAVx5 is overkill, not the primary way to use Stratus.
-- **An address book is a list, read-only, at its own address** (#423), the
+- **An address book is a list at its own address** (#423), the
   calendar's twin: `/contacts/<owner>/<book>/` is the page and the CardDAV
   collection, split by `collectionOrBrowser` in the composition root -- the
   one function both prefixes go through now -- with a contact's address the
@@ -37,6 +37,21 @@ reaching for rclone or DAVx5 is overkill, not the primary way to use Stratus.
   leading plus alone, and anything else in the field leaves it text. The
   photograph is not drawn: it lives inside the vCard, and serving it is a
   data: URI the policy refuses or an address of its own.
+
+  **A contact is written by three forms under `/contact/`** (#442) -- new,
+  edit, delete -- and not at its own address, which is CardDAV's for every
+  method. **An edit is made to the stored vCard, not rebuilt from the form**:
+  the posted form is compared with the same card drawn as a form, and only
+  what differs is written, onto the field it came from, so a photograph, an
+  `X-` property, a group label and the `PREF` on a number survive and a form
+  saved untouched stores the same bytes. The display name follows N unless it
+  was something of its own. The form carries the ETag and the save is
+  `contacts.Service.Put` with it as the precondition, so a phone's change in
+  between is a 409 that keeps what was typed rather than a lost write. A new
+  contact is vCard 3.0 under a random UUID, since iOS reads 4.0 worst. A form
+  with no script grows by posting itself back: the "add another" buttons
+  re-render with one more row and save nothing, and a hidden save button
+  comes first so that Enter saves.
 
 Hard constraints, in the same spirit as the rest of the project:
 
@@ -2003,6 +2018,17 @@ Restraint here is principle 3, not laziness:
   copies, because its matcher compares bytes and RFC 6352 makes
   `i;unicode-casemap` the default collation. MySQL keeps the vCard in a
   `MEDIUMTEXT`, since a client sends the photograph inside it.
+
+  **And the bytes are ours, because go-vcard's are not the same twice**
+  (#442): its encoder writes a field's parameters in map order, so a number
+  with a `TYPE` and a `PREF` came out either way round and the same card
+  stored twice had two ETags -- which a web form saved untouched found, in
+  CI, one run in a few. `contacts.Encode` is that encoder with the
+  parameters sorted, and a `GET` of a contact is answered in front of the
+  library from the stored bytes, since the library's would encode the card
+  again its own way. The `address-data` inside a multiget or a query is
+  still the library's encoding: the same contact, possibly with its
+  parameters in another order, which nothing compares.
 
 - **Playlists are `.m3u8` files on a mount of their own**, `/playlists/`
   (#203), read-only WebDAV from `internal/dav/playlists.go`. **Not a folder in

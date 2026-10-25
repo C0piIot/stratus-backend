@@ -6,12 +6,13 @@
 package contacts
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 	"time"
 
@@ -260,13 +261,45 @@ func Decode(c db.Contact) (vcard.Card, error) {
 	return card, nil
 }
 
-// Encode is the one form a contact is stored and served in.
+// Encode is the one form a contact is stored and served in: go-vcard's
+// encoder but for one thing, a field's parameters in order of name. The
+// library ranges over the map, so a number with a TYPE and a PREF came out
+// either way round from one call to the next -- and the ETag is a digest of
+// these bytes, so the same card stored twice changed it.
 func Encode(card vcard.Card) (string, error) {
-	var buf bytes.Buffer
-	if err := vcard.NewEncoder(&buf).Encode(card); err != nil {
-		return "", fmt.Errorf("%w: %w", ErrInvalid, err)
+	version := card.Get(vcard.FieldVersion)
+	if version == nil {
+		return "", fmt.Errorf("%w: it has no VERSION", ErrInvalid)
 	}
-	return buf.String(), nil
+	var b strings.Builder
+	b.WriteString("BEGIN:VCARD\r\n")
+	writeField(&b, vcard.FieldVersion, version)
+	for _, k := range slices.Sorted(maps.Keys(card)) {
+		if strings.EqualFold(k, vcard.FieldVersion) {
+			continue
+		}
+		for _, f := range card[k] {
+			writeField(&b, k, f)
+		}
+	}
+	b.WriteString("END:VCARD\r\n")
+	return b.String(), nil
+}
+
+// escapeValue is go-vcard's own escaping, which its decoder undoes.
+var escapeValue = strings.NewReplacer(`\`, `\\`, "\n", `\n`, ",", `\,`)
+
+func writeField(b *strings.Builder, key string, f *vcard.Field) {
+	if f.Group != "" {
+		b.WriteString(f.Group + ".")
+	}
+	b.WriteString(key)
+	for _, name := range slices.Sorted(maps.Keys(f.Params)) {
+		for _, v := range f.Params[name] {
+			b.WriteString(";" + name + "=" + escapeValue.Replace(v))
+		}
+	}
+	b.WriteString(":" + escapeValue.Replace(f.Value) + "\r\n")
 }
 
 // ensure makes the default address book if that is the one named, before a
