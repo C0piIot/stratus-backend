@@ -26,7 +26,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/C0piIot/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
 )
 
 // Store is the file layer this needs, which is the ordinary one. Narrow on

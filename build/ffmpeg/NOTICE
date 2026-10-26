@@ -5,7 +5,7 @@ as a separate program, is MIT licensed and is not a part of it.
 Every component is unmodified. The complete corresponding source is:
 
   the build recipe (configure flags and all):
-    https://github.com/C0piIot/stratus-backend/blob/main/build/ffmpeg/Dockerfile
+    https://github.com/stratus-private-cloud/stratus-backend/blob/main/build/ffmpeg/Dockerfile
   FFmpeg @FFMPEG_VERSION@, GPLv3 as configured:
     https://ffmpeg.org/releases/ffmpeg-@FFMPEG_VERSION@.tar.xz
   x264 at commit @X264_COMMIT@, GPLv2 or later (x264-COPYING):
@@ -20,4 +20,4 @@ Every component is unmodified. The complete corresponding source is:
     https://pkgs.alpinelinux.org/package/v3.24/main/x86_64/openssl-libs-static
 
 If any of these stops being available there, ask the Stratus maintainers for it
-through https://github.com/C0piIot/stratus-backend/issues.
+through https://github.com/stratus-private-cloud/stratus-backend/issues.

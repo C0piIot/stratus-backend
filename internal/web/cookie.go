@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/C0piIot/stratus-backend/internal/auth"
+	"github.com/stratus-private-cloud/stratus-backend/internal/auth"
 )
 
 func setSession(w http.ResponseWriter, r *http.Request, value string, expires time.Time) {

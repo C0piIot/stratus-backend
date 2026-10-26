@@ -11,10 +11,10 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/C0piIot/stratus-backend/internal/db"
-	"github.com/C0piIot/stratus-backend/internal/files"
-	"github.com/C0piIot/stratus-backend/internal/media"
-	"github.com/C0piIot/stratus-backend/internal/storage"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/files"
+	"github.com/stratus-private-cloud/stratus-backend/internal/media"
+	"github.com/stratus-private-cloud/stratus-backend/internal/storage"
 )
 
 // A front cover fetched from outside (#217) is the third place an album's

@@ -10,9 +10,9 @@ import (
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 
-	"github.com/C0piIot/stratus-backend/internal/storage"
-	"github.com/C0piIot/stratus-backend/internal/storage/s3"
-	"github.com/C0piIot/stratus-backend/internal/storage/storagetest"
+	"github.com/stratus-private-cloud/stratus-backend/internal/storage"
+	"github.com/stratus-private-cloud/stratus-backend/internal/storage/s3"
+	"github.com/stratus-private-cloud/stratus-backend/internal/storage/storagetest"
 )
 
 const (

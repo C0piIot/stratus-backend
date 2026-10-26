@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/C0piIot/stratus-backend/internal/auth"
+	"github.com/stratus-private-cloud/stratus-backend/internal/auth"
 )
 
 // A fixed instant, so an expiry is arithmetic rather than a race with the clock.

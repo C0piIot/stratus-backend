@@ -9,8 +9,8 @@ import (
 
 	"github.com/emersion/go-ical"
 
-	"github.com/C0piIot/stratus-backend/internal/calendar"
-	"github.com/C0piIot/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/calendar"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
 )
 
 // The calendar (#111): a month of one calendar's events at the

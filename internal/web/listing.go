@@ -10,9 +10,9 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/C0piIot/stratus-backend/internal/db"
-	"github.com/C0piIot/stratus-backend/internal/media"
-	"github.com/C0piIot/stratus-backend/internal/media/thumb"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/media"
+	"github.com/stratus-private-cloud/stratus-backend/internal/media/thumb"
 )
 
 // listPrefs is where a reader's last choice of ordering and page size is kept.

@@ -13,8 +13,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/C0piIot/stratus-backend/internal/db"
-	"github.com/C0piIot/stratus-backend/internal/media"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/media"
 )
 
 // Running a transcode: one ffmpeg per playback, writing into the response.

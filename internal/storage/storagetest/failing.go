@@ -8,7 +8,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/C0piIot/stratus-backend/internal/storage"
+	"github.com/stratus-private-cloud/stratus-backend/internal/storage"
 )
 
 // A blob store that fails one call, for the branches a working one will not

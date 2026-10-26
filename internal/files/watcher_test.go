@@ -5,9 +5,9 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/C0piIot/stratus-backend/internal/db"
-	"github.com/C0piIot/stratus-backend/internal/db/dbtest"
-	"github.com/C0piIot/stratus-backend/internal/files"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db/dbtest"
+	"github.com/stratus-private-cloud/stratus-backend/internal/files"
 )
 
 // heard collects what the watcher was told. Guarded because the point of the

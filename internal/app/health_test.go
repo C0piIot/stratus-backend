@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/C0piIot/stratus-backend/internal/app"
-	"github.com/C0piIot/stratus-backend/internal/db/sqlite"
-	"github.com/C0piIot/stratus-backend/internal/storage/disk"
+	"github.com/stratus-private-cloud/stratus-backend/internal/app"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db/sqlite"
+	"github.com/stratus-private-cloud/stratus-backend/internal/storage/disk"
 )
 
 // deps builds real backends, the way every other adapter test here does. close

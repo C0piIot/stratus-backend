@@ -18,7 +18,7 @@ import (
 
 	"github.com/emersion/go-vcard"
 
-	"github.com/C0piIot/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
 )
 
 var (

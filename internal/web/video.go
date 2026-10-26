@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/C0piIot/stratus-backend/internal/db"
-	"github.com/C0piIot/stratus-backend/internal/media"
-	"github.com/C0piIot/stratus-backend/internal/media/stream"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/media"
+	"github.com/stratus-private-cloud/stratus-backend/internal/media/stream"
 )
 
 // Films: a player page, and the HLS a film is remuxed into when the player,

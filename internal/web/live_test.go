@@ -5,10 +5,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/C0piIot/stratus-backend/internal/auth"
-	"github.com/C0piIot/stratus-backend/internal/calendar"
-	"github.com/C0piIot/stratus-backend/internal/config"
-	"github.com/C0piIot/stratus-backend/internal/web"
+	"github.com/stratus-private-cloud/stratus-backend/internal/auth"
+	"github.com/stratus-private-cloud/stratus-backend/internal/calendar"
+	"github.com/stratus-private-cloud/stratus-backend/internal/config"
+	"github.com/stratus-private-cloud/stratus-backend/internal/web"
 )
 
 // TestAPageAsksTheSettingsEachTime is #397 from the pages' side: what they say

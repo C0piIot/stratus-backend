@@ -14,7 +14,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/C0piIot/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
 )
 
 // Run executes the whole suite against the store built by newStore: every

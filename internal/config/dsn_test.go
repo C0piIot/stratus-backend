@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/C0piIot/stratus-backend/internal/config"
+	"github.com/stratus-private-cloud/stratus-backend/internal/config"
 )
 
 // The credentials used throughout, so every leak assertion looks for the same

@@ -72,7 +72,7 @@ above them reads.
 
 Nothing here is a private API: every feature is reachable from a client that
 already exists, and no Stratus app is required to use any of it. There is one —
-[stratus-app](https://github.com/C0piIot/stratus-app), for automatic camera-roll
+[stratus-app](https://github.com/stratus-private-cloud/stratus-app), for automatic camera-roll
 backup, which is the one thing no existing client does for free on iOS — and it
 is held to the same rule: it speaks WebDAV and tus and works against any server
 that does.
@@ -1403,7 +1403,7 @@ docker run --rm -p 8080:8080 \
   --user "$(id -u):$(id -g)" \
   -v "$PWD/data:/data" \
   -e STRATUS_USERNAME=edu -e STRATUS_PASSWORD='choose one' \
-  ghcr.io/c0piiot/stratus-backend:main
+  ghcr.io/stratus-private-cloud/stratus-backend:main
 ```
 
 The backend listens on <http://localhost:8080>, and that is a working WebDAV
@@ -1435,7 +1435,7 @@ WebDAV is only mounted once there are credentials, so set `STRATUS_USERNAME` and
 
 ### Hosted, on Render, Fly or Coolify
 
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/C0piIot/stratus-backend)
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/stratus-private-cloud/stratus-backend)
 
 The button reads [`render.yaml`](render.yaml): one web service on the published
 image, one 10 GB disk at `/data`, and a form that asks for `STRATUS_USERNAME`
@@ -1449,7 +1449,7 @@ Fly has no button, but [`fly.toml`](fly.toml) is written to be launched, and
 one command makes the app, the volume and the credentials:
 
 ```sh
-fly launch --from https://github.com/C0piIot/stratus-backend --copy-config \
+fly launch --from https://github.com/stratus-private-cloud/stratus-backend --copy-config \
   --ha=false --secret STRATUS_USERNAME=you --secret STRATUS_PASSWORD='choose one'
 ```
 
@@ -1586,7 +1586,7 @@ A backup is a SQLite database with this server's schema, taken with
 `VACUUM INTO` while the server runs. **Today that is SQLite only**: on
 PostgreSQL and MySQL `/status` says there is none, and backing those up is your
 provider's job until the same format can be written from them
-([#425](https://github.com/C0piIot/stratus-backend/issues/425)).
+([#425](https://github.com/stratus-private-cloud/stratus-backend/issues/425)).
 
 **To restore one**, stop the server, copy the backup over the database file —
 `<data>/stratus.db`, or whatever `STRATUS_DB_DSN` names — and delete the
@@ -1669,7 +1669,7 @@ answers what unit coverage structurally cannot: `cmd/stratus` reads 0% there and
 binary. The two profiles are kept apart rather than merged, since a floor an
 end-to-end run can satisfy has stopped being a statement about unit tests.
 
-CI publishes `ghcr.io/c0piiot/stratus-backend:main` on every merge, multi-arch,
+CI publishes `ghcr.io/stratus-private-cloud/stratus-backend:main` on every merge, multi-arch,
 and — where a repository sets a `FLY_APP` variable — deploys that exact digest to
 a test instance described by [`deploy/demo/fly.toml`](deploy/demo/fly.toml), which is the one at
 <https://stratus-demo.dropdatabase.es>. It is one job at the end of
@@ -1855,7 +1855,7 @@ Working now:
 
 Not there yet: sharing, and one instance of a repeating event from the web UI. Work
 and the decisions behind it are tracked on the
-[Stratus project board](https://github.com/users/C0piIot/projects/2), where
+[Stratus project board](https://github.com/orgs/stratus-private-cloud/projects/1), where
 `Priority` says when and the `decision` label says what still needs a call.
 
 ## License

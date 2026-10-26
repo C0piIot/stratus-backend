@@ -4,8 +4,8 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/C0piIot/stratus-backend/internal/db"
-	"github.com/C0piIot/stratus-backend/internal/timeline"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/timeline"
 )
 
 // What a camera made, by date, over WebDAV (#213, #215): /photos/2024/06/

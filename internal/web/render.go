@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"net/url"
 
-	"github.com/C0piIot/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
 )
 
 //go:embed templates

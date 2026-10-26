@@ -5,7 +5,7 @@ import (
 	"math"
 	"testing"
 
-	"github.com/C0piIot/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
 )
 
 // The configuration records the fixtures in testdata do not reach, built by

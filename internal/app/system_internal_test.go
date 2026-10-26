@@ -6,8 +6,8 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/C0piIot/stratus-backend/internal/config"
-	"github.com/C0piIot/stratus-backend/internal/web"
+	"github.com/stratus-private-cloud/stratus-backend/internal/config"
+	"github.com/stratus-private-cloud/stratus-backend/internal/web"
 )
 
 func TestMemoryReadsTheCgroupFirst(t *testing.T) {

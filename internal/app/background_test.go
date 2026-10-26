@@ -22,10 +22,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/C0piIot/stratus-backend/internal/db"
-	"github.com/C0piIot/stratus-backend/internal/db/sqlite"
-	"github.com/C0piIot/stratus-backend/internal/media"
-	"github.com/C0piIot/stratus-backend/internal/media/thumb"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db/sqlite"
+	"github.com/stratus-private-cloud/stratus-backend/internal/media"
+	"github.com/stratus-private-cloud/stratus-backend/internal/media/thumb"
 )
 
 // TestCollectorRuns is the wiring, not the collecting: the goroutine starts on

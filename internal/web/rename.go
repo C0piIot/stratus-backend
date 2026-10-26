@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"path"
 
-	"github.com/C0piIot/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
 )
 
 // renamePrefix is where a new name is asked for. A page of its own rather than

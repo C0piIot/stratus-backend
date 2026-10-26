@@ -15,12 +15,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/C0piIot/stratus-backend/internal/db"
-	"github.com/C0piIot/stratus-backend/internal/db/dbtest"
-	"github.com/C0piIot/stratus-backend/internal/files"
-	"github.com/C0piIot/stratus-backend/internal/files/filestest"
-	"github.com/C0piIot/stratus-backend/internal/lookup"
-	"github.com/C0piIot/stratus-backend/internal/media/thumb"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db/dbtest"
+	"github.com/stratus-private-cloud/stratus-backend/internal/files"
+	"github.com/stratus-private-cloud/stratus-backend/internal/files/filestest"
+	"github.com/stratus-private-cloud/stratus-backend/internal/lookup"
+	"github.com/stratus-private-cloud/stratus-backend/internal/media/thumb"
 )
 
 const owner = "edu"

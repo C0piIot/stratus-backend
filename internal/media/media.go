@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/C0piIot/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
 )
 
 // Version is the extractor generation. Raising it puts every file back in the

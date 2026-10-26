@@ -16,8 +16,8 @@ import (
 
 	"github.com/emersion/go-ical"
 
-	"github.com/C0piIot/stratus-backend/internal/calendar"
-	"github.com/C0piIot/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/calendar"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
 )
 
 // sync-collection (RFC 6578) in front of the library, which answers neither

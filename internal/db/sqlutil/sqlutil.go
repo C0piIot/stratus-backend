@@ -34,7 +34,7 @@ import (
 	"iter"
 	"strings"
 
-	"github.com/C0piIot/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
 )
 
 // Querier is what *sql.DB and *sql.Tx have in common, so a driver writes each

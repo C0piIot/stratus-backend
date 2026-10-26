@@ -17,7 +17,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/C0piIot/stratus-backend/internal/storage"
+	"github.com/stratus-private-cloud/stratus-backend/internal/storage"
 )
 
 // fakeStore is a blob store that fails wherever the test asks it to. The probe

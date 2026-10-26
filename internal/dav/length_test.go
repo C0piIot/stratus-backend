@@ -8,10 +8,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/C0piIot/stratus-backend/internal/dav"
-	"github.com/C0piIot/stratus-backend/internal/files"
-	"github.com/C0piIot/stratus-backend/internal/files/filestest"
-	"github.com/C0piIot/stratus-backend/internal/storage"
+	"github.com/stratus-private-cloud/stratus-backend/internal/dav"
+	"github.com/stratus-private-cloud/stratus-backend/internal/files"
+	"github.com/stratus-private-cloud/stratus-backend/internal/files/filestest"
+	"github.com/stratus-private-cloud/stratus-backend/internal/storage"
 )
 
 // sizes records what the store is told about each body's length, which is the

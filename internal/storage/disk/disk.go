@@ -19,7 +19,7 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/C0piIot/stratus-backend/internal/storage"
+	"github.com/stratus-private-cloud/stratus-backend/internal/storage"
 )
 
 // tmpDir holds partially written objects until they are renamed into place. It

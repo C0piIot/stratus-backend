@@ -5,10 +5,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/C0piIot/stratus-backend/internal/app"
-	"github.com/C0piIot/stratus-backend/internal/config"
-	"github.com/C0piIot/stratus-backend/internal/nextcloud"
-	"github.com/C0piIot/stratus-backend/internal/storage/disk"
+	"github.com/stratus-private-cloud/stratus-backend/internal/app"
+	"github.com/stratus-private-cloud/stratus-backend/internal/config"
+	"github.com/stratus-private-cloud/stratus-backend/internal/nextcloud"
+	"github.com/stratus-private-cloud/stratus-backend/internal/storage/disk"
 )
 
 // The fixture is a real Nextcloud schema with two files in it, one of which

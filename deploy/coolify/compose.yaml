@@ -7,7 +7,7 @@
 
 services:
   stratus:
-    image: ghcr.io/c0piiot/stratus-backend:main
+    image: ghcr.io/stratus-private-cloud/stratus-backend:main
     restart: unless-stopped
 
     environment:

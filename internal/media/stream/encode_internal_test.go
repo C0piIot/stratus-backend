@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/C0piIot/stratus-backend/internal/db"
-	"github.com/C0piIot/stratus-backend/internal/storage/disk"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/storage/disk"
 )
 
 func TestEncodeFor(t *testing.T) {

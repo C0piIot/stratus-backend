@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/C0piIot/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
 )
 
 // Library is the music by tag and what its user has said about it. The two

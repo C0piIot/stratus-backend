@@ -6,10 +6,10 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/C0piIot/stratus-backend/internal/db"
-	"github.com/C0piIot/stratus-backend/internal/media"
-	"github.com/C0piIot/stratus-backend/internal/media/thumb"
-	"github.com/C0piIot/stratus-backend/internal/storage"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/media"
+	"github.com/stratus-private-cloud/stratus-backend/internal/media/thumb"
+	"github.com/stratus-private-cloud/stratus-backend/internal/storage"
 )
 
 // thumbPrefix is where a picture of a file lives. Its own prefix rather than a

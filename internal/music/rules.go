@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"path"
 
-	"github.com/C0piIot/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
 )
 
 // The rules every surface that shows music has to agree on, kept once (#362).

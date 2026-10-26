@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/C0piIot/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
 )
 
 // Deciding from what a client says it can play, rather than from what it asked

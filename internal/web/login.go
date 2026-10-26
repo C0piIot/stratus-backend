@@ -8,7 +8,7 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/C0piIot/stratus-backend/internal/auth"
+	"github.com/stratus-private-cloud/stratus-backend/internal/auth"
 )
 
 // shareParam is where a link carries its signature. A query parameter and not a

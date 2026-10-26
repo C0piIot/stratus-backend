@@ -12,9 +12,9 @@ import (
 
 	_ "github.com/go-sql-driver/mysql" // registers the "mysql" driver for the maintenance connection
 
-	"github.com/C0piIot/stratus-backend/internal/db"
-	"github.com/C0piIot/stratus-backend/internal/db/dbtest"
-	"github.com/C0piIot/stratus-backend/internal/db/mysql"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db/dbtest"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db/mysql"
 )
 
 // dsnEnv points at a database the test user can create others beside; every

@@ -8,7 +8,7 @@ package stream
 import (
 	"strings"
 
-	"github.com/C0piIot/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
 )
 
 // Deciding whether a track is sent as it is or transcoded, and into what (#50).

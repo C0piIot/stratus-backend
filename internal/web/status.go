@@ -11,11 +11,11 @@ import (
 
 	"github.com/emersion/go-ical"
 
-	"github.com/C0piIot/stratus-backend/internal/db"
-	"github.com/C0piIot/stratus-backend/internal/files"
-	"github.com/C0piIot/stratus-backend/internal/incoming"
-	"github.com/C0piIot/stratus-backend/internal/media"
-	"github.com/C0piIot/stratus-backend/internal/storage"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/files"
+	"github.com/stratus-private-cloud/stratus-backend/internal/incoming"
+	"github.com/stratus-private-cloud/stratus-backend/internal/media"
+	"github.com/stratus-private-cloud/stratus-backend/internal/storage"
 )
 
 // countsFragment is the part of that page htmx refreshes on its own: the

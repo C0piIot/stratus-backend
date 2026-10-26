@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/C0piIot/stratus-backend/internal/dav"
-	"github.com/C0piIot/stratus-backend/internal/db"
-	"github.com/C0piIot/stratus-backend/internal/files/filestest"
-	"github.com/C0piIot/stratus-backend/internal/music"
+	"github.com/stratus-private-cloud/stratus-backend/internal/dav"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/files/filestest"
+	"github.com/stratus-private-cloud/stratus-backend/internal/music"
 )
 
 const playlistsPrefix = "/playlists/"

@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/C0piIot/stratus-backend/internal/db"
-	"github.com/C0piIot/stratus-backend/internal/storage"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/storage"
 )
 
 // DefaultGrace is how old a blob must be before it is considered garbage.

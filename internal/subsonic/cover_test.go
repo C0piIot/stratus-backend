@@ -13,11 +13,11 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/C0piIot/stratus-backend/internal/db"
-	"github.com/C0piIot/stratus-backend/internal/files"
-	"github.com/C0piIot/stratus-backend/internal/media"
-	"github.com/C0piIot/stratus-backend/internal/music"
-	"github.com/C0piIot/stratus-backend/internal/subsonic"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/files"
+	"github.com/stratus-private-cloud/stratus-backend/internal/media"
+	"github.com/stratus-private-cloud/stratus-backend/internal/music"
+	"github.com/stratus-private-cloud/stratus-backend/internal/subsonic"
 )
 
 // TestGetCoverArt follows the ids a client is given, the way the browse tests

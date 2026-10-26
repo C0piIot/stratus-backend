@@ -7,8 +7,8 @@ import (
 	"iter"
 	"time"
 
-	"github.com/C0piIot/stratus-backend/internal/db"
-	"github.com/C0piIot/stratus-backend/internal/db/sqlutil"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db/sqlutil"
 )
 
 // trashColumns is the file row as it was, plus which deletion it arrived in

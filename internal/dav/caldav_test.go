@@ -14,9 +14,9 @@ import (
 	"github.com/emersion/go-ical"
 	"github.com/emersion/go-webdav/caldav"
 
-	"github.com/C0piIot/stratus-backend/internal/calendar"
-	"github.com/C0piIot/stratus-backend/internal/dav"
-	"github.com/C0piIot/stratus-backend/internal/files/filestest"
+	"github.com/stratus-private-cloud/stratus-backend/internal/calendar"
+	"github.com/stratus-private-cloud/stratus-backend/internal/dav"
+	"github.com/stratus-private-cloud/stratus-backend/internal/files/filestest"
 )
 
 func icsEvent(t *testing.T, uid, start, extra string) *ical.Calendar {

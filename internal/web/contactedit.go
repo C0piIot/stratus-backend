@@ -13,8 +13,8 @@ import (
 
 	"github.com/emersion/go-vcard"
 
-	"github.com/C0piIot/stratus-backend/internal/contacts"
-	"github.com/C0piIot/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/contacts"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
 )
 
 // Writing a contact (#442): three forms over contacts.Service, so what is

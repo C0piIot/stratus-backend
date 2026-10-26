@@ -8,9 +8,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/C0piIot/stratus-backend/internal/db"
-	"github.com/C0piIot/stratus-backend/internal/media"
-	"github.com/C0piIot/stratus-backend/internal/media/thumb"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/media"
+	"github.com/stratus-private-cloud/stratus-backend/internal/media/thumb"
 )
 
 // filesPrefix is where the tree lives. Every directory has one URL and every

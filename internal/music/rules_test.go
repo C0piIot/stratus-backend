@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/C0piIot/stratus-backend/internal/db"
-	"github.com/C0piIot/stratus-backend/internal/music"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/music"
 )
 
 func TestTitleIsTheTagOrTheName(t *testing.T) {

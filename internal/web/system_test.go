@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/C0piIot/stratus-backend/internal/auth"
-	"github.com/C0piIot/stratus-backend/internal/files"
-	"github.com/C0piIot/stratus-backend/internal/web"
+	"github.com/stratus-private-cloud/stratus-backend/internal/auth"
+	"github.com/stratus-private-cloud/stratus-backend/internal/files"
+	"github.com/stratus-private-cloud/stratus-backend/internal/web"
 )
 
 // statusWith is the status page over a handler that reports the process, its

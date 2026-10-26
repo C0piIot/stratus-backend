@@ -17,10 +17,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/C0piIot/stratus-backend/internal/app"
-	"github.com/C0piIot/stratus-backend/internal/config"
-	"github.com/C0piIot/stratus-backend/internal/nextcloud"
-	"github.com/C0piIot/stratus-backend/internal/report"
+	"github.com/stratus-private-cloud/stratus-backend/internal/app"
+	"github.com/stratus-private-cloud/stratus-backend/internal/config"
+	"github.com/stratus-private-cloud/stratus-backend/internal/nextcloud"
+	"github.com/stratus-private-cloud/stratus-backend/internal/report"
 )
 
 // version and buildDate are overridden at build time with

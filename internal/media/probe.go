@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/C0piIot/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
 )
 
 // probeTimeout bounds ffprobe. A malformed file can send it looking for a moov

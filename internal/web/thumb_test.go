@@ -11,9 +11,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/C0piIot/stratus-backend/internal/auth"
-	"github.com/C0piIot/stratus-backend/internal/files"
-	"github.com/C0piIot/stratus-backend/internal/storage/storagetest"
+	"github.com/stratus-private-cloud/stratus-backend/internal/auth"
+	"github.com/stratus-private-cloud/stratus-backend/internal/files"
+	"github.com/stratus-private-cloud/stratus-backend/internal/storage/storagetest"
 )
 
 // photoJPEG is a picture big enough that a thumbnail of it is a reduction

@@ -9,7 +9,7 @@ import (
 	"path"
 	"strconv"
 
-	"github.com/C0piIot/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
 )
 
 // upload writes the files a form sent into the directory it was shown in, and

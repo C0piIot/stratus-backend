@@ -9,8 +9,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/C0piIot/stratus-backend/internal/config"
-	"github.com/C0piIot/stratus-backend/internal/web"
+	"github.com/stratus-private-cloud/stratus-backend/internal/config"
+	"github.com/stratus-private-cloud/stratus-backend/internal/web"
 )
 
 // system is what the status page says about the machine, read when it is

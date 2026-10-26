@@ -4,8 +4,8 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/C0piIot/stratus-backend/internal/db"
-	"github.com/C0piIot/stratus-backend/internal/trash"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/trash"
 )
 
 // What has been deleted, as a collection of its own (#323).

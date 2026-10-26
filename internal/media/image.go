@@ -7,7 +7,7 @@ import (
 
 	"github.com/evanoberholster/imagemeta"
 
-	"github.com/C0piIot/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
 )
 
 // extractImage reads EXIF straight off the blob, seeking rather than

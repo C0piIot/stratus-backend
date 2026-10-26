@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/C0piIot/stratus-backend/internal/db"
-	"github.com/C0piIot/stratus-backend/internal/music"
-	"github.com/C0piIot/stratus-backend/internal/subsonic"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/music"
+	"github.com/stratus-private-cloud/stratus-backend/internal/subsonic"
 )
 
 // breaking is a library and a file tree that fail one named call and pass the

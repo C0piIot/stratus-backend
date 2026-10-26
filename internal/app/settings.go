@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/C0piIot/stratus-backend/internal/config"
+	"github.com/stratus-private-cloud/stratus-backend/internal/config"
 )
 
 // The settings that change while the server runs (#397), as the loops and the

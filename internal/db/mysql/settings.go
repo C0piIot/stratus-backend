@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/C0piIot/stratus-backend/internal/db/sqlutil"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db/sqlutil"
 )
 
 // Settings implements db.Settings.

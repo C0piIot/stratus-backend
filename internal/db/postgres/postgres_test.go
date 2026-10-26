@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/C0piIot/stratus-backend/internal/db"
-	"github.com/C0piIot/stratus-backend/internal/db/dbtest"
-	"github.com/C0piIot/stratus-backend/internal/db/postgres"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db/dbtest"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db/postgres"
 )
 
 // dsnEnv points at a maintenance database; every case creates and drops its own

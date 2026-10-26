@@ -5,7 +5,7 @@ package disk
 import (
 	"context"
 
-	"github.com/C0piIot/stratus-backend/internal/storage"
+	"github.com/stratus-private-cloud/stratus-backend/internal/storage"
 )
 
 // FreeSpace implements storage.Storage where there is no Statfs to ask.

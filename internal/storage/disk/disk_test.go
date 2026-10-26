@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/C0piIot/stratus-backend/internal/storage"
-	"github.com/C0piIot/stratus-backend/internal/storage/disk"
-	"github.com/C0piIot/stratus-backend/internal/storage/storagetest"
+	"github.com/stratus-private-cloud/stratus-backend/internal/storage"
+	"github.com/stratus-private-cloud/stratus-backend/internal/storage/disk"
+	"github.com/stratus-private-cloud/stratus-backend/internal/storage/storagetest"
 )
 
 // TestConformance is the point of this package: the disk backend has to satisfy

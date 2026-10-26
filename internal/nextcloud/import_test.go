@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/C0piIot/stratus-backend/internal/db"
-	"github.com/C0piIot/stratus-backend/internal/nextcloud"
-	"github.com/C0piIot/stratus-backend/internal/storage"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/nextcloud"
+	"github.com/stratus-private-cloud/stratus-backend/internal/storage"
 )
 
 // recorder is a destination that remembers what it was handed. The real one is

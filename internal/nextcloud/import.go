@@ -12,8 +12,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/C0piIot/stratus-backend/internal/db"
-	"github.com/C0piIot/stratus-backend/internal/storage"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/storage"
 )
 
 // batchSize is how many rows go in at a time. One transaction for a whole

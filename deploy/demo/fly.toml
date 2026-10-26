@@ -36,7 +36,7 @@ swap_size_mb = 512
 [build]
   # What CI publishes on every merge to main: multi-arch and public, so Fly
   # takes it as published.
-  image = "ghcr.io/c0piiot/stratus-backend:main"
+  image = "ghcr.io/stratus-private-cloud/stratus-backend:main"
 
 [env]
   STRATUS_ADDR = ":8080"

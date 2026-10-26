@@ -6,7 +6,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/C0piIot/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
 )
 
 // Names for things that are not files, so that they can be served as if they

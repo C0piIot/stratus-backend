@@ -29,10 +29,10 @@ import (
 
 	"github.com/emersion/go-webdav"
 
-	"github.com/C0piIot/stratus-backend/internal/auth"
-	"github.com/C0piIot/stratus-backend/internal/db"
-	"github.com/C0piIot/stratus-backend/internal/files"
-	"github.com/C0piIot/stratus-backend/internal/storage"
+	"github.com/stratus-private-cloud/stratus-backend/internal/auth"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/files"
+	"github.com/stratus-private-cloud/stratus-backend/internal/storage"
 )
 
 // Index is what this adapter asks the metadata port, which is two questions

@@ -7,7 +7,7 @@ import (
 
 	"github.com/minio/minio-go/v7"
 
-	"github.com/C0piIot/stratus-backend/internal/storage"
+	"github.com/stratus-private-cloud/stratus-backend/internal/storage"
 )
 
 // TestIsNotFound covers the mapping without a server, including the case that

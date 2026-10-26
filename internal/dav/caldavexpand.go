@@ -9,7 +9,7 @@ import (
 	"github.com/emersion/go-webdav"
 	"github.com/emersion/go-webdav/caldav"
 
-	"github.com/C0piIot/stratus-backend/internal/calendar"
+	"github.com/stratus-private-cloud/stratus-backend/internal/calendar"
 )
 
 // CALDAV:expand (RFC 4791 9.6.5, #78): a client asking a calendar-query or a

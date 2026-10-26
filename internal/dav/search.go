@@ -11,8 +11,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/C0piIot/stratus-backend/internal/auth"
-	"github.com/C0piIot/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/auth"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
 )
 
 // SEARCH, RFC 5323, which is the only standard way to ask a WebDAV server to

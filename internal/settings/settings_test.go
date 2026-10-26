@@ -6,11 +6,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/C0piIot/stratus-backend/internal/config"
-	"github.com/C0piIot/stratus-backend/internal/db"
-	"github.com/C0piIot/stratus-backend/internal/db/dbtest"
-	"github.com/C0piIot/stratus-backend/internal/db/sqlite"
-	"github.com/C0piIot/stratus-backend/internal/settings"
+	"github.com/stratus-private-cloud/stratus-backend/internal/config"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db/dbtest"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db/sqlite"
+	"github.com/stratus-private-cloud/stratus-backend/internal/settings"
 )
 
 func store(t *testing.T) db.Store {

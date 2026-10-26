@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/C0piIot/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
 )
 
 // TestToPath is where the URL becomes a path in somebody's tree, so it is

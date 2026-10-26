@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/C0piIot/stratus-backend/internal/calendar"
-	"github.com/C0piIot/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/calendar"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
 )
 
 // TestWhatAPageDraws is Occurrences, which is what the month page reads: the

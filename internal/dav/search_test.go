@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/C0piIot/stratus-backend/internal/dav"
-	"github.com/C0piIot/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/dav"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
 )
 
 // searchFor is the query a client sends, with the parts a test varies left

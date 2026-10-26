@@ -4,8 +4,8 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/C0piIot/stratus-backend/internal/db"
-	"github.com/C0piIot/stratus-backend/internal/music"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/music"
 )
 
 // The library by tag, over WebDAV (#279): /music/Autechre/Amber/ holds that
