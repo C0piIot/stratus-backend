@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/C0piIot/stratus-backend/internal/app"
-	"github.com/C0piIot/stratus-backend/internal/files"
-	"github.com/C0piIot/stratus-backend/internal/files/filestest"
+	"github.com/stratus-private-cloud/stratus-backend/internal/app"
+	"github.com/stratus-private-cloud/stratus-backend/internal/files"
+	"github.com/stratus-private-cloud/stratus-backend/internal/files/filestest"
 )
 
 // TestCalendarsAreWiredFromTheOrigin is the half of #75 a handler cannot test

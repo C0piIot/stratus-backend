@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/C0piIot/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
 )
 
 // TestGetAlbumList2 walks the types a client's home screen is made of. The

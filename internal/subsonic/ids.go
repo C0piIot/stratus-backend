@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/C0piIot/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
 )
 
 // The API has one id namespace for artists, albums, songs and folders, and a

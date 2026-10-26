@@ -4,7 +4,7 @@ Coolify runs on your own server, so there is nothing to pay anybody and no
 button: a resource pointed at this repository and one file in it.
 
 1. **New Resource → Public Repository**, URL
-   `https://github.com/C0piIot/stratus-backend`, branch `main`.
+   `https://github.com/stratus-private-cloud/stratus-backend`, branch `main`.
 2. **Build Pack: Docker Compose**, Base Directory `/`, Docker Compose Location
    `/deploy/coolify/compose.yaml`.
 3. Fill in `STRATUS_USERNAME` under Environment Variables, give the service a

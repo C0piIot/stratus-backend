@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/C0piIot/stratus-backend/internal/db"
-	"github.com/C0piIot/stratus-backend/internal/music"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/music"
 )
 
 // TestAPlaylistIsAnM3U8 is what #203 is for: a player that has never heard of

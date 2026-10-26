@@ -6,9 +6,9 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/C0piIot/stratus-backend/internal/config"
-	"github.com/C0piIot/stratus-backend/internal/files"
-	"github.com/C0piIot/stratus-backend/internal/web"
+	"github.com/stratus-private-cloud/stratus-backend/internal/config"
+	"github.com/stratus-private-cloud/stratus-backend/internal/files"
+	"github.com/stratus-private-cloud/stratus-backend/internal/web"
 )
 
 // backupCheck is how often the loop asks whether a backup is due. Shorter

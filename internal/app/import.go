@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/C0piIot/stratus-backend/internal/config"
-	"github.com/C0piIot/stratus-backend/internal/files"
-	"github.com/C0piIot/stratus-backend/internal/nextcloud"
+	"github.com/stratus-private-cloud/stratus-backend/internal/config"
+	"github.com/stratus-private-cloud/stratus-backend/internal/files"
+	"github.com/stratus-private-cloud/stratus-backend/internal/nextcloud"
 )
 
 // ImportNextcloud adopts a Nextcloud library into this server, writing rows

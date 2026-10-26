@@ -12,8 +12,8 @@ import (
 
 	"github.com/emersion/go-vcard"
 
-	"github.com/C0piIot/stratus-backend/internal/contacts"
-	"github.com/C0piIot/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/contacts"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
 )
 
 // The contacts (#423): one address book, read-only, at the address CardDAV

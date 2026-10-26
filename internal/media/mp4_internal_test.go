@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/C0piIot/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
 )
 
 // The fixtures are a second of 320x240 h264 from ffmpeg's testsrc, in the three

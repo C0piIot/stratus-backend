@@ -3,7 +3,7 @@ package web
 import (
 	"context"
 
-	"github.com/C0piIot/stratus-backend/internal/auth"
+	"github.com/stratus-private-cloud/stratus-backend/internal/auth"
 )
 
 // shareKey is unexported for the reason auth.User's is: only the gate that

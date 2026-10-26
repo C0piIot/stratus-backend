@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/C0piIot/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
 )
 
 // demuxerFor names the FFmpeg demuxer that reads each container Stratus

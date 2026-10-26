@@ -9,7 +9,7 @@ import (
 
 	xnet "golang.org/x/net/webdav"
 
-	"github.com/C0piIot/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
 )
 
 // TestReadOnlyFSRefusesEverythingThatWrites is the claim propfind.go makes

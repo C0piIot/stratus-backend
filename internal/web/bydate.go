@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/C0piIot/stratus-backend/internal/db"
-	"github.com/C0piIot/stratus-backend/internal/media/thumb"
-	"github.com/C0piIot/stratus-backend/internal/timeline"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/media/thumb"
+	"github.com/stratus-private-cloud/stratus-backend/internal/timeline"
 )
 
 // What a camera made, by date (#211, #279, #215): the photographs at /photos/

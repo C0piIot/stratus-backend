@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/C0piIot/stratus-backend/internal/storage"
-	"github.com/C0piIot/stratus-backend/internal/storage/disk"
+	"github.com/stratus-private-cloud/stratus-backend/internal/storage"
+	"github.com/stratus-private-cloud/stratus-backend/internal/storage/disk"
 )
 
 // What this backend does when the filesystem says no.

@@ -26,7 +26,7 @@ const requestTimeout = 30 * time.Second
 // and a way to reach whoever runs it. The project's page is the contact,
 // since that is where an operator's complaint would be filed.
 func userAgent(version string) string {
-	return "Stratus/" + version + " ( https://github.com/C0piIot/stratus-backend )"
+	return "Stratus/" + version + " ( https://github.com/stratus-private-cloud/stratus-backend )"
 }
 
 // What a request can come back with, other than what was asked for.

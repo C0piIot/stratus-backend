@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/C0piIot/stratus-backend/internal/calendar"
-	"github.com/C0piIot/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/calendar"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
 )
 
 // Making, changing and removing a calendar (#399), the three requests about a

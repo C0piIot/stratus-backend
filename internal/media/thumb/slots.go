@@ -4,7 +4,7 @@ import (
 	"os"
 	"runtime"
 
-	"github.com/C0piIot/stratus-backend/internal/media"
+	"github.com/stratus-private-cloud/stratus-backend/internal/media"
 )
 
 // How many decodes may run at once, worked out from the machine: see

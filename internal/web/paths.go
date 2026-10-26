@@ -6,7 +6,7 @@ import (
 	"path"
 	"strings"
 
-	"github.com/C0piIot/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
 )
 
 // Paths, links and the trail back to the root: what turns a request into a

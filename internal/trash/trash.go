@@ -32,7 +32,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/C0piIot/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
 )
 
 // batchPage is how many deletions one query reads. The list is read whole, a

@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/C0piIot/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
 )
 
 var _ db.MigrationLocker = (*Store)(nil)

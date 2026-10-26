@@ -13,7 +13,7 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/jackc/pgx/v5/stdlib"
 
-	"github.com/C0piIot/stratus-backend/internal/nextcloud"
+	"github.com/stratus-private-cloud/stratus-backend/internal/nextcloud"
 )
 
 // Nextcloud runs on SQLite, MySQL/MariaDB and PostgreSQL, so this package has

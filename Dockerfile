@@ -17,8 +17,8 @@ ARG FFMPEG_VERSION=7.1
 # --platform=$BUILDPLATFORM keeps the toolchain native and cross-compiles to the
 # target instead of emulating the whole build stage under QEMU. Go cross-compiles
 # for free, so a multi-arch build needs no binfmt setup at all.
-FROM ghcr.io/c0piiot/stratus-ffprobe:${FFMPEG_VERSION} AS ffprobe
-FROM ghcr.io/c0piiot/stratus-ffmpeg:${FFMPEG_VERSION} AS ffmpeg
+FROM ghcr.io/stratus-private-cloud/stratus-ffprobe:${FFMPEG_VERSION} AS ffprobe
+FROM ghcr.io/stratus-private-cloud/stratus-ffmpeg:${FFMPEG_VERSION} AS ffmpeg
 
 FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine${ALPINE_VERSION} AS build
 WORKDIR /src

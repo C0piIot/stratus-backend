@@ -1,4 +1,4 @@
-module github.com/C0piIot/stratus-backend
+module github.com/stratus-private-cloud/stratus-backend
 
 go 1.27.3
 

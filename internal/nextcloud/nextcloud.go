@@ -30,7 +30,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/C0piIot/stratus-backend/internal/storage"
+	"github.com/stratus-private-cloud/stratus-backend/internal/storage"
 )
 
 // Defaults for what Nextcloud does not keep in its database.

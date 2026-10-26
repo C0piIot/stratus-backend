@@ -6,7 +6,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/C0piIot/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
 )
 
 // M3U8 renders a playlist in the extended format every player reads: a header,

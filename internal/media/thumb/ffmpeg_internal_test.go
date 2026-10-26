@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/C0piIot/stratus-backend/internal/media"
+	"github.com/stratus-private-cloud/stratus-backend/internal/media"
 )
 
 // stubFFmpeg is what the tests that never reach the binary are wired with: a

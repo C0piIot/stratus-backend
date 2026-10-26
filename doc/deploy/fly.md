@@ -5,7 +5,7 @@ repository is written to be launched, so one command makes the app, the
 volume, the secrets and the first deploy:
 
 ```sh
-fly launch --from https://github.com/C0piIot/stratus-backend --copy-config \
+fly launch --from https://github.com/stratus-private-cloud/stratus-backend --copy-config \
   --ha=false --secret STRATUS_USERNAME=edu --secret STRATUS_PASSWORD='choose one'
 ```
 

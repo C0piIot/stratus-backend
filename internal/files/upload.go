@@ -11,9 +11,9 @@ import (
 	"io"
 	"time"
 
-	"github.com/C0piIot/stratus-backend/internal/db"
-	"github.com/C0piIot/stratus-backend/internal/sniff"
-	"github.com/C0piIot/stratus-backend/internal/storage"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/sniff"
+	"github.com/stratus-private-cloud/stratus-backend/internal/storage"
 )
 
 // DefaultUploadTTL is how long an untouched upload survives.

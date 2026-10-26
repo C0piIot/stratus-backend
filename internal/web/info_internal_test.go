@@ -3,7 +3,7 @@ package web
 import (
 	"testing"
 
-	"github.com/C0piIot/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
 )
 
 // A row holds a zero for "unknown" and for nothing at all alike, so every one

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/C0piIot/stratus-backend/internal/config"
+	"github.com/stratus-private-cloud/stratus-backend/internal/config"
 )
 
 // env builds a getenv function over a map. Injecting the lookup is what lets

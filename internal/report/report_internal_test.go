@@ -12,7 +12,7 @@ import (
 
 	"github.com/getsentry/sentry-go"
 
-	"github.com/C0piIot/stratus-backend/internal/config"
+	"github.com/stratus-private-cloud/stratus-backend/internal/config"
 )
 
 // transport keeps what would have been sent.

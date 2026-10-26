@@ -3,7 +3,7 @@ package stream
 import (
 	"testing"
 
-	"github.com/C0piIot/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
 )
 
 // TestDecide is the policy, one case per rule, on the files a library holds.

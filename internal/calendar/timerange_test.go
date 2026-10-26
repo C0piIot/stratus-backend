@@ -8,7 +8,7 @@ import (
 
 	"github.com/emersion/go-ical"
 
-	"github.com/C0piIot/stratus-backend/internal/calendar"
+	"github.com/stratus-private-cloud/stratus-backend/internal/calendar"
 )
 
 func component(t *testing.T, name string, props ...string) *ical.Component {

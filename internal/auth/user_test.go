@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/C0piIot/stratus-backend/internal/auth"
+	"github.com/stratus-private-cloud/stratus-backend/internal/auth"
 )
 
 func TestUser(t *testing.T) {

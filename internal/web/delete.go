@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"path"
 
-	"github.com/C0piIot/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
 )
 
 // deletePrefix is where a delete is confirmed. The page stays now that there

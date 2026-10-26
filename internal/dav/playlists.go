@@ -15,8 +15,8 @@ import (
 
 	xnet "golang.org/x/net/webdav"
 
-	"github.com/C0piIot/stratus-backend/internal/db"
-	"github.com/C0piIot/stratus-backend/internal/music"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/music"
 )
 
 // Playlists as .m3u8 files, over a WebDAV mount of their own (#203).

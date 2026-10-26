@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/C0piIot/stratus-backend/internal/auth"
+	"github.com/stratus-private-cloud/stratus-backend/internal/auth"
 )
 
 // Subsonic error codes, the ones this adapter answers with. The rest of the

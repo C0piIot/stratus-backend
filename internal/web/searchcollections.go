@@ -13,8 +13,8 @@ import (
 	"github.com/emersion/go-vcard"
 	"golang.org/x/text/unicode/norm"
 
-	"github.com/C0piIot/stratus-backend/internal/calendar"
-	"github.com/C0piIot/stratus-backend/internal/contacts"
+	"github.com/stratus-private-cloud/stratus-backend/internal/calendar"
+	"github.com/stratus-private-cloud/stratus-backend/internal/contacts"
 )
 
 // Events and contacts in the search box: matched here, in Go, over every

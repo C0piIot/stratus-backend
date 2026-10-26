@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/C0piIot/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
 )
 
 // The gop fixtures are ten Seconds of 64x64 at 25 fps with a keyframe every

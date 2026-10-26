@@ -10,8 +10,8 @@ import (
 
 	"github.com/emersion/go-webdav"
 
-	"github.com/C0piIot/stratus-backend/internal/db"
-	"github.com/C0piIot/stratus-backend/internal/storage"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/storage"
 )
 
 // hasStatus reports whether err is the HTTP error go-webdav builds for code.

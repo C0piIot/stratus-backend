@@ -37,7 +37,7 @@ PASS="${STRATUS_PASSWORD:?set STRATUS_PASSWORD}"
 
 TAG="demo-media-v2"
 BUNDLE="$TAG.tar.gz"
-URL="https://github.com/C0piIot/stratus-backend/releases/download/$TAG/$BUNDLE"
+URL="https://github.com/stratus-private-cloud/stratus-backend/releases/download/$TAG/$BUNDLE"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 
 green() { printf '\033[32m%s\033[0m' "$1"; }

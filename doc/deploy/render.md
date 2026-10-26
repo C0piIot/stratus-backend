@@ -1,9 +1,9 @@
 # Render
 
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/C0piIot/stratus-backend)
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/stratus-private-cloud/stratus-backend)
 
 The button reads [`render.yaml`](../../render.yaml) and creates one web service
-on `ghcr.io/c0piiot/stratus-backend:main` with a 10 GB disk at `/data`. Nothing
+on `ghcr.io/stratus-private-cloud/stratus-backend:main` with a 10 GB disk at `/data`. Nothing
 else: the blobs and the SQLite database both live on that disk.
 
 The form asks for `STRATUS_USERNAME` and `STRATUS_PASSWORD` and for nothing

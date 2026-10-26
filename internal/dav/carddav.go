@@ -14,8 +14,8 @@ import (
 	"github.com/emersion/go-webdav"
 	"github.com/emersion/go-webdav/carddav"
 
-	"github.com/C0piIot/stratus-backend/internal/contacts"
-	"github.com/C0piIot/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/contacts"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
 )
 
 // CardDAV serves address books (#423), the calendars' twin in every respect

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/C0piIot/stratus-backend/internal/dav"
+	"github.com/stratus-private-cloud/stratus-backend/internal/dav"
 )
 
 // The body Finder sends. Anything here that comes back changed is a client that

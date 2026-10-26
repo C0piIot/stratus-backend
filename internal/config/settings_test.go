@@ -3,7 +3,7 @@ package config_test
 import (
 	"testing"
 
-	"github.com/C0piIot/stratus-backend/internal/config"
+	"github.com/stratus-private-cloud/stratus-backend/internal/config"
 )
 
 // TestEverySettingHasADefaultThatParses is the list held to itself: a default

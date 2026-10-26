@@ -1,6 +1,6 @@
 # Fly.io: a Stratus of your own, which is what `fly launch` reads.
 #
-#   fly launch --from https://github.com/C0piIot/stratus-backend --copy-config \
+#   fly launch --from https://github.com/stratus-private-cloud/stratus-backend --copy-config \
 #     --ha=false --secret STRATUS_USERNAME=you --secret STRATUS_PASSWORD='choose one'
 #
 # --copy-config is not optional: without it launch ignores this file, scans the
@@ -20,7 +20,7 @@ primary_region = "cdg"
 swap_size_mb = 512
 
 [build]
-  image = "ghcr.io/c0piiot/stratus-backend:main"
+  image = "ghcr.io/stratus-private-cloud/stratus-backend:main"
 
 [env]
   STRATUS_ADDR = ":8080"

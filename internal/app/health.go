@@ -10,7 +10,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/C0piIot/stratus-backend/internal/storage"
+	"github.com/stratus-private-cloud/stratus-backend/internal/storage"
 )
 
 // readyTimeout bounds the dependency checks. A database that has gone away

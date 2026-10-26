@@ -14,10 +14,10 @@ import (
 
 	xnet "golang.org/x/net/webdav"
 
-	"github.com/C0piIot/stratus-backend/internal/db"
-	"github.com/C0piIot/stratus-backend/internal/files"
-	"github.com/C0piIot/stratus-backend/internal/media/thumb"
-	"github.com/C0piIot/stratus-backend/internal/storage"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/files"
+	"github.com/stratus-private-cloud/stratus-backend/internal/media/thumb"
+	"github.com/stratus-private-cloud/stratus-backend/internal/storage"
 )
 
 // PROPFIND is answered by a second WebDAV library, and this file is the whole
@@ -300,7 +300,8 @@ func (i rowInfo) Mode() os.FileMode {
 // Our own namespace and not Nextcloud's `nc:`, which is the only convention
 // with any deployment behind it: speaking somebody else's vocabulary would tell
 // a client it is talking to Nextcloud and invite it to expect the rest of that
-// surface (#136).
+// surface (#136). It names the repository's first address and stays that way
+// after the move: it is an identifier clients match on, not a link.
 const stratusNamespace = "https://github.com/C0piIot/stratus"
 
 var (

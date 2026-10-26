@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"slices"
 
-	"github.com/C0piIot/stratus-backend/internal/config"
-	"github.com/C0piIot/stratus-backend/internal/settings"
+	"github.com/stratus-private-cloud/stratus-backend/internal/config"
+	"github.com/stratus-private-cloud/stratus-backend/internal/settings"
 )
 
 // The settings page (#397): what can be changed while the server runs, where

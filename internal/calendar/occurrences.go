@@ -6,7 +6,7 @@ import (
 
 	"github.com/emersion/go-ical"
 
-	"github.com/C0piIot/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
 )
 
 // Occurrence is one instance of an event as a page shows it (#111): what it is

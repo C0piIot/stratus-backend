@@ -16,8 +16,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/C0piIot/stratus-backend/internal/app"
-	"github.com/C0piIot/stratus-backend/internal/config"
+	"github.com/stratus-private-cloud/stratus-backend/internal/app"
+	"github.com/stratus-private-cloud/stratus-backend/internal/config"
 )
 
 // testConfig is the default configuration, for the tests that only care about

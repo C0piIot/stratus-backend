@@ -16,8 +16,8 @@ import (
 
 	xnet "golang.org/x/net/webdav"
 
-	"github.com/C0piIot/stratus-backend/internal/auth"
-	"github.com/C0piIot/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/auth"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
 )
 
 // What the generated mounts -- the photographs by date, the library by tag,

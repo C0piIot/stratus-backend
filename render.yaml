@@ -15,7 +15,7 @@ services:
       # What CI publishes on every merge to main, multi-arch and public, so
       # Render pulls it with no credentials. There are no releases yet, so there
       # is no tag that holds still.
-      url: ghcr.io/c0piiot/stratus-backend:main
+      url: ghcr.io/stratus-private-cloud/stratus-backend:main
 
     # The smallest instance that can carry a disk: 0.5 CPU and 512 MB. The same
     # image runs the test instance in 256 MB.

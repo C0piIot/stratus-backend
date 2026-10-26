@@ -28,7 +28,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/C0piIot/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
 )
 
 // The batches one pass looks at. Small, because every item is a request a

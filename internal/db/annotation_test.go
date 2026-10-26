@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/C0piIot/stratus-backend/internal/db"
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
 )
 
 func TestSubjectValidate(t *testing.T) {
