@@ -78,19 +78,38 @@ func TestLockExistingFile(t *testing.T) {
 	}
 }
 
-// TestLockOnNothing: RFC 4918 7.3 lets a LOCK create an empty resource to hang
-// itself on, and this refuses. It would mean writing through a filesystem
-// built to refuse writes, and no client here needs it -- Finder locks the file
-// it is about to replace, which exists.
+// TestLockOnNothing: RFC 4918 7.3, a LOCK on a path with nothing at it
+// creates an empty file to hold the lock. davfs2 locks every file it is about
+// to create, so a 404 here was every copy into a mounted folder failing.
 func TestLockOnNothing(t *testing.T) {
 	t.Parallel()
 	h := server(t)
 
-	if got := do(t, h, "LOCK", "/files/new.txt", lockRequest).Code; got != http.StatusNotFound {
-		t.Errorf("LOCK on a path with nothing at it = %d, want 404", got)
+	rec := do(t, h, "LOCK", "/files/new.txt", lockRequest)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("LOCK on a path with nothing at it = %d, want 201", rec.Code)
 	}
-	if got := do(t, h, http.MethodGet, "/files/new.txt", "").Code; got != http.StatusNotFound {
-		t.Errorf("GET after the refused LOCK = %d, want 404", got)
+	if got := do(t, h, http.MethodGet, "/files/new.txt", "").Code; got != http.StatusOK {
+		t.Errorf("GET after the LOCK = %d, want 200", got)
+	}
+
+	// The PUT that follows is davfs2's, carrying the token it was given.
+	if got := do(t, h, http.MethodPut, "/files/new.txt", "hello", "If", ifHeader(rec.Header().Get("Lock-Token"))).Code; got != http.StatusNoContent {
+		t.Errorf("PUT under the lock = %d, want 204", got)
+	}
+}
+
+func TestLockOnNothingUnderNothing(t *testing.T) {
+	t.Parallel()
+	h := server(t)
+
+	if got := do(t, h, "LOCK", "/files/missing/new.txt", lockRequest).Code; got != http.StatusConflict {
+		t.Errorf("LOCK under a missing folder = %d, want 409", got)
+	}
+	// The lock was given back, so the path is not held by anybody.
+	do(t, h, "MKCOL", "/files/missing/", "")
+	if got := do(t, h, http.MethodPut, "/files/missing/new.txt", "x").Code; got == http.StatusLocked {
+		t.Errorf("PUT after the refused LOCK = 423, want the lock released")
 	}
 }
 

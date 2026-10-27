@@ -231,7 +231,7 @@ the same answer rather than one level and a wrong impression.
 **What the server claims about WebDAV is checked by litmus**, the protocol
 compliance suite, on every build: `basic`, `copymove` and `http` pass whole.
 Two suites do not, and both are written down rather than hidden — `props`
-because `PROPPATCH` is refused, and `locks` at 29 of 33 for the reasons in the
+because `PROPPATCH` is refused, and `locks` at 31 of 34 for the reasons in the
 next paragraph.
 
 **Locking is real.** `LOCK` takes an exclusive write lock, and a `PUT`,
@@ -246,10 +246,10 @@ moment. **Locks live in the server's memory**, so restarting it forgets every
 one of them: a lock is a claim with a timeout measured in minutes, and a
 restart costs whoever held one a retry. **Only exclusive locks**: a request for a shared one
 is answered `501` rather than granted as an exclusive lock the client would
-think it was sharing. And **`LOCK` on a path with nothing at it is `404`**
-rather than creating the empty resource RFC 4918 allows, which is what leaves
-the four litmus tests above: two of them are `PROPPATCH`, one is the shared
-lock and one is that empty resource.
+think it was sharing, which with the two `PROPPATCH` tests is what leaves
+the three litmus tests above. **`LOCK` on a path with nothing at it creates
+an empty file**, as RFC 4918 allows and davfs2 needs: it locks every file
+before writing it.
 
 ### Compression
 

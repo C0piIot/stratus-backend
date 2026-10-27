@@ -10,6 +10,8 @@ import (
 	"time"
 
 	xnet "golang.org/x/net/webdav"
+
+	"github.com/stratus-private-cloud/stratus-backend/internal/db"
 )
 
 // Locking, and it is real now (#174).
@@ -94,17 +96,15 @@ func (f *fileSystem) handleLock(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// A lock on a path that is not there would have to create an empty
-	// resource to hold it (RFC 4918 7.3). Refused: it means writing through a
-	// filesystem built to refuse writes, and no client this server is for
-	// needs it. Finder locks a file it is about to replace, which exists.
 	owner, err := f.owner(r.Context())
 	if err != nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	if _, serr := f.files.Stat(r.Context(), owner, path); serr != nil {
-		http.Error(w, "there is nothing there to lock", http.StatusNotFound)
+	_, serr := f.files.Stat(r.Context(), owner, path)
+	missing := errors.Is(serr, db.ErrNotFound)
+	if serr != nil && !missing {
+		http.Error(w, "cannot look that up", http.StatusInternalServerError)
 		return
 	}
 
@@ -121,9 +121,28 @@ func (f *fileSystem) handleLock(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// A lock on a path with nothing at it creates an empty file to hold it
+	// (RFC 4918 7.3). davfs2 does this before every new file it writes, so
+	// refusing it was refusing every copy into a mounted folder. The lock is
+	// taken first so the empty file cannot land under somebody else's.
+	status := http.StatusOK
+	if missing {
+		if _, werr := f.files.Write(r.Context(), owner, path, http.NoBody, 0, mimeType(path)); werr != nil {
+			_ = f.locks.Unlock(r.Context(), f.now(), token)
+			// 9.10.6: a missing parent is 409, as it is for a PUT.
+			if errors.Is(werr, db.ErrNotFound) {
+				http.Error(w, "the parent collection does not exist", http.StatusConflict)
+				return
+			}
+			http.Error(w, "cannot create that", http.StatusInternalServerError)
+			return
+		}
+		status = http.StatusCreated
+	}
+
 	w.Header().Set("Lock-Token", "<"+token+">")
 	w.Header().Set("Content-Type", "application/xml; charset=utf-8")
-	w.WriteHeader(http.StatusOK)
+	w.WriteHeader(status)
 
 	// The prefix is back on: the request path arrives stripped, and a lockroot
 	// pointing at /notes.txt instead of /dav/notes.txt names a resource the
