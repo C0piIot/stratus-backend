@@ -131,6 +131,9 @@ type Service struct {
 	// lookups is where a fetched cover is found from, and nil until
 	// WithLookups: see art.go.
 	lookups db.Lookups
+	// yield is asked before a pass decodes, and nil until YieldTo. Prepare is
+	// the passes' alone, so a picture somebody asked for never waits on it.
+	yield media.Yield
 }
 
 // New wires the generator. It takes the blob store directly because a
@@ -147,6 +150,12 @@ func New(blobs storage.Storage, service *files.Service, meta db.MediaIndex, ffmp
 		blobs: blobs, files: service, meta: meta, ffmpeg: ffmpeg, tmpDir: tmpDir,
 		decoding: make(chan struct{}, slots), queue: queue, maxWait: defaultMaxWait,
 	}
+}
+
+// YieldTo makes the passes ask y before each picture they decode (#455).
+func (t *Service) YieldTo(y media.Yield) *Service {
+	t.yield = y
+	return t
 }
 
 // File returns a thumbnail of the file at path, making it if this is the first

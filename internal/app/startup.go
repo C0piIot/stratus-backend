@@ -126,7 +126,7 @@ func (a *App) open(ctx context.Context) (deps Deps, err error) {
 	if terr != nil {
 		return deps, terr
 	}
-	deps.Thumbs = thumb.New(deps.Storage, deps.Files, deps.Database, ffmpeg, tmp)
+	deps.Thumbs = thumb.New(deps.Storage, deps.Files, deps.Database, ffmpeg, tmp).YieldTo(a.yielding.wait)
 	deps.Scratch = tmp
 
 	// The same ffmpeg transcodes, reading each file from a listener on the
@@ -152,7 +152,7 @@ func (a *App) open(ctx context.Context) (deps Deps, err error) {
 	if perr != nil {
 		return deps, perr
 	}
-	indexer = media.NewIndexer(deps.Files, deps.Database, tmp, ffprobe)
+	indexer = media.NewIndexer(deps.Files, deps.Database, tmp, ffprobe).YieldTo(a.yielding.wait)
 	deps.Indexer = indexer
 
 	// The import folder needs somewhere to file things under, which is the

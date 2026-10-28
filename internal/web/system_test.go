@@ -121,3 +121,28 @@ func TestStatusSaysWhatTheLastBackupIs(t *testing.T) {
 		}
 	}
 }
+
+// TestStatusSaysThePassesStandAside: a pass waiting for CPU looks exactly
+// like a stuck one unless the page says which it is (#455).
+func TestStatusSaysThePassesStandAside(t *testing.T) {
+	t.Parallel()
+	blobs, meta := backends(t)
+	creds := credentials()
+	yielding := web.Yielding{}
+	h := web.Handler(web.Deps{
+		Version: version, BuildDate: buildDate, Verifier: creds,
+		Sessions: auth.NewSessions(creds, auth.DefaultSessionTTL), Shares: auth.NewShares(creds),
+		Files: files.New(blobs, meta), Indexing: indexing(meta), TrashRetention: aMonth,
+		Yielding: func() web.Yielding { return yielding },
+	})
+	cookie := signIn(t, h)
+
+	if body := get(t, h, "/status", cookie).Body.String(); strings.Contains(body, "data-yielding") {
+		t.Error("the page says the passes stand aside when they do not")
+	}
+	yielding = web.Yielding{Since: time.Now(), By: "CPU taken back by the hypervisor"}
+	body := get(t, h, "/status", cookie).Body.String()
+	if !strings.Contains(body, "data-yielding") || !strings.Contains(body, "taken back by the hypervisor") {
+		t.Errorf("the page does not say the passes stand aside, or why:\n%s", body)
+	}
+}

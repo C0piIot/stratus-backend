@@ -203,6 +203,9 @@ type view struct {
 	// PicturesOff says the pass that makes thumbnails ahead is turned off, so
 	// the picture numbers move only as somebody browses (#341).
 	PicturesOff bool
+	// Yielding is since when the background passes have been standing aside
+	// for want of CPU, already rendered, and nil while they are not.
+	Yielding *yieldingView
 	// FreeSpace is what the blob store says is left, already rendered, and
 	// empty when it would not say.
 	FreeSpace string

@@ -108,3 +108,34 @@ func mustTempDir(t *testing.T, dir string) string {
 	}
 	return tmp
 }
+
+// TestThePassAsksBeforeEachFile: the yield is asked before a file is read,
+// by a notice and by a batch alike, and a pass told to stop reads nothing
+// (#455).
+func TestThePassAsksBeforeEachFile(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	blobs, meta := backends(t, dir)
+	s := files.New(blobs, meta)
+	first := write(t, s, "a.jpg", exifJPEG(t), "image/jpeg")
+	write(t, s, "b.jpg", exifJPEG(t), "image/jpeg")
+
+	var asked int
+	indexer := NewIndexer(s, meta, mustTempDir(t, dir), "ffprobe-does-not-exist").
+		YieldTo(func(context.Context) error { asked++; return nil })
+	if err := indexer.IndexFile(t.Context(), time.Now(), first); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := indexer.IndexBatch(t.Context(), time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if asked != 2 {
+		t.Errorf("asked %d times for two files, want once each", asked)
+	}
+
+	stop := errors.New("stop")
+	indexer.YieldTo(func(context.Context) error { return stop })
+	if err := indexer.IndexFile(t.Context(), time.Now(), first); !errors.Is(err, stop) {
+		t.Errorf("IndexFile = %v, want the yield's own error", err)
+	}
+}

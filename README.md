@@ -403,6 +403,15 @@ the lazy path either: a bucket adopted in place, an import, an upgraded
 generator and any file opened before the pass reaches it are all still answered
 on request. `STRATUS_THUMBS_AHEAD=off` turns it off.
 
+**Both passes stand aside while the machine is short of CPU** — a VM whose
+host takes the CPU back, as a shared CPU on Fly does once its burst balance is
+spent, or a container at its CPU quota. A pass refused most of the CPU it asked
+for waits before its next file, five seconds and doubling to at most five
+minutes, until a file runs at full speed again; `/status` says so while it
+lasts. Anything somebody asks for — a thumbnail on a page, a film, an upload —
+is never held back. On a machine where neither can be read, which includes a
+binary built natively for Windows or macOS, the passes run as they always have.
+
 **ffprobe is required**, and the image ships a statically linked one we build —
 no package manager, no shell, one more layer. Photos are read in pure Go and
 straight off the blob, so a photo in a bucket costs a few kilobytes rather than
