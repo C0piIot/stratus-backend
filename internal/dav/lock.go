@@ -127,7 +127,7 @@ func (f *fileSystem) handleLock(w http.ResponseWriter, r *http.Request) {
 	// taken first so the empty file cannot land under somebody else's.
 	status := http.StatusOK
 	if missing {
-		if _, werr := f.files.Write(r.Context(), owner, path, http.NoBody, 0, mimeType(path)); werr != nil {
+		if _, werr := f.files.Reserve(r.Context(), owner, path, mimeType(path)); werr != nil {
 			_ = f.locks.Unlock(r.Context(), f.now(), token)
 			// 9.10.6: a missing parent is 409, as it is for a PUT.
 			if errors.Is(werr, db.ErrNotFound) {
