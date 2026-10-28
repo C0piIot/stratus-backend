@@ -105,6 +105,32 @@ func TestAResumedUploadIsAnnounced(t *testing.T) {
 	}
 }
 
+// TestAReservationIsNotAnnounced: the empty file a LOCK creates is replaced by
+// the PUT behind it, so the indexer hears about the PUT and only the PUT --
+// hearing about both was a copy into a mounted folder indexing every file
+// twice, on the CPU the next LOCK was waiting for.
+func TestAReservationIsNotAnnounced(t *testing.T) {
+	t.Parallel()
+	var listener heard
+	s, _ := service(t, files.WithWatcher(listener.watch))
+
+	reserved, err := s.Reserve(t.Context(), owner, "photo.jpg", "image/jpeg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reserved.Size != 0 || reserved.BlobKey == "" {
+		t.Errorf("reserved %+v, want an empty file with a blob", reserved)
+	}
+	if seen := listener.seen(); len(seen) != 0 {
+		t.Fatalf("the watcher heard %+v about an empty file nobody has filled", seen)
+	}
+
+	filled := write(t, s, "photo.jpg", "the picture")
+	if seen := listener.seen(); len(seen) != 1 || seen[0].ID != filled.ID {
+		t.Errorf("the watcher heard %+v, want the PUT that filled it", seen)
+	}
+}
+
 // TestNobodyListening is the ordinary case: every caller that does not care
 // passes no option, and nothing here checks for a watcher twice.
 func TestNobodyListening(t *testing.T) {

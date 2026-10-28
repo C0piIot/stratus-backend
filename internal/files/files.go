@@ -170,6 +170,31 @@ func (s *Service) OpenFile(ctx context.Context, f db.File) (io.ReadSeekCloser, e
 // what was actually stored, computed on the way past, so it is a strong
 // validator rather than a guess from a size and a timestamp.
 func (s *Service) Write(ctx context.Context, owner, path string, body io.Reader, size int64, mimeType string) (db.File, error) {
+	f, err := s.write(ctx, owner, path, body, size, mimeType)
+	if err != nil {
+		return db.File{}, err
+	}
+	s.written(f)
+	return f, nil
+}
+
+// Reserve stores an empty file at path, replacing whatever was there, and
+// tells the watcher nothing.
+//
+// It is the file a LOCK on an unmapped URL creates (RFC 4918 7.3), which
+// davfs2 sends before every file it copies, and the PUT with the bytes follows
+// within seconds. Announcing the empty one sent the indexer and the thumbnail
+// pass after a file about to be replaced -- twice the work per file, on the one
+// CPU the LOCKs behind it were waiting for: measured, a LOCK went from 15 ms
+// idle to as much as 6.7 s during a copy. Nothing is lost by the silence: the
+// PUT announces the file it writes, and an empty file nobody ever filled is
+// found by the indexer's query like any other row.
+func (s *Service) Reserve(ctx context.Context, owner, path, mimeType string) (db.File, error) {
+	return s.write(ctx, owner, path, bytes.NewReader(nil), 0, mimeType)
+}
+
+// write is Write without the announcement.
+func (s *Service) write(ctx context.Context, owner, path string, body io.Reader, size int64, mimeType string) (db.File, error) {
 	f, err := s.storeBlob(ctx, owner, path, body, size, mimeType)
 	if err != nil {
 		return db.File{}, err
@@ -191,7 +216,6 @@ func (s *Service) Write(ctx context.Context, owner, path string, body io.Reader,
 		return db.File{}, err
 	}
 	s.drop(ctx, superseded)
-	s.written(f)
 	return f, nil
 }
 
