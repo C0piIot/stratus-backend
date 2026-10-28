@@ -2287,6 +2287,22 @@ Restraint here is principle 3, not laziness:
   they are in this loop rather than one of their own: see the pass in the
   thumbnail section above.
 
+  **Both stand aside while the machine is short of CPU** (#455), asked
+  before each file through a `media.Yield` the composition root hands them;
+  `thumb.Service.Prepare` is the passes' alone, so a picture somebody asked
+  for never waits. What is measured is the share of the CPU that was wanted
+  and not given -- `steal` against what ran, and a cgroup's throttled periods
+  against its periods -- and not how busy the machine is, since one pass on
+  one CPU keeps it busy by itself. Measured on the demo out of burst balance:
+  steal 90-93% while Fly reported the same throttled, 2-3% at full speed.
+  **PSI was measured and left out**: under 5% throughout, because nothing in
+  the guest waits when the vCPU itself is not running; Go's scheduler latency
+  is blind the same way. And it backs off rather than waiting for the signal
+  to clear, because both counters stand still while nothing runs -- a pass
+  that paused would read its own silence as the machine recovering. Where
+  neither can be read, a native Windows or macOS build among them, nothing
+  pauses. See `internal/app/pressure.go`.
+
   So `internal/files` takes a watcher, the composition root points it at the
   indexer, and **the notice carries the file**. That is not a second extractor:
   `IndexFile` and `IndexBatch` reach the same one, and what differs is how the

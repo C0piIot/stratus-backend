@@ -48,6 +48,17 @@
   </p>
   {{end}}
 
+  {{/* Said because a pass standing aside looks exactly like one that is
+       stuck: the numbers below stop moving (#455). */}}
+  {{with .Yielding}}
+  <p class="mb-2"><span class="badge text-bg-warning" data-yielding>Paused: the machine is short of CPU</span></p>
+  <p class="text-body-secondary small mb-3">
+    Since {{.Since}}, by the {{.By}}. Indexing and thumbnails go on one file
+    at a time, slowly, until it is given back; anything somebody asks for is
+    not held up.
+  </p>
+  {{end}}
+
   {{/* Said for the same reason as the line above it: with the pass off, the
        pictures below only move as somebody browses, which otherwise reads as
        a library that never finishes. */}}

@@ -39,6 +39,27 @@ type Indexer struct {
 	// lost holds at most one and says "there was a write I could not hold on
 	// to": the signal that the query has to run sooner than the interval.
 	lost chan struct{}
+	// yield is asked before each file, and nil until YieldTo.
+	yield Yield
+}
+
+// Yield is what a background pass asks before each file, and it returns when
+// the pass may go on -- at once, or after standing aside while the machine
+// is short of CPU (#455). Only ever the passes: work somebody is waiting for
+// does not ask.
+type Yield func(context.Context) error
+
+// YieldTo makes the indexer ask y before each file it extracts.
+func (i *Indexer) YieldTo(y Yield) *Indexer {
+	i.yield = y
+	return i
+}
+
+func (i *Indexer) waitTurn(ctx context.Context) error {
+	if i.yield == nil {
+		return ctx.Err()
+	}
+	return i.yield(ctx)
 }
 
 // LookupFFprobe finds ffprobe, which is a hard requirement rather than an
@@ -128,7 +149,7 @@ func (i *Indexer) IndexBatch(ctx context.Context, now time.Time) (int, error) {
 
 	attempts := make([]attempt, 0, len(pending))
 	for _, f := range pending {
-		if err := ctx.Err(); err != nil {
+		if err := i.waitTurn(ctx); err != nil {
 			return 0, err
 		}
 		attempts = append(attempts, i.index(ctx, f))
@@ -168,6 +189,9 @@ func (i *Indexer) IndexBatch(ctx context.Context, now time.Time) (int, error) {
 // why a lone file whose blob is missing gets a verdict -- exactly what a batch
 // of one already decides.
 func (i *Indexer) IndexFile(ctx context.Context, now time.Time, f db.File) error {
+	if err := i.waitTurn(ctx); err != nil {
+		return err
+	}
 	a := i.index(ctx, f)
 	put, err := i.record(ctx, now, a, []attempt{a})
 	switch {
