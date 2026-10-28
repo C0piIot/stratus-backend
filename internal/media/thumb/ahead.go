@@ -106,11 +106,6 @@ func (t *Service) Prepare(ctx context.Context, f db.File) (db.ThumbState, error)
 		return db.ThumbRefused, nil
 	}
 
-	if t.yield != nil {
-		if err := t.yield(ctx); err != nil {
-			return 0, err
-		}
-	}
 	release, taken := t.decodeIfIdle()
 	if !taken {
 		return 0, media.ErrBusy

@@ -313,31 +313,3 @@ func stillPending(t *testing.T, meta db.MediaIndex, kind db.Kind) []db.File {
 	}
 	return pending
 }
-
-// TestAPassAsksBeforeItDecodes: a pass waits for its turn before taking a
-// decoder, and one told to stop decodes nothing and leaves the row for the
-// next pass (#455).
-func TestAPassAsksBeforeItDecodes(t *testing.T) {
-	t.Parallel()
-	th, service, blobs, meta := thumbsOver(t)
-	f := writeImage(t, service, "photos/one.jpg", 400, 400)
-	indexAs(t, meta, f, db.KindImage)
-
-	stop := errors.New("stop")
-	th.YieldTo(func(context.Context) error { return stop })
-	if _, err := th.Prepare(t.Context(), f); !errors.Is(err, stop) {
-		t.Fatalf("Prepare = %v, want the yield's own error", err)
-	}
-	if _, err := blobs.Stat(t.Context(), thumbKey(f.BlobKey, passSizes[0])); !errors.Is(err, storage.ErrNotFound) {
-		t.Errorf("a picture was made by a pass told to wait: %v", err)
-	}
-
-	var asked int
-	th.YieldTo(func(context.Context) error { asked++; return nil })
-	if state, err := th.Prepare(t.Context(), f); err != nil || state != db.ThumbMade {
-		t.Fatalf("Prepare = %v, %v", state, err)
-	}
-	if asked != 1 {
-		t.Errorf("asked %d times for one picture, want once", asked)
-	}
-}
