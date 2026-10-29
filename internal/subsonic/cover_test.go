@@ -78,6 +78,41 @@ func TestGetCoverArt(t *testing.T) {
 	}
 }
 
+// TestCoverArtOfAnArtistIsItsNewestAlbums follows the id getArtists hands out,
+// which every client that draws artists asks for, and gets the newest record's
+// picture rather than the first one's in name order.
+func TestCoverArtOfAnArtistIsItsNewestAlbums(t *testing.T) {
+	t.Parallel()
+	l := newLibrary(t)
+	l.add(t, "music/Homogenic/01 Hunter.flac", song("Björk", "Homogenic", "Hunter", 1))
+	l.addImage(t, "music/Homogenic/cover.jpg", 800, 800)
+	vespertine := song("Björk", "Vespertine", "Hidden Place", 1)
+	vespertine.Year = 2001
+	l.add(t, "music/Vespertine/01 Hidden Place.flac", vespertine)
+	l.addImage(t, "music/Vespertine/cover.jpg", 600, 300)
+
+	env := response(t, get(t, l, "getArtists", query("f", "json")))
+	artists, _ := env["artists"].(map[string]any)
+	artist := only(t, only(t, artists["index"])["artist"])
+	art, ok := artist["coverArt"].(string)
+	if !ok {
+		t.Fatalf("the artist carries no coverArt id: %v", artist)
+	}
+
+	rec := get(t, l, "getCoverArt", query("id", art, "size", "300"))
+	if rec.Code != 200 || rec.Header().Get("Content-Type") != "image/jpeg" {
+		t.Fatalf("getCoverArt = %d %q", rec.Code, rec.Body.String())
+	}
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(rec.Body.Bytes()))
+	if err != nil {
+		t.Fatalf("the answer is not an image: %v", err)
+	}
+	if cfg.Width != 300 || cfg.Height != 150 {
+		t.Errorf("the artist's cover came back %dx%d, want Vespertine's 300x150", cfg.Width, cfg.Height)
+	}
+
+}
+
 // TestCoverArtIsKeptAsADerivedBlob is the point of the machinery underneath: the
 // second request is a read and not a decode, and what it reads is collectable
 // with the file it was made from.
@@ -338,7 +373,9 @@ func TestNoCoverArt(t *testing.T) {
 		{name: "an album that does not exist", id: albumIDOf("Nobody", "Nothing"), want: 70},
 		{name: "an id of no recognised kind", id: "xx-nonsense", want: 70},
 		{name: "an album id that is not base64", id: "al-!!!!", want: 70},
-		{name: "an artist, which has no one cover to stand for it", id: artistIDOf("Bare"), want: 70},
+		{name: "an artist whose album has no picture", id: artistIDOf("Bare"), want: 70},
+		{name: "an artist that does not exist", id: artistIDOf("Nobody"), want: 70},
+		{name: "an artist id that is not base64", id: "ar-!!!!", want: 70},
 		{name: "a directory that is not there", id: dirIDOf("nowhere"), want: 70},
 		{name: "a song nothing has", id: songIDOf(99999), want: 70},
 	}

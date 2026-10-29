@@ -65,7 +65,10 @@ import (
 // And to 11 for an .m4a whose brand is a film's (#395): it was indexed as a
 // video, with its cover art as the picture, and so was in the video library
 // and missing from the music.
-const Version = 11
+//
+// And to 12 for a date tag written with no separators, as yt-dlp writes it:
+// "20150811" was stored as the year.
+const Version = 12
 
 // errTooLargeToRead is what a file gets instead of a local copy when it is
 // larger than MaxSpool. It is a refusal rather than a failure, and it is
