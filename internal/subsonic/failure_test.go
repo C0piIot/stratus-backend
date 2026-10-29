@@ -328,6 +328,14 @@ func TestABrokenBackendIsNotANotFound(t *testing.T) {
 			method: "getCoverArt", id: fixed(albumIDOf("Björk", "Homogenic")), binary: true,
 		},
 		{
+			name: "listing an artist's albums for its cover", call: "Albums",
+			method: "getCoverArt", id: fixed(artistIDOf("Björk")), binary: true,
+		},
+		{
+			name: "finding the track an artist's cover is in", call: "Tracks",
+			method: "getCoverArt", id: fixed(artistIDOf("Björk")), binary: true,
+		},
+		{
 			name: "reading a folder's cover", call: "Cover",
 			method: "getCoverArt", id: fixed(dirIDOf("music/Homogenic")), binary: true,
 		},

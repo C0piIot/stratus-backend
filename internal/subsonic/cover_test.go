@@ -11,7 +11,6 @@ import (
 	"io"
 	"net/url"
 	"strconv"
-	"strings"
 	"testing"
 
 	"github.com/stratus-private-cloud/stratus-backend/internal/db"
@@ -112,10 +111,6 @@ func TestCoverArtOfAnArtistIsItsNewestAlbums(t *testing.T) {
 		t.Errorf("the artist's cover came back %dx%d, want Vespertine's 300x150", cfg.Width, cfg.Height)
 	}
 
-	nobody := get(t, l, "getCoverArt", query("id", artistIDOf("Nobody"), "size", "300"))
-	if !strings.Contains(nobody.Body.String(), `code="70"`) {
-		t.Errorf("an artist with no albums = %d %q, want error 70", nobody.Code, nobody.Body.String())
-	}
 }
 
 // TestCoverArtIsKeptAsADerivedBlob is the point of the machinery underneath: the
@@ -378,7 +373,9 @@ func TestNoCoverArt(t *testing.T) {
 		{name: "an album that does not exist", id: albumIDOf("Nobody", "Nothing"), want: 70},
 		{name: "an id of no recognised kind", id: "xx-nonsense", want: 70},
 		{name: "an album id that is not base64", id: "al-!!!!", want: 70},
-		{name: "an artist, which has no one cover to stand for it", id: artistIDOf("Bare"), want: 70},
+		{name: "an artist whose album has no picture", id: artistIDOf("Bare"), want: 70},
+		{name: "an artist that does not exist", id: artistIDOf("Nobody"), want: 70},
+		{name: "an artist id that is not base64", id: "ar-!!!!", want: 70},
 		{name: "a directory that is not there", id: dirIDOf("nowhere"), want: 70},
 		{name: "a song nothing has", id: songIDOf(99999), want: 70},
 	}

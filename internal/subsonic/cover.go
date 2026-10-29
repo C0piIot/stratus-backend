@@ -147,11 +147,10 @@ func (h *handler) coverSource(r *http.Request, username, id string) (func(contex
 				newest = a
 			}
 		}
+		// An album is listed because it has a track, so not finding one here
+		// is the library failing rather than an answer.
 		first, err := music.FirstTrack(r.Context(), h.lib, username, newest.Artist, newest.Name)
-		switch {
-		case errors.Is(err, db.ErrNotFound):
-			return nil, ptr(notFound("artist"))
-		case err != nil:
+		if err != nil {
 			return nil, ptr(h.internal(r, "list tracks", err))
 		}
 		return byTrack(first), nil
