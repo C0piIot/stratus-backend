@@ -140,16 +140,6 @@ type Deps struct {
 	// Backup is the database's newest backup, and nil when nothing reports
 	// one.
 	Backup func() Backup
-	// Yielding is whether the background passes are standing aside, and nil
-	// when nothing reports it.
-	Yielding func() Yielding
-}
-
-// Yielding is the background passes standing aside while the machine is
-// short of CPU (#455). A zero Since is a machine giving them what they ask.
-type Yielding struct {
-	Since time.Time
-	By    string
 }
 
 // Backup is the database's newest backup, as the status page tells it.
@@ -269,7 +259,6 @@ type handler struct {
 	sweep             func() Sweep
 	system            func() System
 	backup            func() Backup
-	yielding          func() Yielding
 }
 
 // Handler builds the UI. It is mounted at the root, so it is also what answers
@@ -286,7 +275,6 @@ func Handler(d Deps) http.Handler {
 		indexing: d.Indexing, imports: d.Imports, playback: d.Playback, kept: d.TrashRetention,
 		calendars: d.Calendars, contacts: d.Contacts, settings: d.Settings, editor: d.Editor, zones: d.Zones,
 		started: d.Started, database: d.Database, storage: d.Storage, sweep: d.Sweep, system: d.System, backup: d.Backup,
-		yielding: d.Yielding,
 	}
 
 	mux := http.NewServeMux()

@@ -94,7 +94,6 @@ func (h *handler) status(w http.ResponseWriter, r *http.Request, user string) {
 		IndexVersion: media.Version,
 		IndexingOff:  h.indexingNow().Interval == 0,
 		PicturesOff:  !h.indexingNow().Ahead,
-		Yielding:     h.yieldingOf(),
 		Lookup:       h.lookupOf(r),
 		Running:      h.runningOf(),
 		Sweep:        h.sweepOf(),
@@ -240,23 +239,6 @@ type sweepView struct {
 	// Pending is a process that has not swept yet, which is the first day of
 	// every deploy: said, rather than a row that is simply missing.
 	Pending bool
-}
-
-// yieldingView is the passes standing aside, as the page says it.
-type yieldingView struct {
-	Since, By string
-}
-
-// yieldingOf is nil unless the passes are standing aside right now.
-func (h *handler) yieldingOf() *yieldingView {
-	if h.yielding == nil {
-		return nil
-	}
-	y := h.yielding()
-	if y.Since.IsZero() {
-		return nil
-	}
-	return &yieldingView{Since: y.Since.In(h.zone()).Format("15:04"), By: y.By}
 }
 
 // sweepOf is nil when nothing reports the collector.

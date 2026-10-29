@@ -118,9 +118,6 @@ type App struct {
 	// backedUp is the newest backup and what became of the last attempt, and
 	// nil until the backup loop has looked.
 	backedUp atomic.Pointer[web.Backup]
-	// yielding is how the background passes stand aside while the machine is
-	// short of CPU. See pressure.go.
-	yielding *yielding
 }
 
 // Deps are the backends the protocol surfaces are built on.
@@ -187,10 +184,7 @@ func (d Deps) Close() error {
 
 // New wires an App. It performs no I/O.
 func New(cfg config.Config, version, buildDate string) *App {
-	return &App{
-		cfg: cfg, version: version, buildDate: buildDate, lookupPause: lookupPause, started: time.Now(),
-		yielding: newYielding(newGauge(os.DirFS("/"), counters)),
-	}
+	return &App{cfg: cfg, version: version, buildDate: buildDate, lookupPause: lookupPause, started: time.Now()}
 }
 
 // WithLogLevel hands the App the level the log handler reads, so that the
@@ -252,7 +246,6 @@ func (a *App) Handler(deps Deps) http.Handler {
 			Sweep:     a.lastSweep,
 			System:    a.system,
 			Backup:    a.lastBackup,
-			Yielding:  a.yieldingNow,
 		})
 
 		// Every protocol surface is behind the same realm and the same
