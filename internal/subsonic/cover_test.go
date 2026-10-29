@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/url"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/stratus-private-cloud/stratus-backend/internal/db"
@@ -75,6 +76,45 @@ func TestGetCoverArt(t *testing.T) {
 	}
 	if !bytes.Equal(fromSong.Body.Bytes(), rec.Body.Bytes()) {
 		t.Error("a track's cover is not its album's")
+	}
+}
+
+// TestCoverArtOfAnArtistIsItsNewestAlbums follows the id getArtists hands out,
+// which every client that draws artists asks for, and gets the newest record's
+// picture rather than the first one's in name order.
+func TestCoverArtOfAnArtistIsItsNewestAlbums(t *testing.T) {
+	t.Parallel()
+	l := newLibrary(t)
+	l.add(t, "music/Homogenic/01 Hunter.flac", song("Björk", "Homogenic", "Hunter", 1))
+	l.addImage(t, "music/Homogenic/cover.jpg", 800, 800)
+	vespertine := song("Björk", "Vespertine", "Hidden Place", 1)
+	vespertine.Year = 2001
+	l.add(t, "music/Vespertine/01 Hidden Place.flac", vespertine)
+	l.addImage(t, "music/Vespertine/cover.jpg", 600, 300)
+
+	env := response(t, get(t, l, "getArtists", query("f", "json")))
+	artists, _ := env["artists"].(map[string]any)
+	artist := only(t, only(t, artists["index"])["artist"])
+	art, ok := artist["coverArt"].(string)
+	if !ok {
+		t.Fatalf("the artist carries no coverArt id: %v", artist)
+	}
+
+	rec := get(t, l, "getCoverArt", query("id", art, "size", "300"))
+	if rec.Code != 200 || rec.Header().Get("Content-Type") != "image/jpeg" {
+		t.Fatalf("getCoverArt = %d %q", rec.Code, rec.Body.String())
+	}
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(rec.Body.Bytes()))
+	if err != nil {
+		t.Fatalf("the answer is not an image: %v", err)
+	}
+	if cfg.Width != 300 || cfg.Height != 150 {
+		t.Errorf("the artist's cover came back %dx%d, want Vespertine's 300x150", cfg.Width, cfg.Height)
+	}
+
+	nobody := get(t, l, "getCoverArt", query("id", artistIDOf("Nobody"), "size", "300"))
+	if !strings.Contains(nobody.Body.String(), `code="70"`) {
+		t.Errorf("an artist with no albums = %d %q, want error 70", nobody.Code, nobody.Body.String())
 	}
 }
 

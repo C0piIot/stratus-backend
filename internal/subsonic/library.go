@@ -61,6 +61,7 @@ type artistRef struct {
 	ID         string `xml:"id,attr" json:"id"`
 	Name       string `xml:"name,attr" json:"name"`
 	AlbumCount int    `xml:"albumCount,attr,omitempty" json:"albumCount,omitempty"`
+	CoverArt   string `xml:"coverArt,attr,omitempty" json:"coverArt,omitempty"`
 	annotated
 }
 
@@ -69,6 +70,7 @@ type artistDetail struct {
 	ID         string `xml:"id,attr" json:"id"`
 	Name       string `xml:"name,attr" json:"name"`
 	AlbumCount int    `xml:"albumCount,attr" json:"albumCount"`
+	CoverArt   string `xml:"coverArt,attr" json:"coverArt"`
 	annotated
 	Albums []albumRef `xml:"album" json:"album"`
 }
@@ -219,7 +221,7 @@ func albumOf(a db.Album) albumRef {
 
 // artistRefOf renders an artist for a listing or a search result.
 func artistRefOf(a db.Artist) artistRef {
-	return artistRef{ID: artistID(a.Name), Name: a.Name, AlbumCount: a.AlbumCount}
+	return artistRef{ID: artistID(a.Name), Name: a.Name, AlbumCount: a.AlbumCount, CoverArt: artistID(a.Name)}
 }
 
 // albumChild renders an album as a Child, which is what the endpoints that

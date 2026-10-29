@@ -36,12 +36,13 @@ type Art interface {
 // original is what WebDAV is for.
 const defaultCoverSize = 1200
 
-// coverArt answers the picture for an album, a song or a folder.
+// coverArt answers the picture for an album, a song, a folder or an artist.
 //
-// An artist has no cover: nothing here knows which of an artist's albums should
-// stand for it, and inventing a rule would be worse than the placeholder a
-// client already draws. That is why artistRef declares no coverArt field --
-// declaring one and never filling it is a claim, not an omission.
+// An artist's is its newest album's. It used to have none, on the argument
+// that no rule for choosing an album would be right, and what that bought was
+// a home screen of placeholders in every client that draws artists -- which is
+// most of them. Newest because it is what the artist looks like now, and the
+// rule is the year tag, so an album without one loses to any album with one.
 func (h *handler) coverArt(w http.ResponseWriter, r *http.Request, username string) {
 	id, apiErr := requiredID(r)
 	if apiErr != nil {
@@ -95,8 +96,8 @@ func (h *handler) coverArt(w http.ResponseWriter, r *http.Request, username stri
 
 // coverSource turns an id into the question to ask the generator.
 //
-// Three of the four id kinds resolve: a song is asked by itself, an album by
-// its first track, and a folder as a folder. An album is a pair of tags and
+// Every id kind resolves: a song is asked by itself, an album by its first
+// track, an artist by its newest album's, and a folder as a folder. An album is a pair of tags and
 // not a place, which is why it is asked through a track of its own and not
 // through the folder that track is in: a flat library keeps every album in
 // one folder, and that folder's first track belongs to one of them.
@@ -123,6 +124,33 @@ func (h *handler) coverSource(r *http.Request, username, id string) (func(contex
 		switch {
 		case errors.Is(err, db.ErrNotFound):
 			return nil, ptr(notFound("album"))
+		case err != nil:
+			return nil, ptr(h.internal(r, "list tracks", err))
+		}
+		return byTrack(first), nil
+
+	case isArtistID(id):
+		name, ok := parseArtistID(id)
+		if !ok {
+			return nil, ptr(notFound("artist"))
+		}
+		albums, err := h.lib.Albums(r.Context(), username, name)
+		if err != nil {
+			return nil, ptr(h.internal(r, "list albums", err))
+		}
+		if len(albums) == 0 {
+			return nil, ptr(notFound("artist"))
+		}
+		newest := albums[0]
+		for _, a := range albums[1:] {
+			if a.Year > newest.Year {
+				newest = a
+			}
+		}
+		first, err := music.FirstTrack(r.Context(), h.lib, username, newest.Artist, newest.Name)
+		switch {
+		case errors.Is(err, db.ErrNotFound):
+			return nil, ptr(notFound("artist"))
 		case err != nil:
 			return nil, ptr(h.internal(r, "list tracks", err))
 		}

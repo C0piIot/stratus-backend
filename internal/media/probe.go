@@ -175,9 +175,9 @@ func (p probeReport) mediaFrom(kind db.Kind) db.Media {
 	m.Genre = tag(tags, "genre")
 	m.TrackNo = leadingInt(tag(tags, "track"))
 	m.DiscNo = leadingInt(tag(tags, "disc"))
-	m.Year = leadingInt(tag(tags, "date"))
+	m.Year = yearOf(tag(tags, "date"))
 	if m.Year == 0 {
-		m.Year = leadingInt(tag(tags, "year"))
+		m.Year = yearOf(tag(tags, "year"))
 	}
 	m.TakenAt = parseProbeTime(tag(tags, "creation_time"))
 	// Two spellings each, because Picard writes a Vorbis comment one way and
@@ -429,6 +429,17 @@ func leadingInt(s string) int {
 	n, err := strconv.Atoi(s[:end])
 	if err != nil {
 		return 0
+	}
+	return n
+}
+
+// yearOf reads the year a date tag starts with. "2015-08-11" is read by
+// leadingInt alone, but yt-dlp writes the date with no separators, and
+// "20150811" is not the year 20150811.
+func yearOf(s string) int {
+	n := leadingInt(s)
+	for n > 9999 {
+		n /= 10
 	}
 	return n
 }

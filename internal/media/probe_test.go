@@ -130,6 +130,17 @@ func TestProbeReportRotationAsSideData(t *testing.T) {
 	}
 }
 
+func TestYearOf(t *testing.T) {
+	t.Parallel()
+	for in, want := range map[string]int{
+		"1997": 1997, "1997-09-22": 1997, "20150811": 2015, "201508": 2015, "": 0, "unknown": 0,
+	} {
+		if got := yearOf(in); got != want {
+			t.Errorf("yearOf(%q) = %d, want %d", in, got, want)
+		}
+	}
+}
+
 func TestProbeReportAudio(t *testing.T) {
 	t.Parallel()
 	m := parse(t, audioReport).mediaFrom(db.KindAudio)

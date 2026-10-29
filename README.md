@@ -927,9 +927,10 @@ What is not there yet, and it is better to know before installing a client:
   one folder. Vorbis and Opus keep theirs
   base64-encoded inside a comment and are not read yet. Third, and only with
   `STRATUS_MUSIC_LOOKUP=on`, the front cover the Cover Art Archive holds for
-  the album. Albums always advertise
-  a `coverArt` id, and asking for one that is not there is answered as "there is
-  none", which is what a client draws a placeholder for.
+  the album. An artist's cover is its newest album's, by the year tag. Albums
+  and artists always advertise a `coverArt` id, and asking for one that is not
+  there is answered as "there is none", which is what a client draws a
+  placeholder for.
 - **Lyrics and album identity answer from what was looked up, which with the
   setting off is nothing.** `getLyricsBySongId` is the `songLyrics` extension,
   advertised, and answers the words LRCLIB had for the track — the synced form

@@ -62,6 +62,7 @@ func (h *handler) artist(w http.ResponseWriter, r *http.Request, username string
 		ID:         artistID(name),
 		Name:       name,
 		AlbumCount: len(albums),
+		CoverArt:   artistID(name),
 		Albums:     make([]albumRef, 0, len(albums)),
 	}
 	for _, a := range albums {
@@ -183,7 +184,7 @@ func (h *handler) indexes(w http.ResponseWriter, r *http.Request, username strin
 		if !f.IsDir {
 			continue
 		}
-		refs = append(refs, artistRef{ID: dirID(f.Path), Name: path.Base(f.Path)})
+		refs = append(refs, artistRef{ID: dirID(f.Path), Name: path.Base(f.Path), CoverArt: dirID(f.Path)})
 		if f.MTime.After(newest) {
 			newest = f.MTime
 		}
