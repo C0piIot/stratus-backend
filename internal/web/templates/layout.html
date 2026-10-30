@@ -47,9 +47,15 @@
           hx-get="{{.Skip}}" hx-target="#player" hx-swap="outerHTML">⏭</button>{{end}}
       </div>
       <div class="col-12 col-sm-7 col-lg-8">
-        <audio id="player-audio" class="w-100 d-block" controls autoplay src="{{.Src}}"
+        {{/* No id, and that is the bug it had: when a swap brings in an
+             element whose id is already on the page, htmx keeps a shallow
+             clone of the new one to settle its attributes, and a clone of an
+             autoplay audio is a player nobody can see that starts by itself
+             -- every track change left one sounding. The span finds it as
+             the audio before it instead. */}}
+        <audio class="w-100 d-block" controls autoplay src="{{.Src}}"
           hx-get="{{.Next}}" hx-trigger="ended" hx-target="#player" hx-swap="outerHTML"></audio>
-        <span hidden hx-get="{{.Scrobble}}" hx-trigger="ended from:#player-audio" hx-swap="none"></span>
+        <span hidden hx-get="{{.Scrobble}}" hx-trigger="ended from:previous audio" hx-swap="none"></span>
       </div>
     </div>
   </div>
