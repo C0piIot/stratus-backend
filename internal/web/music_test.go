@@ -2,6 +2,7 @@ package web_test
 
 import (
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -129,7 +130,7 @@ func TestThePlayerBarWalksTheAlbum(t *testing.T) {
 	for _, want := range []string{
 		`<div id="player"`, `src="/music/AC_DC/High%20Voltage/01.flac"`, "autoplay", "It's a Long Way",
 		`hx-get="/music/AC_DC/High%20Voltage/?track=2" hx-trigger="ended"`,
-		`hx-get="/rest/scrobble?c=stratus-web&id=tr-` + strconv.FormatInt(one.ID, 10) + `&submission=true" hx-trigger="ended from:#player-audio"`,
+		`hx-get="/rest/scrobble?c=stratus-web&id=tr-` + strconv.FormatInt(one.ID, 10) + `&submission=true" hx-trigger="ended from:previous audio"`,
 		`src="/music/AC_DC/High%20Voltage/?cover=300"`, `href="/music/AC_DC/High%20Voltage/"`, `aria-label="Next"`,
 	} {
 		if !strings.Contains(first, want) {
@@ -157,6 +158,24 @@ func TestThePlayerBarWalksTheAlbum(t *testing.T) {
 	// Not a position is the page, not a bar.
 	if body := get(t, h, "/music/AC_DC/High%20Voltage/?track=0", cookie).Body.String(); !strings.Contains(body, "<html") {
 		t.Errorf("?track=0 is not the album page:\n%s", body)
+	}
+}
+
+// TestTheBarCarriesNoIDButItsOwn: a swapped bar whose audio has an id the
+// page already has is one htmx clones to settle, and the clone of an autoplay
+// audio plays by itself where nobody can pause it -- each track change left
+// one more copy sounding. The bar's own id is what it is swapped by, and a
+// div's clone is inert.
+func TestTheBarCarriesNoIDButItsOwn(t *testing.T) {
+	t.Parallel()
+	h, s, meta := browserOver(t)
+	cookie := signIn(t, h)
+	homework(t, s, meta)
+
+	bar := get(t, h, "/music/AC_DC/High%20Voltage/?track=1", cookie).Body.String()
+	ids := regexp.MustCompile(`\sid="([^"]*)"`).FindAllStringSubmatch(bar, -1)
+	if len(ids) != 1 || ids[0][1] != "player" {
+		t.Errorf("the bar carries ids %q, want only player:\n%s", ids, bar)
 	}
 }
 
