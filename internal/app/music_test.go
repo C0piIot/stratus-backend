@@ -18,12 +18,16 @@ import (
 	"github.com/stratus-private-cloud/stratus-backend/internal/media/thumb"
 )
 
-var scrobbleCall = regexp.MustCompile(`hx-get="([^"]+)"`)
+var (
+	barCall      = regexp.MustCompile(`hx-get="([^"]+track=1)"`)
+	scrobbleCall = regexp.MustCompile(`hx-get="(/rest/scrobble[^"]+)"`)
+)
 
 // TestAPlayFromTheWebUICounts holds the two adapters together where nothing
 // else can: internal/web writes OpenSubsonic's song id out by hand, because
 // adapters do not import each other, so this follows the call an album page
-// makes to /rest/ and checks that it counted (#212).
+// makes to /rest/ -- from the album page to the player bar to the call it
+// makes when the track ends -- and checks that it counted (#212).
 func TestAPlayFromTheWebUICounts(t *testing.T) {
 	t.Parallel()
 	blobs, meta := filestest.Backends(t)
@@ -66,9 +70,13 @@ func TestAPlayFromTheWebUICounts(t *testing.T) {
 		return rec.Body.String()
 	}
 
-	match := scrobbleCall.FindStringSubmatch(fromThePage("/music/Artist/Album"))
+	bar := barCall.FindStringSubmatch(fromThePage("/music/Artist/Album"))
+	if bar == nil {
+		t.Fatal("the album page has no way to play its first track")
+	}
+	match := scrobbleCall.FindStringSubmatch(fromThePage(html.UnescapeString(bar[1])))
 	if match == nil {
-		t.Fatal("the album page makes no call when a track ends")
+		t.Fatal("the player bar makes no call when a track ends")
 	}
 	if body := fromThePage(html.UnescapeString(match[1])); !strings.Contains(body, `status="ok"`) {
 		t.Fatalf("the page's scrobble = %s", body)

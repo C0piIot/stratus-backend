@@ -2,6 +2,7 @@ package web_test
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -55,8 +56,7 @@ func TestMusicNeedsASession(t *testing.T) {
 }
 
 // TestAnAlbumCanBeOpenedAndPlayed is #212's acceptance: from the artists to
-// an album, each track an audio element over the file itself, and a play
-// counted through OpenSubsonic's own scrobble.
+// an album, each track a link to the file itself and to the bar that plays it.
 func TestAnAlbumCanBeOpenedAndPlayed(t *testing.T) {
 	t.Parallel()
 	h, s, meta := browserOver(t)
@@ -98,17 +98,65 @@ func TestAnAlbumCanBeOpenedAndPlayed(t *testing.T) {
 	for _, want := range []string{
 		// The track's own address in this tree, which is the one the
 		// collection answers for too.
-		`src="/music/AC_DC/High%20Voltage/01.flac"`,
-		`hx-get="/rest/scrobble?c=stratus-web&id=tr-`,
-		`hx-trigger="ended"`,
+		`href="/music/AC_DC/High%20Voltage/01.flac"`,
+		`hx-get="/music/AC_DC/High%20Voltage/?track=1"`,
+		`hx-get="/music/AC_DC/High%20Voltage/?track=2"`,
+		`id="player"`, `hx-history-elt`,
 		"It's a Long Way", "02.flac", "5:01", "9:11", "Rock", "★★★★☆", "3 plays",
 	} {
 		if !strings.Contains(album, want) {
 			t.Errorf("the album has no %q:\n%s", want, album)
 		}
 	}
-	if csp := rec.Header().Get("Content-Security-Policy"); !strings.Contains(csp, "media-src 'self'") {
-		t.Errorf("the album's policy blocks its own audio: %q", csp)
+	// Every page of the library, since the bar plays under whichever one the
+	// document was loaded as.
+	for _, target := range []string{"/music/", "/music/AC_DC/", "/music/AC_DC/High%20Voltage/"} {
+		if csp := get(t, h, target, cookie).Header().Get("Content-Security-Policy"); !strings.Contains(csp, "media-src 'self'") {
+			t.Errorf("%s's policy blocks the bar's audio: %q", target, csp)
+		}
+	}
+}
+
+// TestThePlayerBarWalksTheAlbum: each track's bar plays it, counts it when it
+// ends and asks for the next, and past the last there is an empty bar.
+func TestThePlayerBarWalksTheAlbum(t *testing.T) {
+	t.Parallel()
+	h, s, meta := browserOver(t)
+	cookie := signIn(t, h)
+	one, two := homework(t, s, meta)
+
+	first := htmlstd.UnescapeString(get(t, h, "/music/AC_DC/High%20Voltage/?track=1", cookie).Body.String())
+	for _, want := range []string{
+		`<div id="player"`, `src="/music/AC_DC/High%20Voltage/01.flac"`, "autoplay", "It's a Long Way",
+		`hx-get="/music/AC_DC/High%20Voltage/?track=2" hx-trigger="ended"`,
+		`hx-get="/rest/scrobble?c=stratus-web&id=tr-` + strconv.FormatInt(one.ID, 10) + `&submission=true" hx-trigger="ended from:#player-audio"`,
+		`src="/music/AC_DC/High%20Voltage/?cover=300"`, `href="/music/AC_DC/High%20Voltage/"`, `aria-label="Next"`,
+	} {
+		if !strings.Contains(first, want) {
+			t.Errorf("the first bar has no %q:\n%s", want, first)
+		}
+	}
+	if strings.Contains(first, "<html") || strings.Contains(first, `aria-label="Previous"`) {
+		t.Errorf("the first bar is a page, or goes back from the first track:\n%s", first)
+	}
+
+	second := htmlstd.UnescapeString(get(t, h, "/music/AC_DC/High%20Voltage/?track=2", cookie).Body.String())
+	for _, want := range []string{`src="/music/AC_DC/High%20Voltage/02.flac"`, "id=tr-" + strconv.FormatInt(two.ID, 10), `aria-label="Previous"`, "?track=3"} {
+		if !strings.Contains(second, want) {
+			t.Errorf("the last bar has no %q:\n%s", want, second)
+		}
+	}
+	if strings.Contains(second, `aria-label="Next"`) {
+		t.Errorf("the last bar offers a next track:\n%s", second)
+	}
+
+	past := get(t, h, "/music/AC_DC/High%20Voltage/?track=3", cookie)
+	if past.Code != http.StatusOK || !strings.Contains(past.Body.String(), `id="player"`) || strings.Contains(past.Body.String(), "<audio") {
+		t.Errorf("past the end = %d:\n%s", past.Code, past.Body.String())
+	}
+	// Not a position is the page, not a bar.
+	if body := get(t, h, "/music/AC_DC/High%20Voltage/?track=0", cookie).Body.String(); !strings.Contains(body, "<html") {
+		t.Errorf("?track=0 is not the album page:\n%s", body)
 	}
 }
 

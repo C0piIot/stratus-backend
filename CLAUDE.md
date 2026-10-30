@@ -383,16 +383,22 @@ Hard constraints, in the same spirit as the rest of the project:
   stacking on it, and closing it is `<form method="dialog">`, which posts
   nowhere and needs nothing.
 
-  **An album page uses it to count a play** (#212): each track's `<audio>`
-  carries `hx-get` to OpenSubsonic's own `scrobble` with `hx-trigger="ended"`,
-  authenticated by the session (#234). Not an endpoint of the UI's -- the
-  protocol already had it -- and no script of ours: without JavaScript the
-  track plays and is not counted. The song id is written out in
+  **The music library uses it for a player bar** (#212): a track's title is
+  a link to the file and an `hx-get` for the bar that plays it, at the foot of
+  every library page. The bar's `<audio autoplay>` carries `hx-trigger="ended"`
+  for the next bar, `?track=<n>` on the album's or the playlist's own address,
+  so the queue is a URL and nothing on the server; a hidden span listens to the
+  same event to call OpenSubsonic's own `scrobble`, authenticated by the
+  session (#234). The next track is a new element starting itself, which is
+  how it needs no `.play()` and therefore no script of ours -- and why iOS,
+  which will not let one, gets one track at a time: that is a Subsonic
+  client's job. Inside the library `<main>` is boosted and swapped on its own
+  so the bar survives a click; a link out is an ordinary navigation and stops
+  it, and every library page carries `media-src` because the document is
+  whichever one was loaded first. The song id is written out in
   `internal/web/music.go` because adapters do not import each other, and
-  `TestAPlayFromTheWebUICounts` in `internal/app` follows the call to make
-  sure the two agree. Playing the next track when one ends needs a `.play()`,
-  which htmx cannot make with eval off, so it would be a third script and
-  its own paragraph.
+  `TestAPlayFromTheWebUICounts` in `internal/app` follows the page to the bar
+  to the call to make sure the two agree.
 - The UI authenticates with its own session cookie, and HTTP Basic as well.
   **The session is signed, not stored**: the value
   carries who it is for and when it expires, under an HMAC keyed by a derivation

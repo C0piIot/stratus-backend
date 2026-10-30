@@ -33,9 +33,9 @@ import (
 // and a link that spelled it differently would 404 against the collection
 // behind it.
 //
-// A play is the one thing it does not count itself: the page asks OpenSubsonic,
-// with scrobble and the session as its credential (#234), rather than grow an
-// endpoint the protocol already has.
+// A play is the one thing it does not count itself: the player bar asks
+// OpenSubsonic, with scrobble and the session as its credential (#234), rather
+// than grow an endpoint the protocol already has.
 const (
 	musicPrefix = "/music/"
 	// coverParam is how a page asks for an album's picture.
@@ -62,7 +62,10 @@ const (
 	coverAlbum = 1200
 )
 
-// albumPolicy is the pages' policy plus the audio elements' media.
+// albumPolicy is the pages' policy plus the audio elements' media. Every page
+// of the library carries it and not only the ones with a track on them: the
+// bar plays under whichever page it was first loaded with, since moving inside
+// the library swaps the content and keeps the document.
 const albumPolicy = contentSecurityPolicy + "; media-src 'self'"
 
 type artistRow struct {
@@ -94,13 +97,13 @@ type trackRow struct {
 	Number   int
 	Title    string
 	Duration string
-	Src      string
-	// Scrobble is the call htmx makes when the track has played to the end;
-	// with no JavaScript nothing makes it, and the track plays uncounted.
-	Scrobble string
-	Starred  bool
-	Rating   string
-	Plays    int64
+	// Src is the file, which is what the title links to with no script, and
+	// Play the bar that plays it from here to the end of the list.
+	Src     string
+	Play    string
+	Starred bool
+	Rating  string
+	Plays   int64
 	// Lyrics is the words, a line each, when outside sources had them
 	// (#217); the page folds them under the player.
 	Lyrics []string
@@ -173,7 +176,8 @@ func (h *handler) artists(w http.ResponseWriter, r *http.Request, user string, t
 			Starred: !notes[subjects[i]].Starred.IsZero(),
 		}
 	}
-	h.render(w, http.StatusOK, pageArtists, view{Title: "Music", User: user, Gallery: "Music", Artists: rows})
+	w.Header().Set("Content-Security-Policy", albumPolicy)
+	h.render(w, http.StatusOK, pageArtists, view{Title: "Music", User: user, Gallery: "Music", Player: true, Artists: rows})
 }
 
 func (h *handler) artist(w http.ResponseWriter, r *http.Request, user string, tree *music.Tree, n music.Node) {
@@ -189,8 +193,9 @@ func (h *handler) artist(w http.ResponseWriter, r *http.Request, user string, tr
 			Cover: coverHref(c.Path(), coverTile),
 		}
 	}
+	w.Header().Set("Content-Security-Policy", albumPolicy)
 	h.render(w, http.StatusOK, pageArtist, view{
-		Title: n.Artist.Name, User: user, Gallery: "Music", Name: n.Artist.Name, Albums: rows, Back: musicPrefix,
+		Title: n.Artist.Name, User: user, Gallery: "Music", Player: true, Name: n.Artist.Name, Albums: rows, Back: musicPrefix,
 	})
 }
 
@@ -207,6 +212,15 @@ func (h *handler) album(w http.ResponseWriter, r *http.Request, user string, tre
 	}
 	if len(tracks) == 0 {
 		h.fail(w, r, user, db.ErrNotFound)
+		return
+	}
+	queue := musicHref(n.Path(), true)
+	if at, ok := playAt(r); ok {
+		srcs := make([]string, len(children))
+		for i, c := range children {
+			srcs[i] = musicHref(c.Path(), false)
+		}
+		h.bar(w, r, user, tree, queue, tracks, srcs, at)
 		return
 	}
 
@@ -244,9 +258,9 @@ func (h *handler) album(w http.ResponseWriter, r *http.Request, user string, tre
 			// The track's own address here, not the file's under /files/:
 			// this page is the collection's other half, and one URL per thing
 			// is what the rest of this adapter promises.
-			Src:      musicHref(children[i].Path(), false),
-			Scrobble: scrobbleURL(t.File.ID),
-			Starred:  !note.Starred.IsZero(), Rating: stars(note.Rating), Plays: note.PlayCount,
+			Src:     musicHref(children[i].Path(), false),
+			Play:    playHref(queue, i+1),
+			Starred: !note.Starred.IsZero(), Rating: stars(note.Rating), Plays: note.PlayCount,
 			Lyrics: lyricLines(words[t.File.ID]),
 		})
 		total += m.DurationMS
@@ -261,7 +275,7 @@ func (h *handler) album(w http.ResponseWriter, r *http.Request, user string, tre
 
 	w.Header().Set("Content-Security-Policy", albumPolicy)
 	h.render(w, http.StatusOK, pageAlbum, view{
-		Title: name, User: user, Gallery: "Music", Name: name, Album: av, Back: av.ArtistHref,
+		Title: name, User: user, Gallery: "Music", Player: true, Name: name, Album: av, Back: av.ArtistHref,
 	})
 }
 

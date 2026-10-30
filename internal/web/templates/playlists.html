@@ -8,7 +8,7 @@
   {{range .Playlists}}
   <div class="list-group-item d-flex justify-content-between align-items-center">
     <a href="{{.Href}}" class="text-decoration-none">{{.Name}}</a>
-    <a href="{{.File}}" class="link-secondary small text-decoration-none">.m3u8</a>
+    <a href="{{.File}}" class="link-secondary small text-decoration-none" hx-boost="false">.m3u8</a>
   </div>
   {{end}}
 </div>

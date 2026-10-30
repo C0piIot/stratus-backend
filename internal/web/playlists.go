@@ -75,6 +75,16 @@ func (h *handler) playlistPages(w http.ResponseWriter, r *http.Request, user str
 		return
 	}
 
+	queue := link(playlistsPrefix, raw) + "?" + viewParam
+	if at, ok := playAt(r); ok {
+		srcs := make([]string, len(tracks))
+		for i, t := range tracks {
+			srcs[i] = href(t.File.Path)
+		}
+		h.bar(w, r, user, music.NewTree(h.library, user), queue, tracks, srcs, at)
+		return
+	}
+
 	pv := &playlistView{Name: pl.Name, File: link(playlistsPrefix, raw)}
 	for i, t := range tracks {
 		title := music.Title(t)
@@ -82,14 +92,14 @@ func (h *handler) playlistPages(w http.ResponseWriter, r *http.Request, user str
 			Number: i + 1, Title: title, Duration: duration(t.Media.DurationMS),
 			// The file's own address, which is where the .m3u8 points too: a
 			// playlist is an order over the tree, not a place in it.
-			Src:      href(t.File.Path),
-			Scrobble: scrobbleURL(t.File.ID),
+			Src:  href(t.File.Path),
+			Play: playHref(queue, i+1),
 		})
 	}
 
 	w.Header().Set("Content-Security-Policy", albumPolicy)
 	h.render(w, http.StatusOK, pagePlaylist, view{
-		Title: pl.Name, User: user, Gallery: "Playlists", Playlist: pv, Back: playlistsPrefix,
+		Title: pl.Name, User: user, Gallery: "Playlists", Player: true, Playlist: pv, Back: playlistsPrefix,
 	})
 }
 
@@ -105,5 +115,6 @@ func (h *handler) playlistIndex(w http.ResponseWriter, r *http.Request, user str
 			File: link(playlistsPrefix, name),
 		})
 	}
-	h.render(w, http.StatusOK, pagePlaylists, view{Title: "Playlists", User: user, Gallery: "Playlists", Playlists: rows})
+	w.Header().Set("Content-Security-Policy", albumPolicy)
+	h.render(w, http.StatusOK, pagePlaylists, view{Title: "Playlists", User: user, Gallery: "Playlists", Player: true, Playlists: rows})
 }

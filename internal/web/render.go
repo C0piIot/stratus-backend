@@ -250,6 +250,12 @@ type view struct {
 	Film          *filmView
 	PlayerScripts []string
 
+	// Player says this page is part of the music library, which carries the
+	// player bar and moves inside itself without reloading (player.go); Bar
+	// is what the bar is playing.
+	Player bool
+	Bar    *barView
+
 	Artists []artistRow
 	Albums  []albumRow
 	Album   *albumView

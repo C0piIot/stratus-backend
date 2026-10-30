@@ -10,6 +10,53 @@
 </svg>
 {{- end}}
 
+{{/* A track in the library: the file itself with no script, and the bar that
+     plays it from here on with htmx. Its target and select are written out
+     because main's are inherited, and those would look for a page in a bar. */}}
+{{define "playLink" -}}
+<a href="{{.Src}}" class="text-break" hx-get="{{.Play}}"
+   hx-target="#player" hx-select="#player" hx-swap="outerHTML">{{.Title}}</a>
+{{- end}}
+
+{{/* The player bar (player.go), empty until a track is chosen. The audio's
+     ended asks for the next bar, which is the whole of the queue; the hidden
+     span listens for the same event to count the play through OpenSubsonic,
+     since one element makes one request. The album link moves the page under
+     the bar the way main's own links do. */}}
+{{define "player" -}}
+<div id="player" class="sticky-bottom bg-body border-top">
+{{- with .Bar}}
+  {{/* Two rows on a phone, the audio under the rest, because its controls
+       will not shrink below what a phone's width leaves beside a title; one
+       row from sm up, with the buttons moved to the end. */}}
+  <div class="container py-2">
+    <div class="row g-2 align-items-center">
+      <div class="col d-flex align-items-center gap-2 overflow-hidden">
+        {{if .Cover}}<img src="{{.Cover}}" alt="" width="48" height="48" class="rounded object-fit-cover flex-shrink-0">{{end}}
+        <div class="small text-truncate">
+          <div class="text-truncate">{{.Title}}</div>
+          {{if .Album}}<a class="link-secondary text-truncate d-block" href="{{.Album}}" hx-boost="true"
+             hx-target="#main" hx-select="#main" hx-swap="outerHTML">{{.Artist}}</a>
+          {{else}}<div class="text-body-secondary text-truncate">{{.Artist}}</div>{{end}}
+        </div>
+      </div>
+      <div class="col-auto order-sm-last">
+        {{if .Prev}}<button class="btn btn-sm btn-link link-secondary" type="button" aria-label="Previous"
+          hx-get="{{.Prev}}" hx-target="#player" hx-swap="outerHTML">⏮</button>{{end}}
+        {{if .Skip}}<button class="btn btn-sm btn-link link-secondary" type="button" aria-label="Next"
+          hx-get="{{.Skip}}" hx-target="#player" hx-swap="outerHTML">⏭</button>{{end}}
+      </div>
+      <div class="col-12 col-sm-7 col-lg-8">
+        <audio id="player-audio" class="w-100 d-block" controls autoplay src="{{.Src}}"
+          hx-get="{{.Next}}" hx-trigger="ended" hx-target="#player" hx-swap="outerHTML"></audio>
+        <span hidden hx-get="{{.Scrobble}}" hx-trigger="ended from:#player-audio" hx-swap="none"></span>
+      </div>
+    </div>
+  </div>
+{{- end}}
+</div>
+{{- end}}
+
 {{define "layout" -}}
 <!doctype html>
 <html lang="en">
@@ -137,13 +184,21 @@
   </div>
 </nav>
 
-<main class="container py-4 flex-grow-1">
+{{/* In the music library main is what a link replaces, so the bar under it
+     keeps playing: hx-boost on every link inside, the page's own main picked
+     out of the answer, and the history kept as main alone, or going back
+     would restore a bar that has moved on. A link out of the library opts out
+     with hx-boost="false" and is an ordinary navigation, as is the bar at the
+     top -- leaving the library stops the music. */}}
+<main id="main" class="container py-4 flex-grow-1"
+  {{- if .Player}} hx-boost="true" hx-target="#main" hx-select="#main" hx-swap="outerHTML" hx-history-elt{{end}}>
 {{template "content" .}}
 </main>
 
 <footer class="container py-3 text-body-secondary small border-top">
   Stratus {{.Version}} &middot; built {{.BuildDate}}
 </footer>
+{{if .Player}}{{template "player" .}}{{end}}
 <script src="{{.Assets}}/bootstrap.bundle.min.js"></script>
 <script src="{{.HTMX}}/htmx.min.js"></script>
 {{range .Scripts}}<script src="{{.}}" defer></script>
