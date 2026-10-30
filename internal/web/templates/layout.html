@@ -41,9 +41,9 @@
         </div>
       </div>
       <div class="col-auto order-sm-last">
-        {{if .Prev}}<button class="btn btn-sm btn-link link-secondary" type="button" aria-label="Previous"
+        {{if .Prev}}<button class="btn btn-sm btn-link link-secondary text-decoration-none" type="button" aria-label="Previous"
           hx-get="{{.Prev}}" hx-target="#player" hx-swap="outerHTML">⏮</button>{{end}}
-        {{if .Skip}}<button class="btn btn-sm btn-link link-secondary" type="button" aria-label="Next"
+        {{if .Skip}}<button class="btn btn-sm btn-link link-secondary text-decoration-none" type="button" aria-label="Next"
           hx-get="{{.Skip}}" hx-target="#player" hx-swap="outerHTML">⏭</button>{{end}}
       </div>
       <div class="col-12 col-sm-7 col-lg-8">
