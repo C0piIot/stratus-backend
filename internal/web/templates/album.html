@@ -18,23 +18,17 @@
     <ol class="list-group">
       {{range .Tracks}}
       <li class="list-group-item">
-        <div class="d-flex align-items-baseline gap-2 mb-1">
+        <div class="d-flex align-items-baseline gap-2">
           <span class="small text-body-secondary">{{if .Number}}{{.Number}}{{end}}</span>
-          <span class="text-truncate">{{.Title}}</span>
+          {{template "playLink" .}}
           {{if .Starred}}<span class="text-warning" title="Starred">♥</span>{{end}}
           {{if .Rating}}<span class="small text-warning" title="Rating">{{.Rating}}</span>{{end}}
           <span class="ms-auto small text-body-secondary text-nowrap">
             {{- if .Plays}}{{.Plays}} play{{if ne .Plays 1}}s{{end}} · {{end}}{{.Duration}}</span>
         </div>
-        {{/* The file itself, so it plays with no script. htmx, when there is
-             any, tells OpenSubsonic the track was played to the end: the same
-             scrobble a Subsonic client sends, with the session as its
-             credential. */}}
-        <audio class="w-100" controls preload="none" src="{{.Src}}"
-          hx-get="{{.Scrobble}}" hx-trigger="ended" hx-swap="none"></audio>
         {{/* The words, when outside sources had them (#217), folded away:
              most people press play, and a page of lyrics between every two
-             players would be a page nobody can find the next track on. A
+             tracks would be a page nobody can find the next track on. A
              <details> rather than a script, which is the deal every
              disclosure here has. */}}
         {{if .Lyrics}}<details class="mt-1">

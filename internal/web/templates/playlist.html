@@ -1,4 +1,4 @@
-{{/* One playlist: what is in it, in its order, each track a player. The file
+{{/* One playlist: what is in it, in its order, each track a link that plays it. The file
      itself is a link, because that is what another player wants. */}}
 {{define "content" -}}
 {{with .Playlist}}
@@ -6,17 +6,15 @@
 <h1 class="h4 mb-1">{{.Name}}</h1>
 <p class="small text-body-secondary mb-3">
   {{len .Tracks}} track{{if ne (len .Tracks) 1}}s{{end}} ·
-  <a href="{{.File}}" class="link-secondary">open as .m3u8</a>
+  <a href="{{.File}}" class="link-secondary" hx-boost="false">open as .m3u8</a>
 </p>
 <ol class="list-group list-group-numbered">
   {{range .Tracks}}
   <li class="list-group-item">
-    <div class="d-flex justify-content-between">
-      <span class="text-break">{{.Title}}</span>
+    <div class="d-flex justify-content-between gap-2">
+      {{template "playLink" .}}
       <span class="text-body-secondary small">{{.Duration}}</span>
     </div>
-    <audio class="w-100 mt-1" controls preload="none" src="{{.Src}}"
-      hx-get="{{.Scrobble}}" hx-trigger="ended" hx-swap="none"></audio>
   </li>
   {{end}}
 </ol>

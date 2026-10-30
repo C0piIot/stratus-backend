@@ -875,7 +875,8 @@ nothing at all.
 their own with the same credentials, so a player that has never heard of
 Subsonic -- VLC, foobar2000, anything that opens a playlist by URL -- can play
 them. `/playlists/` is also a page listing them, and a playlist's own URL with
-`?view` shows what is in it with a player per track -- which is the first time
+`?view` shows what is in it, played in order by the same bar the music pages
+have -- which is the first time
 a playlist has been visible from a browser at all. Three things are worth
 knowing:
 
@@ -1146,18 +1147,28 @@ like a track in the music library.
 
 **Music has a library of its own at `/music/`**, which is both a set of pages
 and a WebDAV collection: the artists, each one's albums with their covers, and
-an album page where every track is a player of its own. A track's own URL —
+an album page whose tracks play in a bar at the foot of the page, one after
+another to the end of the album. A track's own URL —
 `/music/Autechre/Amber/01.flac` — is the track, downloaded, and that is the
 same URL a client mounting `/music/` finds it at. Read from the tags rather
 than the tree, like the gallery, and a track appears once the indexer has read
 it. Stars, ratings and play counts show as a Subsonic
 client left them; they are set from one, not here. A track played to the end in
-the browser counts as a play: the page makes the same `scrobble` call a
-Subsonic client does, to `/rest/`, with the session as its credential. With
-JavaScript off a track still plays and is not counted. Tracks play one at a
-time and do not follow on from each other, and a format the browser cannot
-decode does not play. A track whose words were looked up (`STRATUS_MUSIC_LOOKUP`)
-has them folded under its player, the plain text a line each.
+the browser counts as a play: the bar makes the same `scrobble` call a
+Subsonic client does, to `/rest/`, with the session as its credential.
+
+- **The bar keeps playing while you move around the library** -- artists,
+  albums, playlists -- and stops when you leave it for anything else, which is
+  an ordinary page load.
+- **On iOS it plays one track at a time**: Safari will not let the next one
+  start itself, and nothing in a browser plays on with the screen locked. A
+  Subsonic client is the answer there.
+- With JavaScript off a track's title is the file, which the browser plays on
+  its own, uncounted and without the bar. A format the browser cannot decode
+  does not play.
+
+A track whose words were looked up (`STRATUS_MUSIC_LOOKUP`) has them folded
+under it, the plain text a line each.
 
 **A tag is not a filename**, so the names under `/music/` are generated: an
 artist called `AC/DC` is one collection called `AC_DC`, because a folder cannot

@@ -42,7 +42,8 @@ func TestThePlaylistsAreAPageAndAFile(t *testing.T) {
 	h, s, meta := browserOver(t)
 	cookie := signIn(t, h)
 	one, two := homework(t, s, meta)
-	mkPlaylist(t, meta, "Night drive", one.ID, two.ID)
+	solo := addTrack(t, s, meta, "solo.flac", db.Media{AlbumArtist: "Nico", Album: "Chelsea Girl", Title: "These Days"})
+	mkPlaylist(t, meta, "Night drive", one.ID, two.ID, solo.ID)
 
 	index := get(t, h, "/playlists/", cookie)
 	if index.Code != http.StatusOK {
@@ -65,6 +66,7 @@ func TestThePlaylistsAreAPageAndAFile(t *testing.T) {
 	want := music.M3U8(db.Playlist{Name: "Night drive"}, []db.Track{
 		{File: one, Media: db.Media{AlbumArtist: "AC/DC", Artist: "AC/DC", Album: "High Voltage", Title: "It's a Long Way", TrackNo: 1, Year: 1976, Genre: "Rock", DurationMS: 301_000}},
 		{File: two, Media: db.Media{AlbumArtist: "AC/DC", Artist: "AC/DC", Album: "High Voltage", TrackNo: 2, Year: 1976, DurationMS: 250_000}},
+		{File: solo, Media: db.Media{AlbumArtist: "Nico", Album: "Chelsea Girl", Title: "These Days"}},
 	}, "/files/")
 	if file.Body.String() != string(want) {
 		t.Errorf("the file =\n%s\nwant\n%s", file.Body.String(), want)
@@ -75,10 +77,28 @@ func TestThePlaylistsAreAPageAndAFile(t *testing.T) {
 		t.Fatalf("the page = %d", page.Code)
 	}
 	body := htmlstd.UnescapeString(page.Body.String())
-	for _, want := range []string{"It's a Long Way", "5:01", `src="/files/01.flac"`, "open as .m3u8"} {
+	for _, want := range []string{
+		"It's a Long Way", "5:01", `href="/files/01.flac"`, "open as .m3u8",
+		`hx-get="/playlists/Night%20drive.m3u8?view&track=2"`,
+	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("the page has no %q:\n%s", want, body)
 		}
+	}
+
+	// The bar plays the playlist's order, with each track's own album beside it.
+	bar := htmlstd.UnescapeString(get(t, h, "/playlists/Night%20drive.m3u8?view&track=1", cookie).Body.String())
+	for _, want := range []string{
+		`src="/files/01.flac"`, `hx-get="/playlists/Night%20drive.m3u8?view&track=2"`,
+		`href="/music/AC_DC/High%20Voltage/"`,
+	} {
+		if !strings.Contains(bar, want) {
+			t.Errorf("the bar has no %q:\n%s", want, bar)
+		}
+	}
+	// A track tagged with the album's artist alone is still somebody's.
+	if bar := get(t, h, "/playlists/Night%20drive.m3u8?view&track=3", cookie).Body.String(); !strings.Contains(bar, ">Nico<") {
+		t.Errorf("the bar of a track with no artist tag:\n%s", bar)
 	}
 }
 
