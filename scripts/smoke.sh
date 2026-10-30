@@ -1705,13 +1705,18 @@ TRACK
     *) bad "a track's own address transcodes it on request" "HEAD $headtype, GET $gettype starting $magic" ;;
   esac
 
+  # The page links each track to the file and to the player bar that plays
+  # it, and the bar is the album's own address asked for one track.
   page=""
+  bar=""
   if [ -n "$album" ]; then
     page="$(curl -fsS -b "$jar" "http://$davhost$album" 2>/dev/null || true)"
+    bar="$(curl -fsS -b "$jar" "http://$davhost${album}?track=1" 2>/dev/null || true)"
   fi
-  case "$page" in
-    *'<!doctype html>'*'<audio'*"$track"*) ok "an album is a page with a player per track" ;;
-    *) bad "an album is a page with a player per track" "album '$album': $(head -c 160 <<<"$page")" ;;
+  case "$page|$bar" in
+    *'<!doctype html>'*"href=\"$track\""*'?track=1'*'|'*'<audio'*"$track"*)
+      ok "an album is a page whose tracks play in the bar" ;;
+    *) bad "an album is a page whose tracks play in the bar" "album '$album': $(head -c 160 <<<"$bar")" ;;
   esac
 
   # The track's own address is the original, at the URL the multistatus named.
@@ -1748,8 +1753,9 @@ TRACK
     *) bad "the playlists are a page, with the one made over OpenSubsonic on it" "$(head -c 160 <<<"$lists")" ;;
   esac
   opened="$(curl -fsS -b "$jar" "http://$davhost/playlists/Smoke.m3u8?view" 2>/dev/null || true)"
+  opened="$opened|$(curl -fsS -b "$jar" "http://$davhost/playlists/Smoke.m3u8?view&track=1" 2>/dev/null || true)"
   case "$opened" in
-    *'<audio'*'track.mp3'*) ok "a playlist opens as a page with its track in it" ;;
+    *'track.mp3'*'|'*'<audio'*'track.mp3'*) ok "a playlist opens as a page with its track in it" ;;
     *) bad "a playlist opens as a page with its track in it" "$(head -c 160 <<<"$opened")" ;;
   esac
 
