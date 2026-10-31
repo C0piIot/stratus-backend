@@ -558,7 +558,9 @@ with a `User-Agent` that names this project:
   front cover of an album that has no `cover.jpg` beside it and no picture
   inside its first track. The user's own picture always wins.
 - **[LRCLIB](https://lrclib.net)**, sent a track's artist, title, album and
-  length, for its words, synced where they have them.
+  length, for its words, synced where they have them. A credit of several
+  names that finds nothing is asked once more under the first of them, as
+  MusicBrainz is.
 
 Nothing is sent about photographs, videos or files, and nothing is ever written
 into a file: what comes back is rows beside the library and a cover kept under

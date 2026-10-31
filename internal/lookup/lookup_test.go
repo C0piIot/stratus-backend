@@ -143,6 +143,14 @@ func newSources(t *testing.T) *sources {
 				"trackName": "Foil", "artistName": "Autechre", "instrumental": false,
 				"plainLyrics": "first line\nsecond line", "syncedLyrics": "[00:01.00] first line\n[00:05.50] second line",
 			})
+		case "Frenchy, I'm Faking":
+			// Filed under the band alone, which is what LRCLIB does with a
+			// credit of several names.
+			if q.Get("artist_name") != "Architecture In Helsinki" {
+				http.NotFound(w, r)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"trackName": "Frenchy, I'm Faking", "plainLyrics": "words"})
 		case "Montreal":
 			_ = json.NewEncoder(w).Encode(map[string]any{"trackName": "Montreal", "instrumental": true})
 		default:
@@ -303,6 +311,52 @@ func TestACreditOfSeveralNamesIsAskedByItsFirst(t *testing.T) {
 	row, err := l.meta.AlbumLookup(t.Context(), owner, "Autechre, Someone Else", "Amber")
 	if err != nil || row.ReleaseGroup != amberGroup {
 		t.Errorf("the album's row is %+v, %v", row, err)
+	}
+}
+
+// TestLyricsOfACreditOfSeveralNamesAreAskedByItsFirst is the album search's
+// second question asked of LRCLIB: the whole credit finds nothing, and the
+// first name finds the words.
+func TestLyricsOfACreditOfSeveralNamesAreAskedByItsFirst(t *testing.T) {
+	t.Parallel()
+	l, s := newLibrary(t), newSources(t)
+	f := l.track(t, "music/case/01.flac", song("Architecture In Helsinki, Cameron Bird", "In Case We Die", "Frenchy, I'm Faking", 1))
+
+	if _, err := service(t, l, s, time.Now()).Pass(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	words, err := l.meta.LyricsOf(t.Context(), []int64{f.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w := words[f.ID]; w.Plain != "words" {
+		t.Errorf("the track's row is %+v, want the words found under the first name", w)
+	}
+	var asked []string
+	s.mu.Lock()
+	for _, q := range s.queries {
+		if strings.HasPrefix(q, "lrclib ") {
+			asked = append(asked, q)
+		}
+	}
+	s.mu.Unlock()
+	if len(asked) != 2 {
+		t.Errorf("LRCLIB was asked %d times (%q), want the full credit and then the first name", len(asked), asked)
+	}
+}
+
+// TestASingleNameIsAskedOnce: a track LRCLIB has nothing for under a name
+// that is not several costs one question and not two.
+func TestASingleNameIsAskedOnce(t *testing.T) {
+	t.Parallel()
+	l, s := newLibrary(t), newSources(t)
+	l.track(t, "music/amber/01.flac", song("Autechre", "Amber", "Unheard", 1))
+
+	if _, err := service(t, l, s, time.Now()).Pass(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if n := s.lrcCalls.Load(); n != 1 {
+		t.Errorf("LRCLIB was asked %d times, want once", n)
 	}
 }
 

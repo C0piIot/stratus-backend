@@ -29,8 +29,29 @@ type lyricsAnswer struct {
 // is this recording's words or nothing, while a search answers the nearest
 // thing it has and the nearest thing is sometimes a different song. The album
 // and the duration go along when the tags know them, since both narrow it.
+//
+// Asked with the artist as tagged and, when LRCLIB has nothing under that and
+// the tag reads as several names, once more with the first of them -- the
+// same second question the album search asks, for the same tracks: a credit
+// such as "Estelle, Kanye West, Keith Harris, William Adams" is what a track
+// ripped from a video site carries, and LRCLIB files the words under the
+// first name. Only "nothing there" earns the second question; anything else
+// is an answer about the service and not about the name.
 func (s *Service) lyrics(ctx context.Context, m db.Media) (lyricsAnswer, error) {
-	q := url.Values{"artist_name": {m.Artist}, "track_name": {m.Title}}
+	var err error
+	for _, name := range creditNames(m.Artist) {
+		var found lyricsAnswer
+		found, err = s.lyricsBy(ctx, name, m)
+		if !errors.Is(err, errNothing) {
+			return found, err
+		}
+	}
+	return lyricsAnswer{}, err
+}
+
+// lyricsBy is one exact lookup, under one artist name.
+func (s *Service) lyricsBy(ctx context.Context, artist string, m db.Media) (lyricsAnswer, error) {
+	q := url.Values{"artist_name": {artist}, "track_name": {m.Title}}
 	if m.Album != "" {
 		q.Set("album_name", m.Album)
 	}
