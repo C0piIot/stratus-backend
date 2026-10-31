@@ -1,6 +1,8 @@
 package thumb
 
 import (
+	"bytes"
+	"encoding/base64"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -21,9 +23,11 @@ import (
 // picture out of its head. internal/media/image.go reads EXIF the same way and
 // for the same reason.
 //
-// Three containers cover a real library: FLAC's PICTURE block, ID3v2's APIC
-// frame, and MP4's covr atom. Vorbis and Opus keep theirs base64-encoded inside
-// a comment and are not read yet.
+// Four containers cover a real library: FLAC's PICTURE block, ID3v2's APIC
+// frame, MP4's covr atom, and the comment header of an Ogg stream -- Opus and
+// Vorbis -- where the same PICTURE block is kept base64-encoded under
+// METADATA_BLOCK_PICTURE. That last one is what yt-dlp writes with
+// --embed-thumbnail, which makes it most of a library downloaded that way.
 
 // ErrNoEmbeddedCover means the track carries no picture. It is not a failure:
 // most tracks in most libraries do not.
@@ -60,6 +64,8 @@ func embeddedCover(r io.ReadSeeker, name string) ([]byte, error) {
 		return id3Cover(r)
 	case ".m4a", ".mp4", ".m4v", ".mov":
 		return mp4Cover(r)
+	case ".opus", ".ogg", ".oga":
+		return oggCover(r)
 	}
 	return nil, fmt.Errorf("%w: %s", ErrNoEmbeddedCover, path.Ext(name))
 }
@@ -301,6 +307,129 @@ func mp4Cover(r io.ReadSeeker) ([]byte, error) {
 	return picture, nil
 }
 
+// oggCover reads the comment header of the first stream in an Ogg file, and
+// the METADATA_BLOCK_PICTURE comments in it.
+//
+// The header is the stream's second packet, after the identification one, so
+// it is at the head of the file like every other tag here -- but it is cut
+// into pages, and a picture of a few hundred kilobytes spans dozens of them.
+// So the pages are walked and the packet put back together, from the first
+// stream only: a file that multiplexes another is not a file whose second
+// stream's comments are the track's.
+func oggCover(r io.ReadSeeker) ([]byte, error) {
+	packet, err := oggPacket(r, 1)
+	if err != nil {
+		return nil, err
+	}
+
+	var b reader
+	switch {
+	case bytes.HasPrefix(packet, []byte("OpusTags")):
+		b.buf = packet[8:]
+	case bytes.HasPrefix(packet, []byte("\x03vorbis")):
+		b.buf = packet[7:]
+	default:
+		return nil, fmt.Errorf("%w: the second Ogg packet is not a comment header", ErrNoEmbeddedCover)
+	}
+
+	b.skip(int64(b.uint32le())) // the vendor string
+	count := b.uint32le()
+	var first []byte
+	for i := uint32(0); i < count && b.err == nil; i++ {
+		comment := b.take(int64(b.uint32le()))
+		key, value, ok := bytes.Cut(comment, []byte("="))
+		if !ok || !strings.EqualFold(string(key), "METADATA_BLOCK_PICTURE") {
+			continue
+		}
+		block, err := base64.StdEncoding.DecodeString(string(value))
+		if err != nil {
+			continue
+		}
+		kind, picture, err := flacPicture(block)
+		if err != nil {
+			continue
+		}
+		if kind == frontCover {
+			return picture, nil
+		}
+		if first == nil {
+			first = picture
+		}
+	}
+	if first != nil {
+		return first, nil
+	}
+	return nil, ErrNoEmbeddedCover
+}
+
+// maxOggPacket bounds the packet oggPacket puts together: the largest picture
+// this package takes, base64-encoded, and room for the comments around it.
+const maxOggPacket = maxEmbeddedCover/3*4 + 1<<20
+
+// oggPacket returns packet n of the first logical stream in an Ogg file.
+//
+// A page is a 27-byte header -- "OggS", a version, flags, a granule position,
+// the stream's serial, a sequence number, a checksum and a count of segments
+// -- then a table of that many segment lengths and the segments. A packet is
+// segments laid end to end until one shorter than 255, and may carry on into
+// the next page. The checksum is not verified: a page that lies about its
+// lengths fails the bounds below, and one with the wrong bytes in it yields a
+// picture that does not decode, which the caller already answers.
+func oggPacket(r io.ReadSeeker, n int) ([]byte, error) {
+	var (
+		serial  uint32
+		packet  []byte
+		packets int
+		scanned int64
+	)
+	for page := 0; scanned < maxTagScan; page++ {
+		var header [27]byte
+		if _, err := io.ReadFull(r, header[:]); err != nil || string(header[:4]) != "OggS" {
+			return nil, fmt.Errorf("%w: not an Ogg page", ErrNoEmbeddedCover)
+		}
+		pageSerial := binary.LittleEndian.Uint32(header[14:18])
+		if page == 0 {
+			serial = pageSerial
+		}
+		lacing := make([]byte, header[26])
+		if _, err := io.ReadFull(r, lacing); err != nil {
+			return nil, fmt.Errorf("%w: a truncated Ogg page", ErrNoEmbeddedCover)
+		}
+		var length int64
+		for _, l := range lacing {
+			length += int64(l)
+		}
+		scanned += 27 + int64(len(lacing)) + length
+
+		if pageSerial != serial {
+			if _, err := r.Seek(length, io.SeekCurrent); err != nil {
+				return nil, fmt.Errorf("%w: %w", ErrNoEmbeddedCover, err)
+			}
+			continue
+		}
+		body := make([]byte, length)
+		if _, err := io.ReadFull(r, body); err != nil {
+			return nil, fmt.Errorf("%w: a truncated Ogg page", ErrNoEmbeddedCover)
+		}
+		for _, l := range lacing {
+			packet = append(packet, body[:l]...)
+			body = body[l:]
+			if len(packet) > maxOggPacket {
+				return nil, fmt.Errorf("%w: an Ogg packet past %d bytes", ErrNoEmbeddedCover, maxOggPacket)
+			}
+			if l == 255 {
+				continue
+			}
+			if packets == n {
+				return packet, nil
+			}
+			packets++
+			packet = nil
+		}
+	}
+	return nil, fmt.Errorf("%w: no Ogg packet %d in the first %d bytes", ErrNoEmbeddedCover, n, maxTagScan)
+}
+
 // synchsafe decodes the seven-bits-per-byte integer ID3v2 uses so that a size
 // can never contain a byte that looks like the start of an MPEG frame.
 func synchsafe(b []byte) int64 {
@@ -341,6 +470,18 @@ func (r *reader) uint32() uint32 {
 		return 0
 	}
 	n := binary.BigEndian.Uint32(r.buf[:4])
+	r.buf = r.buf[4:]
+	return n
+}
+
+// uint32le is the little-endian kind, which is what Ogg's comment headers use
+// where every other format here is big-endian.
+func (r *reader) uint32le() uint32 {
+	if len(r.buf) < 4 {
+		r.fail()
+		return 0
+	}
+	n := binary.LittleEndian.Uint32(r.buf[:4])
 	r.buf = r.buf[4:]
 	return n
 }

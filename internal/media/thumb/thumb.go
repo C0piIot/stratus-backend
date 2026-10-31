@@ -167,9 +167,13 @@ func (t *Service) File(ctx context.Context, owner, path string, px int) (io.Read
 // Cover returns the artwork for the folder dir, at about px pixels.
 //
 // Three places hold it and this is the only thing that knows there are three:
-// a picture beside the tracks, one inside the first of them, or one fetched
-// for the album from outside (#217) -- in that order, because the first two
-// are the user's own. A caller asks for a folder's cover and gets bytes.
+// a picture beside the tracks, one fetched for the album from outside (#217),
+// or one inside the first track -- in that order. The folder's picture is put
+// there by somebody on purpose; a picture inside a track is very often not a
+// cover at all but the frame a video-site download carried with it, which
+// cropped to a square is a worse answer than the record's own front cover.
+// So a tag's picture is what an album with nothing better shows. A caller
+// asks for a folder's cover and gets bytes.
 //
 // This is the folder's answer: the first track in it decides, whatever
 // album it belongs to. An album asks through CoverOf with a track of its own,
@@ -191,8 +195,8 @@ func (t *Service) Cover(ctx context.Context, owner, dir string, px int) (io.Read
 }
 
 // CoverOf returns the artwork for the album track f belongs to, at about px
-// pixels: a picture beside it in its folder, else the one inside f itself,
-// else the one fetched for its album. The same three places as Cover, with
+// pixels: a picture beside it in its folder, else the one fetched for its
+// album, else the one inside f itself. The same three places as Cover, with
 // the track chosen by the caller rather than by the folder's listing -- which
 // is the difference between an album's cover and a folder's when the two are
 // not the same thing.
@@ -208,23 +212,22 @@ func (t *Service) CoverOf(ctx context.Context, owner string, f db.File, px int) 
 	return t.trackCover(ctx, f, px)
 }
 
-// trackCover is the second and third place: the picture inside the track,
-// and failing that the one fetched for its album (#217). The fetched half's
-// own "nothing" keeps the tag's answer, so the surfaces above go on telling a
-// 404 from a failure the way they always have.
+// trackCover is the second and third place: the picture fetched for the
+// track's album (#217), and failing that the one inside the track. A fetched
+// cover that is not there -- never fetched, or gone with the track it was
+// filed under -- falls through to the tag, whose own answer is what the
+// surfaces above go on telling a 404 from a failure by. A store that would
+// not answer is not a missing cover, and is said rather than papered over
+// with the tag's picture.
 func (t *Service) trackCover(ctx context.Context, track db.File, px int) (io.ReadCloser, int64, error) {
-	body, size, err := t.fromTrack(ctx, track, px)
-	if !errors.Is(err, ErrNoEmbeddedCover) {
-		return body, size, err
-	}
-	body, size, ferr := t.fetchedArt(ctx, track, px)
+	body, size, err := t.fetchedArt(ctx, track, px)
 	switch {
-	case ferr == nil:
+	case err == nil:
 		return body, size, nil
-	case errors.Is(ferr, errNoArt), errors.Is(ferr, storage.ErrNotFound), errors.Is(ferr, db.ErrNotFound):
-		return nil, 0, err
+	case errors.Is(err, errNoArt), errors.Is(err, storage.ErrNotFound), errors.Is(err, db.ErrNotFound):
+		return t.fromTrack(ctx, track, px)
 	default:
-		return nil, 0, ferr
+		return nil, 0, err
 	}
 }
 

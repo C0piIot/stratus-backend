@@ -2619,9 +2619,13 @@ Restraint here is principle 3, not laziness:
   seeks takes the first few kilobytes of a FLAC and stops, while ffmpeg needs a
   local file and would spool a 50 MB track out of a bucket to lift a 200 KB
   picture out of its head. It also keeps that binary honest as the thing for
-  pixels Go cannot produce. FLAC's PICTURE block, ID3v2's APIC frame and MP4's
-  covr atom cover a real library; Vorbis and Opus keep theirs base64-encoded in
-  a comment and are not read yet.
+  pixels Go cannot produce. FLAC's PICTURE block, ID3v2's APIC frame, MP4's
+  covr atom and the `METADATA_BLOCK_PICTURE` comment of an Ogg stream cover a
+  real library. The last is the same PICTURE block in base64, in a comment
+  header that spans as many Ogg pages as the picture needs, so the pages are
+  walked and the packet put back together off a ranged read like the rest --
+  and it is what yt-dlp's `--embed-thumbnail` writes into every `.opus`, which
+  made it most of the first library downloaded that way.
 - **Outside sources are asked about the music library, and only when asked
   to** (#217). `internal/lookup` is a feature package with a pass in the
   indexer's shape: what is pending is a query -- an album with no row, a track
@@ -2686,9 +2690,12 @@ Restraint here is principle 3, not laziness:
   taken off; "(Live)" or "(Remix)" is a record of its own with a cover of its
   own. `SearchVersion` 2 is what asked those albums again.
 
-  **The cover is the third place `Thumbs.Cover` looks, and a derived object
-  under one of the album's tracks.** Third because the folder and the tag are
-  the user's own; under a track because that is what the sweep collects by,
+  **The cover is the second place `Thumbs.Cover` looks, and a derived object
+  under one of the album's tracks.** After the folder, which somebody put
+  there on purpose, and before the tag -- which it followed until a library
+  downloaded with yt-dlp showed what that cost: a picture inside a track is
+  as often the video's frame as the record's cover, and every album with a
+  proper front cover drew a cropped still instead. Under a track because that is what the sweep collects by,
   so a deleted or replaced track takes the picture with it and nothing here
   needs a rule of its own. The row says which track, so any track of the
   album finds it; when the picture is gone -- the track was replaced and the

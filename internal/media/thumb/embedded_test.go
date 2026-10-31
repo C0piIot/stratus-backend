@@ -2,6 +2,7 @@ package thumb
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/binary"
 	"errors"
 	"strings"
@@ -272,14 +273,176 @@ func TestMP4WithNoCover(t *testing.T) {
 func TestEmbeddedCoverOfSomethingElse(t *testing.T) {
 	t.Parallel()
 
-	// Vorbis and Opus keep theirs base64-encoded inside a comment, which is not
-	// read yet, and a .wav has nowhere to keep one.
+	// A .wav has nowhere to keep one, and an .ogg or .opus that is not an Ogg
+	// file has none to find.
 	for _, name := range []string{"a.ogg", "a.opus", "a.wav", "a.wma", "a"} {
 		if _, err := embeddedCover(bytes.NewReader([]byte("whatever")), name); !errors.Is(err, ErrNoEmbeddedCover) {
 			t.Errorf("embeddedCover(%q) = %v, want ErrNoEmbeddedCover", name, err)
 		}
 	}
 }
+
+func TestOggCover(t *testing.T) {
+	t.Parallel()
+
+	// A picture several pages long, which is what a real one is: an Ogg page
+	// holds at most 255 segments of 255 bytes, so 70 KB of base64 is two
+	// pages and a packet put back together across them.
+	big := strings.Repeat("PICTURE ", 9000)
+	opus := func(pictures ...[]byte) [][]byte {
+		return [][]byte{[]byte("OpusHead\x01\x02"), oggComments("OpusTags", pictures...)}
+	}
+
+	tests := []struct {
+		name string
+		file []byte
+		want string
+	}{
+		{
+			name: "opus",
+			file: oggFile(1, opus(flacPicked(frontCover, payload))...),
+			want: payload,
+		},
+		{
+			name: "vorbis",
+			file: oggFile(1, []byte("\x01vorbis"), oggComments("\x03vorbis", flacPicked(frontCover, payload))),
+			want: payload,
+		},
+		{
+			name: "across pages",
+			file: oggFile(1, opus(flacPicked(frontCover, big))...),
+			want: big,
+		},
+		{
+			name: "the front is preferred over the back",
+			file: oggFile(1, opus(flacPicked(4, "THE BACK"), flacPicked(frontCover, payload))...),
+			want: payload,
+		},
+		{
+			name: "no front cover declared",
+			file: oggFile(1, opus(flacPicked(4, payload))...),
+			want: payload,
+		},
+		{
+			// A page of another stream between the two: the comments read are
+			// the first stream's, and the other one's bytes are stepped over.
+			name: "another stream in between",
+			file: concat(
+				oggFile(1, []byte("OpusHead\x01\x02")),
+				oggFile(2, []byte("something else entirely")),
+				oggPages(1, 1, oggComments("OpusTags", flacPicked(frontCover, payload))),
+			),
+			want: payload,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := embeddedCover(bytes.NewReader(tt.file), "a.opus")
+			if err != nil {
+				t.Fatalf("embeddedCover: %v", err)
+			}
+			if string(got) != tt.want {
+				t.Errorf("got %d bytes, want %d", len(got), len(tt.want))
+			}
+		})
+	}
+}
+
+func TestOggWithNoCover(t *testing.T) {
+	t.Parallel()
+
+	head := []byte("OpusHead\x01\x02")
+	tests := map[string][]byte{
+		"no picture comment":    oggFile(1, head, oggComments("OpusTags")),
+		"not base64":            oggFile(1, head, oggCommentsRaw("OpusTags", "METADATA_BLOCK_PICTURE=not base64!")),
+		"not a comment header":  oggFile(1, head, []byte("OpusSomething")),
+		"only the first packet": oggFile(1, head),
+		"truncated":             oggFile(1, head, oggComments("OpusTags", flacPicked(frontCover, payload)))[:60],
+		"not an Ogg file":       []byte("fLaC\x00\x00\x00\x22"),
+		"empty":                 {},
+	}
+	for name, file := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			if _, err := embeddedCover(bytes.NewReader(file), "a.opus"); !errors.Is(err, ErrNoEmbeddedCover) {
+				t.Errorf("embeddedCover = %v, want ErrNoEmbeddedCover", err)
+			}
+		})
+	}
+}
+
+// oggComments is a comment header carrying each picture as yt-dlp and every
+// tagger write one: a FLAC PICTURE block, base64, under
+// METADATA_BLOCK_PICTURE, among comments that are not pictures.
+func oggComments(magic string, pictures ...[]byte) []byte {
+	comments := []string{"TITLE=Foil", "ARTIST=Autechre"}
+	for _, p := range pictures {
+		comments = append(comments, "METADATA_BLOCK_PICTURE="+base64.StdEncoding.EncodeToString(p))
+	}
+	return oggCommentsRaw(magic, comments...)
+}
+
+func oggCommentsRaw(magic string, comments ...string) []byte {
+	var out bytes.Buffer
+	le := func(n int) { _ = binary.Write(&out, binary.LittleEndian, uint32(n)) }
+	out.WriteString(magic)
+	le(len("Lavf61"))
+	out.WriteString("Lavf61")
+	le(len(comments))
+	for _, c := range comments {
+		le(len(c))
+		out.WriteString(c)
+	}
+	return out.Bytes()
+}
+
+// oggFile lays packets out as pages of one stream.
+func oggFile(serial uint32, packets ...[]byte) []byte {
+	return oggPages(serial, 0, packets...)
+}
+
+// oggPages writes each packet as segments of 255 bytes and a shorter last
+// one, at most 255 segments to a page, starting the page numbers at seq.
+func oggPages(serial, seq uint32, packets ...[]byte) []byte {
+	var lacing []byte
+	var data []byte
+	for _, p := range packets {
+		for n := len(p); ; n -= 255 {
+			if n >= 255 {
+				lacing = append(lacing, 255)
+				continue
+			}
+			lacing = append(lacing, byte(n))
+			break
+		}
+		data = append(data, p...)
+	}
+	var out bytes.Buffer
+	for len(lacing) > 0 {
+		segs := lacing[:min(255, len(lacing))]
+		lacing = lacing[len(segs):]
+		var size int
+		for _, l := range segs {
+			size += int(l)
+		}
+		out.WriteString("OggS")
+		out.WriteByte(0)           // version
+		out.WriteByte(0)           // flags
+		out.Write(make([]byte, 8)) // granule position
+		_ = binary.Write(&out, binary.LittleEndian, serial)
+		_ = binary.Write(&out, binary.LittleEndian, seq)
+		out.Write(make([]byte, 4)) // checksum, which nothing here verifies
+		out.WriteByte(byte(len(segs)))
+		out.Write(segs)
+		out.Write(data[:size])
+		data = data[size:]
+		seq++
+	}
+	return out.Bytes()
+}
+
+func concat(parts ...[]byte) []byte { return bytes.Join(parts, nil) }
 
 func TestSynchsafe(t *testing.T) {
 	t.Parallel()

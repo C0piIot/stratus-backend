@@ -555,8 +555,9 @@ with a `User-Agent` that names this project:
   as a search, to learn which record it is. An album whose tags already carry
   the MusicBrainz ids a tagger such as Picard writes is not searched at all.
 - **[Cover Art Archive](https://coverartarchive.org)**, sent that id, for the
-  front cover of an album that has no `cover.jpg` beside it and no picture
-  inside its first track. The user's own picture always wins.
+  front cover of an album that has no `cover.jpg` beside it. It is drawn
+  ahead of a picture inside the tracks, which is as often a video's frame as
+  the record's cover; a `cover.jpg` always wins.
 - **[LRCLIB](https://lrclib.net)**, sent a track's artist, title, album and
   length, for its words, synced where they have them. A credit of several
   names that finds nothing is asked once more under the first of them, as
@@ -922,15 +923,15 @@ this client has already been told whether the original would do.
 
 What is not there yet, and it is better to know before installing a client:
 
-- **Cover art comes from three places, and Ogg is the one gap.** A `cover.jpg`,
-  `folder.jpg` or `front.jpg` beside the tracks is preferred, because finding it
-  is a listing the request already did; failing that, the picture inside the
-  album's first track is read — FLAC, MP3 and MP4 tags. The album's own first
-  track and not the folder's, because a flat library keeps every album in
-  one folder. Vorbis and Opus keep theirs
-  base64-encoded inside a comment and are not read yet. Third, and only with
+- **Cover art comes from three places.** A `cover.jpg`, `folder.jpg` or
+  `front.jpg` beside the tracks is preferred, because somebody put it there
+  and finding it is a listing the request already did. Then, with
   `STRATUS_MUSIC_LOOKUP=on`, the front cover the Cover Art Archive holds for
-  the album. An artist's cover is its newest album's, by the year tag. Albums
+  the album. Failing both, the picture inside the album's first track — FLAC,
+  MP3, MP4, Opus and Vorbis tags. The album's own first track and not the
+  folder's, because a flat library keeps every album in one folder. The tag
+  comes last because a track downloaded from a video site carries the video's
+  frame there, and that is a worse cover than the record's own. An artist's cover is its newest album's, by the year tag. Albums
   and artists always advertise a `coverArt` id, and asking for one that is not
   there is answered as "there is none", which is what a client draws a
   placeholder for.
