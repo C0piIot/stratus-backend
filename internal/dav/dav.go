@@ -107,8 +107,9 @@ func Handler(prefix string, service *files.Service, index Index) http.Handler {
 			dav.ServeHTTP(&advertiseLocking{ResponseWriter: w}, r)
 		default:
 			// A PUT's length goes through on the context, since the library
-			// drops it. See length.go.
-			guarded.ServeHTTP(w, withContentLength(r))
+			// drops it. See length.go. A MKCOL's type with no body comes
+			// off, since the library refuses it. See mkcol.go.
+			guarded.ServeHTTP(w, withContentLength(withoutEmptyBodyType(r)))
 		}
 	}))
 }
