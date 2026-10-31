@@ -17,10 +17,12 @@ import (
 	"github.com/stratus-private-cloud/stratus-backend/internal/storage"
 )
 
-// A front cover fetched from outside (#217) is the third place an album's
-// picture can come from, after a file beside the tracks and a picture inside
-// one of them -- and it is tried third, because the other two are the user's
-// own and this one is somebody else's idea of the record.
+// A front cover fetched from outside (#217) is the second place an album's
+// picture can come from: after a file beside the tracks, which somebody put
+// there on purpose, and before a picture inside one of them, which is as
+// often the frame a video download carried as the record's cover. It was
+// tried last until a library downloaded with yt-dlp showed what that cost:
+// every album that had a proper front cover drew a cropped video still.
 //
 // It is kept as a derived object under one of the album's tracks, which is
 // what makes it the sweep's to collect: delete the track and the picture goes
@@ -80,7 +82,7 @@ func (t *Service) StoreArt(ctx context.Context, f db.File, picture []byte) error
 // whose picture went with the track it was filed under.
 var errNoArt = errors.New("media: no fetched cover")
 
-// fetchedArt is the third source: the picture the pass filed for the album
+// fetchedArt is the second source: the picture the pass filed for the album
 // the track belongs to, at the size asked for.
 func (t *Service) fetchedArt(ctx context.Context, track db.File, px int) (io.ReadCloser, int64, error) {
 	if t.lookups == nil {

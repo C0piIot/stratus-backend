@@ -19,8 +19,8 @@ import (
 
 // What this file is about: the third place an album's picture can come from
 // (#217). A cover the pass fetched is filed under one of the album's tracks
-// and served when neither the folder nor the tag has one, and it is served
-// third -- the first two are the user's own.
+// and served when the folder has none, ahead of a picture inside the track,
+// which is as often a video's frame as the record's cover.
 
 // pngBytes is a picture the size asked for, as the archive would hand one
 // over.
@@ -82,9 +82,10 @@ func TestCoverFallsBackToTheFetchedPicture(t *testing.T) {
 	}
 }
 
-// TestCoverPrefersTheTagToTheFetchedPicture: the picture inside the track is
-// the user's own and wins over somebody else's idea of the record.
-func TestCoverPrefersTheTagToTheFetchedPicture(t *testing.T) {
+// TestCoverPrefersTheFetchedPictureToTheTag: a picture inside a track is as
+// often a video's frame as a record's cover, so the album's own front cover
+// is what an album shows when the pass has found one.
+func TestCoverPrefersTheFetchedPictureToTheTag(t *testing.T) {
 	t.Parallel()
 	th, service, blobs, meta := thumbsOver(t)
 	th.WithLookups(meta)
@@ -93,11 +94,36 @@ func TestCoverPrefersTheTagToTheFetchedPicture(t *testing.T) {
 	fetchedFor(t, th, meta, track, db.Media{AlbumArtist: "Autechre", Artist: "Autechre", Album: "Amber", Title: "Foil"})
 
 	coverBytes(t, th, "music/amber", 96)
+	if _, err := blobs.Stat(t.Context(), artSizeKey(track.BlobKey, thumbSmall)); err != nil {
+		t.Errorf("the fetched cover was not used: %v", err)
+	}
+	if _, err := blobs.Stat(t.Context(), coverKey(track.BlobKey, thumbSmall)); err == nil {
+		t.Error("the tag's picture was used although a cover had been fetched")
+	}
+}
+
+// TestCoverFallsBackToTheTag: an album the pass found nothing for shows the
+// picture inside its track, which is better than an empty square.
+func TestCoverFallsBackToTheTag(t *testing.T) {
+	t.Parallel()
+	th, service, blobs, meta := thumbsOver(t)
+	th.WithLookups(meta)
+
+	track := write(t, service, "music/amber/01.flac", flacWithCover(t, 400, 400), "audio/flac")
+	coverBytes(t, th, "music/amber", 96)
 	if _, err := blobs.Stat(t.Context(), coverKey(track.BlobKey, thumbSmall)); err != nil {
 		t.Errorf("the tag's picture was not used: %v", err)
 	}
-	if _, err := blobs.Stat(t.Context(), artSizeKey(track.BlobKey, thumbSmall)); err == nil {
-		t.Error("the fetched cover was used although the tag had a picture")
+
+	// And when the fetched one went with a track that was replaced, the tag
+	// is still there to answer.
+	fetchedFor(t, th, meta, track, db.Media{AlbumArtist: "Autechre", Artist: "Autechre", Album: "Amber", Title: "Foil"})
+	if err := blobs.Delete(t.Context(), artKey(track.BlobKey)); err != nil {
+		t.Fatal(err)
+	}
+	coverBytes(t, th, "music/amber", 300)
+	if _, err := blobs.Stat(t.Context(), coverKey(track.BlobKey, thumbMedium)); err != nil {
+		t.Errorf("the tag did not answer for a fetched picture that is gone: %v", err)
 	}
 }
 
