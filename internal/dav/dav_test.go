@@ -163,6 +163,25 @@ func wantHrefs(t *testing.T, got []string, want ...string) {
 	}
 }
 
+// TestMkcolWithATypeAndNoBody is what Dolphin sends: KIO puts a Content-Type
+// on every WebDAV request, and the library read the header as a body it did
+// not support. A body that is there is still refused, since an extended MKCOL
+// is not spoken here.
+func TestMkcolWithATypeAndNoBody(t *testing.T) {
+	t.Parallel()
+	h := server(t)
+	if got := do(t, h, "MKCOL", "/files/album", "", "Content-Type", "text/xml; charset=utf-8").Code; got != http.StatusCreated {
+		t.Errorf("MKCOL with a type and no body = %d, want 201", got)
+	}
+	if got := do(t, h, "PROPFIND", "/files/album", "", "Depth", "0").Code; got != http.StatusMultiStatus {
+		t.Errorf("PROPFIND of the folder it made = %d, want 207", got)
+	}
+	body := `<?xml version="1.0"?><D:mkcol xmlns:D="DAV:"/>`
+	if got := do(t, h, "MKCOL", "/files/other", body, "Content-Type", "text/xml").Code; got != http.StatusUnsupportedMediaType {
+		t.Errorf("MKCOL with a body = %d, want 415", got)
+	}
+}
+
 // TestPropfind is the regression test for #126: a Depth 1 listing is the
 // collection and its members, not its members alone. A client reads the
 // collection's own properties out of the entry whose href is the one it asked
